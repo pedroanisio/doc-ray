@@ -113,13 +113,26 @@ class SpacyAnnotator:
         # string-match coref: same proper-noun surface -> one chain
         coref = {k: v for k, v in ent_by_key.items() if len(v) >= 2}
 
+        # Lexeme layer (real POS) — the projection the webapp reads. One pass,
+        # so the whole mapping (spaCy tokens/deps/NER/chunks + lexeme POS) is
+        # produced and committed together.
+        lex_occ: dict[str, str] = {}
+        for _tid, span, _sent, _ordi, luid, _upos, _xpos in token_rows:
+            if luid is not None:
+                lex_occ[span] = luid
+        lex_tool = tool.split("@")[0]
+        lex_version = tool.split("@")[1] if "@" in tool else None
+
         self._write(conn, doc_id, tool, token_rows, feat_rows, dep_rows,
-                    ent_rows, chunk_rows, coref)
+                    ent_rows, chunk_rows, coref,
+                    lex_occ=list(lex_occ.items()), lex_tool=lex_tool,
+                    lex_version=lex_version)
         return {"tokens": len(token_rows), "entities": len(ent_rows),
                 "chunks": len(chunk_rows), "coref_chains": len(coref),
-                "lang": lang, "tool": tool}
+                "occurrences": len(lex_occ), "lang": lang, "tool": tool}
 
-    def _write(self, conn, doc_id, tool, tokens, feats, deps, ents, chunks, coref):
+    def _write(self, conn, doc_id, tool, tokens, feats, deps, ents, chunks, coref,
+               lex_occ=None, lex_tool=None, lex_version=None):
         with conn.transaction():
             conn.execute("DELETE FROM annotations WHERE document_id=%s AND layer='spacy' AND tool=%s",
                          (doc_id, tool))
@@ -153,6 +166,19 @@ class SpacyAnnotator:
                 for span in spans:
                     conn.execute("INSERT INTO coref_mention (chain_id, span_id) VALUES (%s,%s) "
                                  "ON CONFLICT DO NOTHING", (chain, span))
+
+            # lexeme layer (real spaCy POS) — the webapp reads this projection
+            conn.execute("DELETE FROM annotations WHERE document_id=%s AND layer='lexeme' AND tool=%s",
+                         (doc_id, lex_tool))
+            lex_ann = new_ulid_str()
+            conn.execute("INSERT INTO annotations (id, document_id, layer, tool, tool_version) "
+                         "VALUES (%s,%s,'lexeme',%s,%s)", (lex_ann, doc_id, lex_tool, lex_version))
+            if lex_occ:
+                with conn.cursor().copy(
+                    "COPY lexeme_occurrences (annotation_id, span_id, lexeme_uid) FROM STDIN"
+                ) as cp:
+                    for span, luid in lex_occ:
+                        cp.write_row((lex_ann, span, luid))
 
 
 def _target_ids(conn, args):
