@@ -12,6 +12,10 @@ from typing import Any, Protocol
 
 import psycopg
 
+#: Rows are returned as plain dicts (``row_factory=dict_row``); the API layer maps
+#: them to GraphQL types. Aliased for the async read surface below.
+Row = dict[str, Any]
+
 
 class Repository(Protocol):
     """Persist documents and their derived (content/span/lexeme) layers."""
@@ -91,4 +95,80 @@ class Repository(Protocol):
             **run: Fields describing the annotation run (occurrences,
                 provenance, layer, tool, and so on).
         """
+        ...
+
+
+class ReadRepository(Protocol):
+    """Async, read-only query surface shared by the API, browser, and export.
+
+    Fulfilled by :mod:`doc_ray.adapters.persistence_read`. Every method takes an
+    ``AsyncConnection`` (``row_factory=dict_row``) and returns plain dict rows or
+    ``None``; the connection is owned by the caller (a pool in the API layer), so
+    the repository never opens, closes, or commits. This is the single source of
+    truth for reads, collapsing the SQL previously duplicated across the Flask
+    browser and the export CLI.
+    """
+
+    async def get_document(
+        self, conn: psycopg.AsyncConnection[Row], document_id: str
+    ) -> Row | None:
+        """Return one document with its 4NF satellites, or ``None`` if absent."""
+        ...
+
+    async def list_documents(
+        self, conn: psycopg.AsyncConnection[Row], *, limit: int = 50, offset: int = 0
+    ) -> list[Row]:
+        """Return document summary rows (with counts) newest-first."""
+        ...
+
+    async def list_sentences(
+        self,
+        conn: psycopg.AsyncConnection[Row],
+        document_id: str,
+        *,
+        limit: int | None = None,
+        offset: int = 0,
+    ) -> list[Row]:
+        """Return a document's sentences (with span offsets) in ordinal order."""
+        ...
+
+    async def get_provenance(
+        self, conn: psycopg.AsyncConnection[Row], document_id: str
+    ) -> list[Row]:
+        """Return a document's provenance events (params reassembled) in order."""
+        ...
+
+    async def get_lexeme(self, conn: psycopg.AsyncConnection[Row], uid: str) -> Row | None:
+        """Return one lexeme by uid, or ``None`` if absent."""
+        ...
+
+    async def list_lexemes(
+        self,
+        conn: psycopg.AsyncConnection[Row],
+        *,
+        q: str | None = None,
+        pos: str | None = None,
+        lang: str | None = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> list[Row]:
+        """Return lexemes filtered by lemma substring / pos / lang, busiest-first."""
+        ...
+
+    async def lexeme_kwic(
+        self, conn: psycopg.AsyncConnection[Row], uid: str, *, limit: int = 80
+    ) -> list[Row]:
+        """Return keyword-in-context occurrences (pre/hit/post) for a lexeme."""
+        ...
+
+    async def search_sentences(
+        self, conn: psycopg.AsyncConnection[Row], term: str, *, limit: int = 100
+    ) -> list[Row]:
+        """Return sentences containing *term* (case-insensitive substring)."""
+        ...
+
+    async def fulltext_search(
+        self, conn: psycopg.AsyncConnection[Row], query: str, *, limit: int = 25
+    ) -> list[Row]:
+        """Return documents ranked by full-text match against ``document_content.fts``."""
         ...
