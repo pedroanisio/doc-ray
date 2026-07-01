@@ -18,20 +18,58 @@ import os
 import psycopg
 from flask import Flask, g, render_template, request
 from markupsafe import Markup, escape
+from psycopg import sql
 from psycopg.rows import dict_row
 
-DATABASE_URL = os.environ.get(
-    "DATABASE_URL", "postgresql://docray:docray@localhost:5455/docray"
-)
+DATABASE_URL = os.environ.get("DATABASE_URL", "postgresql://docray:docray@localhost:5455/docray")
+
+# Row-Level Security enforcement (see db/migrations/018_rbac.sql). The superuser
+# connection BYPASSES RLS by design. To actually enforce document-level access
+# for end users, set DOCRAY_PRINCIPAL_ID: the app then drops to the non-superuser
+# role (so policies apply) and stamps the request principal. Unset => superuser
+# passthrough (local/dev only — no access control).
+DB_ROLE = os.environ.get("DOCRAY_DB_ROLE", "docray_client")
+PRINCIPAL_ID = os.environ.get("DOCRAY_PRINCIPAL_ID") or None
 
 app = Flask(__name__)
 
 
 # --- per-request DB connection --------------------------------------------
 
+
+def _apply_principal(conn) -> None:
+    """Enforce RLS on ``conn`` by dropping role and setting the request principal.
+
+    No-op when no principal is configured. Trust boundary: the principal comes
+    from server-side config (the trusted app tier), never from user input — the
+    GUC-based model is only safe under that assumption. Mapping an authenticated
+    end user to their principal, and per-principal LOGIN roles to defend against
+    hostile direct SQL, are the next steps (see the ``018_rbac.sql`` header).
+
+    Args:
+        conn: The open ``psycopg`` connection to configure in place.
+    """
+    if not PRINCIPAL_ID:
+        return
+    with conn.cursor() as cur:
+        # DB_ROLE is an operator-set identifier (never user input) — quote it safely.
+        cur.execute(sql.SQL("SET ROLE {}").format(sql.Identifier(DB_ROLE)))
+        # SET cannot bind a value, so use set_config to pass the principal safely.
+        cur.execute("SELECT set_config('app.principal_id', %s, false)", (PRINCIPAL_ID,))
+
+
 def get_conn():
+    """Return the request-scoped Postgres connection, opening it on first use.
+
+    On first open the connection is configured for RLS enforcement when a
+    principal is set (see :func:`_apply_principal`).
+
+    Returns:
+        The ``psycopg`` connection stored on Flask's request-global ``g``.
+    """
     if "conn" not in g:
         g.conn = psycopg.connect(DATABASE_URL, row_factory=dict_row)
+        _apply_principal(g.conn)
     return g.conn
 
 
@@ -43,18 +81,37 @@ def _close_conn(_exc):
 
 
 def q(sql, params=()):
+    """Run a query and return all rows.
+
+    Args:
+        sql: The SQL statement to execute.
+        params: Bind parameters passed through to the cursor.
+
+    Returns:
+        A list of ``dict_row`` mappings, one per result row.
+    """
     with get_conn().cursor() as cur:
         cur.execute(sql, params)
         return cur.fetchall()
 
 
 def q1(sql, params=()):
+    """Run a query and return the first row, or ``None`` if there are none.
+
+    Args:
+        sql: The SQL statement to execute.
+        params: Bind parameters passed through to the cursor.
+
+    Returns:
+        The first ``dict_row`` mapping, or ``None`` when the query yields no rows.
+    """
     with get_conn().cursor() as cur:
         cur.execute(sql, params)
         return cur.fetchone()
 
 
 # --- annotation rendering --------------------------------------------------
+
 
 def annotate_html(text: str, occs: list[dict]) -> Markup:
     """Overlay POS-tagged, clickable word spans onto a raw text slice.
@@ -67,13 +124,14 @@ def annotate_html(text: str, occs: list[dict]) -> Markup:
     cur = 0
     for o in sorted(occs, key=lambda x: x["rel_start"]):
         a, b = o["rel_start"], o["rel_end"]
-        if a < cur or a >= b or b > len(text):     # skip overlaps / out of range
+        if a < cur or a >= b or b > len(text):  # skip overlaps / out of range
             continue
         out.append(escape(text[cur:a]))
-        out.append(Markup(
-            '<a class="w p-{pos}" href="/lexeme/{uid}" data-t="{tip}">{w}</a>'
-        ).format(pos=o["pos"], uid=o["uid"],
-                 tip=f'{o["lemma"]} · {o["pos"]}', w=text[a:b]))
+        out.append(
+            Markup('<a class="w p-{pos}" href="/lexeme/{uid}" data-t="{tip}">{w}</a>').format(
+                pos=o["pos"], uid=o["uid"], tip=f"{o['lemma']} · {o['pos']}", w=text[a:b]
+            )
+        )
         cur = b
     out.append(escape(text[cur:]))
     return Markup("").join(out)
@@ -81,8 +139,10 @@ def annotate_html(text: str, occs: list[dict]) -> Markup:
 
 # --- routes ----------------------------------------------------------------
 
+
 @app.route("/")
 def documents():
+    """Render the corpus landing page: all documents plus corpus-wide totals."""
     rows = q(
         """
         SELECT d.id, d.title, d.doc_type, d.language, d.char_count, d.page_count,
@@ -104,6 +164,14 @@ def documents():
 
 @app.route("/doc/<uuid:doc_id>")
 def document(doc_id):
+    """Render a single document with metadata, POS stats, and annotated sentences.
+
+    Args:
+        doc_id: The UUID of the document to display.
+
+    Returns:
+        The rendered document page, or a 404 tuple when the document is unknown.
+    """
     doc = q1("SELECT * FROM documents WHERE id = %s", (str(doc_id),))
     if not doc:
         return ("Document not found", 404)
@@ -144,8 +212,7 @@ def document(doc_id):
     per_page = 40
     page = max(1, request.args.get("page", 1, type=int))
     annotate = request.args.get("annotate", "1") != "0"
-    n_sent = q1("SELECT count(*) n FROM sentences WHERE document_id = %s",
-                (str(doc_id),))["n"]
+    n_sent = q1("SELECT count(*) n FROM sentences WHERE document_id = %s", (str(doc_id),))["n"]
     sentences = q(
         "SELECT sen.ordinal, sen.text, sp.char_start AS ss, sp.char_end AS se "
         "FROM sentences sen JOIN spans sp ON sp.id = sen.span_id "
@@ -175,25 +242,39 @@ def document(doc_id):
             (str(doc_id), lo, hi),
         )
         for s in sentences:
-            body = page_text[s["ss"] - lo: s["se"] - lo]
+            body = page_text[s["ss"] - lo : s["se"] - lo]
             inside = [
-                {"rel_start": o["a"] - s["ss"], "rel_end": o["b"] - s["ss"],
-                 "uid": o["uid"], "lemma": o["lemma"], "pos": o["pos"]}
-                for o in occ if o["a"] >= s["ss"] and o["b"] <= s["se"]
+                {
+                    "rel_start": o["a"] - s["ss"],
+                    "rel_end": o["b"] - s["ss"],
+                    "uid": o["uid"],
+                    "lemma": o["lemma"],
+                    "pos": o["pos"],
+                }
+                for o in occ
+                if o["a"] >= s["ss"] and o["b"] <= s["se"]
             ]
             s["html"] = annotate_html(body, inside)
 
     pages = max(1, -(-n_sent // per_page))
     return render_template(
-        "document.html", doc=doc, authors=[a["name"] for a in authors],
-        tags=[t["tag"] for t in tags], pos=pos, top_verbs=top_verbs,
-        sentences=sentences, page=page, pages=pages, n_sent=n_sent,
+        "document.html",
+        doc=doc,
+        authors=[a["name"] for a in authors],
+        tags=[t["tag"] for t in tags],
+        pos=pos,
+        top_verbs=top_verbs,
+        sentences=sentences,
+        page=page,
+        pages=pages,
+        n_sent=n_sent,
         annotate=annotate,
     )
 
 
 @app.route("/lexemes")
 def lexemes():
+    """Render the paginated lexicon, filtered by lemma, part of speech, and language."""
     term = request.args.get("q", "", type=str).strip()
     pos = request.args.get("pos", "", type=str)
     lang = request.args.get("lang", "", type=str)
@@ -201,8 +282,12 @@ def lexemes():
     page = max(1, request.args.get("page", 1, type=int))
 
     params = {
-        "q": term, "qpat": f"%{term}%", "pos": pos, "lang": lang,
-        "limit": per_page, "offset": (page - 1) * per_page,
+        "q": term,
+        "qpat": f"%{term}%",
+        "pos": pos,
+        "lang": lang,
+        "limit": per_page,
+        "offset": (page - 1) * per_page,
     }
     rows = q(
         """
@@ -221,13 +306,28 @@ def lexemes():
     langs = [r["lang"] for r in q("SELECT DISTINCT lang FROM lexemes ORDER BY lang")]
     poses = [r["pos"] for r in q("SELECT DISTINCT pos FROM lexemes ORDER BY pos")]
     return render_template(
-        "lexemes.html", rows=rows, term=term, pos=pos, lang=lang,
-        langs=langs, poses=poses, page=page, has_next=len(rows) == per_page,
+        "lexemes.html",
+        rows=rows,
+        term=term,
+        pos=pos,
+        lang=lang,
+        langs=langs,
+        poses=poses,
+        page=page,
+        has_next=len(rows) == per_page,
     )
 
 
 @app.route("/lexeme/<uid>")
 def lexeme(uid):
+    """Render one lexeme with its surface forms and keyword-in-context occurrences.
+
+    Args:
+        uid: The unique identifier of the lexeme to display.
+
+    Returns:
+        The rendered lexeme page, or a 404 tuple when the lexeme is unknown.
+    """
     lex = q1("SELECT * FROM lexemes WHERE uid = %s", (uid,))
     if not lex:
         return ("Lexeme not found", 404)
@@ -242,8 +342,7 @@ def lexeme(uid):
         """,
         (uid,),
     )
-    n_occ = q1("SELECT count(*) n FROM lexeme_occurrences WHERE lexeme_uid = %s",
-               (uid,))["n"]
+    n_occ = q1("SELECT count(*) n FROM lexeme_occurrences WHERE lexeme_uid = %s", (uid,))["n"]
     occ = q(
         """
         SELECT d.id AS doc_id, d.title, s.char_start,
@@ -265,12 +364,14 @@ def lexeme(uid):
     for o in occ:
         pre, _, post = (o["kwic"] or "").partition(o["surface"] or "\0")
         o["pre"], o["post"] = pre, post
-    return render_template("lexeme.html", lex=lex, forms=[f["form"] for f in forms],
-                           occ=occ, n_occ=n_occ)
+    return render_template(
+        "lexeme.html", lex=lex, forms=[f["form"] for f in forms], occ=occ, n_occ=n_occ
+    )
 
 
 @app.route("/search")
 def search():
+    """Render full-text sentence search results for the ``q`` query parameter."""
     term = request.args.get("q", "", type=str).strip()
     rows = []
     if term:

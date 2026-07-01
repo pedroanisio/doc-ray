@@ -190,3 +190,57 @@ def test_search_without_query_shows_no_results_table(client):
     html = client.get("/search").get_data(as_text=True)
     # The results table (and its header) render only once a term is given.
     assert "<th>Sentence</th>" not in html
+
+
+# ---------------------------------------------------------------------------
+# RLS enforcement: get_conn drops to docray_client + sets the principal
+# ---------------------------------------------------------------------------
+
+class _RecordingConn:
+    def __init__(self):
+        self.calls = []
+
+    def cursor(self, *a, **k):
+        outer = self
+
+        class _Cur:
+            def __enter__(self_):
+                return self_
+
+            def __exit__(self_, *a):
+                return False
+
+            def execute(self_, query, params=None):
+                try:
+                    rendered = query.as_string(None)     # psycopg Composed
+                except AttributeError:
+                    rendered = str(query)
+                outer.calls.append((rendered, params))
+
+        return _Cur()
+
+    def close(self):
+        pass
+
+
+def test_get_conn_enforces_rls_when_principal_configured(monkeypatch):
+    fake = _RecordingConn()
+    monkeypatch.setattr(webapp.psycopg, "connect", lambda *a, **k: fake)
+    monkeypatch.setattr(webapp, "PRINCIPAL_ID", "11111111-1111-1111-1111-111111111111")
+    monkeypatch.setattr(webapp, "DB_ROLE", "docray_client")
+    with webapp.app.test_request_context():
+        webapp.get_conn()
+    joined = " ".join(q for q, _ in fake.calls)
+    assert "SET ROLE" in joined and "docray_client" in joined   # dropped to RLS role
+    # principal is bound as a parameter (not string-interpolated)
+    assert any("set_config" in q and p == ("11111111-1111-1111-1111-111111111111",)
+               for q, p in fake.calls)
+
+
+def test_get_conn_is_superuser_passthrough_without_principal(monkeypatch):
+    fake = _RecordingConn()
+    monkeypatch.setattr(webapp.psycopg, "connect", lambda *a, **k: fake)
+    monkeypatch.setattr(webapp, "PRINCIPAL_ID", None)
+    with webapp.app.test_request_context():
+        webapp.get_conn()
+    assert fake.calls == []                                     # no SET ROLE / set_config
