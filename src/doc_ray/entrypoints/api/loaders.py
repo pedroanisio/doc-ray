@@ -27,6 +27,7 @@ class Loaders:
         self.tags: DataLoader[str, list[str]] = DataLoader(load_fn=self._tags)
         self.metadata: DataLoader[str, dict[str, str]] = DataLoader(load_fn=self._metadata)
         self.sentence_count: DataLoader[str, int] = DataLoader(load_fn=self._sentence_count)
+        self.token_count: DataLoader[str, int] = DataLoader(load_fn=self._token_count)
 
     async def _authors(self, keys: list[str]) -> list[list[str]]:
         by_doc = await read.authors_by_documents(self._conn, list(keys))
@@ -42,4 +43,8 @@ class Loaders:
 
     async def _sentence_count(self, keys: list[str]) -> list[int]:
         by_doc = await read.sentence_counts_by_documents(self._conn, list(keys))
+        return [by_doc.get(str(k), 0) for k in keys]
+
+    async def _token_count(self, keys: list[str]) -> list[int]:
+        by_doc = await read.token_counts_by_documents(self._conn, list(keys))
         return [by_doc.get(str(k), 0) for k in keys]

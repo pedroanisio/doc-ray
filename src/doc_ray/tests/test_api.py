@@ -8,16 +8,32 @@ connection, skipping cleanly when Postgres is unreachable.
 from __future__ import annotations
 
 import asyncio
+from typing import Any
 
 import psycopg
 from psycopg.rows import dict_row
 
+from doc_ray.domain.ulid import new_ulid_str
 from doc_ray.entrypoints.api.context import RequestContext
 from doc_ray.entrypoints.api.loaders import Loaders
 from doc_ray.entrypoints.api.schema import build_schema
 from doc_ray.entrypoints.api.security import ANONYMOUS
 
 _TEXT = "Elena founded a startup in Berlin. It grew fast."
+
+
+def _seed_text(pg, text: str) -> tuple[Any, str]:
+    """Seed a throwaway document with *text*; return (sync_conn, doc_id)."""
+    import _itdb
+
+    conn, created = pg
+    doc_id = _itdb.make_doc(conn, text)
+    created.append(doc_id)
+    return conn, doc_id
+
+
+def _ctx(aconn) -> RequestContext:
+    return RequestContext(conn=aconn, principal=ANONYMOUS, loaders=Loaders(aconn))
 
 
 async def _aconn() -> psycopg.AsyncConnection:
@@ -114,6 +130,205 @@ def test_search_and_lexeme(pg):
             )
             assert lexeme.errors is None, lexeme.errors
             assert lexeme.data["lexeme"] is None
+        finally:
+            await aconn.close()
+
+    asyncio.run(check())
+
+
+def test_document_bibliographic_and_token_count(pg):
+    """Document exposes publisher/publishedOn/subtitle/license + a derived tokenCount."""
+    import _itdb
+
+    conn, doc_id = _seed_text(pg, _TEXT)
+    conn.execute(
+        "UPDATE documents SET publisher=%s, published_on=%s, subtitle=%s, license=%s WHERE id=%s",
+        ("Secker & Warburg", "1949-06-08", "A Novel", "Public Domain", doc_id),
+    )
+    ann = _itdb.make_annotation(conn, doc_id, "spacy", "spacy/en")
+    toks = _itdb.make_tokens(conn, doc_id, ann, _TEXT)
+    schema = build_schema()
+
+    async def check():
+        aconn = await _aconn()
+        try:
+            r = await schema.execute(
+                "query($id: ID!){ document(id:$id){ publisher publishedOn subtitle "
+                "license tokenCount } }",
+                variable_values={"id": str(doc_id)},
+                context_value=_ctx(aconn),
+            )
+            assert r.errors is None, r.errors
+            d = r.data["document"]
+            assert d["publisher"] == "Secker & Warburg"
+            assert d["publishedOn"] == "1949-06-08"
+            assert d["subtitle"] == "A Novel"
+            assert d["license"] == "Public Domain"
+            assert d["tokenCount"] == len(toks)
+        finally:
+            await aconn.close()
+
+    asyncio.run(check())
+
+
+def test_search_sentences_id_offset_and_document_filter(pg):
+    """searchSentences carries a stable id, filters by documentId, and pages by offset."""
+    conn, doc_id = _seed_text(pg, "Winston walked. Winston paused. Winston left.")
+    schema = build_schema()
+
+    async def check():
+        aconn = await _aconn()
+        try:
+            ctx = _ctx(aconn)
+            sents = await schema.execute(
+                "query($id:ID!){ document(id:$id){ sentences{ id ordinal } } }",
+                variable_values={"id": str(doc_id)},
+                context_value=ctx,
+            )
+            by_ord = {s["ordinal"]: s["id"] for s in sents.data["document"]["sentences"]}
+
+            allhits = await schema.execute(
+                'query($id:ID!){ searchSentences(term:"Winston", documentId:$id) '
+                "{ id ordinal documentId } }",
+                variable_values={"id": str(doc_id)},
+                context_value=ctx,
+            )
+            assert allhits.errors is None, allhits.errors
+            hits = allhits.data["searchSentences"]
+            assert len(hits) == 3  # documentId filter isolates from the corpus (Winston is common)
+            assert all(h["documentId"] == str(doc_id) for h in hits)
+            assert hits[0]["id"] == by_ord[hits[0]["ordinal"]]  # stable sentence id, no round-trip
+
+            page = await schema.execute(
+                'query($id:ID!){ searchSentences(term:"Winston", documentId:$id, '
+                "offset:1, limit:1){ ordinal } }",
+                variable_values={"id": str(doc_id)},
+                context_value=ctx,
+            )
+            assert page.errors is None, page.errors
+            assert [h["ordinal"] for h in page.data["searchSentences"]] == [hits[1]["ordinal"]]
+        finally:
+            await aconn.close()
+
+    asyncio.run(check())
+
+
+def test_lexemes_and_occurrences_document_scope(pg):
+    """lexemes(documentId:) and Lexeme.occurrences(documentId:) scope counts to one doc."""
+    import _itdb
+
+    conn, created = pg
+    d1 = _itdb.make_doc(conn, "alpha beta gamma.")
+    d2 = _itdb.make_doc(conn, "alpha delta.")
+    created += [d1, d2]
+    nonce = new_ulid_str()[-8:].lower()
+    lemma, uid = f"itlex{nonce}", f"lx_en.noun_{nonce}"
+    conn.execute("INSERT INTO lexemes (uid, lang, pos, lemma) VALUES (%s,'en','NOUN',%s)", (uid, lemma))
+    a1 = _itdb.make_annotation(conn, d1, "lexeme", "spacy/en")
+    a2 = _itdb.make_annotation(conn, d2, "lexeme", "spacy/en")
+    for s, e in [(0, 5), (6, 10)]:  # two occurrences in d1 ("alpha", "beta")
+        conn.execute(
+            "INSERT INTO lexeme_occurrences (annotation_id, span_id, lexeme_uid) VALUES (%s,%s,%s)",
+            (a1, _itdb.span_of(conn, d1, s, e), uid),
+        )
+    conn.execute(  # one occurrence in d2
+        "INSERT INTO lexeme_occurrences (annotation_id, span_id, lexeme_uid) VALUES (%s,%s,%s)",
+        (a2, _itdb.span_of(conn, d2, 0, 5), uid),
+    )
+    schema = build_schema()
+
+    async def check():
+        aconn = await _aconn()
+        try:
+            ctx = _ctx(aconn)
+            scoped = await schema.execute(
+                'query($d:ID!,$q:String!){ lexemes(documentId:$d, q:$q){ uid uses } }',
+                variable_values={"d": str(d1), "q": lemma},
+                context_value=ctx,
+            )
+            assert scoped.errors is None, scoped.errors
+            assert scoped.data["lexemes"][0]["uses"] == 2  # only d1's occurrences
+
+            corpus = await schema.execute(
+                'query($q:String!){ lexemes(q:$q){ uses } }',
+                variable_values={"q": lemma},
+                context_value=ctx,
+            )
+            assert corpus.data["lexemes"][0]["uses"] == 3  # d1 + d2
+
+            occ = await schema.execute(
+                "query($u:ID!,$d:ID!){ lexeme(uid:$u){ occurrences(documentId:$d){ documentId } } }",
+                variable_values={"u": uid, "d": str(d1)},
+                context_value=ctx,
+            )
+            assert occ.errors is None, occ.errors
+            occs = occ.data["lexeme"]["occurrences"]
+            assert len(occs) == 2 and all(o["documentId"] == str(d1) for o in occs)
+        finally:
+            await aconn.close()
+
+    asyncio.run(check())
+
+
+def test_entities_query_document_field_and_frequency(pg):
+    """NER is queryable: entities(...) top-level, Document.entities, and entityFrequency."""
+    import _itdb
+
+    txt = "Winston met Winston in London."
+    conn, doc_id = _seed_text(pg, txt)
+    ann = _itdb.make_annotation(conn, doc_id, "ner", "spacy/en")
+
+    def ent(start: int, sub: str, etype: str) -> None:
+        conn.execute(
+            "INSERT INTO entity_mention (id, annotation_id, span_id, entity_type) "
+            "VALUES (%s,%s,%s,%s)",
+            (new_ulid_str(), ann, _itdb.span_of(conn, doc_id, start, start + len(sub)), etype),
+        )
+
+    w1 = txt.index("Winston")
+    ent(w1, "Winston", "PERSON")
+    ent(txt.index("Winston", w1 + 1), "Winston", "PERSON")
+    ent(txt.index("London"), "London", "GPE")
+    schema = build_schema()
+
+    async def check():
+        aconn = await _aconn()
+        try:
+            ctx = _ctx(aconn)
+            allents = await schema.execute(
+                "query($id:ID!){ entities(documentId:$id){ entityType text documentId } }",
+                variable_values={"id": str(doc_id)},
+                context_value=ctx,
+            )
+            assert allents.errors is None, allents.errors
+            got = {(e["entityType"], e["text"]) for e in allents.data["entities"]}
+            assert got == {("PERSON", "Winston"), ("GPE", "London")}
+            assert all(e["documentId"] == str(doc_id) for e in allents.data["entities"])
+
+            persons = await schema.execute(
+                'query($id:ID!){ entities(documentId:$id, entityType:"PERSON"){ text } }',
+                variable_values={"id": str(doc_id)},
+                context_value=ctx,
+            )
+            assert [e["text"] for e in persons.data["entities"]] == ["Winston", "Winston"]
+
+            viafield = await schema.execute(
+                "query($id:ID!){ document(id:$id){ entities{ entityType } } }",
+                variable_values={"id": str(doc_id)},
+                context_value=ctx,
+            )
+            assert len(viafield.data["document"]["entities"]) == 3
+
+            freq = await schema.execute(
+                'query($id:ID!){ entityFrequency(documentId:$id, entityType:"PERSON")'
+                "{ text entityType count } }",
+                variable_values={"id": str(doc_id)},
+                context_value=ctx,
+            )
+            assert freq.errors is None, freq.errors
+            assert freq.data["entityFrequency"] == [
+                {"text": "Winston", "entityType": "PERSON", "count": 2}
+            ]
         finally:
             await aconn.close()
 

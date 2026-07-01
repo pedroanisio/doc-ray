@@ -243,6 +243,25 @@ async def sentence_counts_by_documents(conn: _AConn, document_ids: list[str]) ->
     return out
 
 
+async def token_counts_by_documents(conn: _AConn, document_ids: list[str]) -> dict[str, int]:
+    """Return ``{document_id: token_count}`` for every id (0 when none).
+
+    Counts rows in ``tokens`` across the document's annotation runs (the pipeline
+    writes one token layer per document, so this is the document's token count).
+    """
+    out: dict[str, int] = {str(i): 0 for i in document_ids}
+    rows = await _rows(
+        conn,
+        "SELECT a.document_id, count(*) AS n FROM tokens t "
+        "JOIN annotations a ON a.id = t.annotation_id "
+        "WHERE a.document_id = ANY(%s::uuid[]) GROUP BY a.document_id",
+        (document_ids,),
+    )
+    for r in rows:
+        out[str(r["document_id"])] = int(r["n"])
+    return out
+
+
 # --------------------------------------------------------------------------
 # Lexemes
 # --------------------------------------------------------------------------
@@ -259,6 +278,7 @@ async def list_lexemes(
     q: str | None = None,
     pos: str | None = None,
     lang: str | None = None,
+    document_id: str | None = None,
     limit: int = 100,
     offset: int = 0,
 ) -> list[Row]:
@@ -269,18 +289,38 @@ async def list_lexemes(
         q: Case-insensitive lemma substring, or ``None`` for no filter.
         pos: Exact part-of-speech filter, or ``None``.
         lang: Exact language filter, or ``None``.
+        document_id: When set, restrict to lexemes occurring in this document —
+            ``uses`` then counts occurrences in that document only, not the corpus.
         limit: Maximum rows to return.
         offset: Rows to skip (paging).
 
     Returns:
         Rows of ``{uid, lang, pos, lemma, uses}`` ordered by use count then lemma.
     """
+    params: dict[str, Any] = {
+        "q": q or "",
+        "qpat": f"%{q}%" if q else "",
+        "pos": pos or "",
+        "lang": lang or "",
+        "limit": limit,
+        "offset": offset,
+    }
+    if document_id is None:
+        joins = "LEFT JOIN lexeme_occurrences o ON o.lexeme_uid = l.uid"
+    else:
+        # INNER joins: only lexemes present in the document, counted per-document.
+        joins = (
+            "JOIN lexeme_occurrences o ON o.lexeme_uid = l.uid "
+            "JOIN annotations ann ON ann.id = o.annotation_id "
+            "AND ann.document_id = %(doc)s::uuid"
+        )
+        params["doc"] = document_id
     return await _rows(
         conn,
-        """
+        f"""
         SELECT l.uid, l.lang, l.pos, l.lemma, count(o.lexeme_uid) AS uses
         FROM lexemes l
-        LEFT JOIN lexeme_occurrences o ON o.lexeme_uid = l.uid
+        {joins}
         WHERE (%(q)s = '' OR l.lemma ILIKE %(qpat)s)
           AND (%(pos)s = '' OR l.pos = %(pos)s)
           AND (%(lang)s = '' OR l.lang = %(lang)s)
@@ -288,18 +328,18 @@ async def list_lexemes(
         ORDER BY uses DESC, l.lemma
         LIMIT %(limit)s OFFSET %(offset)s
         """,
-        {
-            "q": q or "",
-            "qpat": f"%{q}%" if q else "",
-            "pos": pos or "",
-            "lang": lang or "",
-            "limit": limit,
-            "offset": offset,
-        },
+        params,
     )
 
 
-async def lexeme_kwic(conn: _AConn, uid: str, *, limit: int = 80) -> list[Row]:
+async def lexeme_kwic(
+    conn: _AConn,
+    uid: str,
+    *,
+    document_id: str | None = None,
+    limit: int = 80,
+    offset: int = 0,
+) -> list[Row]:
     """Return keyword-in-context occurrences for a lexeme.
 
     Each row carries the ±45-character ``kwic`` window plus a ``pre``/``hit``/``post``
@@ -308,7 +348,9 @@ async def lexeme_kwic(conn: _AConn, uid: str, *, limit: int = 80) -> list[Row]:
     Args:
         conn: Async database connection.
         uid: Lexeme uid.
+        document_id: When set, only occurrences in this document.
         limit: Maximum occurrences to return.
+        offset: Occurrences to skip (paging past the page-size cap).
 
     Returns:
         Rows of ``{doc_id, title, char_start, surface, kwic, pre, hit, post}``.
@@ -326,11 +368,12 @@ async def lexeme_kwic(conn: _AConn, uid: str, *, limit: int = 80) -> list[Row]:
         JOIN spans s            ON s.id = o.span_id
         JOIN documents d        ON d.id = a.document_id
         JOIN document_content c ON c.document_id = d.id
-        WHERE o.lexeme_uid = %s
+        WHERE o.lexeme_uid = %(uid)s
+          AND (%(doc)s::uuid IS NULL OR a.document_id = %(doc)s::uuid)
         ORDER BY d.title, s.char_start
-        LIMIT %s
+        LIMIT %(limit)s OFFSET %(offset)s
         """,
-        (uid, limit),
+        {"uid": uid, "doc": document_id, "limit": limit, "offset": offset},
     )
     for r in rows:
         r["pre"], r["hit"], r["post"] = _split_kwic(r["kwic"] or "", r["surface"] or "")
@@ -342,27 +385,124 @@ async def lexeme_kwic(conn: _AConn, uid: str, *, limit: int = 80) -> list[Row]:
 # --------------------------------------------------------------------------
 
 
-async def search_sentences(conn: _AConn, term: str, *, limit: int = 100) -> list[Row]:
+async def search_sentences(
+    conn: _AConn,
+    term: str,
+    *,
+    document_id: str | None = None,
+    limit: int = 100,
+    offset: int = 0,
+) -> list[Row]:
     """Return sentences containing *term* (case-insensitive substring).
 
     Args:
         conn: Async database connection.
         term: Substring to match against sentence text.
+        document_id: When set, only sentences of this document.
         limit: Maximum sentences to return.
+        offset: Sentences to skip (paging past the page-size cap).
 
     Returns:
-        Rows of ``{doc_id, title, ordinal, text, pre, hit, post}``.
+        Rows of ``{id, doc_id, title, ordinal, text, pre, hit, post}`` — ``id`` is
+        the sentence ULID, so hits are citable without a second round-trip.
     """
     rows = await _rows(
         conn,
-        "SELECT d.id AS doc_id, d.title, s.ordinal, s.text "
+        "SELECT s.id, d.id AS doc_id, d.title, s.ordinal, s.text "
         "FROM sentences s JOIN documents d ON d.id = s.document_id "
-        "WHERE s.text ILIKE %s ORDER BY d.title, s.ordinal LIMIT %s",
-        (f"%{term}%", limit),
+        "WHERE s.text ILIKE %(pat)s "
+        "  AND (%(doc)s::uuid IS NULL OR s.document_id = %(doc)s::uuid) "
+        "ORDER BY d.title, s.ordinal LIMIT %(limit)s OFFSET %(offset)s",
+        {"pat": f"%{term}%", "doc": document_id, "limit": limit, "offset": offset},
     )
     for r in rows:
         r["pre"], r["hit"], r["post"] = _split_kwic(r["text"], term)
     return rows
+
+
+# --------------------------------------------------------------------------
+# Named entities (NER layer)
+# --------------------------------------------------------------------------
+
+_ENTITY_FROM = """
+    FROM entity_mention em
+    JOIN annotations a      ON a.id = em.annotation_id
+    JOIN spans sp           ON sp.id = em.span_id
+    JOIN documents d        ON d.id = a.document_id
+    JOIN document_content c ON c.document_id = a.document_id
+    WHERE (%(doc)s::uuid IS NULL OR a.document_id = %(doc)s::uuid)
+      AND (%(etype)s = '' OR em.entity_type = %(etype)s)
+"""
+
+
+async def list_entities(
+    conn: _AConn,
+    *,
+    document_id: str | None = None,
+    entity_type: str | None = None,
+    limit: int = 100,
+    offset: int = 0,
+) -> list[Row]:
+    """Return named-entity mentions with their surface text and span offsets.
+
+    Args:
+        conn: Async database connection.
+        document_id: When set, only mentions in this document.
+        entity_type: Exact type filter (``PERSON`` / ``ORG`` / ``GPE`` / ...), or ``None``.
+        limit: Maximum mentions to return.
+        offset: Mentions to skip (paging).
+
+    Returns:
+        Rows of ``{id, doc_id, title, entity_type, text, char_start, char_end}``
+        in document order.
+    """
+    return await _rows(
+        conn,
+        "SELECT em.id, a.document_id AS doc_id, d.title, em.entity_type, "
+        "       sp.char_start, sp.char_end, "
+        "       substring(c.full_text FROM sp.char_start + 1 "
+        "                 FOR sp.char_end - sp.char_start) AS text "
+        + _ENTITY_FROM
+        + "ORDER BY d.title, sp.char_start LIMIT %(limit)s OFFSET %(offset)s",
+        {
+            "doc": document_id,
+            "etype": entity_type or "",
+            "limit": limit,
+            "offset": offset,
+        },
+    )
+
+
+async def entity_frequency(
+    conn: _AConn,
+    *,
+    document_id: str | None = None,
+    entity_type: str | None = None,
+    limit: int = 100,
+) -> list[Row]:
+    """Return entity mention frequencies (character/place/org tables).
+
+    Groups mentions by surface text and type, most frequent first — the
+    document-scoped "who appears in this novel" query.
+
+    Args:
+        conn: Async database connection.
+        document_id: When set, count within this document only.
+        entity_type: Exact type filter, or ``None`` for all types.
+        limit: Maximum distinct (text, type) rows to return.
+
+    Returns:
+        Rows of ``{text, entity_type, count}`` ordered by descending count.
+    """
+    return await _rows(
+        conn,
+        "SELECT substring(c.full_text FROM sp.char_start + 1 "
+        "                 FOR sp.char_end - sp.char_start) AS text, "
+        "       em.entity_type, count(*) AS count "
+        + _ENTITY_FROM
+        + "GROUP BY text, em.entity_type ORDER BY count DESC, text LIMIT %(limit)s",
+        {"doc": document_id, "etype": entity_type or "", "limit": limit},
+    )
 
 
 async def fulltext_search(conn: _AConn, query: str, *, limit: int = 25) -> list[Row]:

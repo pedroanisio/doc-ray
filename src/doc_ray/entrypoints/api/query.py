@@ -14,6 +14,8 @@ from doc_ray.adapters import queue_postgres as queue
 from doc_ray.entrypoints.api.types import (
     Document,
     DocumentHit,
+    EntityFrequency,
+    EntityMention,
     Info,
     Job,
     Lexeme,
@@ -39,10 +41,27 @@ class Query:
         return Document.from_row(row) if row is not None else None
 
     @strawberry.field
-    async def search_sentences(self, info: Info, term: str, limit: int = 100) -> list[SentenceHit]:
-        """Return sentence hits for *term* (bounded page)."""
+    async def search_sentences(
+        self,
+        info: Info,
+        term: str,
+        document_id: strawberry.ID | None = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> list[SentenceHit]:
+        """Return sentence hits for *term* (bounded page).
+
+        Pass ``documentId`` to search within one document, and ``offset`` to
+        enumerate all matches for a common term page by page.
+        """
         ctx = info.context
-        rows = await read.search_sentences(ctx.conn, term, limit=ctx.page_size(limit))
+        rows = await read.search_sentences(
+            ctx.conn,
+            term,
+            document_id=str(document_id) if document_id is not None else None,
+            limit=ctx.page_size(limit),
+            offset=offset,
+        )
         return [SentenceHit.from_row(r) for r in rows]
 
     @strawberry.field
@@ -65,15 +84,65 @@ class Query:
         q: str | None = None,
         pos: str | None = None,
         lang: str | None = None,
+        document_id: strawberry.ID | None = None,
         limit: int = 100,
         offset: int = 0,
     ) -> list[Lexeme]:
-        """Return a bounded page of filtered lexemes."""
+        """Return a bounded page of filtered lexemes.
+
+        With ``documentId``, only lexemes occurring in that document are returned
+        and ``uses`` counts occurrences there — a per-document vocabulary table
+        instead of corpus-global totals.
+        """
         ctx = info.context
         rows = await read.list_lexemes(
-            ctx.conn, q=q, pos=pos, lang=lang, limit=ctx.page_size(limit), offset=offset
+            ctx.conn,
+            q=q,
+            pos=pos,
+            lang=lang,
+            document_id=str(document_id) if document_id is not None else None,
+            limit=ctx.page_size(limit),
+            offset=offset,
         )
         return [Lexeme.from_row(r) for r in rows]
+
+    @strawberry.field
+    async def entities(
+        self,
+        info: Info,
+        document_id: strawberry.ID | None = None,
+        entity_type: str | None = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> list[EntityMention]:
+        """Return named-entity mentions (NER layer), filterable by document and type."""
+        ctx = info.context
+        rows = await read.list_entities(
+            ctx.conn,
+            document_id=str(document_id) if document_id is not None else None,
+            entity_type=entity_type,
+            limit=ctx.page_size(limit),
+            offset=offset,
+        )
+        return [EntityMention.from_row(r) for r in rows]
+
+    @strawberry.field
+    async def entity_frequency(
+        self,
+        info: Info,
+        document_id: strawberry.ID | None = None,
+        entity_type: str | None = None,
+        limit: int = 100,
+    ) -> list[EntityFrequency]:
+        """Return entity mention frequencies — the character/place/org table."""
+        ctx = info.context
+        rows = await read.entity_frequency(
+            ctx.conn,
+            document_id=str(document_id) if document_id is not None else None,
+            entity_type=entity_type,
+            limit=ctx.page_size(limit),
+        )
+        return [EntityFrequency.from_row(r) for r in rows]
 
     @strawberry.field
     async def job(self, info: Info, id: strawberry.ID) -> Job | None:

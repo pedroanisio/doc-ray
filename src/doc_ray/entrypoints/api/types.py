@@ -9,7 +9,7 @@ as the GraphQL schema descriptions.
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any, cast
 
 import strawberry
@@ -82,6 +82,50 @@ class ProvenanceEvent:
 
 
 @strawberry.type
+class EntityMention:
+    """One named-entity mention (NER layer) with its surface text and span."""
+
+    id: strawberry.ID
+    document_id: strawberry.ID
+    title: str
+    entity_type: str
+    text: str
+    char_start: int
+    char_end: int
+
+    @classmethod
+    def from_row(cls, row: Row) -> EntityMention:
+        """Build an ``EntityMention`` from a read-adapter row."""
+        return cls(
+            id=strawberry.ID(str(row["id"])),
+            document_id=strawberry.ID(str(row["doc_id"])),
+            title=row["title"],
+            entity_type=row["entity_type"],
+            text=row.get("text") or "",
+            char_start=row["char_start"],
+            char_end=row["char_end"],
+        )
+
+
+@strawberry.type
+class EntityFrequency:
+    """A (surface text, entity type) frequency row — character/place/org tables."""
+
+    text: str
+    entity_type: str
+    count: int
+
+    @classmethod
+    def from_row(cls, row: Row) -> EntityFrequency:
+        """Build an ``EntityFrequency`` from a read-adapter row."""
+        return cls(
+            text=row.get("text") or "",
+            entity_type=row["entity_type"],
+            count=int(row["count"]),
+        )
+
+
+@strawberry.type
 class Document:
     """A document; relationships resolve lazily (batched where by-document)."""
 
@@ -98,6 +142,10 @@ class Document:
     content_sha256: str | None
     source_uri: str | None
     original_filename: str | None
+    subtitle: str | None
+    publisher: str | None
+    published_on: date | None
+    license: str | None
     created_at: datetime
     updated_at: datetime | None
 
@@ -121,6 +169,10 @@ class Document:
             content_sha256=row.get("content_sha256"),
             source_uri=row.get("source_uri"),
             original_filename=row.get("original_filename") or row.get("filename"),
+            subtitle=row.get("subtitle"),
+            publisher=row.get("publisher"),
+            published_on=row.get("published_on"),
+            license=row.get("license"),
             created_at=row["created_at"],
             updated_at=row.get("updated_at"),
         )
@@ -145,6 +197,30 @@ class Document:
     async def sentence_count(self, info: Info) -> int:
         """Resolve the document's sentence count via the batched loader."""
         return await info.context.loaders.sentence_count.load(str(self.id))
+
+    @strawberry.field
+    async def token_count(self, info: Info) -> int:
+        """Resolve the document's token count via the batched loader."""
+        return await info.context.loaders.token_count.load(str(self.id))
+
+    @strawberry.field
+    async def entities(
+        self,
+        info: Info,
+        entity_type: str | None = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> list[EntityMention]:
+        """Resolve a bounded page of this document's named-entity mentions."""
+        ctx = info.context
+        rows = await read.list_entities(
+            ctx.conn,
+            document_id=str(self.id),
+            entity_type=entity_type,
+            limit=ctx.page_size(limit),
+            offset=offset,
+        )
+        return [EntityMention.from_row(r) for r in rows]
 
     @strawberry.field
     async def sentences(self, info: Info, limit: int = 40, offset: int = 0) -> list[Sentence]:
@@ -212,17 +288,38 @@ class Lexeme:
         )
 
     @strawberry.field
-    async def occurrences(self, info: Info, limit: int = 80) -> list[LexemeOccurrence]:
-        """Resolve a bounded page of this lexeme's occurrences."""
+    async def occurrences(
+        self,
+        info: Info,
+        document_id: strawberry.ID | None = None,
+        limit: int = 80,
+        offset: int = 0,
+    ) -> list[LexemeOccurrence]:
+        """Resolve a bounded page of this lexeme's occurrences.
+
+        Pass ``documentId`` to scope to one document, and ``offset`` to page
+        past the page-size cap.
+        """
         ctx = info.context
-        rows = await read.lexeme_kwic(ctx.conn, str(self.uid), limit=ctx.page_size(limit))
+        rows = await read.lexeme_kwic(
+            ctx.conn,
+            str(self.uid),
+            document_id=str(document_id) if document_id is not None else None,
+            limit=ctx.page_size(limit),
+            offset=offset,
+        )
         return [LexemeOccurrence.from_row(r) for r in rows]
 
 
 @strawberry.type
 class SentenceHit:
-    """A sentence search hit with a highlightable pre/hit/post split."""
+    """A sentence search hit with a highlightable pre/hit/post split.
 
+    ``id`` is the sentence's stable ULID, so a hit can be cited or re-fetched
+    without an ordinal round-trip through ``document.sentences``.
+    """
+
+    id: strawberry.ID
     document_id: strawberry.ID
     title: str
     ordinal: int
@@ -235,6 +332,7 @@ class SentenceHit:
     def from_row(cls, row: Row) -> SentenceHit:
         """Build a ``SentenceHit`` from a read-adapter row."""
         return cls(
+            id=strawberry.ID(str(row["id"])),
             document_id=strawberry.ID(str(row["doc_id"])),
             title=row["title"],
             ordinal=row["ordinal"],
