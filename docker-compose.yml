@@ -1,0 +1,78 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg16      # postgres:16 + pgvector (drop-in superset)
+    container_name: docray-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-docray}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-docray}
+      POSTGRES_DB: ${POSTGRES_DB:-docray}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      # Migrations run automatically on first init (empty data dir only).
+      - ./db/migrations:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-docray} -d ${POSTGRES_DB:-docray}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  minio:
+    image: minio/minio:latest
+    container_name: docray-minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${S3_ACCESS_KEY:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${S3_SECRET_KEY:-minioadmin}
+    ports:
+      - "${MINIO_PORT:-9000}:9000"      # S3 API
+      - "${MINIO_CONSOLE_PORT:-9001}:9001"  # Web console
+    volumes:
+      - miniodata:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # One-shot job: create the bucket the ingester writes to.
+  createbucket:
+    image: minio/mc:latest
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set local http://minio:9000 ${S3_ACCESS_KEY:-minioadmin} ${S3_SECRET_KEY:-minioadmin};
+      mc mb --ignore-existing local/${S3_BUCKET:-documents};
+      echo 'bucket ready';
+      "
+
+  # On-demand ingester. Build once, then:
+  #   docker compose run --rm ingester python -m ingest.cli /data/orwell1984.pdf
+  ingester:
+    build: .
+    container_name: docray-ingester
+    depends_on:
+      postgres:
+        condition: service_healthy
+      createbucket:
+        condition: service_completed_successfully
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-docray}:${POSTGRES_PASSWORD:-docray}@postgres:5432/${POSTGRES_DB:-docray}
+      S3_ENDPOINT: http://minio:9000
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY:-minioadmin}
+      S3_SECRET_KEY: ${S3_SECRET_KEY:-minioadmin}
+      S3_BUCKET: ${S3_BUCKET:-documents}
+    volumes:
+      - ./:/app:ro          # source + sample PDFs available under /data via /app
+      - ./:/data:ro
+    # Inherits the Dockerfile ENTRYPOINT (`python -m ingest.cli`).
+    # Invoke with:  docker compose run --rm ingester /data/orwell1984.pdf
+
+volumes:
+  pgdata:
+  miniodata:

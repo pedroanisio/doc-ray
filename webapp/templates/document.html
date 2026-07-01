@@ -1,0 +1,139 @@
+{% extends "base.html" %}
+{% block title %}{{ doc.title }} · doc·ray{% endblock %}
+{% block body %}
+<style>
+  /* This page reads wide: give the text room, park the stats in a rail. */
+  main { max-width:1320px; }
+  .doc-head { margin-bottom:1.4rem; }
+
+  .docgrid { display:grid; grid-template-columns:minmax(0,1fr) 16.5rem; gap:2.8rem;
+             align-items:start; }
+  @media (max-width:920px){ .docgrid { grid-template-columns:1fr; } }
+
+  aside.rail { position:sticky; top:5rem; display:grid; gap:1rem; }
+  aside.rail .card { margin:0; padding:1rem 1.1rem; }
+  .posrow { display:grid; grid-template-columns:3.6rem 1fr auto; align-items:center;
+            gap:.5rem; padding:.14rem 0; }
+  .posrow .lab { font-family:var(--mono); font-size:.68rem; color:var(--ink-soft); }
+  .posrow .num { font-size:.72rem; }
+
+  .reader-controls { display:flex; align-items:center; gap:.9rem 1.2rem; flex-wrap:wrap;
+    margin:.4rem 0 1.5rem; padding-bottom:1rem; border-bottom:1px solid var(--line); }
+  .seg { display:inline-flex; border:1px solid var(--line); border-radius:4px; overflow:hidden; }
+  .seg a { font-family:var(--mono); font-size:.68rem; letter-spacing:.1em; text-transform:uppercase;
+    padding:.42rem .85rem; color:var(--ink-soft); }
+  .seg a:hover { text-decoration:none; color:var(--ink); }
+  .seg a.on { background:var(--accent); color:var(--accent-ink); }
+  .legend { display:flex; gap:.35rem; flex-wrap:wrap; }
+  .chip { font-family:var(--mono); font-size:.64rem; letter-spacing:.05em; cursor:pointer;
+    padding:.2rem .5rem; border:1px solid var(--line); border-radius:999px; color:var(--ink-soft);
+    user-select:none; transition:.15s; }
+  .chip:hover { border-color:var(--c); color:var(--ink); }
+  .chip.muted { opacity:.38; text-decoration:line-through; }
+
+  /* THE TEXT — the primary object. 88–110 column measure. */
+  .reader { max-width:96ch; font-size:1.22rem; line-height:1.95;
+            font-optical-sizing:auto; }
+  .reader p { margin:0 0 .5rem; position:relative; padding-left:3rem; }
+  .reader p:hover .ord { color:var(--accent); }
+  .reader .ord { position:absolute; left:0; top:.62em; font-family:var(--mono); font-size:.58rem;
+    color:var(--ink-faint); font-variant-numeric:tabular-nums; }
+  .w { color:inherit; text-decoration:none; border-bottom:2px solid var(--c);
+       padding-bottom:1px; position:relative; transition:background .12s; cursor:pointer; }
+  .w:hover { background:color-mix(in srgb, var(--c) 22%, transparent); border-radius:2px; }
+  .w[data-t]:hover::after { content:attr(data-t); position:absolute; left:50%; bottom:calc(100% + 7px);
+    transform:translateX(-50%); white-space:nowrap; font-family:var(--mono); font-size:.62rem;
+    letter-spacing:.03em; background:var(--ink); color:var(--bg); padding:.28rem .55rem;
+    border-radius:3px; z-index:30; pointer-events:none; box-shadow:0 6px 18px rgba(0,0,0,.28); }
+  .plain .w { border-bottom-color:transparent; }
+  .reader.off-NOUN .p-NOUN,.reader.off-PROPN .p-PROPN,.reader.off-VERB .p-VERB,
+  .reader.off-ADJ .p-ADJ,.reader.off-ADV .p-ADV,.reader.off-PRON .p-PRON,
+  .reader.off-NUM .p-NUM,.reader.off-FUNC .p-DET,.reader.off-FUNC .p-ADP,
+  .reader.off-FUNC .p-CCONJ,.reader.off-FUNC .p-SCONJ,.reader.off-FUNC .p-PART,
+  .reader.off-FUNC .p-AUX,.reader.off-FUNC .p-PUNCT,.reader.off-FUNC .p-SYM,.reader.off-FUNC .p-X
+    { border-bottom-color:transparent; }
+</style>
+
+<p class="kicker"><a href="{{ url_for('documents') }}">← Corpus</a></p>
+<div class="doc-head">
+  <h1>{{ doc.title }}</h1>
+  <div>
+    {% if doc.language %}<span class="pill lang">{{ doc.language }}</span>{% endif %}
+    <span class="pill">{{ doc.doc_type }}</span>
+    <span class="pill">{{ "{:,}".format(doc.char_count or 0) }} chars</span>
+    {% if doc.page_count %}<span class="pill">{{ doc.page_count }} pp.</span>{% endif %}
+    <span class="pill">{{ doc.status }}</span>
+    {% if authors %}<span style="color:var(--ink-soft)">&nbsp; by {{ authors|join(", ") }}</span>{% endif %}
+    {% for t in tags %}<span class="pill">{{ t }}</span>{% endfor %}
+  </div>
+</div>
+
+<div class="docgrid">
+  <!-- PRIMARY: the text -->
+  <section class="main">
+    <div class="reader-controls">
+      <div class="seg">
+        <a href="?page={{ page }}&annotate=1" class="{{ 'on' if annotate }}">Annotated</a>
+        <a href="?page={{ page }}&annotate=0" class="{{ 'on' if not annotate }}">Plain</a>
+      </div>
+      {% if annotate %}
+      <div class="legend" id="legend">
+        {% for p in pos %}
+          <span class="chip p-{{ p.pos }}" data-pos="{{ p.pos }}"><span class="swatch"></span>{{ p.pos }}</span>
+        {% endfor %}
+      </div>
+      <span class="kicker">click a tag to mute · hover a word for its lemma</span>
+      {% endif %}
+    </div>
+
+    <div class="reader {{ 'plain' if not annotate }}" id="reader">
+      {% for s in sentences %}
+        <p><span class="ord">{{ s.ordinal }}</span>{% if annotate and s.html is defined %}{{ s.html }}{% else %}{{ s.text }}{% endif %}</p>
+      {% endfor %}
+      <div class="pager">
+        {% if page > 1 %}<a href="?page={{ page-1 }}&annotate={{ 1 if annotate else 0 }}">← prev</a>{% endif %}
+        <span>{{ page }} / {{ pages }}</span>
+        {% if page < pages %}<a href="?page={{ page+1 }}&annotate={{ 1 if annotate else 0 }}">next →</a>{% endif %}
+      </div>
+    </div>
+  </section>
+
+  <!-- SIDE PANEL: stats, visible while reading -->
+  <aside class="rail">
+    <div class="card">
+      <h2 style="margin-top:0">Parts of speech · {{ "{:,}".format(n_sent) }} sent.</h2>
+      {% set maxn = (pos|map(attribute='n')|max) if pos else 1 %}
+      {% for p in pos %}
+        <div class="posrow p-{{ p.pos }}">
+          <a class="lab" href="{{ url_for('lexemes', pos=p.pos) }}"><span class="swatch"></span>{{ p.pos }}</a>
+          <div class="bar" style="width:{{ (100*p.n/maxn)|round(0,'floor') }}%; background:var(--c); opacity:.8"></div>
+          <span class="num">{{ "{:,}".format(p.n) }}</span>
+        </div>
+      {% endfor %}
+    </div>
+    <div class="card">
+      <h2 style="margin-top:0">Most-used verbs</h2>
+      <div style="line-height:2.1">
+      {% for v in top_verbs %}
+        <a class="pill" style="color:var(--pos-verb)" href="{{ url_for('lexeme', uid=v.uid) }}">{{ v.lemma }} <span class="num" style="color:var(--ink-faint)">{{ v.n }}</span></a>
+      {% else %}<span class="lede">—</span>{% endfor %}
+      </div>
+    </div>
+  </aside>
+</div>
+
+{% block script %}
+<script>
+  var reader = document.getElementById('reader');
+  var FUNC = ['DET','ADP','CCONJ','SCONJ','PART','AUX','PUNCT','SYM','X','INTJ'];
+  document.querySelectorAll('#legend .chip').forEach(function (chip) {
+    chip.addEventListener('click', function () {
+      var pos = chip.dataset.pos;
+      var key = FUNC.indexOf(pos) >= 0 ? 'FUNC' : pos;
+      chip.classList.toggle('muted');
+      reader.classList.toggle('off-' + key);
+    });
+  });
+</script>
+{% endblock %}
+{% endblock %}

@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block title %}Corpus · doc·ray{% endblock %}
+{% block body %}
+<p class="kicker">An annotated reading room</p>
+<h1>The <span class="accent">Corpus</span></h1>
+<p class="lede" style="max-width:34rem">Five documents, decomposed to sentences and lexemes and
+tagged for part of speech. Open one to read it with its annotation layer.</p>
+
+<div class="card" style="margin-top:1.6rem; display:flex; flex-wrap:wrap; gap:.5rem 0">
+  <div class="stat"><b>{{ "{:,}".format(totals.docs) }}</b><span>documents</span></div>
+  <div class="stat"><b>{{ "{:,}".format(totals.sents) }}</b><span>sentences</span></div>
+  <div class="stat"><b>{{ "{:,}".format(totals.lexemes) }}</b><span>lexemes</span></div>
+  <div class="stat"><b>{{ "{:,}".format(totals.occ) }}</b><span>occurrences</span></div>
+</div>
+
+<div class="card">
+  <table>
+    <thead><tr>
+      <th>Title</th><th>Type</th><th>Lang</th>
+      <th class="num">Chars</th><th class="num">Pages</th>
+      <th class="num">Sentences</th><th>Analyzer</th>
+    </tr></thead>
+    <tbody>
+    {% for d in rows %}
+      <tr>
+        <td style="font-family:var(--display); font-size:1.15rem">
+          <a href="{{ url_for('document', doc_id=d.id) }}">{{ d.title }}</a></td>
+        <td style="color:var(--ink-faint)" class="mono">{{ d.doc_type }}</td>
+        <td>{% if d.language %}<span class="pill lang">{{ d.language }}</span>{% endif %}</td>
+        <td class="num">{{ "{:,}".format(d.char_count or 0) }}</td>
+        <td class="num">{{ d.page_count or "—" }}</td>
+        <td class="num">{{ "{:,}".format(d.n_sentences) }}</td>
+        <td class="mono" style="color:var(--ink-faint); font-size:.72rem">{{ d.tools or "—" }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

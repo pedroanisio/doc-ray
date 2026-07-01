@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block title %}Search · doc·ray{% endblock %}
+{% block body %}
+<p class="kicker">Concordance</p>
+<h1><span class="accent">Search</span> the corpus</h1>
+<form class="filters" method="get">
+  <input type="text" name="q" value="{{ term }}" style="min-width:min(24rem,70vw)"
+         placeholder="find a phrase across every document…" autofocus>
+  <button type="submit">Search</button>
+</form>
+
+{% if term %}
+  <p class="lede">{{ rows|length }} match{{ '' if rows|length == 1 else 'es' }}{% if rows|length == 100 %} (first 100){% endif %}
+     for “{{ term }}”</p>
+  <div class="card">
+    <table>
+      <thead><tr><th>Document</th><th class="num">#</th><th>Sentence</th></tr></thead>
+      <tbody>
+      {% for r in rows %}
+        <tr>
+          <td style="white-space:nowrap"><a class="mono" style="font-size:.78rem" href="{{ url_for('document', doc_id=r.doc_id) }}">{{ r.title }}</a></td>
+          <td class="num" style="color:var(--ink-faint)">{{ r.ordinal }}</td>
+          <td style="font-size:1.05rem; line-height:1.7">{{ r.pre }}{% if r.hit %}<mark>{{ r.hit }}</mark>{% endif %}{{ r.post }}</td>
+        </tr>
+      {% else %}
+        <tr><td colspan="3" class="lede">No sentences match.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% endif %}
+{% endblock %}
