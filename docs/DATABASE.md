@@ -1,0 +1,980 @@
+# doc-ray — Database ERD & Data Dictionary
+
+**Schema version `1.0.0`** (SemVer) · 19 migrations applied
+
+> Generated from the live schema by `scripts/gen_data_dictionary.py`. Do not edit by hand — re-run the generator.
+
+## 1. Overview
+
+**doc-ray** is a document-ingestion and NLP-corpus store on **PostgreSQL 16**
+(with the **pgvector** and **pg_trgm** extensions) plus **MinIO/S3** for the
+original bytes. A document is ingested (any of pdf/txt/md/html/epub/docx),
+its text and metadata extracted, then annotated by real spaCy into the full
+20-layer NLP stack. Everything queryable lives in Postgres; blobs never do.
+
+**Design principles**
+
+- **4NF normalization.** No arrays or JSON bags for independent multivalued
+  facts — each becomes its own relation whose key determines a single value.
+  Anything derivable is a view, not a stored column.
+- **Stand-off annotation over a shared span registry.** Character offsets are
+  a first-class entity (`spans`); every layer references a span by FK instead
+  of repeating `(document_id, char_start, char_end)`.
+- **Dual identity.** Top-level entities use `uuid` (`documents`, `spans`,
+  `principals`); high-volume, time-ordered annotation rows use a **ULID**
+  domain (Crockford base32, 26 chars) so `ORDER BY id` is time order.
+- **Layer-aware runs.** An `annotations` row is one analyzer run over a
+  document, scoped by `(layer, tool)`, so many tools/layers coexist without
+  collision. Deleting a document cascades through the entire graph.
+- **Document-level RBAC via RLS.** Access is decided per document and inherited
+  by every document-scoped table through row-level-security policies.
+
+
+## 2. Conventions
+
+| Convention | Detail |
+|---|---|
+| `ulid` domain | `char(26)` matching `^[0-7][0-9A-HJKMNP-TV-Z]{25}$` (Crockford base32; excludes I/L/O/U). Sorts in creation-time order. |
+| `uuid` ids | `gen_random_uuid()` defaults on top-level entities. |
+| Content addressing | `content_sha256` / `text_sha256` dedupe + integrity; blob body is an `s3://` URI, never a row. |
+| Offsets | Half-open `[char_start, char_end)` into `document_content.full_text`; owned by `spans`. |
+| `ON DELETE` | Document-owned edges CASCADE (or SET NULL for advisory links); references to global dimensions (`lexemes`, `authors`, `tags`, `documents.derived_from`) do not. |
+| Timestamps | `timestamptz`, default `now()`. |
+
+
+## 3. Entity-Relationship Diagrams
+
+_Rendered as Mermaid; attributes are catalogued in §5. Diagrams are grouped by domain for legibility (the full schema is one connected graph)._
+
+### Document entity, 4NF satellites & provenance
+
+```mermaid
+erDiagram
+    documents ||--o| document_content : "1:1 text + FTS"
+    documents ||--o{ document_authors : ""
+    authors   ||--o{ document_authors : ""
+    documents ||--o{ document_tags : ""
+    tags      ||--o{ document_tags : ""
+    documents ||--o{ document_identifiers : "(scheme,value)"
+    documents ||--o{ document_metadata : "(key,value)"
+    documents ||--o{ document_provenance : "events"
+    document_provenance ||--o{ provenance_params : "(key,value)"
+    documents ||--o| documents : "derived_from"
+```
+
+### Segmentation, span registry & the annotation backbone
+
+```mermaid
+erDiagram
+    documents   ||--o{ spans : "owns offsets"
+    documents   ||--o{ sentences : ""
+    documents   ||--o{ annotations : "analyzer runs"
+    spans       ||--o{ sentences : "span_id"
+    annotations ||--o{ lexeme_occurrences : ""
+    spans       ||--o{ lexeme_occurrences : "span_id"
+    lexemes     ||--o{ lexeme_occurrences : "type identity"
+```
+
+### Tokens, morphology & syntax
+
+```mermaid
+erDiagram
+    annotations ||--o{ tokens : ""
+    spans       ||--o{ tokens : "span_id"
+    sentences   ||--o{ tokens : "sentence_id (SET NULL)"
+    lexemes     ||--o{ tokens : "lemma+UPOS"
+    tokens      ||--o{ token_feature : "UD FEATS"
+    tokens      ||--o{ subword : "BPE/WordPiece"
+    tokens      ||--o{ dependency : "dependent/head"
+    annotations ||--o{ dependency : ""
+    annotations ||--o{ chunk : "NP/VP/PP"
+    annotations ||--o{ constituent : "tree"
+    constituent ||--o{ constituent : "parent_id"
+```
+
+### Entities, reference, meaning, temporal & embeddings
+
+```mermaid
+erDiagram
+    annotations   ||--o{ entity_mention : ""
+    entity_mention ||--o{ entity_link : "KB id"
+    annotations   ||--o{ coref_chain : ""
+    coref_chain   ||--o{ coref_mention : ""
+    annotations   ||--o{ srl_predicate : ""
+    srl_predicate ||--o{ srl_argument : "ARG*"
+    tokens        ||--o{ word_sense : ""
+    annotations   ||--o{ amr_node : ""
+    amr_node      ||--o{ amr_edge : "role"
+    annotations   ||--o{ timex : ""
+    annotations   ||--o{ event : ""
+    timex         ||--o{ tlink : "source/target"
+    event         ||--o{ tlink : "source/target"
+    spans         ||--o{ embedding : "vector(768)"
+```
+
+### Access control (RBAC) — decided per document, inherited via RLS
+
+```mermaid
+erDiagram
+    principals       ||--o{ principal_roles : ""
+    roles            ||--o{ principal_roles : ""
+    roles            ||--o{ role_permissions : ""
+    permissions      ||--o{ role_permissions : ""
+    principals       ||--o{ document_acl : "grantee"
+    documents        ||--o{ document_acl : "resource"
+    permissions      ||--o{ document_acl : "action"
+    principals       ||--o{ document_provenance : "actor_principal_id"
+```
+
+
+## 4. Domains & enumerated types
+
+- **domain `ulid`** = `character(26)` — `CHECK ((VALUE ~ '^[0-7][0-9A-HJKMNP-TV-Z]{25}$'::text))`
+- **enum `provenance_kind`** ∈ { 'acquired', 'stored', 'extracted', 'decomposed', 'segmented', 'embedded', 'indexed', 'redacted', 'translated', 'superseded', 'annotated' }
+
+
+## 5. Data dictionary
+
+### 5.1 Document entity & bibliographic identity
+
+The document is a first-class entity. Independent multivalued facts (authors, tags, identifiers,
+format metadata) are decomposed to their own relations (4NF); blobs live in object storage, only an
+`s3://` pointer + sha256 are stored.
+
+#### `documents`
+
+| Column | Type | Null | Key | Default | Notes |
+|---|---|---|---|---|---|
+| `id` | uuid |  | PK | `gen_random_uuid()` |  |
+| `title` | text |  |  |  |  |
+| `doc_type` | text |  |  |  |  |
+| `source_uri` | text |  |  |  |  |
+| `content_sha256` | character(64) |  | UQ |  |  |
+| `byte_size` | bigint |  |  |  |  |
+| `page_count` | integer | yes |  |  |  |
+| `status` | text |  |  | `'pending'::text` |  |
+| `error` | text | yes |  |  |  |
+| `created_at` | timestamp with time zone |  |  | `now()` |  |
+| `updated_at` | timestamp with time zone |  |  | `now()` |  |
+| `subtitle` | text | yes |  |  |  |
+| `language` | text | yes |  |  |  |
+| `publisher` | text | yes |  |  |  |
+| `published_on` | date | yes |  |  |  |
+| `license` | text | yes |  |  |  |
+| `mime_type` | text | yes |  |  |  |
+| `char_count` | integer | yes |  |  |  |
+| `text_sha256` | character(64) | yes |  |  |  |
+| `derived_from` | uuid | yes | FK→documents |  |  |
+| `revision` | integer |  |  | `1` |  |
+| `original_filename` | text | yes |  |  |  |
+
+- **Primary key:** (id)
+- **Unique:** UNIQUE (content_sha256)
+- **FK:** FOREIGN KEY (derived_from) REFERENCES documents(id) ON DELETE SET NULL
+- **Index** `documents_content_sha256_key`: public.documents USING btree (content_sha256)
+- **Index** `idx_documents_status`: public.documents USING btree (status)
+- **Index** `idx_documents_type_created`: public.documents USING btree (doc_type, created_at DESC)
+- **RLS:** enabled — read/write policies via *id (self)*
+
+#### `document_content`
+
+| Column | Type | Null | Key | Default | Notes |
+|---|---|---|---|---|---|
+| `document_id` | uuid |  | PK, FK→documents |  |  |
+| `full_text` | text | yes |  |  |  |
+| `fts` | tsvector | yes |  |  |  |
+
+- **Primary key:** (document_id)
+- **FK:** FOREIGN KEY (document_id) REFERENCES documents(id) ON DELETE CASCADE
+- **Index** `idx_content_fts`: public.document_content USING gin (fts)
+- **RLS:** enabled — read/write policies via *document_id*
+
+#### `authors`
+
+| Column | Type | Null | Key | Default | Notes |
+|---|---|---|---|---|---|
+| `id` | bigint |  | PK | `nextval('authors_id_seq'::regclass)` |  |
+| `name` | text |  | UQ |  |  |
+
+- **Primary key:** (id)
+- **Unique:** UNIQUE (name)
+- **Index** `authors_name_key`: public.authors USING btree (name)
+
+#### `document_authors`
+
+| Column | Type | Null | Key | Default | Notes |
+|---|---|---|---|---|---|
+| `document_id` | uuid |  | PK, FK→documents |  |  |
+| `author_id` | bigint |  | PK, FK→authors |  |  |
+| `position` | integer |  |  | `0` |  |
+
+- **Primary key:** (document_id, author_id)
+- **FK:** FOREIGN KEY (author_id) REFERENCES authors(id)
+- **FK:** FOREIGN KEY (document_id) REFERENCES documents(id) ON DELETE CASCADE
+- **Index** `idx_document_authors_author`: public.document_authors USING btree (author_id)
+- **RLS:** enabled — read/write policies via *document_id*
+
+#### `tags`
+
+| Column | Type | Null | Key | Default | Notes |
+|---|---|---|---|---|---|
+| `id` | bigint |  | PK | `nextval('tags_id_seq'::regclass)` |  |
+| `tag` | text |  | UQ |  |  |
+
+- **Primary key:** (id)
+- **Unique:** UNIQUE (tag)
+- **Index** `tags_tag_key`: public.tags USING btree (tag)
+
+#### `document_tags`
+
+| Column | Type | Null | Key | Default | Notes |
+|---|---|---|---|---|---|
+| `document_id` | uuid |  | PK, FK→documents |  |  |
+| `tag_id` | bigint |  | PK, FK→tags |  |  |
+
+- **Primary key:** (document_id, tag_id)
+- **FK:** FOREIGN KEY (document_id) REFERENCES documents(id) ON DELETE CASCADE
+- **FK:** FOREIGN KEY (tag_id) REFERENCES tags(id)
+- **Index** `idx_document_tags_tag`: public.document_tags USING btree (tag_id)
+- **RLS:** enabled — read/write policies via *document_id*
+
+#### `document_identifiers`
+
+| Column | Type | Null | Key | Default | Notes |
+|---|---|---|---|---|---|
+| `document_id` | uuid |  | PK, FK→documents |  |  |
+| `scheme` | text |  | PK |  |  |
+| `value` | text |  | PK |  |  |
+
+- **Primary key:** (document_id, scheme, value)
+- **FK:** FOREIGN KEY (document_id) REFERENCES documents(id) ON DELETE CASCADE
+- **RLS:** enabled — read/write policies via *document_id*
+
+#### `document_metadata`
+
+| Column | Type | Null | Key | Default | Notes |
+|---|---|---|---|---|---|
+| `document_id` | uuid |  | PK, FK→documents |  |  |
+| `key` | text |  | PK |  |  |
+| `value` | text |  |  |  |  |
+
+- **Primary key:** (document_id, key)
+- **FK:** FOREIGN KEY (document_id) REFERENCES documents(id) ON DELETE CASCADE
+- **RLS:** enabled — read/write policies via *document_id*
+
+### 5.2 Provenance (append-only lineage)
+
+Every processing/lineage event on a document, with its parameters normalized out of a JSON bag into
+`(event, key) -> value`.
+
+#### `document_provenance`
+
+| Column | Type | Null | Key | Default | Notes |
+|---|---|---|---|---|---|
+| `id` | ulid |  | PK |  |  |
+| `document_id` | uuid |  | FK→documents |  |  |
+| `kind` | provenance_kind |  |  |  |  |
+| `tool` | text | yes |  |  |  |
+| `tool_version` | text | yes |  |  |  |
+| `occurred_at` | timestamp with time zone |  |  | `now()` |  |
+| `actor` | text | yes |  |  |  |
+| `input_sha256` | character(64) | yes |  |  |  |
+| `output_sha256` | character(64) | yes |  |  |  |
+| `note` | text | yes |  |  |  |
+| `actor_principal_id` | uuid | yes | FK→principals |  |  |
+
+- **Primary key:** (id)
+- **FK:** FOREIGN KEY (actor_principal_id) REFERENCES principals(id) ON DELETE SET NULL
+- **FK:** FOREIGN KEY (document_id) REFERENCES documents(id) ON DELETE CASCADE
+- **Index** `idx_provenance_doc`: public.document_provenance USING btree (document_id, id)
+- **Index** `idx_provenance_kind`: public.document_provenance USING btree (kind)
+- **RLS:** enabled — read/write policies via *document_id*
+
+#### `provenance_params`
+
+| Column | Type | Null | Key | Default | Notes |
+|---|---|---|---|---|---|
+| `event_id` | ulid |  | PK, FK→document_provenance |  |  |
+| `key` | text |  | PK |  |  |
+| `value` | text |  |  |  |  |
+
+- **Primary key:** (event_id, key)
+- **FK:** FOREIGN KEY (event_id) REFERENCES document_provenance(id) ON DELETE CASCADE
+- **RLS:** enabled — read/write policies via *event_id → document_provenance*
+
+### 5.3 Segmentation & the span registry
+
+Character offsets are a first-class, addressable entity (`spans`); every stand-off annotation
+references a span by FK rather than repeating offset triples. Sentences are ULID-keyed and reference
+a span.
+
+#### `spans`
+
+| Column | Type | Null | Key | Default | Notes |
+|---|---|---|---|---|---|
+| `id` | uuid |  | PK | `gen_random_uuid()` |  |
+| `document_id` | uuid |  | FK→documents, UQ |  |  |
+| `char_start` | integer |  | UQ |  |  |
+| `char_end` | integer |  | UQ |  |  |
+
+- **Primary key:** (id)
+- **Unique:** UNIQUE (document_id, char_start, char_end)
+- **FK:** FOREIGN KEY (document_id) REFERENCES documents(id) ON DELETE CASCADE
+- **Check:** CHECK ((char_end >= char_start))
+- **Index** `idx_spans_document`: public.spans USING btree (document_id, char_start, char_end)
+- **Index** `spans_document_id_char_start_char_end_key`: public.spans USING btree (document_id, char_start, char_end)
+- **RLS:** enabled — read/write policies via *document_id*
+
+#### `sentences`
+
+| Column | Type | Null | Key | Default | Notes |
+|---|---|---|---|---|---|
+| `id` | ulid |  | PK |  |  |
+| `document_id` | uuid |  | FK→documents, UQ |  |  |
+| `ordinal` | integer |  | UQ |  |  |
+| `text` | text |  |  |  |  |
+| `created_at` | timestamp with time zone |  |  | `now()` |  |
+| `span_id` | uuid |  | FK→spans |  |  |
+
+- **Primary key:** (id)
+- **Unique:** UNIQUE (document_id, ordinal)
+- **FK:** FOREIGN KEY (document_id) REFERENCES documents(id) ON DELETE CASCADE
+- **FK:** FOREIGN KEY (span_id) REFERENCES spans(id) ON DELETE CASCADE
+- **Index** `idx_sentences_document`: public.sentences USING btree (document_id, ordinal)
+- **Index** `idx_sentences_span`: public.sentences USING btree (span_id)
+- **Index** `idx_sentences_text_trgm`: public.sentences USING gin (text gin_trgm_ops)
+- **Index** `sentences_document_id_ordinal_key`: public.sentences USING btree (document_id, ordinal)
+- **RLS:** enabled — read/write policies via *document_id*
+
+### 5.4 Lexeme & annotation backbone
+
+`lexemes` is analyzer-independent type identity; `annotations` is one analyzer run over a document
+scoped by `(layer, tool)`; `lexeme_occurrences` binds a span to a lexeme within a run (the token
+layer the webapp renders).
+
+#### `lexemes`
+
+| Column | Type | Null | Key | Default | Notes |
+|---|---|---|---|---|---|
+| `uid` | text |  | PK |  |  |
+| `lang` | text |  | UQ |  |  |
+| `pos` | text |  | UQ |  |  |
+| `lemma` | text |  | UQ |  |  |
+
+- **Primary key:** (uid)
+- **Unique:** UNIQUE (lang, pos, lemma)
+- **Index** `idx_lexemes_lang_pos`: public.lexemes USING btree (lang, pos)
+- **Index** `idx_lexemes_lemma_trgm`: public.lexemes USING gin (lemma gin_trgm_ops)
+- **Index** `lexemes_lang_pos_lemma_key`: public.lexemes USING btree (lang, pos, lemma)
+
+#### `annotations`
+
+| Column | Type | Null | Key | Default | Notes |
+|---|---|---|---|---|---|
+| `id` | ulid |  | PK |  |  |
+| `document_id` | uuid |  | FK→documents, UQ |  |  |
+| `created_at` | timestamp with time zone |  |  | `now()` |  |
+| `layer` | text |  | UQ |  |  |
+| `tool` | text |  | UQ |  |  |
+| `tool_version` | text | yes |  |  |  |
+
+- **Primary key:** (id)
+- **Unique:** UNIQUE (document_id, layer, tool)
+- **FK:** FOREIGN KEY (document_id) REFERENCES documents(id) ON DELETE CASCADE
+- **Index** `annotations_doc_layer_tool_key`: public.annotations USING btree (document_id, layer, tool)
+- **RLS:** enabled — read/write policies via *document_id*
+
+#### `lexeme_occurrences`
+
+| Column | Type | Null | Key | Default | Notes |
+|---|---|---|---|---|---|
+| `annotation_id` | ulid |  | PK, FK→annotations |  |  |
+| `lexeme_uid` | text |  | FK→lexemes |  |  |
+| `span_id` | uuid |  | PK, FK→spans |  |  |
+
+- **Primary key:** (annotation_id, span_id)
+- **FK:** FOREIGN KEY (annotation_id) REFERENCES annotations(id) ON DELETE CASCADE
+- **FK:** FOREIGN KEY (lexeme_uid) REFERENCES lexemes(uid)
+- **FK:** FOREIGN KEY (span_id) REFERENCES spans(id) ON DELETE CASCADE
+- **Index** `idx_occ_lexeme`: public.lexeme_occurrences USING btree (lexeme_uid)
+- **RLS:** enabled — read/write policies via *annotation_id → annotations*
+
+### 5.5 Tokens, morphology & subwords (NLP layers 3–7)
+
+The token is the addressable unit syntax/morphology reference. UD FEATS and BPE/WordPiece pieces
+decompose into child relations (no arrays, no pipe-strings).
+
+#### `tokens`
+
+| Column | Type | Null | Key | Default | Notes |
+|---|---|---|---|---|---|
+| `id` | ulid |  | PK |  |  |
+| `annotation_id` | ulid |  | FK→annotations, UQ |  |  |
+| `span_id` | uuid |  | FK→spans, UQ |  |  |
+| `sentence_id` | ulid | yes | FK→sentences |  |  |
+| `ordinal` | integer |  |  |  |  |
+| `lexeme_uid` | text | yes | FK→lexemes |  | Optional link to the analyzer-independent lexeme (type layer). NULL for tokens with no lemma/lexeme (punctuation, symbols, whitespace). |
+| `upos` | text | yes |  |  | Universal POS — authoritative token-level POS. Present for every token, including lexeme-less ones (PUNCT/SYM/SPACE). When lexeme_uid is set, it equals lexemes.pos; the annotator maintains this agreement. |
+| `xpos` | text | yes |  |  |  |
+
+- **Primary key:** (id)
+- **Unique:** UNIQUE (annotation_id, span_id)
+- **FK:** FOREIGN KEY (annotation_id) REFERENCES annotations(id) ON DELETE CASCADE
+- **FK:** FOREIGN KEY (lexeme_uid) REFERENCES lexemes(uid)
+- **FK:** FOREIGN KEY (sentence_id) REFERENCES sentences(id) ON DELETE SET NULL
+- **FK:** FOREIGN KEY (span_id) REFERENCES spans(id) ON DELETE CASCADE
+- **Index** `idx_tokens_annotation`: public.tokens USING btree (annotation_id, ordinal)
+- **Index** `idx_tokens_lexeme`: public.tokens USING btree (lexeme_uid)
+- **Index** `idx_tokens_span`: public.tokens USING btree (span_id)
+- **Index** `tokens_annotation_id_span_id_key`: public.tokens USING btree (annotation_id, span_id)
+- **RLS:** enabled — read/write policies via *annotation_id → annotations*
+
+#### `token_feature`
+
+| Column | Type | Null | Key | Default | Notes |
+|---|---|---|---|---|---|
+| `token_id` | ulid |  | PK, FK→tokens |  |  |
+| `feature` | text |  | PK |  |  |
+| `value` | text |  |  |  |  |
+
+- **Primary key:** (token_id, feature)
+- **FK:** FOREIGN KEY (token_id) REFERENCES tokens(id) ON DELETE CASCADE
+- **RLS:** enabled — read/write policies via *token_id → tokens → annotations*
+
+#### `subword`
+
+| Column | Type | Null | Key | Default | Notes |
+|---|---|---|---|---|---|
+| `token_id` | ulid |  | PK, FK→tokens |  |  |
+| `position` | integer |  | PK |  |  |
+| `piece` | text |  |  |  |  |
+
+- **Primary key:** (token_id, "position")
+- **FK:** FOREIGN KEY (token_id) REFERENCES tokens(id) ON DELETE CASCADE
+- **RLS:** enabled — read/write policies via *token_id → tokens → annotations*
+
+### 5.6 Syntax — shallow & deep (layers 8–10)
+
+Chunking (BIO collapsed to spans), constituency (adjacency-list tree), and dependency (each token
+has exactly one head → a function).
+
+#### `chunk`
+
+| Column | Type | Null | Key | Default | Notes |
+|---|---|---|---|---|---|
+| `id` | ulid |  | PK |  |  |
+| `annotation_id` | ulid |  | FK→annotations |  |  |
+| `span_id` | uuid |  | FK→spans |  |  |
+| `chunk_type` | text |  |  |  |  |
+
+- **Primary key:** (id)
+- **FK:** FOREIGN KEY (annotation_id) REFERENCES annotations(id) ON DELETE CASCADE
+- **FK:** FOREIGN KEY (span_id) REFERENCES spans(id) ON DELETE CASCADE
+- **Index** `idx_chunk_annotation`: public.chunk USING btree (annotation_id)
+- **RLS:** enabled — read/write policies via *annotation_id → annotations*
+
+#### `constituent`
+
+| Column | Type | Null | Key | Default | Notes |
+|---|---|---|---|---|---|
+| `id` | ulid |  | PK |  |  |
+| `annotation_id` | ulid |  | FK→annotations |  |  |
+| `parent_id` | ulid | yes | FK→constituent |  |  |
+| `label` | text |  |  |  |  |
+| `span_id` | uuid | yes | FK→spans |  |  |
+
+- **Primary key:** (id)
+- **FK:** FOREIGN KEY (annotation_id) REFERENCES annotations(id) ON DELETE CASCADE
+- **FK:** FOREIGN KEY (parent_id) REFERENCES constituent(id) ON DELETE CASCADE
+- **FK:** FOREIGN KEY (span_id) REFERENCES spans(id) ON DELETE CASCADE
+- **Index** `idx_constituent_annotation`: public.constituent USING btree (annotation_id)
+- **Index** `idx_constituent_parent`: public.constituent USING btree (parent_id)
+- **RLS:** enabled — read/write policies via *annotation_id → annotations*
+
+#### `dependency`
+
+| Column | Type | Null | Key | Default | Notes |
+|---|---|---|---|---|---|
+| `annotation_id` | ulid |  | PK, FK→annotations |  |  |
+| `dependent_token_id` | ulid |  | PK, FK→tokens |  |  |
+| `head_token_id` | ulid | yes | FK→tokens |  |  |
+| `deprel` | text |  |  |  |  |
+
+- **Primary key:** (annotation_id, dependent_token_id)
+- **FK:** FOREIGN KEY (annotation_id) REFERENCES annotations(id) ON DELETE CASCADE
+- **FK:** FOREIGN KEY (dependent_token_id) REFERENCES tokens(id) ON DELETE CASCADE
+- **FK:** FOREIGN KEY (head_token_id) REFERENCES tokens(id) ON DELETE SET NULL
+- **Index** `idx_dependency_head`: public.dependency USING btree (head_token_id)
+- **RLS:** enabled — read/write policies via *annotation_id → annotations*
+
+### 5.7 Entities & reference (layers 11–13)
+
+Named-entity mentions, entity linking to a KB, and coreference chains.
+
+#### `entity_mention`
+
+| Column | Type | Null | Key | Default | Notes |
+|---|---|---|---|---|---|
+| `id` | ulid |  | PK |  |  |
+| `annotation_id` | ulid |  | FK→annotations |  |  |
+| `span_id` | uuid |  | FK→spans |  |  |
+| `entity_type` | text |  |  |  |  |
+
+- **Primary key:** (id)
+- **FK:** FOREIGN KEY (annotation_id) REFERENCES annotations(id) ON DELETE CASCADE
+- **FK:** FOREIGN KEY (span_id) REFERENCES spans(id) ON DELETE CASCADE
+- **Index** `idx_entity_mention_annotation`: public.entity_mention USING btree (annotation_id)
+- **RLS:** enabled — read/write policies via *annotation_id → annotations*
+
+#### `entity_link`
+
+| Column | Type | Null | Key | Default | Notes |
+|---|---|---|---|---|---|
+| `mention_id` | ulid |  | PK, FK→entity_mention |  |  |
+| `scheme` | text |  | PK |  |  |
+| `kb_id` | text |  |  |  |  |
+| `confidence` | real | yes |  |  |  |
+
+- **Primary key:** (mention_id, scheme)
+- **FK:** FOREIGN KEY (mention_id) REFERENCES entity_mention(id) ON DELETE CASCADE
+- **RLS:** enabled — read/write policies via *mention_id → entity_mention → annotations*
+
+#### `coref_chain`
+
+| Column | Type | Null | Key | Default | Notes |
+|---|---|---|---|---|---|
+| `id` | ulid |  | PK |  |  |
+| `annotation_id` | ulid |  | FK→annotations |  |  |
+| `document_id` | uuid |  | FK→documents |  |  |
+
+- **Primary key:** (id)
+- **FK:** FOREIGN KEY (annotation_id) REFERENCES annotations(id) ON DELETE CASCADE
+- **FK:** FOREIGN KEY (document_id) REFERENCES documents(id) ON DELETE CASCADE
+- **Index** `idx_coref_chain_document`: public.coref_chain USING btree (document_id)
+- **RLS:** enabled — read/write policies via *document_id*
+
+#### `coref_mention`
+
+| Column | Type | Null | Key | Default | Notes |
+|---|---|---|---|---|---|
+| `chain_id` | ulid |  | PK, FK→coref_chain |  |  |
+| `span_id` | uuid |  | PK, FK→spans |  |  |
+
+- **Primary key:** (chain_id, span_id)
+- **FK:** FOREIGN KEY (chain_id) REFERENCES coref_chain(id) ON DELETE CASCADE
+- **FK:** FOREIGN KEY (span_id) REFERENCES spans(id) ON DELETE CASCADE
+- **RLS:** enabled — read/write policies via *span_id → spans*
+
+### 5.8 Meaning, discourse, temporal & sentiment (layers 14–19)
+
+Semantic role labeling, word-sense disambiguation, AMR meaning graphs, PDTB discourse relations,
+TimeML (TIMEX/EVENT/TLINK), and sentiment.
+
+#### `srl_predicate`
+
+| Column | Type | Null | Key | Default | Notes |
+|---|---|---|---|---|---|
+| `id` | ulid |  | PK |  |  |
+| `annotation_id` | ulid |  | FK→annotations |  |  |
+| `token_id` | ulid |  | FK→tokens |  |  |
+| `frame` | text |  |  |  |  |
+
+- **Primary key:** (id)
+- **FK:** FOREIGN KEY (annotation_id) REFERENCES annotations(id) ON DELETE CASCADE
+- **FK:** FOREIGN KEY (token_id) REFERENCES tokens(id) ON DELETE CASCADE
+- **RLS:** enabled — read/write policies via *annotation_id → annotations*
+
+#### `srl_argument`
+
+| Column | Type | Null | Key | Default | Notes |
+|---|---|---|---|---|---|
+| `predicate_id` | ulid |  | PK, FK→srl_predicate |  |  |
+| `span_id` | uuid |  | PK, FK→spans |  |  |
+| `role` | text |  |  |  |  |
+
+- **Primary key:** (predicate_id, span_id)
+- **FK:** FOREIGN KEY (predicate_id) REFERENCES srl_predicate(id) ON DELETE CASCADE
+- **FK:** FOREIGN KEY (span_id) REFERENCES spans(id) ON DELETE CASCADE
+- **RLS:** enabled — read/write policies via *span_id → spans*
+
+#### `word_sense`
+
+| Column | Type | Null | Key | Default | Notes |
+|---|---|---|---|---|---|
+| `token_id` | ulid |  | PK, FK→tokens |  |  |
+| `annotation_id` | ulid |  | FK→annotations |  |  |
+| `sense_key` | text |  |  |  |  |
+
+- **Primary key:** (token_id)
+- **FK:** FOREIGN KEY (annotation_id) REFERENCES annotations(id) ON DELETE CASCADE
+- **FK:** FOREIGN KEY (token_id) REFERENCES tokens(id) ON DELETE CASCADE
+- **RLS:** enabled — read/write policies via *annotation_id → annotations*
+
+#### `amr_node`
+
+| Column | Type | Null | Key | Default | Notes |
+|---|---|---|---|---|---|
+| `id` | ulid |  | PK |  |  |
+| `annotation_id` | ulid |  | FK→annotations |  |  |
+| `sentence_id` | ulid | yes | FK→sentences |  |  |
+| `concept` | text |  |  |  |  |
+
+- **Primary key:** (id)
+- **FK:** FOREIGN KEY (annotation_id) REFERENCES annotations(id) ON DELETE CASCADE
+- **FK:** FOREIGN KEY (sentence_id) REFERENCES sentences(id) ON DELETE SET NULL
+- **RLS:** enabled — read/write policies via *annotation_id → annotations*
+
+#### `amr_edge`
+
+| Column | Type | Null | Key | Default | Notes |
+|---|---|---|---|---|---|
+| `id` | ulid |  | PK |  |  |
+| `parent_node_id` | ulid |  | FK→amr_node |  |  |
+| `child_node_id` | ulid |  | FK→amr_node |  |  |
+| `role` | text |  |  |  |  |
+
+- **Primary key:** (id)
+- **FK:** FOREIGN KEY (child_node_id) REFERENCES amr_node(id) ON DELETE CASCADE
+- **FK:** FOREIGN KEY (parent_node_id) REFERENCES amr_node(id) ON DELETE CASCADE
+- **Index** `idx_amr_edge_child`: public.amr_edge USING btree (child_node_id)
+- **RLS:** enabled — read/write policies via *parent_node_id → amr_node → annotations*
+
+#### `discourse_relation`
+
+| Column | Type | Null | Key | Default | Notes |
+|---|---|---|---|---|---|
+| `id` | ulid |  | PK |  |  |
+| `annotation_id` | ulid |  | FK→annotations |  |  |
+| `connective_span_id` | uuid | yes | FK→spans |  |  |
+| `arg1_span_id` | uuid |  | FK→spans |  |  |
+| `arg2_span_id` | uuid |  | FK→spans |  |  |
+| `sense` | text |  |  |  |  |
+
+- **Primary key:** (id)
+- **FK:** FOREIGN KEY (annotation_id) REFERENCES annotations(id) ON DELETE CASCADE
+- **FK:** FOREIGN KEY (arg1_span_id) REFERENCES spans(id) ON DELETE CASCADE
+- **FK:** FOREIGN KEY (arg2_span_id) REFERENCES spans(id) ON DELETE CASCADE
+- **FK:** FOREIGN KEY (connective_span_id) REFERENCES spans(id) ON DELETE CASCADE
+- **RLS:** enabled — read/write policies via *annotation_id → annotations*
+
+#### `timex`
+
+| Column | Type | Null | Key | Default | Notes |
+|---|---|---|---|---|---|
+| `id` | ulid |  | PK |  |  |
+| `annotation_id` | ulid |  | FK→annotations |  |  |
+| `span_id` | uuid |  | FK→spans |  |  |
+| `timex_type` | text |  |  |  |  |
+| `value` | text | yes |  |  |  |
+
+- **Primary key:** (id)
+- **FK:** FOREIGN KEY (annotation_id) REFERENCES annotations(id) ON DELETE CASCADE
+- **FK:** FOREIGN KEY (span_id) REFERENCES spans(id) ON DELETE CASCADE
+- **RLS:** enabled — read/write policies via *annotation_id → annotations*
+
+#### `event`
+
+| Column | Type | Null | Key | Default | Notes |
+|---|---|---|---|---|---|
+| `id` | ulid |  | PK |  |  |
+| `annotation_id` | ulid |  | FK→annotations |  |  |
+| `token_id` | ulid |  | FK→tokens |  |  |
+| `event_class` | text | yes |  |  |  |
+
+- **Primary key:** (id)
+- **FK:** FOREIGN KEY (annotation_id) REFERENCES annotations(id) ON DELETE CASCADE
+- **FK:** FOREIGN KEY (token_id) REFERENCES tokens(id) ON DELETE CASCADE
+- **RLS:** enabled — read/write policies via *annotation_id → annotations*
+
+#### `tlink`
+
+| Column | Type | Null | Key | Default | Notes |
+|---|---|---|---|---|---|
+| `id` | ulid |  | PK |  |  |
+| `annotation_id` | ulid |  | FK→annotations |  |  |
+| `relation` | text |  |  |  |  |
+| `source_event_id` | ulid | yes | FK→event |  |  |
+| `source_timex_id` | ulid | yes | FK→timex |  |  |
+| `target_event_id` | ulid | yes | FK→event |  |  |
+| `target_timex_id` | ulid | yes | FK→timex |  |  |
+
+- **Primary key:** (id)
+- **FK:** FOREIGN KEY (annotation_id) REFERENCES annotations(id) ON DELETE CASCADE
+- **FK:** FOREIGN KEY (source_event_id) REFERENCES event(id) ON DELETE CASCADE
+- **FK:** FOREIGN KEY (source_timex_id) REFERENCES timex(id) ON DELETE CASCADE
+- **FK:** FOREIGN KEY (target_event_id) REFERENCES event(id) ON DELETE CASCADE
+- **FK:** FOREIGN KEY (target_timex_id) REFERENCES timex(id) ON DELETE CASCADE
+- **Check:** CHECK ((num_nonnulls(source_event_id, source_timex_id) = 1))
+- **Check:** CHECK ((num_nonnulls(target_event_id, target_timex_id) = 1))
+- **Index** `idx_tlink_source_event`: public.tlink USING btree (source_event_id)
+- **Index** `idx_tlink_source_timex`: public.tlink USING btree (source_timex_id)
+- **Index** `idx_tlink_target_event`: public.tlink USING btree (target_event_id)
+- **Index** `idx_tlink_target_timex`: public.tlink USING btree (target_timex_id)
+- **RLS:** enabled — read/write policies via *annotation_id → annotations*
+
+#### `sentiment`
+
+| Column | Type | Null | Key | Default | Notes |
+|---|---|---|---|---|---|
+| `id` | ulid |  | PK |  |  |
+| `annotation_id` | ulid |  | FK→annotations |  |  |
+| `span_id` | uuid |  | FK→spans |  |  |
+| `polarity` | text |  |  |  |  |
+| `score` | real | yes |  |  |  |
+| `target_span_id` | uuid | yes | FK→spans |  |  |
+
+- **Primary key:** (id)
+- **FK:** FOREIGN KEY (annotation_id) REFERENCES annotations(id) ON DELETE CASCADE
+- **FK:** FOREIGN KEY (span_id) REFERENCES spans(id) ON DELETE CASCADE
+- **FK:** FOREIGN KEY (target_span_id) REFERENCES spans(id) ON DELETE CASCADE
+- **RLS:** enabled — read/write policies via *annotation_id → annotations*
+
+### 5.9 Distributed representations (layer 20)
+
+pgvector embeddings over spans, ANN-indexed with HNSW (cosine).
+
+#### `embedding`
+
+| Column | Type | Null | Key | Default | Notes |
+|---|---|---|---|---|---|
+| `span_id` | uuid |  | PK, FK→spans |  |  |
+| `model` | text |  | PK |  |  |
+| `vector` | vector(768) |  |  |  | Fixed 768-d (bge-base default). pgvector HNSW requires a fixed dimension; a different-dimension model needs its own embedding table + HNSW index. |
+
+- **Primary key:** (span_id, model)
+- **FK:** FOREIGN KEY (span_id) REFERENCES spans(id) ON DELETE CASCADE
+- **Index** `idx_embedding_hnsw`: public.embedding USING hnsw (vector vector_cosine_ops)
+- **RLS:** enabled — read/write policies via *span_id → spans*
+
+### 5.10 Access control — RBAC & row-level security
+
+Principals, roles, permissions and per-document ACLs. Every document-scoped table above is protected
+by RLS keyed on these (see §Access control).
+
+#### `principals`
+
+| Column | Type | Null | Key | Default | Notes |
+|---|---|---|---|---|---|
+| `id` | uuid |  | PK | `gen_random_uuid()` |  |
+| `kind` | text |  |  | `'human'::text` |  |
+| `display_name` | text |  | UQ |  |  |
+| `external_subject` | text | yes |  |  |  |
+| `disabled_at` | timestamp with time zone | yes |  |  |  |
+| `created_at` | timestamp with time zone |  |  | `now()` |  |
+
+- **Primary key:** (id)
+- **Unique:** UNIQUE (display_name)
+- **Check:** CHECK ((kind = ANY (ARRAY['human'::text, 'service'::text])))
+- **Index** `principals_display_name_key`: public.principals USING btree (display_name)
+
+#### `roles`
+
+| Column | Type | Null | Key | Default | Notes |
+|---|---|---|---|---|---|
+| `id` | bigint |  | PK | `nextval('roles_id_seq'::regclass)` |  |
+| `name` | text |  | UQ |  |  |
+
+- **Primary key:** (id)
+- **Unique:** UNIQUE (name)
+- **Index** `roles_name_key`: public.roles USING btree (name)
+
+#### `permissions`
+
+| Column | Type | Null | Key | Default | Notes |
+|---|---|---|---|---|---|
+| `id` | bigint |  | PK | `nextval('permissions_id_seq'::regclass)` |  |
+| `action` | text |  | UQ |  |  |
+
+- **Primary key:** (id)
+- **Unique:** UNIQUE (action)
+- **Index** `permissions_action_key`: public.permissions USING btree (action)
+
+#### `role_permissions`
+
+| Column | Type | Null | Key | Default | Notes |
+|---|---|---|---|---|---|
+| `role_id` | bigint |  | PK, FK→roles |  |  |
+| `permission_id` | bigint |  | PK, FK→permissions |  |  |
+
+- **Primary key:** (role_id, permission_id)
+- **FK:** FOREIGN KEY (permission_id) REFERENCES permissions(id) ON DELETE CASCADE
+- **FK:** FOREIGN KEY (role_id) REFERENCES roles(id) ON DELETE CASCADE
+
+#### `principal_roles`
+
+| Column | Type | Null | Key | Default | Notes |
+|---|---|---|---|---|---|
+| `principal_id` | uuid |  | PK, FK→principals |  |  |
+| `role_id` | bigint |  | PK, FK→roles |  |  |
+
+- **Primary key:** (principal_id, role_id)
+- **FK:** FOREIGN KEY (principal_id) REFERENCES principals(id) ON DELETE CASCADE
+- **FK:** FOREIGN KEY (role_id) REFERENCES roles(id) ON DELETE CASCADE
+
+#### `document_acl`
+
+| Column | Type | Null | Key | Default | Notes |
+|---|---|---|---|---|---|
+| `document_id` | uuid |  | PK, FK→documents |  |  |
+| `principal_id` | uuid |  | PK, FK→principals |  |  |
+| `permission` | text |  | PK, FK→permissions |  |  |
+| `granted_at` | timestamp with time zone |  |  | `now()` |  |
+| `granted_by` | uuid | yes | FK→principals |  |  |
+
+- **Primary key:** (document_id, principal_id, permission)
+- **FK:** FOREIGN KEY (document_id) REFERENCES documents(id) ON DELETE CASCADE
+- **FK:** FOREIGN KEY (granted_by) REFERENCES principals(id)
+- **FK:** FOREIGN KEY (permission) REFERENCES permissions(action)
+- **FK:** FOREIGN KEY (principal_id) REFERENCES principals(id) ON DELETE CASCADE
+- **Index** `idx_document_acl_document`: public.document_acl USING btree (document_id)
+- **Index** `idx_document_acl_principal`: public.document_acl USING btree (principal_id)
+
+### 5.11 Meta
+
+Applied-migration ledger + the schema's SemVer.
+
+#### `schema_migrations`
+
+| Column | Type | Null | Key | Default | Notes |
+|---|---|---|---|---|---|
+| `filename` | text |  | PK |  |  |
+| `applied_at` | timestamp with time zone |  |  | `now()` |  |
+
+- **Primary key:** (filename)
+
+#### `schema_version`
+
+| Column | Type | Null | Key | Default | Notes |
+|---|---|---|---|---|---|
+| `singleton` | boolean |  | PK | `true` |  |
+| `version` | text |  |  |  |  |
+| `updated_at` | timestamp with time zone |  |  | `now()` |  |
+
+- **Primary key:** (singleton)
+- **Check:** CHECK (singleton)
+- **Check:** CHECK ((version ~ '^[0-9]+\.[0-9]+\.[0-9]+$'::text))
+
+
+## 6. Views
+
+#### `lexeme_forms`  
+`security_invoker = true`
+
+```sql
+SELECT DISTINCT lexeme_uid,
+    surface
+   FROM lexeme_occurrence_detail;
+```
+
+#### `lexeme_keys`  
+`security_invoker = true`
+
+```sql
+SELECT uid,
+    (((lang || ':'::text) || pos) || ':'::text) || lemma AS canonical_key
+   FROM lexemes;
+```
+
+#### `lexeme_occurrence_detail`  
+`security_invoker = true`
+
+```sql
+SELECT a.document_id,
+    a.tool AS analyzer,
+    o.annotation_id,
+    sp.char_start,
+    sp.char_end,
+    o.lexeme_uid,
+    l.lang,
+    l.pos,
+    l.lemma,
+    SUBSTRING(c.full_text FROM sp.char_start + 1 FOR sp.char_end - sp.char_start) AS surface
+   FROM lexeme_occurrences o
+     JOIN spans sp ON sp.id = o.span_id
+     JOIN annotations a ON a.id::bpchar = o.annotation_id::bpchar
+     JOIN lexemes l ON l.uid = o.lexeme_uid
+     JOIN document_content c ON c.document_id = a.document_id;
+```
+
+
+## 7. Functions & triggers
+
+| Function | Returns | Security | Lang |
+|---|---|---|---|
+| `docray_attach_rls(tbl regclass, tmpl text)` | `void` | invoker | plpgsql |
+| `docray_current_principal()` | `uuid` | invoker | sql |
+| `docray_is_admin()` | `boolean` | DEFINER | sql |
+| `docray_readable_documents()` | `SETOF uuid` | DEFINER | sql |
+| `docray_schema_version()` | `text` | invoker | sql |
+| `docray_ts_config(lang text)` | `regconfig` | invoker | sql |
+| `docray_writable_documents()` | `SETOF uuid` | DEFINER | sql |
+| `refresh_content_fts_on_language()` | `trigger` | invoker | plpgsql |
+| `set_document_content_fts()` | `trigger` | invoker | plpgsql |
+| `set_updated_at()` | `trigger` | invoker | plpgsql |
+
+- **document_content** `trg_content_fts`: CREATE TRIGGER trg_content_fts BEFORE INSERT OR UPDATE OF full_text …
+- **documents** `trg_documents_language_fts`: CREATE TRIGGER trg_documents_language_fts AFTER UPDATE OF language …
+- **documents** `trg_documents_updated_at`: CREATE TRIGGER trg_documents_updated_at BEFORE UPDATE …
+
+
+## 8. Access control (RBAC + RLS)
+
+Authorization is decided **per document** and inherited by every
+document-scoped table. A principal may **read** a document iff it is *admin* or
+holds any `document_acl` row on it, and may **write** iff *admin* or holds an
+`annotate`/`delete`/`admin` grant.
+
+**Enforcement.** RLS is `ENABLE`d (not `FORCE`) on 33 tables. The `docray`
+role is a **superuser and table owner**, so it **bypasses RLS** — the ingest
+pipeline and admin tooling use it as the trusted batch writer. End-user / API
+traffic must run as the non-superuser role **`docray_client`** (`SET ROLE
+docray_client`) and set the principal per transaction:
+
+```sql
+SET ROLE docray_client;
+SET app.principal_id = '<principal uuid>';
+```
+
+**How the policies work.** Two `SECURITY DEFINER` set-returning helpers,
+`docray_readable_documents()` and `docray_writable_documents()`, compute the
+caller's visible-document set **once per query**. Each table's policies then
+semi-join the row's owning-document path against that set (see the *RLS path*
+line in each table entry) — the planner turns this into a hashed semi-join
+rather than a per-row function call, so a full scan of a million-row table
+stays cheap. Reads use a `FOR SELECT` policy only; writes use separate
+`FOR INSERT/UPDATE/DELETE` policies (with `WITH CHECK`) so they never
+contaminate read plans.
+
+**Trust boundary.** The principal comes from a session GUC the connecting role
+can set, so this is safe only when the DB client is the trusted app tier. A
+client able to run arbitrary SQL as `docray_client` could impersonate any
+principal; hostile direct access would need per-principal `LOGIN` roles keyed
+on `current_user`. The derived views (`lexeme_occurrence_detail`,
+`lexeme_forms`, `lexeme_keys`) are set `security_invoker = true` so they inherit
+the caller's RLS instead of the owner's bypass.
+
+
+## 9. Migration history
+
+| # | Migration | What it adds |
+|---|---|---|
+| 001 | `001_init.sql` | documents + document_content (FTS), pg_trgm, updated_at trigger |
+| 002 | `002_sentences.sql` | ulid domain; sentences (ULID PK) |
+| 003 | `003_document_entity.sql` | bibliographic/lineage columns; provenance_kind enum; document_provenance |
+| 004 | `004_normalize_4nf.sql` | decompose authors/tags/identifiers/metadata/params to relations |
+| 005 | `005_lexemes.sql` | lexemes, annotations, lexeme_occurrences + derived views |
+| 006 | `006_schema_migrations.sql` | the applied-migration ledger |
+| 007 | `007_spans.sql` | shared span registry; refactor sentences/occurrences onto span_id; layer-aware annotations |
+| 008 | `008_tokens_morphology.sql` | tokens, token_feature (UD FEATS), subword |
+| 009 | `009_syntax.sql` | chunk, constituent, dependency |
+| 010 | `010_reference.sql` | entity_mention, entity_link, coref_chain, coref_mention |
+| 011 | `011_meaning_discourse.sql` | SRL, WSD, AMR, discourse, TimeML, sentiment |
+| 012 | `012_embeddings.sql` | pgvector extension; embedding + HNSW index |
+| 013 | `013_fix_sentence_fk.sql` | tokens/amr_node.sentence_id → ON DELETE SET NULL |
+| 014 | `014_span_fk_cascade.sql` | every span reference → ON DELETE CASCADE |
+| 015 | `015_layer_fk_cascade.sql` | complete the ON DELETE graph for document-owned tables |
+| 016 | `016_fts_language_aware.sql` | trigger-maintained language-aware FTS (en/pt/simple) |
+| 017 | `017_schema_review_fixes.sql` | typed tlink endpoints; word_sense PK; derived_from SET NULL; catalog comments |
+| 018 | `018_rbac.sql` | document-level RBAC + row-level security on 33 tables |
+| 019 | `019_schema_version.sql` | schema SemVer — schema_version + docray_schema_version() |
+
