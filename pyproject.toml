@@ -62,15 +62,26 @@ max-complexity = 12
 
 [tool.mypy]
 strict = true
-python_version = "3.10"
+# Target the actual runtime (3.12). numpy>=2 ships PEP 695 `type` statements in its
+# stubs; a 3.10 target refuses to parse them and aborts the whole run. 3.10 *source*
+# compatibility is guarded independently by ruff (target-version = "py310").
+python_version = "3.12"
 files = ["src/doc_ray"]
 # Strict typing targets the package surface; the test suite is excluded (standard
 # practice) and vendored/prototype trees are out of scope.
 exclude = "(^|/)(proto|\\.repo|engineering/schema|\\.venv|tests)/"
 
 [[tool.mypy.overrides]]
-# Third-party libraries without bundled type stubs.
-module = ["psycopg.*", "boto3.*", "botocore.*", "fitz.*", "pypdf.*", "spacy.*", "strawberry.*"]
+# Third-party libraries without bundled type stubs (incl. optional python-docx).
+module = ["psycopg.*", "boto3.*", "botocore.*", "fitz.*", "pypdf.*", "spacy.*",
+          "strawberry.*", "docx", "docx.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+# numpy is pulled in transitively via spaCy but never used directly by the package;
+# skip analysing its large stubs.
+module = ["numpy", "numpy.*"]
+follow_imports = "skip"
 ignore_missing_imports = true
 
 [tool.coverage.run]

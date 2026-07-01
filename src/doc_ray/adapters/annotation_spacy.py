@@ -68,11 +68,14 @@ class SpacyAnnotator:
         """
         model = _MODELS.get(lang, _MODELS["en"])
         if model not in self._nlp:
+            import importlib.metadata
+
             import spacy
 
             nlp = spacy.load(model)
             nlp.max_length = 5_000_000
-            self._nlp[model] = (nlp, f"spacy/{model}@{spacy.__version__}")
+            ver = importlib.metadata.version("spacy")
+            self._nlp[model] = (nlp, f"spacy/{model}@{ver}")
         return self._nlp[model]
 
     def _build_tokens(

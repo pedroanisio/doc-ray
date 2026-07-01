@@ -45,6 +45,8 @@ class SpacyAnalyzer:
             lang: Language code selecting the model in ``_MODELS``.
             batch: Maximum number of words fed to spaCy per ``Doc``.
         """
+        import importlib.metadata
+
         import spacy
         from spacy.tokens import Doc
 
@@ -53,7 +55,7 @@ class SpacyAnalyzer:
         self._Doc = Doc
         self._batch = batch
         self.name = f"spacy/{model}"
-        self.version = spacy.__version__
+        self.version = importlib.metadata.version("spacy")
 
     def analyze(self, surfaces: list[str]) -> list[tuple[str, str]]:
         """Analyze pre-tokenized *surfaces* into ``(lemma, upos)`` pairs.
