@@ -1,0 +1,449 @@
+# =====================================================================
+# doc-ray — backlog.yml  (parking lot of deferred work)
+#
+# System of record for deferred features, tech-debt, and known bugs.
+# Structure defined by docs/schema/backlog.schema.json (v1.0.0). Validate with:
+#   pip install jsonschema pyyaml
+#   python -c "import json,yaml,jsonschema; \
+#     jsonschema.validate(yaml.safe_load(open('docs/backlog.yml')), \
+#     json.load(open('docs/schema/backlog.schema.json')))"
+#
+# Rules honoured (CLAUDE.md): no time estimates (effort = complexity XS..XL);
+# every item traces to a real source (doc / ADR id / code path / session finding);
+# ownership boundary recorded so concurrent-session work stays attributable.
+#
+# ARCHITECTURAL REQUIREMENT (PALS's LAW): LLMs will always produce some form of error.
+# Absence of output verification is a design defect, not a runtime bug. Any item that
+# introduces an ML/LLM annotator (BL-002, BL-006) carries a verification obligation.
+# =====================================================================
+
+disclaimer: |
+  No statement or premise not backed by a real logical definition or
+  verifiable reference should be taken for granted. Items here are grounded
+  in cited sources; where a claim is unverified it is marked as such.
+
+metadata:
+  schema_version:   "1.0.0"
+  generated_by:     "Claude Opus 4.8 via Claude Code"
+  generated_on:     "2026-07-01"
+  system_of_record: "docs/backlog.yml"
+  total_items:      15
+
+items:
+
+  # ============================= EXTRACTION =============================
+
+  - id:          "BL-001"
+    title:        "OCR pass for image-only PDFs"
+    summary:      "Scanned/image-only PDFs extract to zero characters; add OCR before text extraction."
+    description: |
+      At least one fixture ("Verified Coverage of the FrontierMath Ramsey
+      Book-Graph…") extracts to 0 characters — it is image-only, so it yields no
+      sentences and no annotations. Route such documents through an OCR stage
+      (e.g. Tesseract / ocrmypdf) ahead of the text extractor, recorded via the
+      existing `extractor` provenance field.
+    category:     "extraction"
+    type:         "feature"
+    status:       "parked"
+    complexity:   "M"
+    priority:     "high"
+    rationale:    "A whole class of input (scanned PDFs) is silently unprocessable today — 0 chars, no error."
+    acceptance_criteria:
+      - "An image-only fixture produces non-empty text and downstream sentences."
+      - "OCR backend is opt-in and stamped in the document's extractor provenance."
+    references:
+      - "docs/BACKLOG.md"
+      - "src/doc_ray/adapters/extraction.py"
+      - "src/doc_ray/domain/pdf_layout.py"
+    owner:        "shared"
+    source:       "docs/BACKLOG.md — Extraction/ingestion; re-import run found a 0-char fixture."
+    tags:         ["ocr", "pdf", "ingestion"]
+
+  - id:          "BL-002"
+    title:        "Math fidelity: recover equations as LaTeX via opt-in ML backend"
+    summary:      "PyMuPDF fixes spacing but does not recover math; add Docling/Marker/Nougat behind the extractor field."
+    description: |
+      The layout extractor repairs spacing/structure but does not recover math
+      notation as LaTeX (e.g. `∀M∈M …` stays mangled). Math-heavy documents
+      (PALS's Law paper, the relativity papers) need an opt-in ML extraction
+      backend (Docling / Marker / Nougat) selected through the existing
+      `extractor` provenance field. Because the backend is ML/LLM-based, its
+      output MUST pass a verification layer (PALS's Law) before persistence.
+    category:     "extraction"
+    type:         "feature"
+    status:       "parked"
+    complexity:   "L"
+    priority:     "medium"
+    rationale:    "Formal/technical corpora lose their math, degrading every downstream NLP layer for those docs."
+    acceptance_criteria:
+      - "A math-heavy fixture yields recoverable LaTeX for at least its display equations."
+      - "Backend is opt-in, provenance-stamped, and its output is schema-validated before write."
+    dependencies: ["BL-007"]
+    references:
+      - "docs/BACKLOG.md"
+      - "src/doc_ray/adapters/extraction.py"
+    owner:        "shared"
+    source:       "docs/BACKLOG.md — Extraction/ingestion (math fidelity)."
+    tags:         ["math", "latex", "ml-backend", "pals-law"]
+
+  - id:          "BL-003"
+    title:        "Calibrate heading-detection thresholds per corpus"
+    summary:      "Font-ratio heading heuristics over-detect on some docs; make thresholds tunable per corpus."
+    description: |
+      `pdf_layout.heading_level` / `classify_line` use generic font-size ratios
+      and over-detect headings on some documents. The logic is regression-tested,
+      so calibration can proceed safely — expose thresholds as tunable inputs.
+    category:     "extraction"
+    type:         "tech-debt"
+    status:       "parked"
+    complexity:   "S"
+    priority:     "low"
+    rationale:    "Spurious headings distort the document/physical-structure layer and the reader outline."
+    acceptance_criteria:
+      - "Heading thresholds are configurable without code edits."
+      - "Existing pdf_layout regression tests remain green."
+    references:
+      - "docs/BACKLOG.md"
+      - "src/doc_ray/domain/pdf_layout.py"
+      - "tests/test_pdf_layout.py"
+    owner:        "mine"
+    source:       "docs/BACKLOG.md — Extraction/ingestion (heading-threshold tuning)."
+    tags:         ["headings", "layout", "calibration"]
+
+  # ============================== WEB APP ===============================
+
+  - id:          "BL-004"
+    title:        "Render Markdown in the reading pane"
+    summary:      "Extracted text carries # headings and - lists; the reader shows them literally instead of styled."
+    description: |
+      Extracted text now carries Markdown markers (`#` headings, `-` lists), but
+      the reading pane renders them literally. Parse and style headings and lists
+      in the reader while preserving the annotation overlay and column measure.
+    category:     "webapp"
+    type:         "feature"
+    status:       "parked"
+    complexity:   "S"
+    priority:     "medium"
+    rationale:    "Raw `#`/`-` markers in the literary reading view are a visible UX regression against the structured text."
+    acceptance_criteria:
+      - "Headings and lists render as styled HTML, not raw markers."
+      - "Inline POS annotations and KWIC still function over rendered blocks."
+    references:
+      - "docs/BACKLOG.md"
+      - "webapp/"
+    owner:        "mine"
+    source:       "docs/BACKLOG.md — Web app (render Markdown in the reader)."
+    tags:         ["reader", "markdown", "ux"]
+
+  - id:          "BL-005"
+    title:        "Full-document scroll view + solo-POS focus mode"
+    summary:      "Add an infinite-scroll whole-document reading view and a 'solo one POS' focus mode."
+    description: |
+      Offered during the reading-UX work but not built: a full-document /
+      infinite-scroll reading view, and a focus mode that isolates a single
+      part-of-speech across the document.
+    category:     "webapp"
+    type:         "feature"
+    status:       "parked"
+    complexity:   "M"
+    priority:     "low"
+    rationale:    "Current reader is paginated per document unit; long-form reading and single-POS study are unsupported."
+    acceptance_criteria:
+      - "A document renders as one continuous scroll without per-unit navigation."
+      - "Focus mode highlights exactly one POS and dims the rest."
+    references:
+      - "docs/BACKLOG.md"
+      - "webapp/"
+    owner:        "mine"
+    source:       "docs/BACKLOG.md — Web app (infinite-scroll + solo-POS)."
+    tags:         ["reader", "ux", "annotation"]
+
+  # =============================== NLP ==================================
+
+  - id:          "BL-006"
+    title:        "Materialize the remaining NLP annotation layers"
+    summary:      "The 20-layer target is documented; migrations 008–012 cover tokens→embeddings, leaving several layers unbuilt."
+    description: |
+      docs/nlp_annotation_layers.md defines a complete 20-layer target. The schema
+      currently materializes tokens/morphology (008), syntax (009), reference (010),
+      meaning+discourse (011), and embeddings (012). Layers documented but not yet
+      materialized as schema + pipeline include constituency parsing, subword
+      tokenization, word-sense disambiguation, semantic parsing (AMR), discourse
+      (PDTB connectives→senses), and temporal/event (TimeML). Audit the gap against
+      the doc and implement per layer. NOTE (unverified): the exact
+      built-vs-doc-only status of each individual layer must be confirmed against
+      migrations 008–012 before scoping — this item is the audit + build, not a
+      claim that a specific layer is absent.
+    category:     "nlp"
+    type:         "feature"
+    status:       "parked"
+    complexity:   "XL"
+    priority:     "medium"
+    rationale:    "The annotation product is defined by the 20-layer target; the gap between doc and schema is the roadmap."
+    acceptance_criteria:
+      - "A per-layer audit table maps each of the 20 layers to a migration + pipeline step or an explicit 'not planned'."
+      - "Each newly built layer has schema, pipeline population, and tests."
+      - "ML/LLM-derived layers pass a verification layer before persistence (PALS's Law)."
+    dependencies: ["BL-007"]
+    related_decisions: ["D-009"]
+    references:
+      - "docs/nlp_annotation_layers.md"
+      - "db/migrations/008_tokens_morphology.sql"
+      - "db/migrations/009_syntax.sql"
+      - "db/migrations/010_reference.sql"
+      - "db/migrations/011_meaning_discourse.sql"
+      - "db/migrations/012_embeddings.sql"
+    owner:        "concurrent"
+    source:       "docs/nlp_annotation_layers.md §1 (complete set) vs db/migrations 008–012."
+    tags:         ["nlp", "annotation-layers", "schema"]
+
+  - id:          "BL-007"
+    title:        "Verification layer for ML/LLM annotator output (PALS's Law)"
+    summary:      "Any ML/LLM-based annotator must validate its output before persistence; build the shared verification stage."
+    description: |
+      Today's annotators are deterministic (spaCy + rule-based fallback). Planned
+      ML/LLM backends (BL-002 math, BL-006 AMR/WSD/discourse) will emit untrusted,
+      possibly-hallucinated output. Per CLAUDE.md (PALS's Law), a verification
+      layer is a first-class architectural requirement, not post-processing. Build
+      a shared validation stage — schema conformance, span-alignment, and
+      confidence/consistency checks — that every ML/LLM annotator output passes
+      before it is written.
+    category:     "nlp"
+    type:         "infra"
+    status:       "parked"
+    complexity:   "M"
+    priority:     "high"
+    rationale:    "CLAUDE.md declares absence of LLM-output verification an architectural omission; it must exist before ML annotators land."
+    acceptance_criteria:
+      - "A verification port sits between any ML/LLM annotator and persistence."
+      - "Output that fails schema/span/consistency checks is rejected, not stored."
+      - "The contract block from CLAUDE.md is present on each ML/LLM-calling function."
+    references:
+      - "CLAUDE.md — LLM Output Verification (PALS's Law)"
+      - "src/doc_ray/ports/annotator.py"
+    owner:        "shared"
+    source:       "CLAUDE.md architectural requirement (PALS's Law); enabling dependency for BL-002/BL-006."
+    tags:         ["pals-law", "verification", "architecture"]
+
+  # ============================ API (GraphQL) ===========================
+
+  - id:          "BL-008"
+    title:        "Complete the GraphQL (Strawberry) driving adapter"
+    summary:      "Expose the store through a GraphQL API at entrypoints/api/, as a driving adapter over the use-case layer."
+    description: |
+      D-001 commits to a Strawberry GraphQL API at src/doc_ray/entrypoints/api/,
+      a driving adapter over the application/use-case layer with no SQL in
+      resolvers. Build out the resolvers and schema against the ReadRepository
+      port (D-002).
+    category:     "api"
+    type:         "feature"
+    status:       "parked"
+    complexity:   "L"
+    priority:     "medium"
+    rationale:    "The programmatic surface over the store is committed in the ADR system but not yet fully built."
+    acceptance_criteria:
+      - "A GraphQL endpoint serves reads through the ReadRepository port."
+      - "No SQL appears in resolvers (hexagonal boundary preserved)."
+    related_decisions: ["D-001", "D-002"]
+    references:
+      - "engineering_decisions.yml — D-001, D-002"
+      - "src/doc_ray/entrypoints/"
+      - "src/doc_ray/ports/repository.py"
+    owner:        "concurrent"
+    source:       "engineering_decisions.yml D-001 (GraphQL API) — architecture decision, accepted."
+    tags:         ["graphql", "strawberry", "api", "hexagonal"]
+
+  - id:          "BL-009"
+    title:        "GraphQL safety: depth/complexity limits + keyset pagination"
+    summary:      "Enforce query depth/complexity caps and keyset pagination on the GraphQL surface."
+    description: |
+      D-008 commits to query depth + complexity limits and keyset pagination to
+      protect the GraphQL API from abusive queries. Implement alongside/after the
+      resolver build-out (BL-008); the claim is currently 'populated' in the ADR
+      but must be enforced on the live surface.
+    category:     "security"
+    type:         "feature"
+    status:       "parked"
+    complexity:   "M"
+    priority:     "high"
+    rationale:    "An unbounded GraphQL surface is a denial-of-service and data-exfiltration risk."
+    acceptance_criteria:
+      - "Queries exceeding depth/complexity budgets are rejected."
+      - "List reads use keyset (not offset) pagination."
+    dependencies: ["BL-008"]
+    related_decisions: ["D-008"]
+    references:
+      - "engineering_decisions.yml — D-008"
+    owner:        "concurrent"
+    source:       "engineering_decisions.yml D-008 (GraphQL safety) — accepted decision."
+    tags:         ["graphql", "security", "pagination"]
+
+  # =============================== OPS ==================================
+
+  - id:          "BL-010"
+    title:        "Background jobs via a Postgres queue (FOR UPDATE SKIP LOCKED)"
+    summary:      "Introduce a Postgres-backed job queue using FOR UPDATE SKIP LOCKED for concurrent claiming."
+    description: |
+      D-004 commits to background jobs on a Postgres queue with FOR UPDATE SKIP
+      LOCKED for safe concurrent claiming; the ADR claim is 'pending' (not yet
+      built). Requires the jobs table (D-007, also pending — migration 019 is
+      currently schema_version, not jobs).
+    category:     "ops"
+    type:         "feature"
+    status:       "parked"
+    complexity:   "L"
+    priority:     "medium"
+    rationale:    "Ingestion/annotation are long-running; a durable queue is the committed execution model."
+    acceptance_criteria:
+      - "Workers claim jobs with FOR UPDATE SKIP LOCKED without double-processing."
+      - "Job state transitions are persisted and observable."
+    dependencies: ["BL-011"]
+    related_decisions: ["D-004", "D-007"]
+    references:
+      - "engineering_decisions.yml — D-004 (status: pending), D-007"
+    owner:        "concurrent"
+    source:       "engineering_decisions.yml D-004 claim D-004.k1 status: pending."
+    tags:         ["jobs", "queue", "postgres", "concurrency"]
+
+  - id:          "BL-011"
+    title:        "jobs table + sync worker runtime"
+    summary:      "Add the jobs table (text+CHECK status, open text kind) and a sync worker; async only for API reads."
+    description: |
+      D-007 commits to a jobs table (text + CHECK status, open text kind), and
+      D-005 to a synchronous worker for blocking work with async reserved for API
+      reads. Both ADR claims are 'pending'. The jobs table migration is not yet
+      present (019 is schema_version).
+    category:     "persistence"
+    type:         "feature"
+    status:       "parked"
+    complexity:   "M"
+    priority:     "medium"
+    rationale:    "The queue (BL-010) needs its table and a defined worker execution model; both are committed but unbuilt."
+    acceptance_criteria:
+      - "A jobs migration exists with text+CHECK status and an open text kind column."
+      - "A sync worker processes blocking jobs; async is confined to API reads."
+    related_decisions: ["D-005", "D-007"]
+    references:
+      - "engineering_decisions.yml — D-005 (pending), D-007 (pending)"
+      - "db/migrations/"
+    owner:        "concurrent"
+    source:       "engineering_decisions.yml D-005.k1 / D-007.k1 status: pending."
+    tags:         ["jobs", "worker", "migration"]
+
+  # ============================= SECURITY ===============================
+
+  - id:          "BL-012"
+    title:        "Per-principal LOGIN roles for hostile-direct-SQL isolation"
+    summary:      "Current RLS trusts the app tier to set app.principal_id; a hostile docray_client could impersonate."
+    description: |
+      The webapp enforces RLS by SET ROLE docray_client + set_config('app.principal_id').
+      This is safe only while the DB client is a trusted application tier: the
+      principal comes from a server-side session GUC, never user input. A hostile
+      actor with direct SQL access as docray_client could set an arbitrary
+      app.principal_id and impersonate any principal. Closing this requires
+      per-principal LOGIN roles (or an equivalent DB-enforced identity), so the
+      principal is authenticated by the database rather than asserted by the client.
+      (docray superuser intentionally bypasses RLS as the trusted batch writer and
+      must NOT be switched to docray_client.)
+    category:     "security"
+    type:         "feature"
+    status:       "parked"
+    complexity:   "L"
+    priority:     "medium"
+    rationale:    "The session-GUC principal is only a trust-boundary assumption; direct-SQL access breaks tenant isolation."
+    acceptance_criteria:
+      - "Principal identity is authenticated by the database, not asserted by the client connection."
+      - "A docray_client-level actor cannot impersonate another principal by setting a GUC."
+      - "The trusted batch-writer (superuser) path is unchanged."
+    related_decisions: ["D-010"]
+    references:
+      - "engineering_decisions.yml — D-010 (RLS; API sets the principal)"
+      - "db/migrations/018_rbac.sql"
+      - "webapp/app.py"
+    owner:        "shared"
+    source:       "Session RLS operational notes — trust boundary of the app-tier-asserted principal."
+    tags:         ["rls", "rbac", "multi-tenant", "trust-boundary"]
+
+  # ========================= TESTING / TOOLING ==========================
+
+  - id:          "BL-013"
+    title:        "Raise package coverage from 57% to the 90% gate"
+    summary:      "D-013 requires >=90% coverage; the package sits at ~57%, with the gap in orchestration/adapter layers."
+    description: |
+      Measured coverage across both suites (with a live DB) is ~57% vs the
+      fail_under=90 gate (D-013). The domain layer is already 96–100%. The gap is
+      concentrated in: application/ (pipeline, reannotate, reextract — 0%),
+      entrypoints/ (cli, migrate — 0%), adapters/ (export, object_store partial;
+      persistence partial), and ports/ (Protocols show 0% but are pure interface
+      bodies — exclude via coverage `exclude_also` for `...`/Protocol, or add a
+      smoke-import test). Most non-domain modules need DB+spaCy integration tests.
+    category:     "testing"
+    type:         "tech-debt"
+    status:       "ready"
+    complexity:   "L"
+    priority:     "high"
+    rationale:    "The coverage gate (D-013) is enforced (fail_under=90) and currently fails, so CI cannot go green."
+    acceptance_criteria:
+      - "application/ and entrypoints/ modules reach meaningful coverage via unit/integration tests."
+      - "ports/ Protocols are either coverage-excluded (documented) or smoke-tested."
+      - "Total coverage >= 90% with `pytest --cov=doc_ray tests src/doc_ray/tests`."
+    related_decisions: ["D-013"]
+    references:
+      - "pyproject.toml — [tool.coverage.report] fail_under = 90"
+      - "src/doc_ray/application/"
+      - "src/doc_ray/entrypoints/"
+      - "src/doc_ray/ports/"
+    owner:        "shared"
+    source:       "Session refine pass — per-module coverage breakdown (2026-07-01)."
+    tags:         ["coverage", "tests", "quality-gate"]
+
+  - id:          "BL-014"
+    title:        "Fix 14 E501 line-length errors in gen_data_dictionary.py"
+    summary:      "ruff reports 14 E501 (101–177 chars) in the untracked data-dictionary generator; wrap or restructure."
+    description: |
+      `ruff check` is clean across the tracked package but reports 14 E501 errors
+      in scripts/gen_data_dictionary.py (untracked, concurrent-session file). The
+      offenders are long SQL/Markdown string literals (lines 88–156, 323, 351,
+      395, 402). Cosmetic, no correctness impact; wrap the strings or add targeted
+      noqa. Left to the file's owner to avoid folding edits into their in-flight work.
+    category:     "tooling"
+    type:         "tech-debt"
+    status:       "ready"
+    complexity:   "XS"
+    priority:     "low"
+    rationale:    "The E501s keep the lint gate (D-011) red on a full-tree run."
+    acceptance_criteria:
+      - "`ruff check scripts/gen_data_dictionary.py` passes."
+    related_decisions: ["D-011"]
+    references:
+      - "scripts/gen_data_dictionary.py"
+    owner:        "concurrent"
+    source:       "Session refine pass — ruff reported 14 E501 in the untracked file (2026-07-01)."
+    tags:         ["ruff", "lint", "e501"]
+
+  - id:          "BL-015"
+    title:        "Fix test_migrate row_factory KeyError against the live DB"
+    summary:      "test_apply_is_idempotent_against_live_db fails with a KeyError in applied_filenames (row_factory mismatch)."
+    description: |
+      In the untracked migration-runner feature (adapters/migrate.py,
+      entrypoints/migrate.py, test_migrate.py, persistence_read.py), the test
+      test_apply_is_idempotent_against_live_db fails: applied_filenames reads
+      row["filename"], but the live connection's row_factory yields rows that miss
+      the key, raising KeyError. Normalize row access (name-or-index) or pin the
+      row_factory for that query. Concurrent-owned; a real bug, not flaky.
+    category:     "persistence"
+    type:         "bug"
+    status:       "ready"
+    complexity:   "S"
+    priority:     "high"
+    rationale:    "A failing test in the migration runner blocks a green suite and signals a real row-access defect."
+    acceptance_criteria:
+      - "test_apply_is_idempotent_against_live_db passes against the live DB."
+      - "applied_filenames reads the filename column regardless of row_factory."
+    related_decisions: ["D-006"]
+    references:
+      - "src/doc_ray/adapters/migrate.py"
+      - "src/doc_ray/tests/test_migrate.py"
+    owner:        "concurrent"
+    source:       "Session refine pass — pytest failure + KeyError in applied_filenames (2026-07-01)."
+    tags:         ["migrations", "bug", "row-factory"]

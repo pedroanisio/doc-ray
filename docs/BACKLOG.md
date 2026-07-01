@@ -1,34 +1,61 @@
+---
+disclaimer:
+  notice: >-
+    No information within this document should be taken for granted.
+    Any statement or premise not backed by a real logical definition
+    or verifiable reference may be invalid, erroneous, or a hallucination.
+  generated_by: "Claude Opus 4.8 via Claude Code"
+  date: "2026-07-01"
+---
+
 # Backlog
 
-Deferred work, captured so it isn't lost. Nothing here blocks current use.
+## Disclaimer
 
-## Extraction / ingestion
-- **OCR for image-only PDFs.** One fixture (*"Verified Coverage of the FrontierMath
-  Ramsey Book-Graph…"*) extracts to **0 characters** — it's scanned/image-only, so it
-  has no sentences or annotations. Needs an OCR pass (e.g. Tesseract / `ocrmypdf`)
-  before the text extractor.
-- **Math fidelity.** PyMuPDF fixes spacing/structure but does **not** recover math as
-  LaTeX (`∀M∈M …` stays mangled). For math-heavy docs (PALS's Law, the relativity
-  papers) add an opt-in ML backend — Docling / Marker / Nougat — behind the existing
-  `extractor` provenance field.
-- **Heading-threshold tuning.** `ingest/pdf_layout.heading_level` / `classify_line`
-  use generic font-size ratios; they over-detect headings on some docs. Tunable and
-  now regression-tested — worth calibrating per corpus.
+This work is subject to the methodological caveats and commitments described in [@DISCLAIMER.md](../DISCLAIMER.md).
+> No statement or premise not backed by a real logical definition or verifiable reference should be taken for granted.
 
-## Web app
-- **Render Markdown in the reader.** Extracted text now carries `#` headings and `-`
-  lists; the reading pane shows the markers literally. Parse/style them (headings,
-  lists) instead of showing raw `#`.
-- **Full-document / infinite-scroll reading view** and a "solo one POS" focus mode
-  (offered earlier, not yet built).
+Deferred work — features, tech-debt, and known bugs — captured so it isn't lost.
+Nothing here blocks current use.
 
-## Tests / tooling
-- **Unified pytest config.** Add a `pyproject.toml` `[tool.pytest.ini_options]`
-  `testpaths = ["tests"]` (the session suite) and decide whether `ingest/tests/`
-  (the NLP-layer suite, may need a live DB) runs in the same command or separately.
+**System of record:** [`docs/backlog.yml`](backlog.yml), structured by
+[`docs/schema/backlog.schema.json`](schema/backlog.schema.json) (v1.0.0). The YAML
+is canonical; this table is a rendered view of it. Effort is expressed as
+**complexity** (XS–XL), never time (CLAUDE.md). `Owner` records the provenance
+boundary so concurrent-session work stays attributable.
 
-## Cleanup follow-ups (done this pass, noted for context)
-- Root standalone scripts relocated to `scripts/` (`lexeme.py` deleted — superseded by
-  `ingest/lexemes.py` + `ingest/annotate_spacy.py`).
-- `ingest/extract.py` no longer imports the relocated toolkit (html/epub helpers are
-  inlined in the package) — verified self-contained on a clean checkout.
+Validate the backlog against its schema:
+
+```bash
+pip install jsonschema pyyaml
+python -c "import json,yaml,jsonschema; \
+  jsonschema.validate(yaml.safe_load(open('docs/backlog.yml')), \
+  json.load(open('docs/schema/backlog.schema.json')))"
+```
+
+## Items
+
+| ID | Item | Category | Type | Cx | Priority | Owner |
+|----|------|----------|------|----|----------|-------|
+| BL-001 | OCR pass for image-only PDFs | extraction | feature | M | high | shared |
+| BL-002 | Math fidelity: recover equations as LaTeX via opt-in ML backend | extraction | feature | L | medium | shared |
+| BL-003 | Calibrate heading-detection thresholds per corpus | extraction | tech-debt | S | low | mine |
+| BL-004 | Render Markdown in the reading pane | webapp | feature | S | medium | mine |
+| BL-005 | Full-document scroll view + solo-POS focus mode | webapp | feature | M | low | mine |
+| BL-006 | Materialize the remaining NLP annotation layers | nlp | feature | XL | medium | concurrent |
+| BL-007 | Verification layer for ML/LLM annotator output (PALS's Law) | nlp | infra | M | high | shared |
+| BL-008 | Complete the GraphQL (Strawberry) driving adapter | api | feature | L | medium | concurrent |
+| BL-009 | GraphQL safety: depth/complexity limits + keyset pagination | security | feature | M | high | concurrent |
+| BL-010 | Background jobs via a Postgres queue (FOR UPDATE SKIP LOCKED) | ops | feature | L | medium | concurrent |
+| BL-011 | jobs table + sync worker runtime | persistence | feature | M | medium | concurrent |
+| BL-012 | Per-principal LOGIN roles for hostile-direct-SQL isolation | security | feature | L | medium | shared |
+| BL-013 | Raise package coverage from 57% to the 90% gate | testing | tech-debt | L | high | shared |
+| BL-014 | Fix 14 E501 line-length errors in gen_data_dictionary.py | tooling | tech-debt | XS | low | concurrent |
+| BL-015 | Fix test_migrate row_factory KeyError against the live DB | persistence | bug | S | high | concurrent |
+
+See [`backlog.yml`](backlog.yml) for each item's full description, rationale,
+acceptance criteria, dependencies, related decisions (`D-###`), and references.
+
+---
+
+[← Back to root README](../README.md)
