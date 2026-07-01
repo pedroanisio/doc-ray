@@ -52,7 +52,7 @@ services:
       "
 
   # On-demand ingester. Build once, then:
-  #   docker compose run --rm ingester python -m ingest.cli /data/orwell1984.pdf
+  #   docker compose run --rm ingester python -m doc_ray.entrypoints.cli /data/orwell1984.pdf
   ingester:
     build: .
     container_name: docray-ingester
@@ -62,6 +62,7 @@ services:
       createbucket:
         condition: service_completed_successfully
     environment:
+      PYTHONPATH: /app/src        # ingest package lives under src/ (src layout)
       DATABASE_URL: postgresql://${POSTGRES_USER:-docray}:${POSTGRES_PASSWORD:-docray}@postgres:5432/${POSTGRES_DB:-docray}
       S3_ENDPOINT: http://minio:9000
       S3_ACCESS_KEY: ${S3_ACCESS_KEY:-minioadmin}
@@ -70,7 +71,7 @@ services:
     volumes:
       - ./:/app:ro          # source + sample PDFs available under /data via /app
       - ./:/data:ro
-    # Inherits the Dockerfile ENTRYPOINT (`python -m ingest.cli`).
+    # Inherits the Dockerfile ENTRYPOINT (`python -m doc_ray.entrypoints.cli`).
     # Invoke with:  docker compose run --rm ingester /data/orwell1984.pdf
 
 volumes:

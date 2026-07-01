@@ -21,12 +21,12 @@ import json
 import sys
 from pathlib import Path
 
-# This script lives in scripts/; put the repo root on the path so `ingest` (a
-# top-level package) is importable when run directly as `python scripts/roundtrip.py`.
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+# This script lives in scripts/; the ingest package lives in ../src (src layout).
+# Put src/ on the path so `from ingest import ...` works when run directly.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
-from ingest import extract as extract_mod
-from ingest import sentences as sent_mod
+from doc_ray.adapters import extraction as extract_mod
+from doc_ray.domain import sentences as sent_mod
 
 
 def _sha(b: bytes) -> str:

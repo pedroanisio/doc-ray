@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import pytest
 
-from ingest import pdf_layout as pl
+from doc_ray.domain import pdf_layout as pl
 
 
 # --- builders --------------------------------------------------------------

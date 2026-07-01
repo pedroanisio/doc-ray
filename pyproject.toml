@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "doc-ray"
+version = "0.1.0"
+description = "Document ingestion, decomposition, and annotation pipeline."
+requires-python = ">=3.10"
+dynamic = ["dependencies"]
+
+# src/ layout: the importable package lives under src/. The frontend (webapp/)
+# and standalone tools (scripts/) intentionally stay OUTSIDE src.
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.dynamic]
+dependencies = { file = ["requirements.txt"] }
+
+[tool.pytest.ini_options]
+# Make the pieces importable without an install:
+#   src     -> the ingest package
+#   .       -> webapp (frontend, kept outside src)
+#   scripts -> the standalone text toolkit exercised by the suite
+pythonpath = ["src", ".", "scripts"]
+testpaths = ["tests"]

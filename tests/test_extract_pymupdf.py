@@ -11,7 +11,7 @@ import pytest
 
 fitz = pytest.importorskip("fitz", reason="PyMuPDF not installed")
 
-from ingest import extract
+from doc_ray.adapters import extraction as extract
 
 
 def _make_pdf() -> bytes:

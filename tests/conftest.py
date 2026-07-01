@@ -7,19 +7,13 @@ the EPUB reader can be exercised without external fixtures.
 
 from __future__ import annotations
 
-import sys
 import zipfile
 from pathlib import Path
 
 import pytest
 
-# Make the standalone toolkit importable: extract_phrases/docmodel now live in
-# ../scripts (relocated off the repo root); the repo root itself stays on the
-# path for the production tests that import `ingest`/`webapp`.
-_ROOT = Path(__file__).resolve().parent.parent
-for _p in (_ROOT, _ROOT / "scripts"):
-    if str(_p) not in sys.path:
-        sys.path.insert(0, str(_p))
+# Import paths (src, ., scripts) are configured in pyproject.toml
+# [tool.pytest.ini_options] pythonpath, so no sys.path manipulation is needed here.
 
 
 def _cid(name: str) -> str:

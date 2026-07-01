@@ -80,7 +80,7 @@ MinIO console: http://localhost:9001 (login from `.env`).
 ```bash
 pip install -r requirements.txt
 # DATABASE_URL / S3_ENDPOINT default to localhost — see .env.example
-python -m ingest.cli orwell1984.pdf
+python -m doc_ray.entrypoints.cli orwell1984.pdf
 ```
 
 ## Layout
