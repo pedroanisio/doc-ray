@@ -209,7 +209,7 @@ strings) are views. NLP layer numbers refer to the 20-layer stack in
 All new fact tables carry `annotation_id ulid REFERENCES annotations(id)` (the
 run/tool/version) and address text through `spans`. ULID PKs throughout. Each
 migration below is live and exercised by an integration test suite
-(`ingest/tests/test_00N_*.py`) that inserts the worked example
+(`src/doc_ray/tests/test_00N_*.py`) that inserts the worked example
 ("Elena founded a startup in Berlin.") into its tables and queries it back.
 
 #### 008 · `tokens_morphology` — tokens, morphology, subwords (layers 3, 4, 6, 7)
@@ -345,12 +345,14 @@ shared span, every run attributed to a tool and version.
 
 ## 8. Ingestion & readback surfaces
 
-- **Ingest** (`ingest.cli`) — file → object storage + `documents` + content +
-  sentences + provenance, atomically per document.
-- **Annotate** (`ingest.annotate`) — stored `full_text` → spans + lexemes +
-  occurrences + an `annotated` provenance event, per `(layer, tool)` run.
-- **Export** (`ingest.export`) — reassembles the full normalized record of any
-  document (entity + all satellites + provenance + content + sentences) as JSON.
-- **Roundtrip** (`roundtrip.py`) — verifies stored data reproduces the source.
+- **Ingest** (`doc_ray.entrypoints.cli`) — file → object storage + `documents` +
+  content + sentences + provenance, atomically per document.
+- **Annotate** (`doc_ray.adapters.annotation`) — stored `full_text` → spans +
+  lexemes + occurrences + an `annotated` provenance event, per `(layer, tool)` run.
+- **Export** (`doc_ray.adapters.export`) — reassembles the full normalized record of
+  any document (entity + all satellites + provenance + content + sentences) as JSON.
+- **Roundtrip** (`scripts/roundtrip.py`) — verifies stored data reproduces the source.
+- **GraphQL API** (`doc_ray.entrypoints.api`) — async read-only surface over the same
+  store; write mutations enqueue background jobs run by `doc_ray.entrypoints.worker`.
 
 All are `DATABASE_URL`-driven and run identically on host or in the container.
