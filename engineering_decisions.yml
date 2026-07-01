@@ -172,10 +172,18 @@ decisions:
       - claim_id:    "D-004.k1"
         claim_text:  "The queue adapter claims jobs with FOR UPDATE SKIP LOCKED."
         auditable:   true
-        status:      "pending"
-        declared_checks_count: 0
-        checks:      []
-    open_issue: "Implemented in Phase 3 (jobs + worker); checks written then."
+        status:      "populated"
+        declared_checks_count: 1
+        checks:
+          - check_id:    "D-004.k1.c1"
+            description: "The Postgres queue adapter claims with FOR UPDATE SKIP LOCKED."
+            check_kind:  "grep"
+            severity:    "error"
+            context:     "workspace"
+            path:        "src/doc_ray/adapters/queue_postgres.py"
+            pattern:     'FOR UPDATE SKIP LOCKED'
+            expect:
+              present:   true
 
   - id:                 "D-005"
     title:              "Sync worker for blocking work; async only for API reads"
@@ -195,12 +203,28 @@ decisions:
     scope_path:         ["src/doc_ray/entrypoints/worker.py", "src/doc_ray/entrypoints/api/**/*.py"]
     claims:
       - claim_id:    "D-005.k1"
-        claim_text:  "API resolver modules never import spacy, pymupdf, or application.pipeline."
+        claim_text:  "A sync worker entrypoint exists and API resolvers never import the blocking pipeline."
         auditable:   true
-        status:      "pending"
-        declared_checks_count: 0
-        checks:      []
-    open_issue: "Enforced by an import-guard test in Phase 2/3."
+        status:      "populated"
+        declared_checks_count: 2
+        checks:
+          - check_id:    "D-005.k1.c1"
+            description: "The synchronous worker entrypoint is present."
+            check_kind:  "file-exists"
+            severity:    "error"
+            context:     "workspace"
+            path:        "src/doc_ray/entrypoints/worker.py"
+            expect:
+              present:   true
+          - check_id:    "D-005.k1.c2"
+            description: "No API resolver module imports the blocking ingest pipeline."
+            check_kind:  "grep"
+            severity:    "error"
+            context:     "workspace"
+            path:        "src/doc_ray/entrypoints/api"
+            pattern:     'application\.pipeline'
+            expect:
+              present:   false
 
   - id:                 "D-006"
     title:              "Runtime migration runner closes the init-only gap"
@@ -263,10 +287,26 @@ decisions:
       - claim_id:    "D-007.k1"
         claim_text:  "db/migrations/020_jobs.sql defines jobs.status as text with a closed CHECK constraint."
         auditable:   true
-        status:      "pending"
-        declared_checks_count: 0
-        checks:      []
-    open_issue: "Implemented in Phase 3; supersedes the plan's original 016 number."
+        status:      "populated"
+        declared_checks_count: 2
+        checks:
+          - check_id:    "D-007.k1.c1"
+            description: "The jobs migration is present."
+            check_kind:  "file-exists"
+            severity:    "error"
+            context:     "workspace"
+            path:        "db/migrations/020_jobs.sql"
+            expect:
+              present:   true
+          - check_id:    "D-007.k1.c2"
+            description: "jobs.status is a closed text CHECK, not a pg enum."
+            check_kind:  "grep"
+            severity:    "error"
+            context:     "workspace"
+            path:        "db/migrations/020_jobs.sql"
+            pattern:     "CHECK \\(status IN"
+            expect:
+              present:   true
 
   - id:                 "D-008"
     title:              "GraphQL safety: depth + complexity limits, keyset pagination"

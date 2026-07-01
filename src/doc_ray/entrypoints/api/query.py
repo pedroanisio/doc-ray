@@ -10,10 +10,12 @@ from __future__ import annotations
 import strawberry
 
 from doc_ray.adapters import persistence_read as read
+from doc_ray.adapters import queue_postgres as queue
 from doc_ray.entrypoints.api.types import (
     Document,
     DocumentHit,
     Info,
+    Job,
     Lexeme,
     SentenceHit,
 )
@@ -72,3 +74,9 @@ class Query:
             ctx.conn, q=q, pos=pos, lang=lang, limit=ctx.page_size(limit), offset=offset
         )
         return [Lexeme.from_row(r) for r in rows]
+
+    @strawberry.field
+    async def job(self, info: Info, id: strawberry.ID) -> Job | None:
+        """Return a background job's status by id, or ``None`` if unknown."""
+        row = await queue.status_async(info.context.conn, str(id))
+        return Job.from_row(row) if row is not None else None

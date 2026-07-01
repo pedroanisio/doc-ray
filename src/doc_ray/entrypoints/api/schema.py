@@ -14,6 +14,7 @@ import os
 import strawberry
 from strawberry.extensions import MaxTokensLimiter, QueryDepthLimiter
 
+from doc_ray.entrypoints.api.mutation import Mutation
 from doc_ray.entrypoints.api.query import Query
 
 DEFAULT_MAX_DEPTH = 12
@@ -44,6 +45,7 @@ def build_schema(max_depth: int | None = None, max_tokens: int | None = None) ->
     # is also what its type stub expects — so pass zero-arg callables, not instances.
     return strawberry.Schema(
         query=Query,
+        mutation=Mutation,
         extensions=[
             lambda: QueryDepthLimiter(max_depth=depth),
             lambda: MaxTokensLimiter(max_token_count=tokens),

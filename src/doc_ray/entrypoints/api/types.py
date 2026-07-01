@@ -261,3 +261,29 @@ class DocumentHit:
             title=row["title"],
             rank=float(row["rank"]),
         )
+
+
+@strawberry.type
+class Job:
+    """A background job's status (returned by mutations and the job query)."""
+
+    id: strawberry.ID
+    kind: str
+    status: str
+    document_id: strawberry.ID | None
+    error: str | None
+    result: JSON | None
+
+    @classmethod
+    def from_row(cls, row: Row) -> Job:
+        """Build a ``Job`` from a queue status row."""
+        doc = row.get("document_id")
+        res = row.get("result")
+        return cls(
+            id=strawberry.ID(str(row["id"])),
+            kind=row["kind"],
+            status=row["status"],
+            document_id=strawberry.ID(str(doc)) if doc is not None else None,
+            error=row.get("error"),
+            result=cast(JSON, res) if res is not None else None,
+        )

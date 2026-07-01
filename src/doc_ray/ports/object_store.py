@@ -33,3 +33,14 @@ class ObjectStore(Protocol):
             The canonical ``s3://`` URI of the stored object.
         """
         ...
+
+    def get(self, key: str) -> bytes:
+        """Fetch and return the stored object bytes for *key*.
+
+        Args:
+            key: Object key (path) within the bucket.
+
+        Returns:
+            The raw object bytes.
+        """
+        ...

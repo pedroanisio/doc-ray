@@ -52,3 +52,16 @@ class ObjectStore:
             ContentType=content_type,
         )
         return f"s3://{self._bucket}/{key}"
+
+    def get(self, key: str) -> bytes:
+        """Fetch and return the stored object bytes for *key*.
+
+        Args:
+            key: Object key to read.
+
+        Returns:
+            The raw object bytes.
+        """
+        response = self._client.get_object(Bucket=self._bucket, Key=key)
+        body: bytes = response["Body"].read()
+        return body
