@@ -95,6 +95,8 @@ python -m ingest.cli orwell1984.pdf
 | `ingest/extract.py`        | Per-type text/metadata extraction (PDF today)      |
 | `ingest/pipeline.py`       | hash → store → extract → persist orchestration     |
 | `ingest/cli.py`            | Command-line entrypoint                            |
+| `webapp/`                  | Flask browser over the annotated corpus (reads Postgres) |
+| `scripts/`                 | Standalone text tools (`extract_phrases`, `docmodel`, `roundtrip`, `text_decomposer`) — independent of the ingest pipeline; see `scripts/README.md` |
 
 ## Extending
 

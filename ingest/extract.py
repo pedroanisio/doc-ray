@@ -117,9 +117,117 @@ def extract_pdf(data: bytes, fallback_title: str) -> Extracted:
         return extract_pdf_pypdf(data, fallback_title)
 
 
-# Dispatch table keyed by lowercase file extension.
+# --- text / markup formats (byte-based, standard library) ------------------
+
+def _text_extracted(text: str, fallback_title: str, *, doc_type: str,
+                    content_type: str, extractor: str) -> Extracted:
+    return Extracted(
+        doc_type=doc_type, title=fallback_title, author=None, page_count=None,
+        full_text=(text or "").strip(), content_type=content_type,
+        extractor=extractor, extractor_version="stdlib", metadata={},
+    )
+
+
+def extract_txt(data: bytes, fallback_title: str) -> Extracted:
+    return _text_extracted(data.decode("utf-8", "replace"), fallback_title,
+                           doc_type="text", content_type="text/plain", extractor="utf8")
+
+
+from html.parser import HTMLParser as _HTMLParser
+
+
+class _HTMLText(_HTMLParser):
+    """Collect visible text from HTML/XHTML, skipping script/style, breaking blocks."""
+    _SKIP = {"script", "style", "head", "title"}
+    _BREAK = {"p", "br", "div", "li", "h1", "h2", "h3", "h4", "h5", "h6", "tr"}
+
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.parts: list[str] = []
+        self._skip = 0
+
+    def handle_starttag(self, tag, attrs):
+        if tag in self._SKIP:
+            self._skip += 1
+        elif tag in self._BREAK:
+            self.parts.append("\n")
+
+    def handle_endtag(self, tag):
+        if tag in self._SKIP and self._skip:
+            self._skip -= 1
+        elif tag in self._BREAK:
+            self.parts.append("\n")
+
+    def handle_data(self, data):
+        if self._skip == 0:
+            self.parts.append(data)
+
+
+def _html_to_text(html: str) -> str:
+    p = _HTMLText()
+    p.feed(html)
+    return "".join(p.parts)
+
+
+def extract_html(data: bytes, fallback_title: str) -> Extracted:
+    return _text_extracted(_html_to_text(data.decode("utf-8", "replace")), fallback_title,
+                           doc_type="html", content_type="text/html", extractor="html.parser")
+
+
+def _epub_spine(zf) -> list[str]:
+    """Content-document paths in reading order (OPF spine), else all (x)html."""
+    import posixpath
+    import re as _re
+    from xml.etree import ElementTree as ET
+    try:
+        container = zf.read("META-INF/container.xml").decode("utf-8", "replace")
+        opf_path = _re.search(r'full-path="([^"]+)"', container).group(1)
+        opf = ET.fromstring(zf.read(opf_path))
+        base = posixpath.dirname(opf_path)
+        ns = {"o": "http://www.idpf.org/2007/opf"}
+        manifest = {i.get("id"): i.get("href") for i in opf.iterfind(".//o:manifest/o:item", ns)}
+        order = [posixpath.normpath(posixpath.join(base, manifest[ref.get("idref")]))
+                 for ref in opf.iterfind(".//o:spine/o:itemref", ns)
+                 if manifest.get(ref.get("idref"))]
+        if order:
+            return order
+    except Exception:
+        pass
+    return sorted(n for n in zf.namelist() if n.lower().endswith((".xhtml", ".html", ".htm")))
+
+
+def extract_epub(data: bytes, fallback_title: str) -> Extracted:
+    import zipfile
+    parts: list[str] = []
+    with zipfile.ZipFile(io.BytesIO(data)) as zf:
+        for name in _epub_spine(zf):
+            try:
+                parts.append(_html_to_text(zf.read(name).decode("utf-8", "replace")))
+            except KeyError:
+                continue
+    return _text_extracted("\n".join(parts), fallback_title, doc_type="epub",
+                           content_type="application/epub+zip", extractor="stdlib-epub")
+
+
+def extract_docx(data: bytes, fallback_title: str) -> Extracted:
+    try:
+        import docx  # python-docx (optional)
+    except ImportError as e:
+        raise ValueError("docx extraction requires python-docx") from e
+    document = docx.Document(io.BytesIO(data))
+    return _text_extracted(
+        "\n".join(p.text for p in document.paragraphs), fallback_title,
+        doc_type="docx", extractor="python-docx",
+        content_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+
+
+# Dispatch table keyed by lowercase file extension. Any of these formats ingests.
 _EXTRACTORS = {
     ".pdf": extract_pdf,
+    ".txt": extract_txt, ".text": extract_txt, ".md": extract_txt, ".markdown": extract_txt,
+    ".html": extract_html, ".htm": extract_html,
+    ".epub": extract_epub,
+    ".docx": extract_docx,
 }
 
 
