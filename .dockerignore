@@ -3,5 +3,6 @@ __pycache__/
 *.pyc
 .env
 *.pdf
-db/
+# NOTE: do NOT ignore db/ — the Dockerfile copies db/migrations into the image
+# for the runtime migration runner (doc_ray.adapters.migrate).
 static/

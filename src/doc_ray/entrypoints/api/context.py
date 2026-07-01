@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Any
 
 import psycopg
+from strawberry.fastapi import BaseContext
 
 from doc_ray.entrypoints.api.loaders import Loaders
 from doc_ray.entrypoints.api.security import Principal
@@ -16,8 +17,13 @@ MAX_PAGE_SIZE = 200
 
 
 @dataclass
-class RequestContext:
+class RequestContext(BaseContext):
     """Everything a resolver needs for one request.
+
+    Inherits :class:`strawberry.fastapi.BaseContext` so Strawberry's FastAPI
+    integration accepts it as a custom context (it rejects any context that is
+    neither a ``BaseContext`` subclass nor a dict). Strawberry sets ``request``/
+    ``response``/``background_tasks`` on the instance after construction.
 
     Attributes:
         conn: The request's pooled async connection (RLS principal already set).

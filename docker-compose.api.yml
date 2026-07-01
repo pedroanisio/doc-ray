@@ -1,0 +1,70 @@
+# Focused stack: Postgres (the store) + the read-only GraphQL API (D-001).
+#
+# A slim alternative to the full docker-compose.yml — it drops MinIO, the
+# bucket-init job, and the ingester, because the read-only GraphQL surface only
+# needs the database (Config supplies S3 defaults it never touches on the read
+# path). Run EITHER this file OR docker-compose.yml, not both at once: they share
+# the `pgdata` volume and the `docray-*` container names, so this reads the same
+# "current database" the full stack writes.
+#
+# Usage:
+#   docker compose -f docker-compose.api.yml up -d --build
+#   #   GraphQL:  http://localhost:${API_PORT:-8000}/graphql
+#   #   Health:   http://localhost:${API_PORT:-8000}/health
+#   docker compose -f docker-compose.api.yml down          # stop (keeps data)
+#   docker compose -f docker-compose.api.yml down -v        # stop + wipe data
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16      # postgres:16 + pgvector (drop-in superset)
+    container_name: docray-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-docray}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-docray}
+      POSTGRES_DB: ${POSTGRES_DB:-docray}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      # Migrations run automatically on first init (empty data dir only).
+      # The `migrate` service below covers existing volumes.
+      - ./db/migrations:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-docray} -d ${POSTGRES_DB:-docray}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # One-shot: apply any un-applied migrations to an existing volume (D-006).
+  # Runs to completion, then the api service proceeds.
+  migrate:
+    build: .
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PYTHONPATH: /app/src
+      DATABASE_URL: postgresql://${POSTGRES_USER:-docray}:${POSTGRES_PASSWORD:-docray}@postgres:5432/${POSTGRES_DB:-docray}
+    entrypoint: ["python", "-m", "doc_ray.entrypoints.migrate"]
+
+  # Read-only GraphQL API (D-001). Served at http://localhost:${API_PORT:-8000}/graphql
+  api:
+    build: .
+    container_name: docray-api
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      PYTHONPATH: /app/src        # api package lives under src/ (src layout)
+      DATABASE_URL: postgresql://${POSTGRES_USER:-docray}:${POSTGRES_PASSWORD:-docray}@postgres:5432/${POSTGRES_DB:-docray}
+    ports:
+      - "${API_PORT:-8000}:8000"
+    entrypoint:
+      ["uvicorn", "doc_ray.entrypoints.api.app:app", "--host", "0.0.0.0", "--port", "8000"]
+
+volumes:
+  pgdata:
