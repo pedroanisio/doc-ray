@@ -58,58 +58,86 @@ CREATE TABLE IF NOT EXISTS provenance_params (
 -- Promote the one genuinely single-valued source attribute out of metadata.
 ALTER TABLE documents ADD COLUMN IF NOT EXISTS original_filename text;
 
--- =========================== migrate existing data ===========================
+-- ==================== migrate existing data, then drop the column ====================
+-- Each fact is migrated and its denormalized source column dropped inside one
+-- guarded block, so a re-apply (after the column is gone) is a clean no-op
+-- rather than a "column does not exist" error.
 
-INSERT INTO authors (name)
-    SELECT DISTINCT a FROM documents, LATERAL unnest(authors) AS a
-    WHERE a IS NOT NULL
-    ON CONFLICT (name) DO NOTHING;
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.columns
+               WHERE table_name = 'documents' AND column_name = 'authors') THEN
+        INSERT INTO authors (name)
+            SELECT DISTINCT a FROM documents, LATERAL unnest(authors) AS a
+            WHERE a IS NOT NULL
+            ON CONFLICT (name) DO NOTHING;
+        INSERT INTO document_authors (document_id, author_id, position)
+            SELECT d.id, au.id, x.ord - 1
+            FROM documents d
+            CROSS JOIN LATERAL unnest(d.authors) WITH ORDINALITY AS x(name, ord)
+            JOIN authors au ON au.name = x.name
+            ON CONFLICT DO NOTHING;
+        ALTER TABLE documents DROP COLUMN authors;
+    END IF;
+END $$;
 
-INSERT INTO document_authors (document_id, author_id, position)
-    SELECT d.id, au.id, x.ord - 1
-    FROM documents d
-    CROSS JOIN LATERAL unnest(d.authors) WITH ORDINALITY AS x(name, ord)
-    JOIN authors au ON au.name = x.name
-    ON CONFLICT DO NOTHING;
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.columns
+               WHERE table_name = 'documents' AND column_name = 'tags') THEN
+        INSERT INTO tags (tag)
+            SELECT DISTINCT t FROM documents, LATERAL unnest(tags) AS t
+            WHERE t IS NOT NULL
+            ON CONFLICT (tag) DO NOTHING;
+        INSERT INTO document_tags (document_id, tag_id)
+            SELECT d.id, tg.id
+            FROM documents d
+            CROSS JOIN LATERAL unnest(d.tags) AS t
+            JOIN tags tg ON tg.tag = t
+            ON CONFLICT DO NOTHING;
+        ALTER TABLE documents DROP COLUMN tags;
+    END IF;
+END $$;
 
-INSERT INTO tags (tag)
-    SELECT DISTINCT t FROM documents, LATERAL unnest(tags) AS t
-    WHERE t IS NOT NULL
-    ON CONFLICT (tag) DO NOTHING;
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.columns
+               WHERE table_name = 'documents' AND column_name = 'identifiers') THEN
+        INSERT INTO document_identifiers (document_id, scheme, value)
+            SELECT d.id, e.key, e.value
+            FROM documents d, LATERAL jsonb_each_text(d.identifiers) AS e
+            WHERE e.value IS NOT NULL
+            ON CONFLICT DO NOTHING;
+        ALTER TABLE documents DROP COLUMN identifiers;
+    END IF;
+END $$;
 
-INSERT INTO document_tags (document_id, tag_id)
-    SELECT d.id, tg.id
-    FROM documents d
-    CROSS JOIN LATERAL unnest(d.tags) AS t
-    JOIN tags tg ON tg.tag = t
-    ON CONFLICT DO NOTHING;
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.columns
+               WHERE table_name = 'documents' AND column_name = 'metadata') THEN
+        -- Promote the one genuinely single-valued source attribute out of the bag.
+        UPDATE documents
+           SET original_filename = metadata->>'source_filename'
+         WHERE metadata ? 'source_filename';
+        INSERT INTO document_metadata (document_id, key, value)
+            SELECT d.id, e.key, e.value
+            FROM documents d, LATERAL jsonb_each_text(d.metadata) AS e
+            WHERE e.key <> 'source_filename' AND e.value IS NOT NULL
+            ON CONFLICT DO NOTHING;
+        ALTER TABLE documents DROP COLUMN metadata;
+    END IF;
+END $$;
 
-INSERT INTO document_identifiers (document_id, scheme, value)
-    SELECT d.id, e.key, e.value
-    FROM documents d, LATERAL jsonb_each_text(d.identifiers) AS e
-    WHERE e.value IS NOT NULL
-    ON CONFLICT DO NOTHING;
-
-UPDATE documents
-   SET original_filename = metadata->>'source_filename'
- WHERE metadata ? 'source_filename';
-
-INSERT INTO document_metadata (document_id, key, value)
-    SELECT d.id, e.key, e.value
-    FROM documents d, LATERAL jsonb_each_text(d.metadata) AS e
-    WHERE e.key <> 'source_filename' AND e.value IS NOT NULL
-    ON CONFLICT DO NOTHING;
-
-INSERT INTO provenance_params (event_id, key, value)
-    SELECT p.id, e.key, e.value
-    FROM document_provenance p, LATERAL jsonb_each_text(p.params) AS e
-    WHERE e.value IS NOT NULL
-    ON CONFLICT DO NOTHING;
-
--- =========================== drop denormalized columns =======================
-
-ALTER TABLE documents           DROP COLUMN IF EXISTS authors;
-ALTER TABLE documents           DROP COLUMN IF EXISTS tags;
-ALTER TABLE documents           DROP COLUMN IF EXISTS identifiers;
-ALTER TABLE documents           DROP COLUMN IF EXISTS metadata;
-ALTER TABLE document_provenance DROP COLUMN IF EXISTS params;
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.columns
+               WHERE table_name = 'document_provenance' AND column_name = 'params') THEN
+        INSERT INTO provenance_params (event_id, key, value)
+            SELECT p.id, e.key, e.value
+            FROM document_provenance p, LATERAL jsonb_each_text(p.params) AS e
+            WHERE e.value IS NOT NULL
+            ON CONFLICT DO NOTHING;
+        ALTER TABLE document_provenance DROP COLUMN params;
+    END IF;
+END $$;

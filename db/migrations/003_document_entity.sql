@@ -21,11 +21,19 @@ ALTER TABLE documents ADD COLUMN IF NOT EXISTS derived_from  uuid REFERENCES doc
 ALTER TABLE documents ADD COLUMN IF NOT EXISTS revision      int NOT NULL DEFAULT 1;
 
 -- Migrate the legacy single `author` into the authors[] array, then retire it.
-UPDATE documents
-   SET authors = ARRAY[author]
- WHERE author IS NOT NULL
-   AND (authors IS NULL OR authors = '{}');
-ALTER TABLE documents DROP COLUMN IF EXISTS author;
+-- Guarded so a re-apply (after `author` is already dropped) is a no-op instead
+-- of erroring on the missing column.
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.columns
+               WHERE table_name = 'documents' AND column_name = 'author') THEN
+        UPDATE documents
+           SET authors = ARRAY[author]
+         WHERE author IS NOT NULL
+           AND (authors IS NULL OR authors = '{}');
+        ALTER TABLE documents DROP COLUMN author;
+    END IF;
+END $$;
 
 -- --- provenance: append-only processing/lineage log ------------------------
 DO $$

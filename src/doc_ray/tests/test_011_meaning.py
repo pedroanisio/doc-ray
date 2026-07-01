@@ -30,7 +30,8 @@ def test_tables_exist(pg):
     assert {"id", "annotation_id", "arg1_span_id", "arg2_span_id", "sense"} <= _cols(conn, "discourse_relation")
     assert {"id", "annotation_id", "span_id", "timex_type", "value"} <= _cols(conn, "timex")
     assert {"id", "annotation_id", "token_id", "event_class"} <= _cols(conn, "event")
-    assert {"id", "annotation_id", "source_id", "target_id", "relation"} <= _cols(conn, "tlink")
+    assert {"id", "annotation_id", "source_event_id", "source_timex_id",
+            "target_event_id", "target_timex_id", "relation"} <= _cols(conn, "tlink")
     assert {"id", "annotation_id", "span_id", "polarity", "score"} <= _cols(conn, "sentiment")
 
 
@@ -107,10 +108,12 @@ def test_timeml_event_timex_tlink(pg):
                  (tx, ann, _itdb.span_of(conn, doc_id, m, m + len("March 2023"))))
     conn.execute("INSERT INTO event (id, annotation_id, token_id, event_class) VALUES (%s,%s,%s,'OCCURRENCE')",
                  (ev, ann, toks["founded"]["id"]))
-    conn.execute("INSERT INTO tlink (id, annotation_id, source_id, target_id, relation) VALUES (%s,%s,%s,%s,'IS_INCLUDED')",
-                 (new_ulid_str(), ann, ev, tx))
-    link = conn.execute("SELECT source_id, target_id, relation FROM tlink WHERE annotation_id=%s", (ann,)).fetchone()
-    assert link["source_id"] == ev and link["target_id"] == tx and link["relation"] == "IS_INCLUDED"
+    # typed endpoints: the event is the source, the timex is the target
+    conn.execute("INSERT INTO tlink (id, annotation_id, source_event_id, target_timex_id, relation) "
+                 "VALUES (%s,%s,%s,%s,'IS_INCLUDED')", (new_ulid_str(), ann, ev, tx))
+    link = conn.execute("SELECT source_event_id, target_timex_id, relation FROM tlink WHERE annotation_id=%s",
+                        (ann,)).fetchone()
+    assert link["source_event_id"] == ev and link["target_timex_id"] == tx and link["relation"] == "IS_INCLUDED"
 
 
 def test_sentiment_span(pg):
