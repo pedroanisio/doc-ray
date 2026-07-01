@@ -88,20 +88,22 @@ python -m doc_ray.entrypoints.cli orwell1984.pdf
 | Path                       | Purpose                                            |
 |----------------------------|----------------------------------------------------|
 | `docker-compose.yml`       | Postgres + MinIO + bucket-init + ingester services |
-| `db/migrations/001_init.sql` | Schema, indexes, triggers (auto-applied)         |
-| `ingest/config.py`         | Env-driven configuration                           |
-| `ingest/storage.py`        | S3/MinIO blob store                                |
-| `ingest/db.py`             | psycopg data-access layer                          |
-| `ingest/extract.py`        | Per-type text/metadata extraction (PDF today)      |
-| `ingest/pipeline.py`       | hash → store → extract → persist orchestration     |
-| `ingest/cli.py`            | Command-line entrypoint                            |
-| `webapp/`                  | Flask browser over the annotated corpus (reads Postgres) |
-| `scripts/`                 | Standalone text tools (`extract_phrases`, `docmodel`, `roundtrip`, `text_decomposer`) — independent of the ingest pipeline; see `scripts/README.md` |
+| `db/migrations/`           | Schema, indexes, triggers (auto-applied)           |
+| `src/doc_ray/`             | The core package — **hexagonal / DDD** layout (below) |
+| `src/doc_ray/domain/`      | Pure logic & value objects: `pdf_layout`, `sentences`, `lexemes`, `ulid`, `provenance` |
+| `src/doc_ray/ports/`       | Boundary contracts: `TextExtractor`, `ObjectStore`, `Repository`, `Annotator` |
+| `src/doc_ray/adapters/`    | Driven adapters: `extraction` (PyMuPDF/pypdf/…), `persistence` (Postgres), `object_store` (MinIO), `annotation`/`annotation_spacy` |
+| `src/doc_ray/application/` | Use cases: `pipeline`, `reannotate`, `reextract`   |
+| `src/doc_ray/entrypoints/` | Driving adapters: `cli` (`python -m doc_ray.entrypoints.cli`) |
+| `src/doc_ray/config.py`    | Env-driven configuration                           |
+| `webapp/`                  | Flask browser over the annotated corpus (frontend, kept **outside** `src/`) |
+| `scripts/`                 | Standalone text tools (`extract_phrases`, `docmodel`, `roundtrip`, `text_decomposer`) — independent of the pipeline; see `scripts/README.md` |
+| `docs/`                    | Design notes & specs; see [`docs/architecture.md`](docs/architecture.md) |
 
 ## Extending
 
-- **New file types**: add an extractor to `ingest/extract.py` and register it in
-  `_EXTRACTORS` (e.g. `.docx`, `.html`, `.txt`).
+- **New file types**: add an extractor to `src/doc_ray/adapters/extraction.py`
+  and register it in `_EXTRACTORS` (e.g. `.docx`, `.html`, `.txt`).
 - **Semantic / RAG search**: add `CREATE EXTENSION vector;` plus a
   `document_chunks(document_id, chunk_text, embedding vector(N))` table with an
   HNSW index — no migration off Postgres.
