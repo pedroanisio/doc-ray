@@ -27,15 +27,67 @@ _WS = " \t\r\n\f\v"
 # Lowercased abbreviations (trailing dot stripped) that do NOT end a sentence.
 _ABBREV = {
     # English titles / common
-    "mr", "mrs", "ms", "dr", "prof", "sr", "jr", "st", "vs", "etc", "eg",
-    "ie", "no", "fig", "al", "inc", "ltd", "co", "corp", "dept", "univ",
-    "gen", "sen", "gov", "rep", "cf", "pp", "vol", "ch", "sec", "art",
-    "approx", "min", "max", "est", "cap", "ed", "eds", "esp", "ca",
+    "mr",
+    "mrs",
+    "ms",
+    "dr",
+    "prof",
+    "sr",
+    "jr",
+    "st",
+    "vs",
+    "etc",
+    "eg",
+    "ie",
+    "no",
+    "fig",
+    "al",
+    "inc",
+    "ltd",
+    "co",
+    "corp",
+    "dept",
+    "univ",
+    "gen",
+    "sen",
+    "gov",
+    "rep",
+    "cf",
+    "pp",
+    "vol",
+    "ch",
+    "sec",
+    "art",
+    "approx",
+    "min",
+    "max",
+    "est",
+    "cap",
+    "ed",
+    "eds",
+    "esp",
+    "ca",
     # months
-    "jan", "feb", "mar", "apr", "jun", "jul", "aug", "sep", "sept", "oct",
-    "nov", "dec",
+    "jan",
+    "feb",
+    "mar",
+    "apr",
+    "jun",
+    "jul",
+    "aug",
+    "sep",
+    "sept",
+    "oct",
+    "nov",
+    "dec",
     # Portuguese
-    "sra", "dra", "av", "pag", "cap", "ilmo", "exmo", "prof", "eng",
+    "sra",
+    "dra",
+    "av",
+    "pag",
+    "ilmo",
+    "exmo",
+    "eng",
 }
 
 # Acronym / initial pattern like "U.S", "e.g", "a.m", "A".
@@ -44,6 +96,14 @@ _ACRONYM = re.compile(r"([a-z]\.){1,}[a-z]?$")
 
 @dataclass(frozen=True)
 class Sentence:
+    """A single sentence span with character offsets into the source text.
+
+    Attributes:
+        text: The sentence text with internal whitespace collapsed to spaces.
+        char_start: Start offset of the raw span in the source text.
+        char_end: End offset (exclusive) of the raw span in the source text.
+    """
+
     text: str
     char_start: int
     char_end: int
@@ -58,8 +118,11 @@ def _trailing_token(text: str, dot_index: int) -> str:
 
 
 def _is_false_boundary(text: str, i: int) -> bool:
-    """True when the terminator at `i` is an abbreviation/initial/acronym dot
-    rather than a real sentence end. Only '.' is ambiguous this way."""
+    """Report whether the terminator at ``i`` is not a real sentence end.
+
+    A dot is a false boundary when it belongs to an abbreviation, single
+    initial, or acronym. Only ``.`` is ambiguous this way.
+    """
     if text[i] != ".":
         return False
     token = _trailing_token(text, i)
@@ -68,11 +131,9 @@ def _is_false_boundary(text: str, i: int) -> bool:
     key = token.lower().strip(".")
     if key in _ABBREV:
         return True
-    if len(token) == 1 and token.isalpha():   # single initial, e.g. "A."
+    if len(token) == 1 and token.isalpha():  # single initial, e.g. "A."
         return True
-    if _ACRONYM.fullmatch(token.lower()):      # "U.S", "e.g", "a.m"
-        return True
-    return False
+    return bool(_ACRONYM.fullmatch(token.lower()))  # "U.S", "e.g", "a.m"
 
 
 def _emit(out: list[Sentence], text: str, start: int, end: int) -> None:
@@ -106,9 +167,7 @@ def split_sentences(text: str) -> list[Sentence]:
             at_eof = k >= n
             if had_space or at_eof:
                 nxt = text[k] if k < n else ""
-                starts_new = (
-                    at_eof or nxt.isupper() or nxt.isdigit() or nxt in _OPENERS
-                )
+                starts_new = at_eof or nxt.isupper() or nxt.isdigit() or nxt in _OPENERS
                 if starts_new and not _is_false_boundary(text, i):
                     _emit(sents, text, seg_start, j)
                     seg_start = k
@@ -119,15 +178,24 @@ def split_sentences(text: str) -> list[Sentence]:
     return sents
 
 
-def build_sentences(full_text: str, factory: ULIDFactory | None = None) -> list[dict]:
-    """Split `full_text` and attach a monotonic ULID + reading-order ordinal
-    to each sentence. Returns row-dicts ready for insertion.
+def build_sentences(full_text: str, factory: ULIDFactory | None = None) -> list[dict[str, object]]:
+    """Split ``full_text`` into row-dicts with a ULID and reading-order ordinal.
 
-    A fresh monotonic factory per document keeps ULIDs strictly increasing in
-    lockstep with `ordinal`.
+    Each sentence becomes a row-dict ready for insertion. A fresh monotonic
+    factory per document keeps ULIDs strictly increasing in lockstep with
+    ``ordinal``.
+
+    Args:
+        full_text: The document text to segment; ``None`` is treated as empty.
+        factory: The ULID factory to use; a fresh monotonic one is created if
+            omitted.
+
+    Returns:
+        A list of row-dicts, each with ``id``, ``ordinal``, ``text``,
+        ``char_start``, and ``char_end`` keys.
     """
     factory = factory or ULIDFactory()
-    rows: list[dict] = []
+    rows: list[dict[str, object]] = []
     for ordinal, s in enumerate(split_sentences(full_text or "")):
         rows.append(
             {

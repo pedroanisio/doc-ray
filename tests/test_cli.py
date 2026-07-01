@@ -4,9 +4,8 @@ from __future__ import annotations
 
 import re
 
-import pytest
-
 import extract_phrases as ep
+import pytest
 
 
 def _make(tmp_path, text, name="doc.txt"):

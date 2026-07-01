@@ -37,26 +37,29 @@ def _happy(**over):
 def test_happy_path_event_sequence():
     events = _happy()
     assert [e["kind"] for e in events] == [
-        "acquired", "stored", "extracted", "segmented",
+        "acquired",
+        "stored",
+        "extracted",
+        "segmented",
     ]
 
 
 def test_failed_path_stops_at_extracted():
-    events = build_events(**_COMMON, status="failed",
-                          extractor="pypdf", extractor_version="4.3.1",
-                          error="boom")
+    events = build_events(
+        **_COMMON, status="failed", extractor="pypdf", extractor_version="4.3.1", error="boom"
+    )
     assert [e["kind"] for e in events] == ["acquired", "stored", "extracted"]
     extracted = events[-1]
     assert extracted["note"] == "boom"
-    assert extracted["output_sha256"] is None      # nothing was produced
+    assert extracted["output_sha256"] is None  # nothing was produced
 
 
 def test_all_events_have_valid_monotonic_ulids():
     events = _happy()
     ids = [e["id"] for e in events]
     assert all(_RE.match(i) for i in ids)
-    assert ids == sorted(ids)                        # chronological
-    assert len(set(ids)) == len(ids)                 # unique
+    assert ids == sorted(ids)  # chronological
+    assert len(set(ids)) == len(ids)  # unique
 
 
 def test_hash_chain_links_bytes_to_text():
@@ -95,4 +98,4 @@ def test_injected_factory_makes_ordering_deterministic():
     events = _happy(factory=ULIDFactory(clock=lambda: 999, rng=lambda: 0))
     ids = [e["id"] for e in events]
     assert ids == sorted(ids)
-    assert len({i[:10] for i in ids}) == 1           # all in the same ms
+    assert len({i[:10] for i in ids}) == 1  # all in the same ms

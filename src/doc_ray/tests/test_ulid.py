@@ -7,10 +7,10 @@ import re
 import pytest
 
 from doc_ray.domain.ulid import (
+    _MAX_RAND,
     ULID,
     ULID_REGEX,
     ULIDFactory,
-    _MAX_RAND,
     new_ulid_str,
 )
 
@@ -18,6 +18,7 @@ _RE = re.compile(ULID_REGEX)
 
 
 # --- format -----------------------------------------------------------------
+
 
 def test_string_is_26_crockford_chars():
     s = new_ulid_str()
@@ -41,12 +42,16 @@ def test_format_matches_db_domain_regex():
 
 # --- round-trip -------------------------------------------------------------
 
-@pytest.mark.parametrize("ts,rand", [
-    (0, 0),
-    (1, 1),
-    (1_700_000_000_000, 123456789),
-    ((1 << 48) - 1, _MAX_RAND),
-])
+
+@pytest.mark.parametrize(
+    "ts,rand",
+    [
+        (0, 0),
+        (1, 1),
+        (1_700_000_000_000, 123456789),
+        ((1 << 48) - 1, _MAX_RAND),
+    ],
+)
 def test_encode_decode_roundtrip(ts, rand):
     u = ULID(ts, rand)
     back = ULID.parse(str(u))
@@ -75,10 +80,11 @@ def test_constructor_rejects_out_of_range():
 
 # --- monotonicity & sortability --------------------------------------------
 
+
 def test_lexical_order_equals_chronological_order():
-    early = str(ULID(1_000, 999))          # later randomness, earlier time
-    late = str(ULID(2_000, 0))             # earlier randomness, later time
-    assert early < late                    # timestamp dominates the ordering
+    early = str(ULID(1_000, 999))  # later randomness, earlier time
+    late = str(ULID(2_000, 0))  # earlier randomness, later time
+    assert early < late  # timestamp dominates the ordering
 
 
 def test_monotonic_within_same_millisecond():
@@ -98,7 +104,7 @@ def test_randomness_overflow_rolls_into_next_millisecond():
     a = f.new()
     b = f.new()
     assert a.timestamp_ms == 7_000 and a.randomness == _MAX_RAND
-    assert b.timestamp_ms == 7_001          # rolled over
+    assert b.timestamp_ms == 7_001  # rolled over
     assert str(b) > str(a)
 
 

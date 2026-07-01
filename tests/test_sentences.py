@@ -2,10 +2,8 @@
 
 from __future__ import annotations
 
-import pytest
-
 import extract_phrases as ep
-
+import pytest
 
 # ---------------------------------------------------------------------------
 # reflow — rejoin wrapped lines

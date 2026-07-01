@@ -2,22 +2,36 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from contextlib import contextmanager
-from typing import Any, Iterator, Optional
+from typing import Any
 
 import psycopg
 from psycopg import errors as pgerr
 from psycopg.rows import dict_row
 
-from doc_ray.domain import lexemes as _lex
 from doc_ray.config import Config
+from doc_ray.domain import lexemes as _lex
+
+#: A psycopg connection whose rows are mappings (``row_factory=dict_row``).
+DictConnection = psycopg.Connection[dict[str, Any]]
 
 
 @contextmanager
-def connect(cfg: Config) -> Iterator[psycopg.Connection]:
-    # autocommit=True so each `with conn.transaction()` is a real BEGIN/COMMIT.
-    # Without it, an earlier SELECT opens an implicit tx and transaction() would
-    # only create a savepoint — the insert would roll back silently on close.
+def connect(cfg: Config) -> Iterator[DictConnection]:
+    """Open a dict-row psycopg connection, yielding it and closing it on exit.
+
+    The connection is opened with ``autocommit=True`` so each
+    ``with conn.transaction()`` is a real ``BEGIN``/``COMMIT``. Without it, an
+    earlier ``SELECT`` opens an implicit transaction and ``transaction()`` would
+    only create a savepoint — the insert would roll back silently on close.
+
+    Args:
+        cfg: Runtime configuration carrying the database URL.
+
+    Yields:
+        An open connection with a ``dict_row`` row factory.
+    """
     conn = psycopg.connect(cfg.database_url, row_factory=dict_row, autocommit=True)
     try:
         yield conn
@@ -25,29 +39,42 @@ def connect(cfg: Config) -> Iterator[psycopg.Connection]:
         conn.close()
 
 
-def find_by_sha256(conn: psycopg.Connection, sha256: str) -> Optional[dict[str, Any]]:
-    cur = conn.execute(
-        "SELECT id, status FROM documents WHERE content_sha256 = %s", (sha256,)
-    )
+def find_by_sha256(conn: DictConnection, sha256: str) -> dict[str, Any] | None:
+    """Look up a document by its content hash.
+
+    Args:
+        conn: Open database connection.
+        sha256: Hex-encoded SHA-256 of the document content.
+
+    Returns:
+        A ``{id, status}`` mapping for the matching document, or ``None``.
+    """
+    cur = conn.execute("SELECT id, status FROM documents WHERE content_sha256 = %s", (sha256,))
     return cur.fetchone()
 
 
-def ensure_spans(conn, document_id: str,
-                 pairs: list[tuple[int, int]]) -> dict[tuple[int, int], str]:
-    """Register every (char_start, char_end) pair as a span for the document
-    (idempotent) and return a {(start, end): span_id} map.
+def ensure_spans(
+    conn: DictConnection, document_id: str, pairs: list[tuple[int, int]]
+) -> dict[tuple[int, int], str]:
+    """Register ``(char_start, char_end)`` pairs as spans and map them to ids.
 
-    Uses a temp staging table + COPY so a document with hundreds of thousands of
-    word spans loads in bulk rather than one INSERT per span.
+    Every pair is registered as a span for the document (idempotent). Uses a
+    temp staging table + ``COPY`` so a document with hundreds of thousands of
+    word spans loads in bulk rather than one ``INSERT`` per span.
+
+    Args:
+        conn: Open database connection.
+        document_id: Document the spans belong to.
+        pairs: ``(char_start, char_end)`` offset pairs to register.
+
+    Returns:
+        A ``{(start, end): span_id}`` map for exactly the requested pairs.
     """
     uniq = sorted({(int(s), int(e)) for s, e in pairs})
     if not uniq:
         return {}
     with conn.cursor() as cur:
-        cur.execute(
-            "CREATE TEMP TABLE IF NOT EXISTS _span_stage "
-            "(char_start int, char_end int)"
-        )
+        cur.execute("CREATE TEMP TABLE IF NOT EXISTS _span_stage (char_start int, char_end int)")
         cur.execute("TRUNCATE _span_stage")
         with cur.copy("COPY _span_stage (char_start, char_end) FROM STDIN") as cp:
             for start, end in uniq:
@@ -69,14 +96,30 @@ def ensure_spans(conn, document_id: str,
     return {(r["char_start"], r["char_end"]): r["id"] for r in rows}
 
 
-def get_or_create_lexeme(conn, cache: dict, lemma: str, pos: str,
-                         lang: str) -> tuple[str, bool]:
-    """Resolve (lemma, pos, lang) to a lexeme uid, minting one if new.
+def get_or_create_lexeme(
+    conn: DictConnection,
+    cache: dict[str, str],
+    lemma: str,
+    pos: str,
+    lang: str,
+) -> tuple[str, bool]:
+    """Resolve ``(lemma, pos, lang)`` to a lexeme uid, minting one if new.
 
-    Returns (uid, created). Requires an autocommit connection so a uid
-    UniqueViolation (a hash collision between two *different* keys) can be
-    caught and resolved by lengthening the alias — mirroring the Registry's
-    collision-grow. `cache` memoizes within a run so repeats never hit the DB.
+    Requires an autocommit connection so a uid ``UniqueViolation`` (a hash
+    collision between two *different* keys) can be caught and resolved by
+    lengthening the alias — mirroring the Registry's collision-grow. ``cache``
+    memoizes within a run so repeats never hit the DB.
+
+    Args:
+        conn: Open autocommit database connection.
+        cache: In-run memo mapping canonical key to uid.
+        lemma: Surface lemma to normalize and resolve.
+        pos: Part-of-speech tag (upper-cased for the key).
+        lang: Language code (lower-cased for the key).
+
+    Returns:
+        A ``(uid, created)`` pair where ``created`` is ``True`` iff a new lexeme
+        row was minted on this call.
     """
     lemma_n = _lex.norm_lemma(lemma)
     pos_u, lang_l = pos.upper(), lang.lower()
@@ -116,13 +159,33 @@ def get_or_create_lexeme(conn, cache: dict, lemma: str, pos: str,
             size = min(size + 2, _lex.HASH_HEX_LEN)
 
 
-def replace_annotation(conn, *, annotation_id: str, document_id: str,
-                       layer: str, tool: str, tool_version: str | None,
-                       occurrences: list[tuple[str, str]],
-                       provenance: dict) -> None:
-    """Atomically (re)write one annotation run: its occurrences and its
-    'annotated' provenance event. Replaces any prior run for (doc, layer, tool).
-    `occurrences` are (span_id, lexeme_uid) pairs."""
+def replace_annotation(
+    conn: DictConnection,
+    *,
+    annotation_id: str,
+    document_id: str,
+    layer: str,
+    tool: str,
+    tool_version: str | None,
+    occurrences: list[tuple[str, str]],
+    provenance: dict[str, Any],
+) -> None:
+    """Atomically (re)write one annotation run and its provenance event.
+
+    Replaces any prior run for ``(document_id, layer, tool)`` and records an
+    ``'annotated'`` provenance event, all within a single transaction.
+
+    Args:
+        conn: Open database connection.
+        annotation_id: Id for the new annotation run.
+        document_id: Document being annotated.
+        layer: Annotation layer name (e.g. ``"lexeme"``).
+        tool: Tool that produced the annotation.
+        tool_version: Version string of the tool, if known.
+        occurrences: ``(span_id, lexeme_uid)`` pairs to record.
+        provenance: Provenance event fields, including an optional ``params``
+            mapping.
+    """
     with conn.transaction():
         conn.execute(
             "DELETE FROM annotations WHERE document_id=%s AND layer=%s AND tool=%s",
@@ -135,8 +198,7 @@ def replace_annotation(conn, *, annotation_id: str, document_id: str,
         )
         if occurrences:
             with conn.cursor().copy(
-                "COPY lexeme_occurrences "
-                "(annotation_id, span_id, lexeme_uid) FROM STDIN"
+                "COPY lexeme_occurrences (annotation_id, span_id, lexeme_uid) FROM STDIN"
             ) as cp:
                 for span_id, uid in occurrences:
                     cp.write_row((annotation_id, span_id, uid))
@@ -147,12 +209,19 @@ def replace_annotation(conn, *, annotation_id: str, document_id: str,
                 (id, document_id, kind, tool, tool_version, actor, note)
             VALUES (%s, %s, 'annotated', %s, %s, %s, %s)
             """,
-            (provenance["id"], document_id, provenance["tool"],
-             provenance["tool_version"], provenance["actor"], provenance["note"]),
+            (
+                provenance["id"],
+                document_id,
+                provenance["tool"],
+                provenance["tool_version"],
+                provenance["actor"],
+                provenance["note"],
+            ),
         )
         param_rows = [
             (provenance["id"], k, str(v))
-            for k, v in (provenance.get("params") or {}).items() if v is not None
+            for k, v in (provenance.get("params") or {}).items()
+            if v is not None
         ]
         if param_rows:
             with conn.cursor() as cur:
@@ -163,48 +232,81 @@ def replace_annotation(conn, *, annotation_id: str, document_id: str,
                 )
 
 
-def _author_id(conn: psycopg.Connection, name: str) -> int:
-    return conn.execute(
+def _author_id(conn: DictConnection, name: str) -> int:
+    """Upsert an author by name and return its id."""
+    row = conn.execute(
         "INSERT INTO authors (name) VALUES (%s) "
         "ON CONFLICT (name) DO UPDATE SET name = EXCLUDED.name RETURNING id",
         (name,),
-    ).fetchone()["id"]
+    ).fetchone()
+    assert row is not None  # RETURNING guarantees a row
+    return int(row["id"])
 
 
-def _tag_id(conn: psycopg.Connection, tag: str) -> int:
-    return conn.execute(
+def _tag_id(conn: DictConnection, tag: str) -> int:
+    """Upsert a tag and return its id."""
+    row = conn.execute(
         "INSERT INTO tags (tag) VALUES (%s) "
         "ON CONFLICT (tag) DO UPDATE SET tag = EXCLUDED.tag RETURNING id",
         (tag,),
-    ).fetchone()["id"]
+    ).fetchone()
+    assert row is not None  # RETURNING guarantees a row
+    return int(row["id"])
 
 
 def insert_document(
-    conn: psycopg.Connection,
+    conn: DictConnection,
     *,
     title: str,
     doc_type: str,
-    mime_type: Optional[str] = None,
-    original_filename: Optional[str] = None,
+    mime_type: str | None = None,
+    original_filename: str | None = None,
     source_uri: str,
     content_sha256: str,
     byte_size: int,
-    page_count: Optional[int],
-    char_count: Optional[int] = None,
-    text_sha256: Optional[str] = None,
-    full_text: Optional[str],
+    page_count: int | None,
+    char_count: int | None = None,
+    text_sha256: str | None = None,
+    full_text: str | None,
     status: str,
-    error: Optional[str] = None,
-    authors: Optional[list[str]] = None,
-    tags: Optional[list[str]] = None,
-    identifiers: Optional[dict[str, str]] = None,
-    metadata: Optional[dict[str, Any]] = None,
-    sentences: Optional[list[dict[str, Any]]] = None,
-    provenance: Optional[list[dict[str, Any]]] = None,
+    error: str | None = None,
+    authors: list[str] | None = None,
+    tags: list[str] | None = None,
+    identifiers: dict[str, str] | None = None,
+    metadata: dict[str, Any] | None = None,
+    sentences: list[dict[str, Any]] | None = None,
+    provenance: list[dict[str, Any]] | None = None,
 ) -> str:
-    """Insert a document and all its normalized (4NF) satellites — authors,
-    tags, identifiers, metadata, content, sentences, provenance — in one
-    transaction. Returns the new document id."""
+    """Insert a document and all its normalized (4NF) satellites in one txn.
+
+    Persists the document alongside its authors, tags, identifiers, metadata,
+    content, sentences, and provenance within a single transaction.
+
+    Args:
+        conn: Open database connection.
+        title: Document title.
+        doc_type: Document type discriminator.
+        mime_type: MIME type of the source, if known.
+        original_filename: Original source filename, if any.
+        source_uri: Canonical URI of the stored source bytes.
+        content_sha256: Hex SHA-256 of the source content.
+        byte_size: Size of the source content in bytes.
+        page_count: Page count, if applicable.
+        char_count: Character count of the extracted text, if known.
+        text_sha256: Hex SHA-256 of the extracted text, if known.
+        full_text: Full extracted text.
+        status: Document processing status.
+        error: Error message if extraction failed.
+        authors: Ordered author names.
+        tags: Free-form tags.
+        identifiers: ``{scheme: value}`` external identifiers.
+        metadata: Arbitrary ``{key: value}`` metadata.
+        sentences: Sentence records with ``char_start``/``char_end`` offsets.
+        provenance: Provenance event records, each with optional ``params``.
+
+    Returns:
+        The id of the newly inserted document.
+    """
     with conn.transaction():
         row = conn.execute(
             """
@@ -230,6 +332,7 @@ def insert_document(
                 error,
             ),
         ).fetchone()
+        assert row is not None  # RETURNING guarantees a row
         doc_id = row["id"]
 
         for position, name in enumerate(authors or []):
@@ -280,8 +383,13 @@ def insert_document(
                     VALUES (%s, %s, %s, %s, %s)
                     """,
                     [
-                        (s["id"], doc_id, s["ordinal"], s["text"],
-                         span_map[(s["char_start"], s["char_end"])])
+                        (
+                            s["id"],
+                            doc_id,
+                            s["ordinal"],
+                            s["text"],
+                            span_map[(s["char_start"], s["char_end"])],
+                        )
                         for s in sentences
                     ],
                 )
@@ -297,9 +405,15 @@ def insert_document(
                     """,
                     [
                         (
-                            e["id"], doc_id, e["kind"], e["tool"],
-                            e["tool_version"], e["actor"], e["input_sha256"],
-                            e["output_sha256"], e["note"],
+                            e["id"],
+                            doc_id,
+                            e["kind"],
+                            e["tool"],
+                            e["tool_version"],
+                            e["actor"],
+                            e["input_sha256"],
+                            e["output_sha256"],
+                            e["note"],
                         )
                         for e in provenance
                     ],

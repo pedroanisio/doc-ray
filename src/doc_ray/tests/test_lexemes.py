@@ -8,8 +8,8 @@ import pytest
 
 from doc_ray.domain import lexemes as lex
 
-
 # --- identity ---------------------------------------------------------------
+
 
 def test_canonical_key_normalizes():
     assert lex.canonical_key("Running", "verb", "EN") == "en:VERB:running"
@@ -28,8 +28,8 @@ def test_uid_candidate_format_and_growth():
     u8 = lex.uid_candidate(key, "VERB", "en", 8)
     assert re.fullmatch(r"lx_en\.v_[0-9a-f]{8}", u8)
     u10 = lex.uid_candidate(key, "VERB", "en", 10)
-    assert u10.startswith("lx_en.v_")               # same namespaced prefix
-    assert u10[:len("lx_en.v_") + 8] == u8          # grown alias extends the shorter
+    assert u10.startswith("lx_en.v_")  # same namespaced prefix
+    assert u10[: len("lx_en.v_") + 8] == u8  # grown alias extends the shorter
     assert len(u10.split("_")[-1]) == 10 and u10 != u8
 
 
@@ -40,6 +40,7 @@ def test_pos_tag_defaults_to_x():
 
 
 # --- tokenizer offsets ------------------------------------------------------
+
 
 def test_iter_words_offsets_recover_surface():
     text = "The cats ran, and dogs don't well-being."
@@ -60,23 +61,28 @@ def test_iter_words_excludes_digits_and_punct():
 
 # --- rule analyzer ----------------------------------------------------------
 
-@pytest.mark.parametrize("surface,lemma", [
-    ("runs", "run"),
-    ("cats", "cat"),
-    ("cities", "city"),
-    ("buses", "bus"),
-    ("boxes", "box"),
-    ("kiss", "kiss"),        # -ss not stripped
-    ("run", "run"),
-    ("is", "is"),            # too short to strip
-])
+
+@pytest.mark.parametrize(
+    "surface,lemma",
+    [
+        ("runs", "run"),
+        ("cats", "cat"),
+        ("cities", "city"),
+        ("buses", "bus"),
+        ("boxes", "box"),
+        ("kiss", "kiss"),  # -ss not stripped
+        ("run", "run"),
+        ("is", "is"),  # too short to strip
+    ],
+)
 def test_rule_analyzer_deinflects(surface, lemma):
     got_lemma, pos = lex.RuleAnalyzer().lemma(surface)
     assert got_lemma == lemma
-    assert pos == "X"        # rule engine cannot tag POS
+    assert pos == "X"  # rule engine cannot tag POS
 
 
 # --- language detection -----------------------------------------------------
+
 
 def test_detect_english():
     text = "The report is about the accident and the crew of the aircraft."

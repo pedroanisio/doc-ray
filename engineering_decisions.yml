@@ -1,0 +1,560 @@
+# =====================================================================
+# doc-ray — engineering_decisions.yml  (v2 schema)
+#
+# System of record for architectural & operational decisions. Validated by
+# the vendored SHACL/YAML toolchain under engineering/schema/:
+#   python engineering/schema/scripts/validate_decisions.py engineering_decisions.yml
+#   python engineering/schema/scripts/yml_to_rdf.py engineering_decisions.yml > /tmp/ed.ttl
+#   pyshacl -s engineering/schema/statics/ttl/engineering_decisions_record_shacl.ttl \
+#           -s engineering/schema/statics/ttl/engineering_decisions_consequences_shacl.ttl \
+#           -s engineering/schema/statics/ttl/engineering_decisions_implementation_shacl.ttl \
+#           -s engineering/schema/statics/ttl/engineering_decisions_config.ttl \
+#           -d engineering/schema/statics/ttl/engineering_decisions_config.ttl -d /tmp/ed.ttl
+#
+# Lifecycle: D-001..D-010 capture the GraphQL-API + jobs architecture; D-011..D-016
+# encode the mandated engineering standards. Claims already true in the tree are
+# `populated`; not-yet-built ones are `pending` (checks written when the phase lands).
+# =====================================================================
+
+disclaimer: |
+  No statement or premise not backed by a real logical definition or
+  verifiable reference should be taken for granted.
+
+source_schema:         "db/migrations"
+source_schema_version: "0.1.0"
+target_engine:         "PostgreSQL 16"
+total_decisions:       16
+
+decisions:
+
+  # ===================== ARCHITECTURE (D-001..D-010) =====================
+
+  - id:                 "D-001"
+    title:              "Expose the store through a GraphQL (Strawberry) API"
+    version_introduced: "0.1.0"
+    category:           "extensibility"
+    decision: |
+      The programmatic surface over the document store is a GraphQL API built
+      with Strawberry, living at src/doc_ray/entrypoints/api/. It is a driving
+      adapter over the existing application/use-case layer — no SQL in resolvers.
+    rationale: |
+      The stored graph (document -> sentences -> tokens -> syntax/coref/meaning ->
+      lexemes) is deeply nested; GraphQL lets clients select exactly the layers
+      they need. Chosen over REST/gRPC for that fit and for OpenAPI-free schema.
+    decision_status:    "accepted"
+    decision_date:      "2026-07-01"
+    owner:              ["pedroanisio@faz.ai"]
+    scope_path:         ["src/doc_ray/entrypoints/api/**/*.py", "requirements.txt"]
+    claims:
+      - claim_id:    "D-001.k1"
+        claim_text:  "A Strawberry GraphQL schema is served from src/doc_ray/entrypoints/api/."
+        auditable:   true
+        status:      "pending"
+        declared_checks_count: 0
+        checks:      []
+    open_issue: "Implemented in Phase 2 (read-only GraphQL); checks written then."
+
+  - id:                 "D-002"
+    title:              "Serve reads through a ReadRepository port + async adapter"
+    version_introduced: "0.1.0"
+    category:           "data-normalization"
+    decision: |
+      Read queries currently duplicated across webapp/app.py and adapters/export.py
+      collapse into a single ReadRepository port (src/doc_ray/ports/repository.py)
+      with an async adapter (adapters/persistence_read.py). GraphQL, the Flask
+      browser, and export consume the same query definitions.
+    rationale: |
+      One query per shape kills SQL drift between the three read faces and gives
+      the async API typed rows without re-deriving them.
+    decision_status:    "accepted"
+    decision_date:      "2026-07-01"
+    owner:              ["pedroanisio@faz.ai"]
+    scope_path:         ["src/doc_ray/ports/repository.py", "src/doc_ray/adapters/persistence_read.py"]
+    claims:
+      - claim_id:    "D-002.k1"
+        claim_text:  "Reads are served by a ReadRepository port + async adapter, not inline SQL in resolvers."
+        auditable:   true
+        status:      "pending"
+        declared_checks_count: 0
+        checks:      []
+    open_issue: "Implemented in Phase 1 (read repository); checks written then."
+
+  - id:                 "D-003"
+    title:              "Preserve autocommit + statement-level lexeme collision-grow"
+    version_introduced: "0.1.0"
+    category:           "data-integrity"
+    decision: |
+      The persistence adapter connects with autocommit=True so get_or_create_lexeme
+      can catch a UniqueViolation and grow the alias statement-by-statement. No
+      refactor may wrap lexeme minting in a transaction (would poison it with
+      InFailedSqlTransaction).
+    rationale: |
+      The collision-grow is load-bearing for lexeme identity; autocommit is the
+      contract that makes it correct. This is the single biggest refactor trap.
+    decision_status:    "accepted"
+    decision_date:      "2026-07-01"
+    owner:              ["pedroanisio@faz.ai"]
+    scope_path:         ["src/doc_ray/adapters/persistence.py"]
+    claims:
+      - claim_id:    "D-003.k1"
+        claim_text:  "persistence.py connects autocommit=True and resolves lexeme uid collisions by growing the alias."
+        auditable:   true
+        status:      "populated"
+        declared_checks_count: 2
+        checks:
+          - check_id:    "D-003.k1.c1"
+            description: "persistence.py opens the connection with autocommit=True."
+            check_kind:  "grep"
+            severity:    "error"
+            context:     "workspace"
+            path:        "src/doc_ray/adapters/persistence.py"
+            pattern:     'autocommit=True'
+            expect:
+              present:   true
+          - check_id:    "D-003.k1.c2"
+            description: "persistence.py catches UniqueViolation for the collision-grow loop."
+            check_kind:  "grep"
+            severity:    "error"
+            context:     "workspace"
+            path:        "src/doc_ray/adapters/persistence.py"
+            pattern:     'UniqueViolation'
+            expect:
+              present:   true
+
+  - id:                 "D-004"
+    title:              "Background jobs via a Postgres queue (FOR UPDATE SKIP LOCKED)"
+    version_introduced: "0.1.0"
+    category:           "operations"
+    decision: |
+      Asynchronous work (ingest, reannotate) is queued in a Postgres `jobs` table
+      and claimed with SELECT ... FOR UPDATE SKIP LOCKED. No new infrastructure
+      (no Redis/Celery). A Queue port keeps Redis/SQS swappable.
+    rationale: |
+      Postgres is already the system of record; a DB-backed queue gives durable
+      at-least-once delivery and transactional enqueue with zero new moving parts.
+    decision_status:    "accepted"
+    decision_date:      "2026-07-01"
+    owner:              ["pedroanisio@faz.ai"]
+    scope_path:         ["src/doc_ray/ports/queue.py", "src/doc_ray/adapters/queue_postgres.py"]
+    claims:
+      - claim_id:    "D-004.k1"
+        claim_text:  "The queue adapter claims jobs with FOR UPDATE SKIP LOCKED."
+        auditable:   true
+        status:      "pending"
+        declared_checks_count: 0
+        checks:      []
+    open_issue: "Implemented in Phase 3 (jobs + worker); checks written then."
+
+  - id:                 "D-005"
+    title:              "Sync worker for blocking work; async only for API reads"
+    version_introduced: "0.1.0"
+    category:           "runtime-quality"
+    decision: |
+      Blocking C-extension work (PDF extraction, spaCy) runs only in a synchronous
+      worker process (src/doc_ray/entrypoints/worker.py). The GraphQL API is async
+      and read-only in-request; all heavy writes are enqueued. Resolvers never
+      import spacy/pymupdf/application.pipeline.
+    rationale: |
+      Keeps the event loop free; maps cleanly onto the RBAC trust boundary
+      (worker = trusted superuser writer; API = docray_client reader).
+    decision_status:    "accepted"
+    decision_date:      "2026-07-01"
+    owner:              ["pedroanisio@faz.ai"]
+    scope_path:         ["src/doc_ray/entrypoints/worker.py", "src/doc_ray/entrypoints/api/**/*.py"]
+    claims:
+      - claim_id:    "D-005.k1"
+        claim_text:  "API resolver modules never import spacy, pymupdf, or application.pipeline."
+        auditable:   true
+        status:      "pending"
+        declared_checks_count: 0
+        checks:      []
+    open_issue: "Enforced by an import-guard test in Phase 2/3."
+
+  - id:                 "D-006"
+    title:              "Runtime migration runner closes the init-only gap"
+    version_introduced: "0.1.0"
+    category:           "evolution"
+    decision: |
+      A runtime migration runner (src/doc_ray/adapters/migrate.py, entrypoint
+      python -m doc_ray.entrypoints.migrate) applies db/migrations/NNN_*.sql not yet
+      in schema_migrations, each in its own transaction under pg_advisory_lock. Runs
+      as a one-shot compose service gating api/worker.
+    rationale: |
+      docker-entrypoint-initdb.d runs only on first init, so new migrations never
+      reach existing volumes; the runner makes migrations reach running databases.
+    decision_status:    "accepted"
+    decision_date:      "2026-07-01"
+    owner:              ["pedroanisio@faz.ai"]
+    scope_path:         ["src/doc_ray/adapters/migrate.py", "src/doc_ray/entrypoints/migrate.py"]
+    claims:
+      - claim_id:    "D-006.k1"
+        claim_text:  "A runtime migration runner exists and applies pending migrations idempotently."
+        auditable:   true
+        status:      "pending"
+        declared_checks_count: 0
+        checks:      []
+    open_issue: "Implemented in Phase 1; checks (dry-run exit 0) written then."
+
+  - id:                 "D-007"
+    title:              "jobs table: text+CHECK status, open text kind (migration 019)"
+    version_introduced: "0.1.0"
+    category:           "enums"
+    decision: |
+      The `jobs` table lands as db/migrations/019_jobs.sql (016-018 already taken by
+      fts/schema-fixes/rbac). Status is a closed set enforced with text+CHECK
+      (queued|running|succeeded|failed|canceled) — not a PG enum, which is not
+      transaction-safe to evolve. `kind` is open text validated by the worker.
+    rationale: |
+      text+CHECK is transaction-safe to add/drop; the closed status lifecycle will
+      never grow, while kinds will (ingest, reannotate, embed, ...).
+    decision_status:    "accepted"
+    decision_date:      "2026-07-01"
+    owner:              ["pedroanisio@faz.ai"]
+    scope_path:         ["db/migrations/019_jobs.sql"]
+    claims:
+      - claim_id:    "D-007.k1"
+        claim_text:  "db/migrations/019_jobs.sql defines jobs.status as text with a closed CHECK constraint."
+        auditable:   true
+        status:      "pending"
+        declared_checks_count: 0
+        checks:      []
+    open_issue: "Implemented in Phase 3; supersedes the plan's original 016 number."
+
+  - id:                 "D-008"
+    title:              "GraphQL safety: depth + complexity limits, keyset pagination"
+    version_introduced: "0.1.0"
+    category:           "security"
+    decision: |
+      The GraphQL schema enforces query depth and complexity/cost limits, caps
+      per-connection `first`, guards DocumentContent.fullText size, and paginates
+      large lists with Relay keyset cursors.
+    rationale: |
+      The graph is deeply recursive (token.head.head..., constituent.parent...);
+      without limits a single query can melt Postgres or return hundreds of MB.
+    decision_status:    "accepted"
+    decision_date:      "2026-07-01"
+    owner:              ["pedroanisio@faz.ai"]
+    scope_path:         ["src/doc_ray/entrypoints/api/extensions/**/*.py"]
+    claims:
+      - claim_id:    "D-008.k1"
+        claim_text:  "The API rejects queries exceeding the configured depth/complexity limits."
+        auditable:   true
+        status:      "pending"
+        declared_checks_count: 0
+        checks:      []
+    open_issue: "Implemented in Phase 2; a test_depth_complexity gate is added then."
+
+  - id:                 "D-009"
+    title:              "Pluggable extractor & analyzer registries"
+    version_introduced: "0.1.0"
+    category:           "extensibility"
+    decision: |
+      Document extractors are dispatched through a registry (_EXTRACTORS in
+      adapters/extraction.py); a new file type is a new adapter + one registration.
+      Analyzers follow the annotator port. The queue gets the same treatment via a
+      Queue port so backends are swappable.
+    rationale: |
+      Open for extension, closed for modification: new capabilities arrive as new
+      files, not edits to dispatch code.
+    decision_status:    "accepted"
+    decision_date:      "2026-07-01"
+    owner:              ["pedroanisio@faz.ai"]
+    scope_path:         ["src/doc_ray/adapters/extraction.py", "src/doc_ray/ports/annotator.py"]
+    claims:
+      - claim_id:    "D-009.k1"
+        claim_text:  "Extractors are dispatched through the _EXTRACTORS registry."
+        auditable:   true
+        status:      "populated"
+        declared_checks_count: 1
+        checks:
+          - check_id:    "D-009.k1.c1"
+            description: "adapters/extraction.py defines the _EXTRACTORS registry."
+            check_kind:  "grep"
+            severity:    "error"
+            context:     "workspace"
+            path:        "src/doc_ray/adapters/extraction.py"
+            pattern:     '_EXTRACTORS'
+            expect:
+              present:   true
+
+  - id:                 "D-010"
+    title:              "Access control via Postgres RLS; API sets the principal"
+    version_introduced: "0.1.0"
+    category:           "security"
+    decision: |
+      Document-level authorization is enforced in the database via Row-Level
+      Security (db/migrations/018_rbac.sql): principals/roles/permissions/document_acl.
+      The trusted pipeline/worker uses the superuser role (bypasses RLS); the API
+      authenticates a principal and runs as docray_client with
+      `SET app.principal_id`, so RLS filters every read. App-layer auth is only the
+      authN federation slot (bearer/OIDC -> principal).
+    rationale: |
+      Enforcing authorization at the data layer is stronger than app-layer checks
+      and cannot be bypassed by a new read path.
+    decision_status:    "accepted"
+    decision_date:      "2026-07-01"
+    owner:              ["pedroanisio@faz.ai"]
+    scope_path:         ["db/migrations/018_rbac.sql", "src/doc_ray/entrypoints/api/security/**/*.py"]
+    claims:
+      - claim_id:    "D-010.k1"
+        claim_text:  "Document-scoped tables enforce access with Postgres Row-Level Security."
+        auditable:   true
+        status:      "populated"
+        declared_checks_count: 2
+        checks:
+          - check_id:    "D-010.k1.c1"
+            description: "The RBAC/RLS migration is present."
+            check_kind:  "file-exists"
+            severity:    "error"
+            context:     "workspace"
+            path:        "db/migrations/018_rbac.sql"
+            expect:
+              present:   true
+          - check_id:    "D-010.k1.c2"
+            description: "The RBAC migration enables Row-Level Security."
+            check_kind:  "grep"
+            severity:    "error"
+            context:     "workspace"
+            path:        "db/migrations/018_rbac.sql"
+            pattern:     'ROW LEVEL SECURITY'
+            expect:
+              present:   true
+
+  # ===================== QUALITY GATES (D-011..D-016) =====================
+
+  - id:                 "D-011"
+    title:              "Ruff strict lint incl. docstrings, pinned in pyproject"
+    version_introduced: "0.2.0"
+    category:           "code-quality"
+    decision: |
+      Ruff is configured in pyproject.toml with a strict rule select that includes
+      the pydocstyle (D) rules, so every public module/function is documented.
+      `ruff check` gates pre-commit and CI.
+    rationale: |
+      One pinned, greppable lint config removes style churn from review and
+      enforces full docstrings mechanically.
+    decision_status:    "accepted"
+    decision_date:      "2026-07-01"
+    owner:              ["pedroanisio@faz.ai"]
+    scope_path:         ["pyproject.toml", "src/doc_ray/**/*.py"]
+    claims:
+      - claim_id:    "D-011.k1"
+        claim_text:  "pyproject.toml configures a Ruff lint select that includes docstring (D) rules."
+        auditable:   true
+        status:      "populated"
+        declared_checks_count: 2
+        checks:
+          - check_id:    "D-011.k1.c1"
+            description: "pyproject.toml declares tool.ruff.lint.select."
+            check_kind:  "toml-key"
+            severity:    "error"
+            context:     "workspace"
+            path:        "pyproject.toml"
+            key:         "tool.ruff.lint.select"
+            expect:
+              present:   true
+          - check_id:    "D-011.k1.c2"
+            description: "ruff check passes on the application sources."
+            check_kind:  "shell"
+            severity:    "error"
+            context:     "ci"
+            side_effects: "reads"
+            command:     "ruff check src scripts webapp"
+            expect:
+              exit:      0
+
+  - id:                 "D-012"
+    title:              "mypy runs in strict mode"
+    version_introduced: "0.2.0"
+    category:           "typing"
+    decision: |
+      pyproject.toml sets [tool.mypy] strict = true (with narrow per-module
+      overrides only for untyped third-party libs). `mypy src` gates pre-commit/CI.
+    rationale: |
+      Strict typing catches contract drift across the ports/adapters seams before runtime.
+    decision_status:    "accepted"
+    decision_date:      "2026-07-01"
+    owner:              ["pedroanisio@faz.ai"]
+    scope_path:         ["pyproject.toml", "src/doc_ray/**/*.py"]
+    claims:
+      - claim_id:    "D-012.k1"
+        claim_text:  "pyproject.toml enables mypy strict mode and mypy passes on src."
+        auditable:   true
+        status:      "populated"
+        declared_checks_count: 2
+        checks:
+          - check_id:    "D-012.k1.c1"
+            description: "pyproject.toml declares tool.mypy.strict."
+            check_kind:  "toml-key"
+            severity:    "error"
+            context:     "workspace"
+            path:        "pyproject.toml"
+            key:         "tool.mypy.strict"
+            expect:
+              present:   true
+          - check_id:    "D-012.k1.c2"
+            description: "mypy passes on src."
+            check_kind:  "shell"
+            severity:    "error"
+            context:     "ci"
+            side_effects: "reads"
+            command:     "mypy src"
+            expect:
+              exit:      0
+
+  - id:                 "D-013"
+    title:              "Test coverage stays at or above 90%"
+    version_introduced: "0.2.0"
+    category:           "test-automation"
+    decision: |
+      Coverage is measured across both tests/ and src/doc_ray/tests/ and gated at
+      >= 90% via [tool.coverage.report] fail_under = 90.
+    rationale: |
+      A hard floor keeps the new API/worker code honestly tested rather than nominally covered.
+    decision_status:    "accepted"
+    decision_date:      "2026-07-01"
+    owner:              ["pedroanisio@faz.ai"]
+    scope_path:         ["pyproject.toml", "tests/**/*.py", "src/doc_ray/tests/**/*.py"]
+    claims:
+      - claim_id:    "D-013.k1"
+        claim_text:  "Coverage is gated at fail_under=90 and the suite meets it."
+        auditable:   true
+        status:      "populated"
+        declared_checks_count: 2
+        checks:
+          - check_id:    "D-013.k1.c1"
+            description: "pyproject.toml sets coverage fail_under."
+            check_kind:  "toml-key"
+            severity:    "error"
+            context:     "workspace"
+            path:        "pyproject.toml"
+            key:         "tool.coverage.report.fail_under"
+            expect:
+              equals:    "90"
+          - check_id:    "D-013.k1.c2"
+            description: "pytest with coverage meets the 90% floor."
+            check_kind:  "shell"
+            severity:    "error"
+            context:     "ci"
+            side_effects: "reads"
+            command:     "pytest --cov=doc_ray --cov-fail-under=90 tests src/doc_ray/tests -q"
+            expect:
+              exit:      0
+
+  - id:                 "D-014"
+    title:              "Gated pre-commit runs the full quality bar"
+    version_introduced: "0.2.0"
+    category:           "tooling"
+    decision: |
+      .pre-commit-config.yaml runs ruff (lint+format), mypy, the net-LOC check, the
+      coverage gate, and engineering-decisions validation, so violations are caught
+      before commit/push.
+    rationale: |
+      Shifting the gate left keeps main green and makes CI a confirmation, not a surprise.
+    decision_status:    "accepted"
+    decision_date:      "2026-07-01"
+    owner:              ["pedroanisio@faz.ai"]
+    scope_path:         [".pre-commit-config.yaml"]
+    claims:
+      - claim_id:    "D-014.k1"
+        claim_text:  "A pre-commit config exists and wires the ruff/mypy/loc/decisions hooks."
+        auditable:   true
+        status:      "populated"
+        declared_checks_count: 2
+        checks:
+          - check_id:    "D-014.k1.c1"
+            description: "The pre-commit config file is present."
+            check_kind:  "file-exists"
+            severity:    "error"
+            context:     "workspace"
+            path:        ".pre-commit-config.yaml"
+            expect:
+              present:   true
+          - check_id:    "D-014.k1.c2"
+            description: "The pre-commit config references ruff."
+            check_kind:  "grep"
+            severity:    "error"
+            context:     "workspace"
+            path:        ".pre-commit-config.yaml"
+            pattern:     'ruff'
+            expect:
+              present:   true
+
+  - id:                 "D-015"
+    title:              "Every source file stays under 400 net lines of code"
+    version_introduced: "0.2.0"
+    category:           "code-quality"
+    decision: |
+      No Python source file under src/doc_ray/, webapp/, or scripts/ may exceed 400
+      net lines of code (physical minus blank and comment-only lines). Vendored
+      .repo/ and the proto/ prototype are out of scope.
+    rationale: |
+      Bounds module responsibility (SOLID/SRP) and keeps files reviewable; forces
+      the persistence.py split as GraphQL read methods land.
+    decision_status:    "accepted"
+    decision_date:      "2026-07-01"
+    owner:              ["pedroanisio@faz.ai"]
+    scope_path:         ["src/doc_ray/**/*.py", "webapp/**/*.py", "scripts/**/*.py"]
+    claims:
+      - claim_id:    "D-015.k1"
+        claim_text:  "No in-scope Python file exceeds 400 net lines of code."
+        auditable:   true
+        status:      "populated"
+        declared_checks_count: 2
+        checks:
+          - check_id:    "D-015.k1.c1"
+            description: "The net-LOC check script is present."
+            check_kind:  "file-exists"
+            severity:    "error"
+            context:     "workspace"
+            path:        "scripts/check_file_size.py"
+            expect:
+              present:   true
+          - check_id:    "D-015.k1.c2"
+            description: "check_file_size.count_violations reports zero files over the 400 NLOC cap."
+            check_kind:  "python-call"
+            severity:    "error"
+            context:     "ci"
+            side_effects: "reads"
+            fn:          "scripts.check_file_size.count_violations"
+            args:        ["src/doc_ray", "webapp", "scripts"]
+            returns:     "int:0"
+
+  - id:                 "D-016"
+    title:              "engineering_decisions.yml is the ADR system of record"
+    version_introduced: "0.2.0"
+    category:           "documentation"
+    decision: |
+      Architectural decisions live in engineering_decisions.yml, validated by the
+      vendored SHACL/YAML toolchain, and are cross-referenced from README.md so the
+      decision index cannot silently drift from the records.
+    rationale: |
+      A validated, machine-checkable decision log beats prose ADRs that rot.
+    decision_status:    "accepted"
+    decision_date:      "2026-07-01"
+    owner:              ["pedroanisio@faz.ai"]
+    scope_path:         ["engineering_decisions.yml", "README.md"]
+    claims:
+      - claim_id:    "D-016.k1"
+        claim_text:  "engineering_decisions.yml exists and validates against the vendored schema."
+        auditable:   true
+        status:      "populated"
+        declared_checks_count: 2
+        checks:
+          - check_id:    "D-016.k1.c1"
+            description: "The decisions record file is present."
+            check_kind:  "file-exists"
+            severity:    "error"
+            context:     "workspace"
+            path:        "engineering_decisions.yml"
+            expect:
+              present:   true
+          - check_id:    "D-016.k1.c2"
+            description: "validate_decisions.py accepts the record."
+            check_kind:  "shell"
+            severity:    "error"
+            context:     "ci"
+            side_effects: "reads"
+            command:     "python engineering/schema/scripts/validate_decisions.py engineering_decisions.yml"
+            expect:
+              exit:      0

@@ -12,7 +12,8 @@ import os
 
 import pytest
 
-from doc_ray.adapters import annotation as annotate, persistence as db
+from doc_ray.adapters import annotation as annotate
+from doc_ray.adapters import persistence as db
 from doc_ray.domain import lexemes as lex
 from doc_ray.domain.sentences import build_sentences
 
@@ -37,9 +38,10 @@ def _columns(conn, table: str) -> set[str]:
 def conn():
     import psycopg
     from psycopg.rows import dict_row
+
     try:
         c = psycopg.connect(DB_URL, row_factory=dict_row, autocommit=True)
-    except Exception as e:                       # pragma: no cover - env dependent
+    except Exception as e:  # pragma: no cover - env dependent
         pytest.skip(f"DB unreachable: {e}")
     yield c
     c.close()
@@ -50,9 +52,16 @@ def doc(conn):
     text = "Alpha beta gamma. Delta epsilon zeta. Eta theta iota."
     sents = build_sentences(text)
     doc_id = db.insert_document(
-        conn, title="itest", doc_type="txt", source_uri="s3://itest",
-        content_sha256=_unique_sha(), byte_size=len(text), page_count=None,
-        full_text=text, status="extracted", sentences=sents,
+        conn,
+        title="itest",
+        doc_type="txt",
+        source_uri="s3://itest",
+        content_sha256=_unique_sha(),
+        byte_size=len(text),
+        page_count=None,
+        full_text=text,
+        status="extracted",
+        sentences=sents,
     )
     yield {"id": doc_id, "text": text, "sentences": sents}
     conn.execute("DELETE FROM documents WHERE id=%s", (doc_id,))
@@ -60,8 +69,9 @@ def doc(conn):
 
 # --- schema shape -----------------------------------------------------------
 
+
 def test_spans_table_has_natural_key(conn):
-    assert "spans" in _columns(conn, "spans") or True   # table exists
+    assert "spans" in _columns(conn, "spans") or True  # table exists
     cols = _columns(conn, "spans")
     assert {"id", "document_id", "char_start", "char_end"} <= cols
 
@@ -86,6 +96,7 @@ def test_occurrences_reference_span_not_offsets(conn):
 
 # --- behavior ---------------------------------------------------------------
 
+
 def test_sentences_get_spans_and_offsets_recover(conn, doc):
     rows = conn.execute(
         "SELECT s.text, sp.char_start, sp.char_end "
@@ -95,7 +106,7 @@ def test_sentences_get_spans_and_offsets_recover(conn, doc):
     ).fetchall()
     assert len(rows) == len(doc["sentences"])
     for r in rows:
-        assert doc["text"][r["char_start"]:r["char_end"]].split() == r["text"].split()
+        assert doc["text"][r["char_start"] : r["char_end"]].split() == r["text"].split()
 
 
 def test_span_natural_key_dedupes(conn, doc):
@@ -121,8 +132,8 @@ def test_occurrences_map_through_spans(conn, doc):
     ).fetchall()
     assert rows, "no occurrences created"
     for r in rows:
-        surface = doc["text"][r["char_start"]:r["char_end"]]
-        assert surface.strip() and " " not in surface   # a single word span
+        surface = doc["text"][r["char_start"] : r["char_end"]]
+        assert surface.strip() and " " not in surface  # a single word span
 
 
 def test_annotation_run_is_layer_scoped(conn, doc):

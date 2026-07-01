@@ -11,7 +11,6 @@ import pytest
 
 from doc_ray.domain import pdf_layout as pl
 
-
 # --- builders --------------------------------------------------------------
 
 def span(text, x0=0.0, x1=None, size=10.0, bold=False):

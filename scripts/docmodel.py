@@ -45,6 +45,7 @@ LEVELS = ["document", "section", "heading", "paragraph", "sentence", "phrase", "
 # Node model
 # ===========================================================================
 
+
 @dataclass
 class Node:
     """A node in the decomposition tree.
@@ -56,7 +57,7 @@ class Node:
 
     kind: str
     text: str = ""
-    children: list["Node"] = field(default_factory=list)
+    children: list[Node] = field(default_factory=list)
 
     def compose(self) -> str:
         if not self.children:
@@ -76,7 +77,7 @@ class Node:
         return {"kind": self.kind, "text": self.text}
 
     @staticmethod
-    def from_dict(d: dict) -> "Node":
+    def from_dict(d: dict) -> Node:
         children = [Node.from_dict(c) for c in d.get("children", [])]
         node = Node(d["kind"], d.get("text", ""), children)
         if children:  # keep the text invariant for inspection
@@ -96,8 +97,8 @@ def compose(node: Node) -> str:
 # A "gap" leaf holds the separators (whitespace / clause punctuation) that glue
 # semantic units together. Keeping them as nodes is what makes compose exact.
 
-_PARA_BREAK_RE = re.compile(r"\n[ \t\r]*\n\s*")      # blank line(s) between blocks
-_CLAUSE_RE = re.compile(r"[;,:]\s*")                 # clause boundary within a sentence
+_PARA_BREAK_RE = re.compile(r"\n[ \t\r]*\n\s*")  # blank line(s) between blocks
+_CLAUSE_RE = re.compile(r"[;,:]\s*")  # clause boundary within a sentence
 _TOKEN_RE = re.compile(r"\w+(?:['’\-]\w+)*|\s+|[^\w\s]", re.UNICODE)
 
 
@@ -125,8 +126,8 @@ def _split_keep(text: str, regex: re.Pattern, search_text: str | None = None):
     last = 0
     for m in regex.finditer(hay):
         if m.start() > last:
-            pieces.append((False, text[last:m.start()]))
-        pieces.append((True, text[m.start():m.end()]))
+            pieces.append((False, text[last : m.start()]))
+        pieces.append((True, text[m.start() : m.end()]))
         last = m.end()
     if last < len(text):
         pieces.append((False, text[last:]))
@@ -136,6 +137,7 @@ def _split_keep(text: str, regex: re.Pattern, search_text: str | None = None):
 # ===========================================================================
 # Decomposition (top-down)
 # ===========================================================================
+
 
 def decompose(text: str) -> Node:
     """Decompose document text into the lossless hierarchy."""
@@ -149,8 +151,8 @@ _MARKDOWN_HEADING_RE = re.compile(r"^#{1,6}\s+\S")
 # separator is followed by a digit, not whitespace — so it stays a heading via
 # the short-length rule.)
 _LIST_ITEM_RE = re.compile(
-    r"^(?:[-*•·]\s+\S"                                 # bullet:     "• item"
-    r"|(?:[IVXLCDM]+|\d+|[A-Za-z])\s*[–—)\.\-]\s)"     # enumerator: "1. ", "XXX – ", "a) "
+    r"^(?:[-*•·]\s+\S"  # bullet:     "• item"
+    r"|(?:[IVXLCDM]+|\d+|[A-Za-z])\s*[–—)\.\-]\s)"  # enumerator: "1. ", "XXX – ", "a) "
 )
 
 
@@ -163,17 +165,17 @@ def _classify_block(block_text: str) -> str:
     """
     stripped = block_text.strip()
     if not stripped or "\n" in stripped:
-        return "paragraph"          # multi-line blocks are body text
+        return "paragraph"  # multi-line blocks are body text
     if _MARKDOWN_HEADING_RE.match(stripped):
-        return "heading"            # explicit "#" marker is authoritative
+        return "heading"  # explicit "#" marker is authoritative
     if re.search(r"[.!?;:,]$", stripped):
-        return "paragraph"          # ends like a sentence or clause
+        return "paragraph"  # ends like a sentence or clause
     if stripped[:1].islower():
-        return "paragraph"          # headings don't start lowercase
+        return "paragraph"  # headings don't start lowercase
     if _LIST_ITEM_RE.match(stripped):
-        return "paragraph"          # enumerated / bulleted list item
+        return "paragraph"  # enumerated / bulleted list item
     if len(stripped.split()) <= 12:
-        return "heading"            # short, punctuation-free, titley
+        return "heading"  # short, punctuation-free, titley
     return "paragraph"
 
 
@@ -252,6 +254,7 @@ def _tokenize(text: str) -> list[Node]:
 # Reporting
 # ===========================================================================
 
+
 def counts(node: Node) -> dict[str, int]:
     """Count nodes by kind across the whole tree."""
     tally: dict[str, int] = {}
@@ -295,21 +298,30 @@ def _outline_into(node: Node, indent: int, max_text: int, lines: list[str]) -> N
 # CLI
 # ===========================================================================
 
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="Losslessly decompose a document into its hierarchy, or "
-                    "compose one back from a saved tree."
+        "compose one back from a saved tree."
     )
-    parser.add_argument("file", type=Path,
-                        help="Document to decompose, or a .json tree with --compose")
-    parser.add_argument("--compose", action="store_true",
-                        help="Treat FILE as a JSON tree and print the reconstructed text")
-    parser.add_argument("--json", action="store_true",
-                        help="Print the decomposition tree as JSON")
-    parser.add_argument("--outline", action="store_true",
-                        help="Print a readable indented outline of the tree")
-    parser.add_argument("-q", "--quiet", action="store_true",
-                        help="Do not print the summary / round-trip check to stderr")
+    parser.add_argument(
+        "file", type=Path, help="Document to decompose, or a .json tree with --compose"
+    )
+    parser.add_argument(
+        "--compose",
+        action="store_true",
+        help="Treat FILE as a JSON tree and print the reconstructed text",
+    )
+    parser.add_argument("--json", action="store_true", help="Print the decomposition tree as JSON")
+    parser.add_argument(
+        "--outline", action="store_true", help="Print a readable indented outline of the tree"
+    )
+    parser.add_argument(
+        "-q",
+        "--quiet",
+        action="store_true",
+        help="Do not print the summary / round-trip check to stderr",
+    )
     args = parser.parse_args(argv)
 
     if not args.file.exists():
@@ -338,8 +350,9 @@ def main(argv: list[str] | None = None) -> int:
 
     if not args.quiet:
         tally = counts(tree)
-        order = [k for k in LEVELS if k in tally] + \
-                [k for k in ("phrase", "word", "punct", "space", "gap") if k in tally and k not in LEVELS]
+        order = [k for k in LEVELS if k in tally] + [
+            k for k in ("phrase", "word", "punct", "space", "gap") if k in tally and k not in LEVELS
+        ]
         summary = ", ".join(
             f"{tally[k]} {k}" + ("" if tally[k] == 1 or k.endswith("s") else "s")
             for k in dict.fromkeys(order)

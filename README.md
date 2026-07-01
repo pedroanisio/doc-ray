@@ -100,6 +100,53 @@ python -m doc_ray.entrypoints.cli orwell1984.pdf
 | `scripts/`                 | Standalone text tools (`extract_phrases`, `docmodel`, `roundtrip`, `text_decomposer`) — independent of the pipeline; see `scripts/README.md` |
 | `docs/`                    | Design notes & specs; see [`docs/architecture.md`](docs/architecture.md) |
 
+## Architecture Decisions
+
+Architectural and operational decisions are recorded, not just narrated, in
+[`engineering_decisions.yml`](engineering_decisions.yml) — a machine-checkable log
+validated by the SHACL/YAML toolchain vendored under
+[`engineering/schema/`](engineering/schema/). Validate and project it with:
+
+```bash
+python engineering/schema/scripts/validate_decisions.py engineering_decisions.yml   # fast YAML gate
+python engineering/schema/scripts/yml_to_rdf.py engineering_decisions.yml > /tmp/ed.ttl
+python engineering/schema/scripts/shacl_validate.py /tmp/ed.ttl                      # full SHACL gate
+```
+
+Current decisions (see the record for rationale, claims, and auditable checks):
+
+| ID | Decision |
+|----|----------|
+| D-001 | Expose the store through a GraphQL (Strawberry) API |
+| D-002 | Serve reads through a `ReadRepository` port + async adapter |
+| D-003 | Preserve autocommit + statement-level lexeme collision-grow |
+| D-004 | Background jobs via a Postgres queue (`FOR UPDATE SKIP LOCKED`) |
+| D-005 | Sync worker for blocking work; async only for API reads |
+| D-006 | Runtime migration runner closes the init-only gap |
+| D-007 | `jobs` table: text+CHECK status, open text kind (migration 019) |
+| D-008 | GraphQL safety: depth + complexity limits, keyset pagination |
+| D-009 | Pluggable extractor & analyzer registries |
+| D-010 | Access control via Postgres RLS; API sets the principal |
+| D-011 | Ruff strict lint incl. docstrings, pinned in pyproject |
+| D-012 | mypy runs in strict mode |
+| D-013 | Test coverage stays at or above 90% |
+| D-014 | Gated pre-commit runs the full quality bar |
+| D-015 | Every source file stays under 400 net lines of code |
+| D-016 | `engineering_decisions.yml` is the ADR system of record |
+
+## Quality gates
+
+Enforced by [`.pre-commit-config.yaml`](.pre-commit-config.yaml) and CI
+(`.github/workflows/ci.yml`), configured in [`pyproject.toml`](pyproject.toml):
+
+```bash
+pip install -r requirements-dev.txt && pre-commit install
+ruff check src scripts webapp                                   # D-011 (lint + docstrings)
+mypy src                                                        # D-012 (strict)
+pytest --cov=doc_ray --cov-fail-under=90 tests src/doc_ray/tests # D-013 (>=90%)
+python scripts/check_file_size.py src/doc_ray webapp scripts    # D-015 (<=400 net LOC)
+```
+
 ## Extending
 
 - **New file types**: add an extractor to `src/doc_ray/adapters/extraction.py`

@@ -8,6 +8,17 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class Config:
+    """Immutable runtime settings for the database and object store.
+
+    Attributes:
+        database_url: PostgreSQL connection URL.
+        s3_endpoint: Base URL of the S3-compatible object store.
+        s3_access_key: Access key for the object store.
+        s3_secret_key: Secret key for the object store.
+        s3_bucket: Name of the bucket holding original document bytes.
+        s3_region: Region the object store reports itself in.
+    """
+
     database_url: str
     s3_endpoint: str
     s3_access_key: str
@@ -16,7 +27,13 @@ class Config:
     s3_region: str
 
     @classmethod
-    def from_env(cls) -> "Config":
+    def from_env(cls) -> Config:
+        """Build a ``Config`` from environment variables, applying defaults.
+
+        Returns:
+            A ``Config`` populated from ``DATABASE_URL`` and the ``S3_*``
+            environment variables, falling back to local development defaults.
+        """
         return cls(
             database_url=os.environ.get(
                 "DATABASE_URL",

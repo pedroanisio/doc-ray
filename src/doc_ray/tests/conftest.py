@@ -6,6 +6,7 @@ ingest.db/storage/pipeline, so psycopg/boto3 are not required to run this suite.
 
 from __future__ import annotations
 
+import contextlib
 import sys
 from pathlib import Path
 
@@ -24,17 +25,16 @@ def pg():
     deleted (cascade) at teardown. Skips cleanly if the DB is unreachable.
     """
     import _itdb
+
     try:
         conn = _itdb.connect()
-    except Exception as e:                       # pragma: no cover - env dependent
+    except Exception as e:  # pragma: no cover - env dependent
         pytest.skip(f"DB unreachable: {e}")
     created: list[str] = []
     try:
         yield conn, created
     finally:
         for doc_id in created:
-            try:
+            with contextlib.suppress(Exception):
                 conn.execute("DELETE FROM documents WHERE id=%s", (doc_id,))
-            except Exception:
-                pass
         conn.close()

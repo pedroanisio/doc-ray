@@ -21,7 +21,9 @@ Usage:
 """
 
 from __future__ import annotations
+
 import argparse
+import contextlib
 import json
 import re
 import statistics
@@ -31,6 +33,7 @@ from collections import Counter
 # ===========================================================================
 # LEVEL 1 - PARAGRAPHS
 # ===========================================================================
+
 
 def split_paragraphs(text: str) -> list[str]:
     """Split on blank lines. Single newlines are treated as soft wraps."""
@@ -43,22 +46,85 @@ def split_paragraphs(text: str) -> list[str]:
 # ===========================================================================
 
 ABBREVIATIONS = {
-    "mr", "mrs", "ms", "mx", "dr", "prof", "sr", "jr", "st", "gen", "rep",
-    "sen", "gov", "pres", "supt", "det", "rev", "fr", "hon", "lt", "col",
-    "capt", "cpl", "sgt", "maj", "cmdr", "adm", "brig", "etc", "vs", "viz",
-    "cf", "al", "eg", "ie", "ca", "approx", "esp", "am", "pm", "jan", "feb",
-    "mar", "apr", "jun", "jul", "aug", "sep", "sept", "oct", "nov", "dec",
-    "inc", "ltd", "co", "corp", "llc", "plc", "dept", "univ", "assn", "bros",
-    "mfg", "est", "vol", "pp", "pg", "fig", "ed", "repr",
+    "mr",
+    "mrs",
+    "ms",
+    "mx",
+    "dr",
+    "prof",
+    "sr",
+    "jr",
+    "st",
+    "gen",
+    "rep",
+    "sen",
+    "gov",
+    "pres",
+    "supt",
+    "det",
+    "rev",
+    "fr",
+    "hon",
+    "lt",
+    "col",
+    "capt",
+    "cpl",
+    "sgt",
+    "maj",
+    "cmdr",
+    "adm",
+    "brig",
+    "etc",
+    "vs",
+    "viz",
+    "cf",
+    "al",
+    "eg",
+    "ie",
+    "ca",
+    "approx",
+    "esp",
+    "am",
+    "pm",
+    "jan",
+    "feb",
+    "mar",
+    "apr",
+    "jun",
+    "jul",
+    "aug",
+    "sep",
+    "sept",
+    "oct",
+    "nov",
+    "dec",
+    "inc",
+    "ltd",
+    "co",
+    "corp",
+    "llc",
+    "plc",
+    "dept",
+    "univ",
+    "assn",
+    "bros",
+    "mfg",
+    "est",
+    "vol",
+    "pp",
+    "pg",
+    "fig",
+    "ed",
+    "repr",
 }
 
-_STASH = "\uE000"
+_STASH = "\ue000"
 _CLOSERS = r'"\'\u201d\u2019\)\]\u00bb'
 _OPENERS = r'"\'\u201c\u2018\(\[\u00ab'
 
 _SENT_BOUNDARY = re.compile(
-    rf'(?<=[.!?])(?P<tail>[{_CLOSERS}]*)\s+'
-    rf'(?=[{_OPENERS}]*[A-Z0-9\u00c0-\u024f])'
+    rf"(?<=[.!?])(?P<tail>[{_CLOSERS}]*)\s+"
+    rf"(?=[{_OPENERS}]*[A-Z0-9\u00c0-\u024f])"
 )
 
 
@@ -70,15 +136,15 @@ def _protect(text: str):
         stash[token] = m.group(0)
         return token
 
-    text = re.sub(r'https?://\S+|www\.\S+', keep, text)
-    text = re.sub(r'\b[\w.+-]+@[\w-]+\.[\w.-]+\b', keep, text)
-    text = re.sub(r'\b\d+(?:\.\d+)+\b', keep, text)
-    text = re.sub(r'\.\.\.+|\u2026', keep, text)
-    text = re.sub(r'\b(?:[A-Za-z]\.){2,}', keep, text)
-    text = re.sub(r'\b[A-Z]\.(?=\s|$)', keep, text)
+    text = re.sub(r"https?://\S+|www\.\S+", keep, text)
+    text = re.sub(r"\b[\w.+-]+@[\w-]+\.[\w.-]+\b", keep, text)
+    text = re.sub(r"\b\d+(?:\.\d+)+\b", keep, text)
+    text = re.sub(r"\.\.\.+|\u2026", keep, text)
+    text = re.sub(r"\b(?:[A-Za-z]\.){2,}", keep, text)
+    text = re.sub(r"\b[A-Z]\.(?=\s|$)", keep, text)
     if ABBREVIATIONS:
-        abbr = '|'.join(sorted(ABBREVIATIONS, key=len, reverse=True))
-        text = re.sub(rf'\b(?:{abbr})\.', keep, text, flags=re.IGNORECASE)
+        abbr = "|".join(sorted(ABBREVIATIONS, key=len, reverse=True))
+        text = re.sub(rf"\b(?:{abbr})\.", keep, text, flags=re.IGNORECASE)
     return text, stash
 
 
@@ -106,6 +172,7 @@ def split_sentences_rule(text: str) -> list[str]:
 
 def split_sentences_nltk(text: str) -> list[str]:
     import nltk
+
     _ensure_nltk("tokenizers/punkt", "punkt")
     _ensure_nltk("tokenizers/punkt_tab", "punkt_tab")
     return [s.strip() for s in nltk.sent_tokenize(text) if s.strip()]
@@ -138,10 +205,10 @@ _CHUNK_GRAMMAR = r"""
 """
 
 # --- Rule-based clause splitter (dependency-free fallback) ------------------
-_PHRASE_DELIM = re.compile(r'\s*[,;:\u2014\u2013]\s+|\s+[-\u2013\u2014]\s+')
+_PHRASE_DELIM = re.compile(r"\s*[,;:\u2014\u2013]\s+|\s+[-\u2013\u2014]\s+")
 _CONJUNCTIONS = re.compile(
-    r'\s+(?=(?:and|but|or|nor|yet|so|because|although|though|while|whereas|'
-    r'since|unless|until|if|that|which|who|when|where)\b)',
+    r"\s+(?=(?:and|but|or|nor|yet|so|because|although|though|while|whereas|"
+    r"since|unless|until|if|that|which|who|when|where)\b)",
     re.IGNORECASE,
 )
 
@@ -163,8 +230,8 @@ def split_phrases_nltk(sentence: str) -> list[dict]:
     """Extract grammatical phrases (NP / VP / PP) via POS tagging + chunking.
     Returns top-level chunks so phrases do not overlap; loose tokens that
     fall outside any chunk are emitted with label None so nothing is lost."""
-    import nltk
-    from nltk import pos_tag, word_tokenize, RegexpParser
+    from nltk import RegexpParser, pos_tag, word_tokenize
+
     _ensure_nltk("tokenizers/punkt", "punkt")
     _ensure_nltk("tokenizers/punkt_tab", "punkt_tab")
     _ensure_nltk("taggers/averaged_perceptron_tagger", "averaged_perceptron_tagger")
@@ -183,19 +250,18 @@ def split_phrases_nltk(sentence: str) -> list[dict]:
             loose.clear()
 
     for node in tree:
-        if hasattr(node, "label"):          # a chunk subtree
+        if hasattr(node, "label"):  # a chunk subtree
             flush_loose()
             words = [w for w, _ in node.leaves()]
             phrases.append({"label": node.label(), "text": " ".join(words)})
-        else:                               # a bare (word, tag) token
+        else:  # a bare (word, tag) token
             word, _ = node
             loose.append(word)
     flush_loose()
     return phrases
 
 
-def split_phrases(sentence: str, engine: str = "auto",
-                  aggressive: bool = False) -> list[dict]:
+def split_phrases(sentence: str, engine: str = "auto", aggressive: bool = False) -> list[dict]:
     if engine == "grammatical":
         return split_phrases_nltk(sentence)
     if engine == "rule":
@@ -213,9 +279,7 @@ def split_phrases(sentence: str, engine: str = "auto",
 # ===========================================================================
 
 # Keeps internal apostrophes, hyphens, and dots: don't, well-being, 3.14, a.m.
-_WORD = re.compile(
-    r"[A-Za-z0-9\u00c0-\u024f]+(?:[.'\u2019\-][A-Za-z0-9\u00c0-\u024f]+)*"
-)
+_WORD = re.compile(r"[A-Za-z0-9\u00c0-\u024f]+(?:[.'\u2019\-][A-Za-z0-9\u00c0-\u024f]+)*")
 
 
 def split_words(text: str, keep_punct: bool = False) -> list[str]:
@@ -228,13 +292,19 @@ def split_words(text: str, keep_punct: bool = False) -> list[str]:
 # ORCHESTRATION
 # ===========================================================================
 
-def decompose(text: str, *, phrase_engine: str = "auto",
-              sentence_engine: str = "rule", aggressive: bool = False,
-              keep_punct: bool = False) -> dict:
+
+def decompose(
+    text: str,
+    *,
+    phrase_engine: str = "auto",
+    sentence_engine: str = "rule",
+    aggressive: bool = False,
+    keep_punct: bool = False,
+) -> dict:
     """Return the full paragraphs -> sentences -> phrases -> words tree."""
     used_phrase_engine = phrase_engine
     if phrase_engine == "auto":
-        try:                                   # probe once so we can report it
+        try:  # probe once so we can report it
             split_phrases_nltk("Probe sentence here.")
             used_phrase_engine = "grammatical"
         except Exception:
@@ -244,12 +314,14 @@ def decompose(text: str, *, phrase_engine: str = "auto",
     for p_idx, para in enumerate(split_paragraphs(text), 1):
         sentences = []
         for s_idx, sent in enumerate(split_sentences(para, sentence_engine), 1):
-            sentences.append({
-                "index": s_idx,
-                "text": sent,
-                "phrases": split_phrases(sent, used_phrase_engine, aggressive),
-                "words": split_words(sent, keep_punct),
-            })
+            sentences.append(
+                {
+                    "index": s_idx,
+                    "text": sent,
+                    "phrases": split_phrases(sent, used_phrase_engine, aggressive),
+                    "words": split_words(sent, keep_punct),
+                }
+            )
         paragraphs.append({"index": p_idx, "text": para, "sentences": sentences})
 
     result = {"phrase_engine": used_phrase_engine, "paragraphs": paragraphs}
@@ -260,6 +332,7 @@ def decompose(text: str, *, phrase_engine: str = "auto",
 # ===========================================================================
 # STATS
 # ===========================================================================
+
 
 def compute_stats(result: dict) -> dict:
     """Aggregate counts and ratios over the decomposition tree."""
@@ -317,15 +390,15 @@ def compute_stats(result: dict) -> dict:
 # HELPERS / OUTPUT
 # ===========================================================================
 
+
 def _ensure_nltk(find_path: str, download_name: str) -> None:
     import nltk
+
     try:
         nltk.data.find(find_path)
     except LookupError:
-        try:
+        with contextlib.suppress(Exception):
             nltk.download(download_name, quiet=True)
-        except Exception:
-            pass
 
 
 def render_tree(result: dict) -> str:
@@ -371,8 +444,7 @@ def render_stats(stats: dict) -> str:
 
     if stats["phrase_labels"]:
         lines += ["", "Phrase labels"]
-        for label, count in sorted(stats["phrase_labels"].items(),
-                                   key=lambda kv: (-kv[1], kv[0])):
+        for label, count in sorted(stats["phrase_labels"].items(), key=lambda kv: (-kv[1], kv[0])):
             lines.append(row(label, count))
 
     if stats["top_words"]:
@@ -399,14 +471,26 @@ def main(argv: list[str] | None = None) -> int:
         description="Decompose text: paragraphs -> sentences -> phrases -> words."
     )
     ap.add_argument("path", nargs="?", help="Input file. Omit to read stdin.")
-    ap.add_argument("--phrase-engine", choices=["auto", "grammatical", "rule"],
-                    default="auto", help="How to find phrases (default: auto).")
-    ap.add_argument("--sentence-engine", choices=["rule", "nltk", "auto"],
-                    default="rule", help="How to split sentences (default: rule).")
-    ap.add_argument("--aggressive", action="store_true",
-                    help="Rule phrase engine: also split before conjunctions.")
-    ap.add_argument("--keep-punct", action="store_true",
-                    help="Emit punctuation as separate word tokens.")
+    ap.add_argument(
+        "--phrase-engine",
+        choices=["auto", "grammatical", "rule"],
+        default="auto",
+        help="How to find phrases (default: auto).",
+    )
+    ap.add_argument(
+        "--sentence-engine",
+        choices=["rule", "nltk", "auto"],
+        default="rule",
+        help="How to split sentences (default: rule).",
+    )
+    ap.add_argument(
+        "--aggressive",
+        action="store_true",
+        help="Rule phrase engine: also split before conjunctions.",
+    )
+    ap.add_argument(
+        "--keep-punct", action="store_true", help="Emit punctuation as separate word tokens."
+    )
     ap.add_argument("--json", action="store_true", help="Output JSON.")
     ap.add_argument("--demo", action="store_true", help="Run on a built-in sample.")
     args = ap.parse_args(argv)
@@ -414,7 +498,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.demo:
         text = _DEMO_TEXT
     elif args.path:
-        with open(args.path, "r", encoding="utf-8") as fh:
+        with open(args.path, encoding="utf-8") as fh:
             text = fh.read()
     else:
         text = sys.stdin.read()

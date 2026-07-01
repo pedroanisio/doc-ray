@@ -11,8 +11,7 @@ from doc_ray.adapters.extraction import _EXTRACTORS, extract
 
 
 def test_all_formats_registered():
-    for ext in (".pdf", ".txt", ".text", ".md", ".markdown",
-                ".html", ".htm", ".epub", ".docx"):
+    for ext in (".pdf", ".txt", ".text", ".md", ".markdown", ".html", ".htm", ".epub", ".docx"):
         assert ext in _EXTRACTORS, ext
 
 
@@ -28,12 +27,14 @@ def test_markdown():
 
 
 def test_html_strips_scripts_and_tags():
-    html = (b"<html><head><title>t</title></head><body>"
-            b"<p>Hi there.</p><script>x=1</script><p>Second.</p></body></html>")
+    html = (
+        b"<html><head><title>t</title></head><body>"
+        b"<p>Hi there.</p><script>x=1</script><p>Second.</p></body></html>"
+    )
     e = extract(html, "page", ".html")
     assert e.doc_type == "html"
     assert "Hi there." in e.full_text and "Second." in e.full_text
-    assert "x=1" not in e.full_text and "<p>" not in e.full_text   # tags/scripts gone
+    assert "x=1" not in e.full_text and "<p>" not in e.full_text  # tags/scripts gone
 
 
 def _minimal_epub() -> bytes:
@@ -45,17 +46,23 @@ def _minimal_epub() -> bytes:
             '<?xml version="1.0"?><container version="1.0" '
             'xmlns="urn:oasis:names:tc:opendocument:xmlns:container">'
             '<rootfiles><rootfile full-path="OEBPS/content.opf" '
-            'media-type="application/oebps-package+xml"/></rootfiles></container>')
+            'media-type="application/oebps-package+xml"/></rootfiles></container>',
+        )
         z.writestr(
             "OEBPS/content.opf",
             '<?xml version="1.0"?><package xmlns="http://www.idpf.org/2007/opf" version="3.0">'
             '<manifest><item id="c2" href="ch2.xhtml" media-type="application/xhtml+xml"/>'
             '<item id="c1" href="ch1.xhtml" media-type="application/xhtml+xml"/></manifest>'
-            '<spine><itemref idref="c1"/><itemref idref="c2"/></spine></package>')
-        z.writestr("OEBPS/ch1.xhtml",
-                   '<html xmlns="http://www.w3.org/1999/xhtml"><body><p>First chapter.</p></body></html>')
-        z.writestr("OEBPS/ch2.xhtml",
-                   '<html xmlns="http://www.w3.org/1999/xhtml"><body><p>Second chapter.</p></body></html>')
+            '<spine><itemref idref="c1"/><itemref idref="c2"/></spine></package>',
+        )
+        z.writestr(
+            "OEBPS/ch1.xhtml",
+            '<html xmlns="http://www.w3.org/1999/xhtml"><body><p>First chapter.</p></body></html>',
+        )
+        z.writestr(
+            "OEBPS/ch2.xhtml",
+            '<html xmlns="http://www.w3.org/1999/xhtml"><body><p>Second chapter.</p></body></html>',
+        )
     return buf.getvalue()
 
 

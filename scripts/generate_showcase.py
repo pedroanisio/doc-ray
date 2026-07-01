@@ -20,17 +20,28 @@ OUT = os.path.join(os.path.dirname(__file__), "..", "static", "fixtures", "SHOWC
 
 def main() -> int:
     conn = psycopg.connect(DB, row_factory=dict_row, autocommit=True)
-    q = lambda sql, p=(): conn.execute(sql, p).fetchall()
-    one = lambda sql, p=(): conn.execute(sql, p).fetchone()
 
-    L: list[str] = ["# doc-ray — Capability Showcase",
-                    "",
-                    "_Generated from the live database. All annotations are real "
-                    "spaCy output (no heuristics, no fakes)._", ""]
+    def q(sql, p=()):
+        return conn.execute(sql, p).fetchall()
+
+    def one(sql, p=()):
+        return conn.execute(sql, p).fetchone()
+
+    L: list[str] = [
+        "# doc-ray — Capability Showcase",
+        "",
+        "_Generated from the live database. All annotations are real "
+        "spaCy output (no heuristics, no fakes)._",
+        "",
+    ]
 
     # 1. multi-format ingestion
-    L += ["## 1. Documents ingested (any format)", "",
-          "| format | docs | sentences |", "|---|---|---|"]
+    L += [
+        "## 1. Documents ingested (any format)",
+        "",
+        "| format | docs | sentences |",
+        "|---|---|---|",
+    ]
     for r in q("""SELECT d.doc_type, count(DISTINCT d.id) docs,
                          sum((SELECT count(*) FROM sentences s WHERE s.document_id=d.id)) sents
                   FROM documents d WHERE d.status='extracted'
@@ -63,13 +74,19 @@ def main() -> int:
         L.append(f"| {r['pos']} | {r['n']:,} |")
 
     # 5. sample annotated sentence (real POS on real text)
-    sample_doc = one("SELECT d.id, d.original_filename FROM documents d "
-                     "JOIN annotations a ON a.document_id=d.id AND a.layer='lexeme' "
-                     "WHERE d.original_filename ILIKE %s LIMIT 1", ("%orwell%",)) or \
-                 one("SELECT d.id, d.original_filename FROM documents d "
-                     "JOIN annotations a ON a.document_id=d.id AND a.layer='lexeme' LIMIT 1")
+    sample_doc = one(
+        "SELECT d.id, d.original_filename FROM documents d "
+        "JOIN annotations a ON a.document_id=d.id AND a.layer='lexeme' "
+        "WHERE d.original_filename ILIKE %s LIMIT 1",
+        ("%orwell%",),
+    ) or one(
+        "SELECT d.id, d.original_filename FROM documents d "
+        "JOIN annotations a ON a.document_id=d.id AND a.layer='lexeme' LIMIT 1"
+    )
     if sample_doc:
-        rows = q("""SELECT substring(c.full_text FROM sp.char_start+1 FOR sp.char_end-sp.char_start) form,
+        rows = q(
+            """SELECT substring(c.full_text
+                                     FROM sp.char_start+1 FOR sp.char_end-sp.char_start) form,
                            l.lemma, l.pos
                     FROM lexeme_occurrences o
                     JOIN annotations a ON a.id=o.annotation_id
@@ -77,22 +94,38 @@ def main() -> int:
                     JOIN lexemes l ON l.uid=o.lexeme_uid
                     JOIN document_content c ON c.document_id=a.document_id
                     WHERE a.document_id=%s AND a.layer='lexeme'
-                    ORDER BY sp.char_start LIMIT 14""", (sample_doc["id"],))
-        L += ["", f"## 5. Sample tokens — {sample_doc['original_filename']}", "",
-              "| form | lemma | UPOS |", "|---|---|---|"]
+                    ORDER BY sp.char_start LIMIT 14""",
+            (sample_doc["id"],),
+        )
+        L += [
+            "",
+            f"## 5. Sample tokens — {sample_doc['original_filename']}",
+            "",
+            "| form | lemma | UPOS |",
+            "|---|---|---|",
+        ]
         for r in rows:
             L.append(f"| {r['form']} | {r['lemma']} | {r['pos']} |")
 
     # 6. top named entities
-    L += ["", "## 6. Top named entities (real NER)", "", "| type | mention | count |", "|---|---|---|"]
+    L += [
+        "",
+        "## 6. Top named entities (real NER)",
+        "",
+        "| type | mention | count |",
+        "|---|---|---|",
+    ]
     for r in q("""SELECT em.entity_type,
-                         substring(c.full_text FROM sp.char_start+1 FOR sp.char_end-sp.char_start) m,
+                         substring(c.full_text
+                                   FROM sp.char_start+1 FOR sp.char_end-sp.char_start) m,
                          count(*) n
                   FROM entity_mention em JOIN spans sp ON sp.id=em.span_id
                   JOIN annotations a ON a.id=em.annotation_id
                   JOIN document_content c ON c.document_id=a.document_id
                   WHERE em.entity_type IN ('PERSON','PER','ORG','GPE','LOC')
-                    AND length(substring(c.full_text FROM sp.char_start+1 FOR sp.char_end-sp.char_start)) BETWEEN 4 AND 24
+                    AND length(substring(c.full_text
+                                         FROM sp.char_start+1
+                                         FOR sp.char_end-sp.char_start)) BETWEEN 4 AND 24
                   GROUP BY 1,2 ORDER BY n DESC LIMIT 10"""):
         L.append(f"| {r['entity_type']} | {r['m']} | {r['n']} |")
 

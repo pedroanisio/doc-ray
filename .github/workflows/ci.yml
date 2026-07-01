@@ -1,0 +1,70 @@
+name: ci
+
+# Quality gates (engineering decisions D-011..D-016). Lint/type/LOC/decisions
+# run without services; the coverage gate runs against ephemeral Postgres + MinIO.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  static:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt -r requirements-dev.txt
+      - name: Ruff lint (D-011)
+        run: ruff check src scripts webapp
+      - name: Ruff format check (D-011)
+        run: ruff format --check src scripts webapp
+      - name: Mypy strict (D-012)
+        run: mypy src
+      - name: Net-LOC cap (D-015)
+        run: python scripts/check_file_size.py src/doc_ray webapp scripts
+      - name: Validate engineering decisions (D-016)
+        run: |
+          python engineering/schema/scripts/validate_decisions.py engineering_decisions.yml
+          python engineering/schema/scripts/yml_to_rdf.py engineering_decisions.yml > /tmp/ed.ttl
+          python engineering/schema/scripts/shacl_validate.py /tmp/ed.ttl
+
+  tests:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: docray
+          POSTGRES_PASSWORD: docray
+          POSTGRES_DB: docray
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U docray -d docray"
+          --health-interval 5s --health-timeout 3s --health-retries 10
+      minio:
+        image: bitnami/minio:latest
+        env:
+          MINIO_ROOT_USER: minioadmin
+          MINIO_ROOT_PASSWORD: minioadmin
+        ports: ["9000:9000"]
+    env:
+      DATABASE_URL: postgresql://docray:docray@localhost:5432/docray
+      S3_ENDPOINT: http://localhost:9000
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt -r requirements-dev.txt
+      - name: Apply migrations
+        run: python -m doc_ray.entrypoints.migrate || echo "migration runner not yet present (pre-Phase-1)"
+      - name: Pytest with coverage (D-013)
+        run: pytest --cov=doc_ray --cov-fail-under=90 tests src/doc_ray/tests -q

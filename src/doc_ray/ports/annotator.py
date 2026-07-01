@@ -11,7 +11,20 @@ class Annotator(Protocol):
 
     Fulfilled by ``doc_ray.domain.lexemes.RuleAnalyzer`` (zero-dependency) and
     ``doc_ray.adapters.annotation_spacy.SpacyAnnotator`` (real POS via spaCy).
+
+    Attributes:
+        name: Identifier of the concrete analyzer (recorded in provenance).
     """
+
     name: str
 
-    def analyze(self, surfaces: list[str]) -> list[tuple[str, str]]: ...
+    def analyze(self, surfaces: list[str]) -> list[tuple[str, str]]:
+        """Analyze word surfaces.
+
+        Args:
+            surfaces: Word surfaces in reading order, already tokenized.
+
+        Returns:
+            One ``(lemma, upos)`` pair per input surface, in the same order.
+        """
+        ...

@@ -4,10 +4,8 @@ from __future__ import annotations
 
 import sys
 
-import pytest
-
 import extract_phrases as ep
-
+import pytest
 
 # ---------------------------------------------------------------------------
 # read_txt

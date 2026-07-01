@@ -9,9 +9,16 @@ from doc_ray.config import Config
 
 
 class ObjectStore:
-    def __init__(self, cfg: Config):
+    """Thin S3/MinIO client for storing and locating original document bytes."""
+
+    def __init__(self, cfg: Config) -> None:
+        """Build the S3 client from the runtime configuration.
+
+        Args:
+            cfg: Runtime configuration carrying the S3 endpoint and credentials.
+        """
         self._bucket = cfg.s3_bucket
-        self.bucket = cfg.s3_bucket        # public: recorded in provenance
+        self.bucket = cfg.s3_bucket  # public: recorded in provenance
         self._client = boto3.client(
             "s3",
             endpoint_url=cfg.s3_endpoint,
@@ -28,7 +35,16 @@ class ObjectStore:
             self._client.create_bucket(Bucket=self._bucket)
 
     def put(self, key: str, data: bytes, content_type: str) -> str:
-        """Upload bytes and return the canonical s3:// URI."""
+        """Upload bytes and return the canonical ``s3://`` URI.
+
+        Args:
+            key: Object key to store the bytes under.
+            data: Raw object bytes.
+            content_type: MIME type recorded on the stored object.
+
+        Returns:
+            The canonical ``s3://bucket/key`` URI of the stored object.
+        """
         self._client.put_object(
             Bucket=self._bucket,
             Key=key,

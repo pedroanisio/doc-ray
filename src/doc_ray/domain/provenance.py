@@ -8,7 +8,7 @@ layer persists whatever this returns.
 
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Any
 
 from doc_ray.domain.ulid import ULIDFactory
 
@@ -26,16 +26,16 @@ def build_events(
     storage_bucket: str,
     storage_key: str,
     storage_uri: str,
-    status: str,                       # 'extracted' | 'failed'
-    extractor: Optional[str] = None,
-    extractor_version: Optional[str] = None,
-    page_count: Optional[int] = None,
-    char_count: Optional[int] = None,
-    text_sha256: Optional[str] = None,
-    sentence_count: Optional[int] = None,
-    error: Optional[str] = None,
+    status: str,  # 'extracted' | 'failed'
+    extractor: str | None = None,
+    extractor_version: str | None = None,
+    page_count: int | None = None,
+    char_count: int | None = None,
+    text_sha256: str | None = None,
+    sentence_count: int | None = None,
+    error: str | None = None,
     actor: str = "ingest",
-    factory: Optional[ULIDFactory] = None,
+    factory: ULIDFactory | None = None,
 ) -> list[dict[str, Any]]:
     """Return the ordered provenance events for one ingest.
 
@@ -45,8 +45,14 @@ def build_events(
     f = factory or ULIDFactory()
     events: list[dict[str, Any]] = []
 
-    def ev(kind: str, **fields: Any) -> None:
-        event = {
+    def ev(kind: str, **fields: object) -> None:
+        """Append one provenance event, merging ``fields`` over the defaults.
+
+        Args:
+            kind: The event kind (e.g. ``"acquired"`` or ``"stored"``).
+            **fields: Overrides for the default event keys.
+        """
+        event: dict[str, Any] = {
             "id": str(f.new()),
             "kind": kind,
             "tool": None,

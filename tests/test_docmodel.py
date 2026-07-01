@@ -4,10 +4,8 @@ from __future__ import annotations
 
 import json
 
-import pytest
-
 import docmodel as dm
-
+import pytest
 
 # ---------------------------------------------------------------------------
 # The core guarantee: compose(decompose(t)) == t

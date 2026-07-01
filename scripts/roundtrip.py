@@ -37,8 +37,10 @@ def _first_diff(a: str, b: str) -> str:
     n = min(len(a), len(b))
     for i in range(n):
         if a[i] != b[i]:
-            return (f"first diff at char {i}: "
-                    f"stored={a[i-20:i+20]!r} vs fresh={b[i-20:i+20]!r}")
+            return (
+                f"first diff at char {i}: "
+                f"stored={a[i - 20 : i + 20]!r} vs fresh={b[i - 20 : i + 20]!r}"
+            )
     if len(a) != len(b):
         return f"lengths differ: stored={len(a)} fresh={len(b)} (common prefix ok)"
     return "identical"
@@ -61,60 +63,104 @@ def main(argv):
     checks = []
 
     # 1. bytes
-    checks.append(("bytes: sha256(pdf) == content_sha256",
-                   _sha(data) == doc["content_sha256"],
-                   f"{_sha(data)[:16]} vs {doc['content_sha256'][:16]}"))
-    checks.append(("bytes: size == byte_size",
-                   len(data) == doc["byte_size"],
-                   f"{len(data)} vs {doc['byte_size']}"))
-    checks.append(("meta: page_count",
-                   fresh.page_count == doc["page_count"],
-                   f"{fresh.page_count} vs {doc['page_count']}"))
+    checks.append(
+        (
+            "bytes: sha256(pdf) == content_sha256",
+            _sha(data) == doc["content_sha256"],
+            f"{_sha(data)[:16]} vs {doc['content_sha256'][:16]}",
+        )
+    )
+    checks.append(
+        (
+            "bytes: size == byte_size",
+            len(data) == doc["byte_size"],
+            f"{len(data)} vs {doc['byte_size']}",
+        )
+    )
+    checks.append(
+        (
+            "meta: page_count",
+            fresh.page_count == doc["page_count"],
+            f"{fresh.page_count} vs {doc['page_count']}",
+        )
+    )
 
     # 2. full_text
     text_equal = fresh_text == exp_text
-    checks.append(("text: fresh extraction == exported full_text",
-                   text_equal,
-                   "identical" if text_equal else _first_diff(exp_text, fresh_text)))
-    checks.append(("text: sha256(fresh) == stored text_sha256",
-                   _sha(fresh_text.encode()) == doc["text_sha256"],
-                   f"{_sha(fresh_text.encode())[:16]} vs {doc['text_sha256'][:16]}"))
+    checks.append(
+        (
+            "text: fresh extraction == exported full_text",
+            text_equal,
+            "identical" if text_equal else _first_diff(exp_text, fresh_text),
+        )
+    )
+    checks.append(
+        (
+            "text: sha256(fresh) == stored text_sha256",
+            _sha(fresh_text.encode()) == doc["text_sha256"],
+            f"{_sha(fresh_text.encode())[:16]} vs {doc['text_sha256'][:16]}",
+        )
+    )
 
     # 3. sentences
-    checks.append(("sentences: count",
-                   len(fresh_sents) == len(exp_sents),
-                   f"{len(fresh_sents)} vs {len(exp_sents)}"))
+    checks.append(
+        (
+            "sentences: count",
+            len(fresh_sents) == len(exp_sents),
+            f"{len(fresh_sents)} vs {len(exp_sents)}",
+        )
+    )
 
     mismatches = 0
     first_bad = None
-    for i, (a, b) in enumerate(zip(fresh_sents, exp_sents)):
-        if (a["text"] != b["text"] or a["char_start"] != b["char_start"]
-                or a["char_end"] != b["char_end"]):
+    for i, (a, b) in enumerate(zip(fresh_sents, exp_sents, strict=False)):
+        if (
+            a["text"] != b["text"]
+            or a["char_start"] != b["char_start"]
+            or a["char_end"] != b["char_end"]
+        ):
             mismatches += 1
             if first_bad is None:
                 first_bad = (i, a["text"][:50], b["text"][:50])
-    checks.append((f"sentences: per-item text+offsets ({len(exp_sents)})",
-                   mismatches == 0,
-                   "all identical" if mismatches == 0
-                   else f"{mismatches} differ; first @#{first_bad[0]}: "
-                        f"{first_bad[1]!r} vs {first_bad[2]!r}"))
+    checks.append(
+        (
+            f"sentences: per-item text+offsets ({len(exp_sents)})",
+            mismatches == 0,
+            "all identical"
+            if mismatches == 0
+            else f"{mismatches} differ; first @#{first_bad[0]}: "
+            f"{first_bad[1]!r} vs {first_bad[2]!r}",
+        )
+    )
 
     # ULIDs are freshly minted each run (time+random) -> they SHOULD differ.
-    ulids_differ = all(a["id"] != b["id"]
-                       for a, b in zip(fresh_sents, exp_sents)) if fresh_sents else True
-    checks.append(("sentences: ULIDs are fresh (differ by design)",
-                   ulids_differ, "new ULIDs each run — expected"))
+    ulids_differ = (
+        all(a["id"] != b["id"] for a, b in zip(fresh_sents, exp_sents, strict=False))
+        if fresh_sents
+        else True
+    )
+    checks.append(
+        (
+            "sentences: ULIDs are fresh (differ by design)",
+            ulids_differ,
+            "new ULIDs each run — expected",
+        )
+    )
 
     # report
     width = max(len(name) for name, _, _ in checks)
     all_ok = True
-    print(f"\nRoundtrip: {pdf_path.name}\n{'='*72}")
+    print(f"\nRoundtrip: {pdf_path.name}\n{'=' * 72}")
     for name, ok, detail in checks:
         all_ok &= ok
         print(f"  [{'PASS' if ok else 'FAIL'}] {name:<{width}}  {detail}")
     print("=" * 72)
-    print("RESULT:", "ALL PASS — stored data faithfully reproduces the source"
-          if all_ok else "MISMATCH — see FAIL rows above")
+    print(
+        "RESULT:",
+        "ALL PASS — stored data faithfully reproduces the source"
+        if all_ok
+        else "MISMATCH — see FAIL rows above",
+    )
     return 0 if all_ok else 1
 
 

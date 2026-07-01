@@ -1,4 +1,4 @@
-"""Command-line entrypoint: python -m ingest.cli <file-or-dir> [...]"""
+"""Command-line entrypoint: ``python -m ingest.cli <file-or-dir> [...]``."""
 
 from __future__ import annotations
 
@@ -6,12 +6,21 @@ import argparse
 import sys
 from pathlib import Path
 
-from doc_ray.config import Config
 from doc_ray.adapters.extraction import _EXTRACTORS
 from doc_ray.application.pipeline import expand_paths, ingest_paths
+from doc_ray.config import Config
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Run the ingest CLI.
+
+    Args:
+        argv: Argument vector; defaults to ``sys.argv`` when ``None``.
+
+    Returns:
+        Process exit code: ``0`` when all files ingested, ``1`` when no
+        supported files were found, ``2`` when any file failed.
+    """
     parser = argparse.ArgumentParser(
         prog="ingest",
         description="Load documents into the doc-ray store (Postgres + object storage).",

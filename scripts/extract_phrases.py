@@ -24,10 +24,10 @@ import zipfile
 from html.parser import HTMLParser
 from pathlib import Path
 
-
 # ===========================================================================
 # 1. Read raw text from a document (one reader per format)
 # ===========================================================================
+
 
 def read_txt(path: Path) -> str:
     return path.read_text(encoding="utf-8", errors="replace")
@@ -117,8 +117,7 @@ def _epub_spine_order(zf: zipfile.ZipFile) -> list[str]:
         base = posixpath.dirname(opf_path)
         ns = {"o": "http://www.idpf.org/2007/opf"}
         manifest = {
-            item.get("id"): item.get("href")
-            for item in opf.iterfind(".//o:manifest/o:item", ns)
+            item.get("id"): item.get("href") for item in opf.iterfind(".//o:manifest/o:item", ns)
         }
         order = []
         for ref in opf.iterfind(".//o:spine/o:itemref", ns):
@@ -129,9 +128,7 @@ def _epub_spine_order(zf: zipfile.ZipFile) -> list[str]:
             return order
     except (KeyError, AttributeError, ET.ParseError):
         pass
-    return sorted(
-        n for n in zf.namelist() if n.lower().endswith((".xhtml", ".html", ".htm"))
-    )
+    return sorted(n for n in zf.namelist() if n.lower().endswith((".xhtml", ".html", ".htm")))
 
 
 READERS = {
@@ -167,10 +164,10 @@ _ABBR = (
     "Corp|Cf|cf|approx|Dept|Univ|pp|e\\.g|i\\.e"
 )
 _ABBR_RE = re.compile(rf"\b(?:{_ABBR})\.", re.IGNORECASE)
-_INITIAL_RE = re.compile(r"\b[A-Z]\.")            # single initials: "J." "K."
-_DECIMAL_RE = re.compile(r"(\d)\.(\d)")           # decimals: "1.5"
-_DEHYPHEN_RE = re.compile(r"(\w)-\s*\n\s*(\w)")   # word split across a line break
-_INLINE_NEWLINE_RE = re.compile(r"\s*\n\s*")      # a wrapped-line newline
+_INITIAL_RE = re.compile(r"\b[A-Z]\.")  # single initials: "J." "K."
+_DECIMAL_RE = re.compile(r"(\d)\.(\d)")  # decimals: "1.5"
+_DEHYPHEN_RE = re.compile(r"(\w)-\s*\n\s*(\w)")  # word split across a line break
+_INLINE_NEWLINE_RE = re.compile(r"\s*\n\s*")  # a wrapped-line newline
 # Sentence boundary: . ! or ? then whitespace then the start of a new sentence
 # (capital letter, digit, or an opening quote/bracket).
 _SENT_BOUNDARY_RE = re.compile(r'(?<=[.!?])\s+(?=["“(\[A-Z0-9])')
@@ -187,10 +184,7 @@ def reflow(text: str) -> str:
     text = text.replace("\xa0", " ").replace("’", "'")
     text = _DEHYPHEN_RE.sub(r"\1\2", text)
     paragraphs = re.split(r"\n[ \t]*\n", text)
-    reflowed = (
-        re.sub(r"[ \t]+", " ", _INLINE_NEWLINE_RE.sub(" ", p)).strip()
-        for p in paragraphs
-    )
+    reflowed = (re.sub(r"[ \t]+", " ", _INLINE_NEWLINE_RE.sub(" ", p)).strip() for p in paragraphs)
     return "\n".join(p for p in reflowed if p)
 
 
@@ -241,6 +235,7 @@ def extract_paragraphs(text: str, min_words: int = 1) -> list[list[str]]:
 # 3. Statistics
 # ===========================================================================
 
+
 def format_stats(sentences: list[str], n_paragraphs: int | None = None) -> str:
     """Build a human-readable statistics summary for the extracted sentences."""
     from collections import Counter
@@ -271,9 +266,7 @@ def format_stats(sentences: list[str], n_paragraphs: int | None = None) -> str:
     if n_paragraphs is not None:
         lines.append(f"Paragraphs           : {n_paragraphs:,}")
         if n_paragraphs:
-            lines.append(
-                f"Sentences/paragraph  : avg {len(sentences) / n_paragraphs:.1f}"
-            )
+            lines.append(f"Sentences/paragraph  : avg {len(sentences) / n_paragraphs:.1f}")
     lines += [
         f"Total words          : {total_words:,}",
         f"Total characters     : {sum(char_counts):,}",
@@ -283,8 +276,7 @@ def format_stats(sentences: list[str], n_paragraphs: int | None = None) -> str:
         f"min {min(char_counts)}  max {max(char_counts)}",
         f'Longest sentence     : "{trunc(longest)}" ({len(longest)} chars)',
         f'Shortest sentence    : "{trunc(shortest)}" ({len(shortest)} chars)',
-        "Top words            : "
-        + ", ".join(f"{w} ({c})" for w, c in top_words),
+        "Top words            : " + ", ".join(f"{w} ({c})" for w, c in top_words),
         "======================",
     ]
     return "\n".join(lines)
@@ -294,24 +286,35 @@ def format_stats(sentences: list[str], n_paragraphs: int | None = None) -> str:
 # 4. Command-line interface
 # ===========================================================================
 
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="Extract all sentences from a document, one per line."
     )
-    parser.add_argument("file", type=Path,
-                        help="Document to read (.txt/.md/.pdf/.docx/.epub/.html)")
-    parser.add_argument("--min-words", type=int, default=1,
-                        help="Skip sentences with fewer than this many words "
-                             "(default: 1 = keep everything)")
-    parser.add_argument("--unique", action="store_true",
-                        help="Drop duplicate sentences, keeping first-seen order")
-    parser.add_argument("--paragraphs", action="store_true",
-                        help="Group sentences by paragraph: one sentence per line, "
-                             "with a blank line between paragraphs")
-    parser.add_argument("-o", "--output", type=Path,
-                        help="Write sentences to this file instead of stdout")
-    parser.add_argument("-q", "--quiet", action="store_true",
-                        help="Do not print the summary count to stderr")
+    parser.add_argument(
+        "file", type=Path, help="Document to read (.txt/.md/.pdf/.docx/.epub/.html)"
+    )
+    parser.add_argument(
+        "--min-words",
+        type=int,
+        default=1,
+        help="Skip sentences with fewer than this many words (default: 1 = keep everything)",
+    )
+    parser.add_argument(
+        "--unique", action="store_true", help="Drop duplicate sentences, keeping first-seen order"
+    )
+    parser.add_argument(
+        "--paragraphs",
+        action="store_true",
+        help="Group sentences by paragraph: one sentence per line, "
+        "with a blank line between paragraphs",
+    )
+    parser.add_argument(
+        "-o", "--output", type=Path, help="Write sentences to this file instead of stdout"
+    )
+    parser.add_argument(
+        "-q", "--quiet", action="store_true", help="Do not print the summary count to stderr"
+    )
     args = parser.parse_args(argv)
 
     if not args.file.exists():

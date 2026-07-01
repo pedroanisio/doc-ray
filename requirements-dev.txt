@@ -1,0 +1,14 @@
+# Development + quality-gate tooling (engineering decisions D-011..D-016).
+# Runtime deps live in requirements.txt.
+ruff==0.15.*
+mypy==2.0.*
+pytest==9.0.*
+pytest-cov==7.*
+pytest-asyncio==1.*
+anyio==4.*
+pre-commit==4.*
+
+# engineering_decisions.yml validation toolchain (vendored under engineering/schema/).
+pyshacl==0.31.*
+rdflib==7.*
+PyYAML==6.*

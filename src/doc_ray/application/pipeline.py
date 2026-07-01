@@ -3,29 +3,54 @@
 from __future__ import annotations
 
 import hashlib
-import os
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
-from doc_ray.adapters import persistence as db, extraction as extract_mod
-from doc_ray.domain import provenance as prov_mod, sentences as sent_mod
-from doc_ray.config import Config
+import psycopg
+
+from doc_ray.adapters import extraction as extract_mod
+from doc_ray.adapters import persistence as db
 from doc_ray.adapters.object_store import ObjectStore
+from doc_ray.config import Config
+from doc_ray.domain import provenance as prov_mod
+from doc_ray.domain import sentences as sent_mod
 
 
 @dataclass
 class IngestResult:
+    """Outcome of ingesting a single file.
+
+    Attributes:
+        path: The source path that was ingested.
+        document_id: Id of the stored document, if one was created.
+        status: One of ``'ingested'``, ``'duplicate'`` or ``'failed'``.
+        detail: Optional human-readable detail (counts or error text).
+    """
+
     path: str
     document_id: str | None
-    status: str          # 'ingested' | 'duplicate' | 'failed'
+    status: str
     detail: str = ""
 
 
 def _sha256(data: bytes) -> str:
+    """Return the hex SHA-256 digest of *data*."""
     return hashlib.sha256(data).hexdigest()
 
 
-def ingest_file(conn, store: ObjectStore, path: Path) -> IngestResult:
+def ingest_file(conn: psycopg.Connection[Any], store: ObjectStore, path: Path) -> IngestResult:
+    """Ingest a single file: dedupe, store the blob, extract, and persist.
+
+    Args:
+        conn: Live database connection.
+        store: Object store for the original bytes.
+        path: File to ingest.
+
+    Returns:
+        An ``IngestResult`` describing the outcome (ingested, duplicate, or
+        failed).
+    """
     data = path.read_bytes()
     sha = _sha256(data)
 
@@ -103,15 +128,28 @@ def ingest_file(conn, store: ObjectStore, path: Path) -> IngestResult:
         full_text=extracted.full_text,
         status="extracted",
         authors=[extracted.author] if extracted.author else [],
-        metadata=extracted.metadata,          # {pdf_producer, pdf_creator, ...}
+        metadata=extracted.metadata,  # {pdf_producer, pdf_creator, ...}
         sentences=sentences,
         provenance=provenance,
     )
-    return IngestResult(str(path), doc_id, "ingested",
-                        f"{len(sentences)} sentences, {len(provenance)} prov")
+    return IngestResult(
+        str(path),
+        doc_id,
+        "ingested",
+        f"{len(sentences)} sentences, {len(provenance)} prov",
+    )
 
 
 def ingest_paths(cfg: Config, paths: list[Path]) -> list[IngestResult]:
+    """Ingest every path, sharing one object store and database connection.
+
+    Args:
+        cfg: Runtime configuration.
+        paths: Files to ingest.
+
+    Returns:
+        One ``IngestResult`` per input path, in order.
+    """
     store = ObjectStore(cfg)
     store.ensure_bucket()
     results: list[IngestResult] = []
@@ -122,7 +160,15 @@ def ingest_paths(cfg: Config, paths: list[Path]) -> list[IngestResult]:
 
 
 def expand_paths(inputs: list[str], extensions: set[str]) -> list[Path]:
-    """Expand files and directories into a flat list of supported files."""
+    """Expand files and directories into a flat list of supported files.
+
+    Args:
+        inputs: File or directory paths as strings.
+        extensions: Lowercased extensions (including the dot) to accept.
+
+    Returns:
+        A flat list of matching files (directories searched recursively).
+    """
     out: list[Path] = []
     for raw in inputs:
         p = Path(raw)

@@ -19,8 +19,64 @@ dependencies = { file = ["requirements.txt"] }
 
 [tool.pytest.ini_options]
 # Make the pieces importable without an install:
-#   src     -> the ingest package
+#   src     -> the doc_ray package
 #   .       -> webapp (frontend, kept outside src)
 #   scripts -> the standalone text toolkit exercised by the suite
-pythonpath = ["src", ".", "scripts"]
-testpaths = ["tests"]
+pythonpath = ["src", ".", "scripts", "src/doc_ray/tests"]
+# Both suites: the top-level tests/ and the package's own src/doc_ray/tests/ (D-013).
+# importlib mode lets the two trees share test-file basenames (e.g. test_sentences.py)
+# without a collision; the tests dir on pythonpath keeps the src suite's `import _itdb`.
+testpaths = ["tests", "src/doc_ray/tests"]
+addopts = "-ra --import-mode=importlib"
+
+# --------------------------------------------------------------------------
+# Quality gates (engineering decisions D-011..D-013). proto/ (prototype),
+# .repo/ (vendored skills), and engineering/schema/ (vendored bundle) are
+# deliberately out of scope.
+# --------------------------------------------------------------------------
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+extend-exclude = ["proto", ".repo", "engineering/schema", ".venv", ".venv-proto"]
+
+[tool.ruff.lint]
+# D = pydocstyle (full docstrings, D-011); ANN = type annotations; C90 = mccabe.
+select = ["E", "F", "I", "UP", "B", "SIM", "D", "ANN", "C90"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.lint.mccabe]
+max-complexity = 12
+
+[tool.ruff.lint.per-file-ignores]
+# Tests get the standard latitude: no API docstrings/annotations, and line-length
+# (E501) + compact multi-statement setup (E702) are allowed in fixtures/assertions.
+"**/tests/**" = ["D", "ANN", "E501", "E702"]
+"tests/**" = ["D", "ANN", "E501", "E702"]
+# Standalone scripts are procedural utilities: no docstrings/annotations and the
+# mccabe complexity cap does not apply.
+"scripts/**" = ["D", "ANN", "C901"]
+"webapp/**" = ["ANN"]
+
+[tool.mypy]
+strict = true
+python_version = "3.10"
+files = ["src/doc_ray"]
+# Strict typing targets the package surface; the test suite is excluded (standard
+# practice) and vendored/prototype trees are out of scope.
+exclude = "(^|/)(proto|\\.repo|engineering/schema|\\.venv|tests)/"
+
+[[tool.mypy.overrides]]
+# Third-party libraries without bundled type stubs.
+module = ["psycopg.*", "boto3.*", "botocore.*", "fitz.*", "pypdf.*", "spacy.*", "strawberry.*"]
+ignore_missing_imports = true
+
+[tool.coverage.run]
+source = ["doc_ray"]
+branch = true
+
+[tool.coverage.report]
+fail_under = 90
+show_missing = true

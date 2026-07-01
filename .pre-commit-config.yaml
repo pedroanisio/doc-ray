@@ -1,0 +1,51 @@
+# Gated pre-commit — engineering decision D-014.
+# All hooks run local/system tools (from requirements-dev.txt), so no network
+# fetch of hook repos is needed. Install once with: pre-commit install
+minimum_pre_commit_version: "3.5.0"
+default_language_version:
+  python: python3
+
+repos:
+  - repo: local
+    hooks:
+      - id: ruff-lint
+        name: ruff (strict lint incl. docstrings) — D-011
+        entry: ruff check --force-exclude
+        language: system
+        types_or: [python, pyi]
+
+      - id: ruff-format
+        name: ruff format (check) — D-011
+        entry: ruff format --check --force-exclude
+        language: system
+        types_or: [python, pyi]
+
+      - id: mypy
+        name: mypy (strict) — D-012
+        entry: mypy src
+        language: system
+        pass_filenames: false
+        always_run: true
+
+      - id: net-loc-cap
+        name: net-LOC cap 400 — D-015
+        entry: python scripts/check_file_size.py src/doc_ray webapp scripts
+        language: system
+        pass_filenames: false
+        always_run: true
+
+      - id: validate-decisions
+        name: engineering_decisions.yml valid — D-016
+        entry: python engineering/schema/scripts/validate_decisions.py engineering_decisions.yml
+        language: system
+        pass_filenames: false
+        always_run: true
+        files: ^engineering_decisions\.yml$
+
+      - id: coverage-gate
+        name: pytest coverage >= 90% — D-013 (pre-push)
+        entry: pytest --cov=doc_ray --cov-fail-under=90 tests src/doc_ray/tests -q
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-push]

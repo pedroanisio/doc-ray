@@ -34,14 +34,20 @@ def unique_sha() -> str:
 def make_doc(conn, text: str) -> str:
     sents = build_sentences(text)
     return db.insert_document(
-        conn, title="itest", doc_type="txt", source_uri="s3://it",
-        content_sha256=unique_sha(), byte_size=len(text), page_count=None,
-        full_text=text, status="extracted", sentences=sents,
+        conn,
+        title="itest",
+        doc_type="txt",
+        source_uri="s3://it",
+        content_sha256=unique_sha(),
+        byte_size=len(text),
+        page_count=None,
+        full_text=text,
+        status="extracted",
+        sentences=sents,
     )
 
 
-def make_annotation(conn, doc_id: str, layer: str, tool: str,
-                    version: str | None = None) -> str:
+def make_annotation(conn, doc_id: str, layer: str, tool: str, version: str | None = None) -> str:
     aid = new_ulid_str()
     conn.execute(
         "INSERT INTO annotations (id, document_id, layer, tool, tool_version) "
@@ -55,8 +61,9 @@ def span_of(conn, doc_id: str, start: int, end: int) -> str:
     return db.ensure_spans(conn, doc_id, [(start, end)])[(start, end)]
 
 
-def make_tokens(conn, doc_id: str, annotation_id: str, text: str,
-                upos: dict | None = None) -> list[dict]:
+def make_tokens(
+    conn, doc_id: str, annotation_id: str, text: str, upos: dict | None = None
+) -> list[dict]:
     """Tokenize `text`, register spans, and insert `tokens` rows.
 
     Returns [{id, surface, ordinal, span_id}]. Requires migration 008.
@@ -71,6 +78,5 @@ def make_tokens(conn, doc_id: str, annotation_id: str, text: str,
             "VALUES (%s, %s, %s, %s, %s)",
             (tid, annotation_id, span_map[(s, e)], i, (upos or {}).get(surface)),
         )
-        out.append({"id": tid, "surface": surface, "ordinal": i,
-                    "span_id": span_map[(s, e)]})
+        out.append({"id": tid, "surface": surface, "ordinal": i, "span_id": span_map[(s, e)]})
     return out

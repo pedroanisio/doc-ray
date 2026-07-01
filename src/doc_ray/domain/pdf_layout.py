@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import re
 from collections import Counter, defaultdict
+from typing import Any
 
 _BULLET_RE = re.compile(r"^\s*(?:[•‣◦·▪]\s*|[*\-–—]\s+)")
 _HYPHEN_END = re.compile(r"[^\W\d_]-$", re.UNICODE)
@@ -33,14 +34,24 @@ _CONTROL_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f]")
 
 
 def sanitize_text(text: str) -> str:
-    """Strip control characters (incl. NUL) that PDFs emit; keep \\t and \\n."""
+    r"""Strip control characters (incl. NUL) that PDFs emit; keep \t and \n."""
     return _CONTROL_RE.sub("", text)
 
 
 # --- line reconstruction ---------------------------------------------------
 
-def line_text(spans: list[dict], space_ratio: float = 0.2) -> str:
-    """Join spans, inserting a space where the horizontal gap implies one."""
+
+def line_text(spans: list[dict[str, Any]], space_ratio: float = 0.2) -> str:
+    """Join spans, inserting a space where the horizontal gap implies one.
+
+    Args:
+        spans: The span dicts of a single line, left to right.
+        space_ratio: Gap threshold, as a fraction of font size, above which a
+            space is inserted between adjacent spans.
+
+    Returns:
+        The reconstructed line text, stripped of leading/trailing whitespace.
+    """
     out = ""
     prev = None
     for sp in spans:
@@ -55,6 +66,7 @@ def line_text(spans: list[dict], space_ratio: float = 0.2) -> str:
 
 
 # --- typographic classification -------------------------------------------
+
 
 def heading_level(size: float, body: float) -> int:
     """Heading level 1–3 from size relative to body text; 0 if not a heading."""
@@ -71,10 +83,12 @@ def heading_level(size: float, body: float) -> int:
 
 
 def is_bullet(text: str) -> bool:
+    """Report whether ``text`` begins with a list-bullet marker."""
     return bool(_BULLET_RE.match(text))
 
 
 def strip_bullet(text: str) -> str:
+    """Remove a leading bullet marker from ``text`` and strip whitespace."""
     return _BULLET_RE.sub("", text, count=1).strip()
 
 
@@ -101,27 +115,47 @@ def dehyphenate_join(a: str, b: str) -> str:
 
 # --- document-level analysis ----------------------------------------------
 
-def body_size(blocks: list[dict]) -> float:
-    """The dominant text size (weighted by characters) — the body font size."""
-    weight: Counter = Counter()
+
+def body_size(blocks: list[dict[str, Any]]) -> float:
+    """Return the dominant text size (char-weighted) — the body font size.
+
+    Args:
+        blocks: The block dicts to inspect.
+
+    Returns:
+        The most common rounded font size, or ``0.0`` if there is no text.
+    """
+    weight: Counter[float] = Counter()
     for b in blocks:
         for ln in b["lines"]:
             for sp in ln["spans"]:
                 weight[round(sp["size"], 1)] += max(len(sp["text"].strip()), 1)
     if not weight:
         return 0.0
-    return max(weight.items(), key=lambda kv: kv[1])[0]
+    return float(max(weight.items(), key=lambda kv: kv[1])[0])
 
 
 def _norm_marginal(text: str) -> str:
     return re.sub(r"\d+", "#", text).lower().strip()
 
 
-def strip_marginals(blocks: list[dict], top: float = 0.1, bottom: float = 0.9) -> list[dict]:
-    """Drop lines in the top/bottom page bands whose text recurs across pages."""
-    pages: set = set()
-    key_pages: dict = defaultdict(set)
-    marginal: list = []
+def strip_marginals(
+    blocks: list[dict[str, Any]], top: float = 0.1, bottom: float = 0.9
+) -> list[dict[str, Any]]:
+    """Drop lines in the top/bottom page bands whose text recurs across pages.
+
+    Args:
+        blocks: The block dicts to filter.
+        top: Upper page fraction treated as the header band.
+        bottom: Lower page-fraction boundary of the footer band.
+
+    Returns:
+        New block dicts with recurring header/footer lines removed and empty
+        blocks dropped.
+    """
+    pages: set[int] = set()
+    key_pages: dict[str, set[int]] = defaultdict(set)
+    marginal: list[tuple[int, int, str]] = []
     for bi, b in enumerate(blocks):
         for li, ln in enumerate(b["lines"]):
             pages.add(ln["page"])
@@ -144,14 +178,24 @@ def strip_marginals(blocks: list[dict], top: float = 0.1, bottom: float = 0.9) -
 
 # --- assembly --------------------------------------------------------------
 
-def _mostly_bold(spans: list[dict]) -> bool:
+
+def _mostly_bold(spans: list[dict[str, Any]]) -> bool:
     bold = sum(len(s["text"]) for s in spans if s.get("bold"))
     total = sum(len(s["text"]) for s in spans) or 1
     return bold * 2 >= total
 
 
-def block_markdown(block: dict, body: float) -> str:
-    infos = []
+def block_markdown(block: dict[str, Any], body: float) -> str:
+    """Render one block as a Markdown paragraph, heading, or bullet list.
+
+    Args:
+        block: The block dict to render.
+        body: The body font size, used to classify heading levels.
+
+    Returns:
+        The Markdown for the block, or an empty string if it has no text.
+    """
+    infos: list[tuple[str, int, str]] = []
     for ln in block["lines"]:
         text = line_text(ln["spans"])
         size = max((sp["size"] for sp in ln["spans"]), default=body)
@@ -162,9 +206,7 @@ def block_markdown(block: dict, body: float) -> str:
         return ""
 
     if any(k == "list" for k, _, _ in infos):
-        return "\n".join(
-            "- " + (strip_bullet(t) if k == "list" else t) for k, _, t in infos
-        )
+        return "\n".join("- " + (strip_bullet(t) if k == "list" else t) for k, _, t in infos)
     if infos[0][0] == "heading" and len(infos) <= 2:
         text = " ".join(t for _, _, t in infos)
         return "#" * infos[0][1] + " " + text
@@ -174,8 +216,16 @@ def block_markdown(block: dict, body: float) -> str:
     return para
 
 
-def to_markdown(blocks: list[dict], body: float | None = None) -> str:
-    """Assemble blocks into a Markdown document, structure preserved."""
+def to_markdown(blocks: list[dict[str, Any]], body: float | None = None) -> str:
+    """Assemble blocks into a Markdown document, structure preserved.
+
+    Args:
+        blocks: The block dicts to assemble.
+        body: The body font size; inferred from ``blocks`` if omitted.
+
+    Returns:
+        The Markdown document, or an empty string if there is no content.
+    """
     blocks = strip_marginals(blocks)
     if body is None:
         body = body_size(blocks) or 10.0
