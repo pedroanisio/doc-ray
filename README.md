@@ -94,7 +94,7 @@ python -m doc_ray.entrypoints.cli orwell1984.pdf
 | `src/doc_ray/ports/`       | Boundary contracts: `TextExtractor`, `ObjectStore`, `Repository`, `Annotator` |
 | `src/doc_ray/adapters/`    | Driven adapters: `extraction` (PyMuPDF/pypdf/…), `persistence` (Postgres), `object_store` (MinIO), `annotation`/`annotation_spacy` |
 | `src/doc_ray/application/` | Use cases: `pipeline`, `reannotate`, `reextract`   |
-| `src/doc_ray/entrypoints/` | Driving adapters: `cli` (`python -m doc_ray.entrypoints.cli`) |
+| `src/doc_ray/entrypoints/` | Driving adapters (`python -m doc_ray.entrypoints.<name>`): `cli`, `api` (GraphQL), `worker`, `migrate`, `export`, `annotate`, `annotate_spacy`, `reannotate`, `reextract` |
 | `src/doc_ray/config.py`    | Env-driven configuration                           |
 | `webapp/`                  | Flask browser over the annotated corpus (frontend, kept **outside** `src/`) |
 | `scripts/`                 | Standalone text tools (`extract_phrases`, `docmodel`, `roundtrip`, `text_decomposer`) — independent of the pipeline; see `scripts/README.md` |

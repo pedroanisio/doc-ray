@@ -347,9 +347,9 @@ shared span, every run attributed to a tool and version.
 
 - **Ingest** (`doc_ray.entrypoints.cli`) — file → object storage + `documents` +
   content + sentences + provenance, atomically per document.
-- **Annotate** (`doc_ray.adapters.annotation`) — stored `full_text` → spans +
+- **Annotate** (`doc_ray.entrypoints.annotate`) — stored `full_text` → spans +
   lexemes + occurrences + an `annotated` provenance event, per `(layer, tool)` run.
-- **Export** (`doc_ray.adapters.export`) — reassembles the full normalized record of
+- **Export** (`doc_ray.entrypoints.export`) — reassembles the full normalized record of
   any document (entity + all satellites + provenance + content + sentences) as JSON.
 - **Roundtrip** (`scripts/roundtrip.py`) — verifies stored data reproduces the source.
 - **GraphQL API** (`doc_ray.entrypoints.api`) — async read-only surface over the same

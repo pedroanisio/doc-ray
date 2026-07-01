@@ -13,12 +13,12 @@ addressed by character spans, each run is scoped by `(document, layer, tool)`.
 | Tool | Command | Populates | NLP layers |
 |---|---|---|---|
 | **Base ingest** | `python -m doc_ray.entrypoints.cli <path>` (or `docker compose run --rm ingester <path>`) | `documents`, object storage, `document_content`, `sentences`, `document_provenance` | 1, 2 |
-| **Lexemes (rule)** | `python -m doc_ray.adapters.annotation --all` | `annotations(layer=lexeme)`, `lexemes`, `lexeme_occurrences` | 3, 5 |
-| **spaCy** | `python -m doc_ray.adapters.annotation_spacy --all` | `tokens` (+UPOS/XPOS/lemma link), `token_feature`, `chunk`, `dependency`, `entity_mention`, `coref_chain/mention` | 3, 5, 6, 7, 8, 10, 11, 13 |
+| **Lexemes (rule)** | `python -m doc_ray.entrypoints.annotate --all` | `annotations(layer=lexeme)`, `lexemes`, `lexeme_occurrences` | 3, 5 |
+| **spaCy** | `python -m doc_ray.entrypoints.annotate_spacy --all` | `tokens` (+UPOS/XPOS/lemma link), `token_feature`, `chunk`, `dependency`, `entity_mention`, `coref_chain/mention` | 3, 5, 6, 7, 8, 10, 11, 13 |
 | **Embeddings** | _not yet ported to `doc_ray`_ | `embedding` (hash-BoW, pgvector) | 20 |
 | **Heuristics** | _not yet ported to `doc_ray`_ | `discourse_relation`, `timex`, `sentiment` | 17, 18, 19 |
-| **Export** | `python -m doc_ray.adapters.export --filename <f>` | (read-back) full JSON record | — |
-| **Reannotate (spaCy)** | `python -m doc_ray.application.reannotate --all` | re-runs the spaCy layer for stored documents | 6–11 |
+| **Export** | `python -m doc_ray.entrypoints.export --filename <f>` | (read-back) full JSON record | — |
+| **Reannotate (spaCy)** | `python -m doc_ray.entrypoints.reannotate --all` | re-runs the spaCy layer for stored documents | 6–11 |
 | **Roundtrip** | `python scripts/roundtrip.py <pdf> <json>` | (verify) reproduces source | — |
 
 ## Running the whole pipeline
@@ -29,8 +29,8 @@ docker compose run --rm ingester /data/static/fixtures
 
 # 2. annotation layers (host venv with spaCy + DATABASE_URL)
 export DATABASE_URL='postgresql://docray:docray@localhost:5455/docray'
-python -m doc_ray.adapters.annotation        --all   # rule lexemes
-python -m doc_ray.adapters.annotation_spacy  --all   # tokens/POS/morph/deps/NER/chunks/coref
+python -m doc_ray.entrypoints.annotate        --all   # rule lexemes
+python -m doc_ray.entrypoints.annotate_spacy  --all   # tokens/POS/morph/deps/NER/chunks/coref
 # embeddings + heuristic (discourse/temporal/sentiment) annotators are not yet
 # ported to doc_ray — their tables and tests remain (migrations 011–012).
 
