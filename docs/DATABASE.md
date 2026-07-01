@@ -1,6 +1,6 @@
 # doc-ray — Database ERD & Data Dictionary
 
-**Schema version `1.0.0`** (SemVer) · 19 migrations applied
+**Schema version `1.0.0`** (SemVer) · 20 migrations applied
 
 > Generated from the live schema by `scripts/gen_data_dictionary.py`. Do not edit by hand — re-run the generator.
 
@@ -964,7 +964,7 @@ the caller's RLS instead of the owner's bypass.
 | 004 | `004_normalize_4nf.sql` | decompose authors/tags/identifiers/metadata/params to relations |
 | 005 | `005_lexemes.sql` | lexemes, annotations, lexeme_occurrences + derived views |
 | 006 | `006_schema_migrations.sql` | the applied-migration ledger |
-| 007 | `007_spans.sql` | shared span registry; refactor sentences/occurrences onto span_id; layer-aware annotations |
+| 007 | `007_spans.sql` | shared span registry; sentences/occurrences onto span_id; layer-aware annotations |
 | 008 | `008_tokens_morphology.sql` | tokens, token_feature (UD FEATS), subword |
 | 009 | `009_syntax.sql` | chunk, constituent, dependency |
 | 010 | `010_reference.sql` | entity_mention, entity_link, coref_chain, coref_mention |
@@ -977,4 +977,5 @@ the caller's RLS instead of the owner's bypass.
 | 017 | `017_schema_review_fixes.sql` | typed tlink endpoints; word_sense PK; derived_from SET NULL; catalog comments |
 | 018 | `018_rbac.sql` | document-level RBAC + row-level security on 33 tables |
 | 019 | `019_schema_version.sql` | schema SemVer — schema_version + docray_schema_version() |
+| 020 | `020_jobs.sql` | background jobs queue (text+CHECK status, FOR UPDATE SKIP LOCKED) |
 

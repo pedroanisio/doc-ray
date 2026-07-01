@@ -223,7 +223,9 @@ def test_lexemes_and_occurrences_document_scope(pg):
     created += [d1, d2]
     nonce = new_ulid_str()[-8:].lower()
     lemma, uid = f"itlex{nonce}", f"lx_en.noun_{nonce}"
-    conn.execute("INSERT INTO lexemes (uid, lang, pos, lemma) VALUES (%s,'en','NOUN',%s)", (uid, lemma))
+    conn.execute(
+        "INSERT INTO lexemes (uid, lang, pos, lemma) VALUES (%s,'en','NOUN',%s)", (uid, lemma)
+    )
     a1 = _itdb.make_annotation(conn, d1, "lexeme", "spacy/en")
     a2 = _itdb.make_annotation(conn, d2, "lexeme", "spacy/en")
     for s, e in [(0, 5), (6, 10)]:  # two occurrences in d1 ("alpha", "beta")
@@ -242,7 +244,7 @@ def test_lexemes_and_occurrences_document_scope(pg):
         try:
             ctx = _ctx(aconn)
             scoped = await schema.execute(
-                'query($d:ID!,$q:String!){ lexemes(documentId:$d, q:$q){ uid uses } }',
+                "query($d:ID!,$q:String!){ lexemes(documentId:$d, q:$q){ uid uses } }",
                 variable_values={"d": str(d1), "q": lemma},
                 context_value=ctx,
             )
@@ -250,7 +252,7 @@ def test_lexemes_and_occurrences_document_scope(pg):
             assert scoped.data["lexemes"][0]["uses"] == 2  # only d1's occurrences
 
             corpus = await schema.execute(
-                'query($q:String!){ lexemes(q:$q){ uses } }',
+                "query($q:String!){ lexemes(q:$q){ uses } }",
                 variable_values={"q": lemma},
                 context_value=ctx,
             )

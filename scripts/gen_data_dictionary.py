@@ -26,84 +26,153 @@ OUT = os.path.join(os.path.dirname(__file__), "..", "docs", "DATABASE.md")
 # ---------------------------------------------------------------------------
 
 GROUPS: list[tuple[str, str, list[str]]] = [
-    ("Document entity & bibliographic identity",
-     "The document is a first-class entity. Independent multivalued facts "
-     "(authors, tags, identifiers, format metadata) are decomposed to their own "
-     "relations (4NF); blobs live in object storage, only an `s3://` pointer + "
-     "sha256 are stored.",
-     ["documents", "document_content", "authors", "document_authors",
-      "tags", "document_tags", "document_identifiers", "document_metadata"]),
-    ("Provenance (append-only lineage)",
-     "Every processing/lineage event on a document, with its parameters "
-     "normalized out of a JSON bag into `(event, key) -> value`.",
-     ["document_provenance", "provenance_params"]),
-    ("Segmentation & the span registry",
-     "Character offsets are a first-class, addressable entity (`spans`); every "
-     "stand-off annotation references a span by FK rather than repeating offset "
-     "triples. Sentences are ULID-keyed and reference a span.",
-     ["spans", "sentences"]),
-    ("Lexeme & annotation backbone",
-     "`lexemes` is analyzer-independent type identity; `annotations` is one "
-     "analyzer run over a document scoped by `(layer, tool)`; `lexeme_occurrences` "
-     "binds a span to a lexeme within a run (the token layer the webapp renders).",
-     ["lexemes", "annotations", "lexeme_occurrences"]),
-    ("Tokens, morphology & subwords (NLP layers 3–7)",
-     "The token is the addressable unit syntax/morphology reference. UD FEATS and "
-     "BPE/WordPiece pieces decompose into child relations (no arrays, no pipe-strings).",
-     ["tokens", "token_feature", "subword"]),
-    ("Syntax — shallow & deep (layers 8–10)",
-     "Chunking (BIO collapsed to spans), constituency (adjacency-list tree), and "
-     "dependency (each token has exactly one head → a function).",
-     ["chunk", "constituent", "dependency"]),
-    ("Entities & reference (layers 11–13)",
-     "Named-entity mentions, entity linking to a KB, and coreference chains.",
-     ["entity_mention", "entity_link", "coref_chain", "coref_mention"]),
-    ("Meaning, discourse, temporal & sentiment (layers 14–19)",
-     "Semantic role labeling, word-sense disambiguation, AMR meaning graphs, "
-     "PDTB discourse relations, TimeML (TIMEX/EVENT/TLINK), and sentiment.",
-     ["srl_predicate", "srl_argument", "word_sense", "amr_node", "amr_edge",
-      "discourse_relation", "timex", "event", "tlink", "sentiment"]),
-    ("Distributed representations (layer 20)",
-     "pgvector embeddings over spans, ANN-indexed with HNSW (cosine).",
-     ["embedding"]),
-    ("Access control — RBAC & row-level security",
-     "Principals, roles, permissions and per-document ACLs. Every document-scoped "
-     "table above is protected by RLS keyed on these (see §Access control).",
-     ["principals", "roles", "permissions", "role_permissions",
-      "principal_roles", "document_acl"]),
-    ("Meta",
-     "Applied-migration ledger + the schema's SemVer.",
-     ["schema_migrations", "schema_version"]),
+    (
+        "Document entity & bibliographic identity",
+        "The document is a first-class entity. Independent multivalued facts "
+        "(authors, tags, identifiers, format metadata) are decomposed to their own "
+        "relations (4NF); blobs live in object storage, only an `s3://` pointer + "
+        "sha256 are stored.",
+        [
+            "documents",
+            "document_content",
+            "authors",
+            "document_authors",
+            "tags",
+            "document_tags",
+            "document_identifiers",
+            "document_metadata",
+        ],
+    ),
+    (
+        "Provenance (append-only lineage)",
+        "Every processing/lineage event on a document, with its parameters "
+        "normalized out of a JSON bag into `(event, key) -> value`.",
+        ["document_provenance", "provenance_params"],
+    ),
+    (
+        "Segmentation & the span registry",
+        "Character offsets are a first-class, addressable entity (`spans`); every "
+        "stand-off annotation references a span by FK rather than repeating offset "
+        "triples. Sentences are ULID-keyed and reference a span.",
+        ["spans", "sentences"],
+    ),
+    (
+        "Lexeme & annotation backbone",
+        "`lexemes` is analyzer-independent type identity; `annotations` is one "
+        "analyzer run over a document scoped by `(layer, tool)`; `lexeme_occurrences` "
+        "binds a span to a lexeme within a run (the token layer the webapp renders).",
+        ["lexemes", "annotations", "lexeme_occurrences"],
+    ),
+    (
+        "Tokens, morphology & subwords (NLP layers 3–7)",
+        "The token is the addressable unit syntax/morphology reference. UD FEATS and "
+        "BPE/WordPiece pieces decompose into child relations (no arrays, no pipe-strings).",
+        ["tokens", "token_feature", "subword"],
+    ),
+    (
+        "Syntax — shallow & deep (layers 8–10)",
+        "Chunking (BIO collapsed to spans), constituency (adjacency-list tree), and "
+        "dependency (each token has exactly one head → a function).",
+        ["chunk", "constituent", "dependency"],
+    ),
+    (
+        "Entities & reference (layers 11–13)",
+        "Named-entity mentions, entity linking to a KB, and coreference chains.",
+        ["entity_mention", "entity_link", "coref_chain", "coref_mention"],
+    ),
+    (
+        "Meaning, discourse, temporal & sentiment (layers 14–19)",
+        "Semantic role labeling, word-sense disambiguation, AMR meaning graphs, "
+        "PDTB discourse relations, TimeML (TIMEX/EVENT/TLINK), and sentiment.",
+        [
+            "srl_predicate",
+            "srl_argument",
+            "word_sense",
+            "amr_node",
+            "amr_edge",
+            "discourse_relation",
+            "timex",
+            "event",
+            "tlink",
+            "sentiment",
+        ],
+    ),
+    (
+        "Distributed representations (layer 20)",
+        "pgvector embeddings over spans, ANN-indexed with HNSW (cosine).",
+        ["embedding"],
+    ),
+    (
+        "Access control — RBAC & row-level security",
+        "Principals, roles, permissions and per-document ACLs. Every document-scoped "
+        "table above is protected by RLS keyed on these (see §Access control).",
+        [
+            "principals",
+            "roles",
+            "permissions",
+            "role_permissions",
+            "principal_roles",
+            "document_acl",
+        ],
+    ),
+    (
+        "Meta",
+        "Applied-migration ledger + the schema's SemVer.",
+        ["schema_migrations", "schema_version"],
+    ),
 ]
 
 # Owning-document path used by the RLS predicate for each table (for the dict).
 RLS_PATH = {
-    "documents": "id (self)", "document_content": "document_id",
-    "document_authors": "document_id", "document_tags": "document_id",
-    "document_identifiers": "document_id", "document_metadata": "document_id",
-    "document_provenance": "document_id", "provenance_params": "event_id → document_provenance",
-    "sentences": "document_id", "spans": "document_id", "annotations": "document_id",
-    "coref_chain": "document_id", "coref_mention": "span_id → spans",
-    "lexeme_occurrences": "annotation_id → annotations", "tokens": "annotation_id → annotations",
-    "token_feature": "token_id → tokens → annotations", "subword": "token_id → tokens → annotations",
-    "chunk": "annotation_id → annotations", "constituent": "annotation_id → annotations",
-    "dependency": "annotation_id → annotations", "entity_mention": "annotation_id → annotations",
-    "entity_link": "mention_id → entity_mention → annotations", "srl_predicate": "annotation_id → annotations",
-    "srl_argument": "span_id → spans", "word_sense": "annotation_id → annotations",
-    "amr_node": "annotation_id → annotations", "amr_edge": "parent_node_id → amr_node → annotations",
-    "discourse_relation": "annotation_id → annotations", "timex": "annotation_id → annotations",
-    "event": "annotation_id → annotations", "tlink": "annotation_id → annotations",
-    "sentiment": "annotation_id → annotations", "embedding": "span_id → spans",
+    "documents": "id (self)",
+    "document_content": "document_id",
+    "document_authors": "document_id",
+    "document_tags": "document_id",
+    "document_identifiers": "document_id",
+    "document_metadata": "document_id",
+    "document_provenance": "document_id",
+    "provenance_params": "event_id → document_provenance",
+    "sentences": "document_id",
+    "spans": "document_id",
+    "annotations": "document_id",
+    "coref_chain": "document_id",
+    "coref_mention": "span_id → spans",
+    "lexeme_occurrences": "annotation_id → annotations",
+    "tokens": "annotation_id → annotations",
+    "token_feature": "token_id → tokens → annotations",
+    "subword": "token_id → tokens → annotations",
+    "chunk": "annotation_id → annotations",
+    "constituent": "annotation_id → annotations",
+    "dependency": "annotation_id → annotations",
+    "entity_mention": "annotation_id → annotations",
+    "entity_link": "mention_id → entity_mention → annotations",
+    "srl_predicate": "annotation_id → annotations",
+    "srl_argument": "span_id → spans",
+    "word_sense": "annotation_id → annotations",
+    "amr_node": "annotation_id → annotations",
+    "amr_edge": "parent_node_id → amr_node → annotations",
+    "discourse_relation": "annotation_id → annotations",
+    "timex": "annotation_id → annotations",
+    "event": "annotation_id → annotations",
+    "tlink": "annotation_id → annotations",
+    "sentiment": "annotation_id → annotations",
+    "embedding": "span_id → spans",
 }
 
 MIGRATIONS = [
     ("001_init", "documents + document_content (FTS), pg_trgm, updated_at trigger"),
     ("002_sentences", "ulid domain; sentences (ULID PK)"),
-    ("003_document_entity", "bibliographic/lineage columns; provenance_kind enum; document_provenance"),
+    (
+        "003_document_entity",
+        "bibliographic/lineage columns; provenance_kind enum; document_provenance",
+    ),
     ("004_normalize_4nf", "decompose authors/tags/identifiers/metadata/params to relations"),
     ("005_lexemes", "lexemes, annotations, lexeme_occurrences + derived views"),
     ("006_schema_migrations", "the applied-migration ledger"),
-    ("007_spans", "shared span registry; refactor sentences/occurrences onto span_id; layer-aware annotations"),
+    (
+        "007_spans",
+        "shared span registry; sentences/occurrences onto span_id; layer-aware annotations",
+    ),
     ("008_tokens_morphology", "tokens, token_feature (UD FEATS), subword"),
     ("009_syntax", "chunk, constituent, dependency"),
     ("010_reference", "entity_mention, entity_link, coref_chain, coref_mention"),
@@ -113,9 +182,13 @@ MIGRATIONS = [
     ("014_span_fk_cascade", "every span reference → ON DELETE CASCADE"),
     ("015_layer_fk_cascade", "complete the ON DELETE graph for document-owned tables"),
     ("016_fts_language_aware", "trigger-maintained language-aware FTS (en/pt/simple)"),
-    ("017_schema_review_fixes", "typed tlink endpoints; word_sense PK; derived_from SET NULL; catalog comments"),
+    (
+        "017_schema_review_fixes",
+        "typed tlink endpoints; word_sense PK; derived_from SET NULL; catalog comments",
+    ),
     ("018_rbac", "document-level RBAC + row-level security on 33 tables"),
     ("019_schema_version", "schema SemVer — schema_version + docray_schema_version()"),
+    ("020_jobs", "background jobs queue (text+CHECK status, FOR UPDATE SKIP LOCKED)"),
 ]
 
 # ---------------------------------------------------------------------------
@@ -147,19 +220,26 @@ its text and metadata extracted, then annotated by real spaCy into the full
   by every document-scoped table through row-level-security policies.
 """
 
-CONVENTIONS = """\
-| Convention | Detail |
-|---|---|
-| `ulid` domain | `char(26)` matching `^[0-7][0-9A-HJKMNP-TV-Z]{25}$` (Crockford base32; excludes I/L/O/U). Sorts in creation-time order. |
-| `uuid` ids | `gen_random_uuid()` defaults on top-level entities. |
-| Content addressing | `content_sha256` / `text_sha256` dedupe + integrity; blob body is an `s3://` URI, never a row. |
-| Offsets | Half-open `[char_start, char_end)` into `document_content.full_text`; owned by `spans`. |
-| `ON DELETE` | Document-owned edges CASCADE (or SET NULL for advisory links); references to global dimensions (`lexemes`, `authors`, `tags`, `documents.derived_from`) do not. |
-| Timestamps | `timestamptz`, default `now()`. |
-"""
+CONVENTIONS = (
+    "| Convention | Detail |\n"
+    "|---|---|\n"
+    "| `ulid` domain | `char(26)` matching `^[0-7][0-9A-HJKMNP-TV-Z]{25}$` "
+    "(Crockford base32; excludes I/L/O/U). Sorts in creation-time order. |\n"
+    "| `uuid` ids | `gen_random_uuid()` defaults on top-level entities. |\n"
+    "| Content addressing | `content_sha256` / `text_sha256` dedupe + integrity; "
+    "blob body is an `s3://` URI, never a row. |\n"
+    "| Offsets | Half-open `[char_start, char_end)` into "
+    "`document_content.full_text`; owned by `spans`. |\n"
+    "| `ON DELETE` | Document-owned edges CASCADE (or SET NULL for advisory links); "
+    "references to global dimensions (`lexemes`, `authors`, `tags`, "
+    "`documents.derived_from`) do not. |\n"
+    "| Timestamps | `timestamptz`, default `now()`. |\n"
+)
 
 ERDS = [
-    ("Document entity, 4NF satellites & provenance", """\
+    (
+        "Document entity, 4NF satellites & provenance",
+        """\
 erDiagram
     documents ||--o| document_content : "1:1 text + FTS"
     documents ||--o{ document_authors : ""
@@ -171,8 +251,11 @@ erDiagram
     documents ||--o{ document_provenance : "events"
     document_provenance ||--o{ provenance_params : "(key,value)"
     documents ||--o| documents : "derived_from"
-"""),
-    ("Segmentation, span registry & the annotation backbone", """\
+""",
+    ),
+    (
+        "Segmentation, span registry & the annotation backbone",
+        """\
 erDiagram
     documents   ||--o{ spans : "owns offsets"
     documents   ||--o{ sentences : ""
@@ -181,8 +264,11 @@ erDiagram
     annotations ||--o{ lexeme_occurrences : ""
     spans       ||--o{ lexeme_occurrences : "span_id"
     lexemes     ||--o{ lexeme_occurrences : "type identity"
-"""),
-    ("Tokens, morphology & syntax", """\
+""",
+    ),
+    (
+        "Tokens, morphology & syntax",
+        """\
 erDiagram
     annotations ||--o{ tokens : ""
     spans       ||--o{ tokens : "span_id"
@@ -195,8 +281,11 @@ erDiagram
     annotations ||--o{ chunk : "NP/VP/PP"
     annotations ||--o{ constituent : "tree"
     constituent ||--o{ constituent : "parent_id"
-"""),
-    ("Entities, reference, meaning, temporal & embeddings", """\
+""",
+    ),
+    (
+        "Entities, reference, meaning, temporal & embeddings",
+        """\
 erDiagram
     annotations   ||--o{ entity_mention : ""
     entity_mention ||--o{ entity_link : "KB id"
@@ -212,8 +301,11 @@ erDiagram
     timex         ||--o{ tlink : "source/target"
     event         ||--o{ tlink : "source/target"
     spans         ||--o{ embedding : "vector(768)"
-"""),
-    ("Access control (RBAC) — decided per document, inherited via RLS", """\
+""",
+    ),
+    (
+        "Access control (RBAC) — decided per document, inherited via RLS",
+        """\
 erDiagram
     principals       ||--o{ principal_roles : ""
     roles            ||--o{ principal_roles : ""
@@ -223,7 +315,8 @@ erDiagram
     documents        ||--o{ document_acl : "resource"
     permissions      ||--o{ document_acl : "action"
     principals       ||--o{ document_provenance : "actor_principal_id"
-"""),
+""",
+    ),
 ]
 
 RLS_NARRATIVE = """\
@@ -273,33 +366,46 @@ def table_oid(conn, name):
 
 
 def columns(conn, oid):
-    return q(conn, """
+    return q(
+        conn,
+        """
         SELECT a.attname, format_type(a.atttypid, a.atttypmod) AS type,
                a.attnotnull, pg_get_expr(ad.adbin, ad.adrelid) AS dflt,
                col_description(a.attrelid, a.attnum) AS comment
         FROM pg_attribute a
         LEFT JOIN pg_attrdef ad ON ad.adrelid = a.attrelid AND ad.adnum = a.attnum
         WHERE a.attrelid = %s AND a.attnum > 0 AND NOT a.attisdropped
-        ORDER BY a.attnum""", (oid,))
+        ORDER BY a.attnum""",
+        (oid,),
+    )
 
 
 def constraints(conn, oid):
-    return q(conn, """
+    return q(
+        conn,
+        """
         SELECT conname, contype, pg_get_constraintdef(oid) AS def,
                array(SELECT attname FROM pg_attribute
                      WHERE attrelid = c.conrelid AND attnum = ANY(c.conkey)) AS cols
         FROM pg_constraint c WHERE conrelid = %s
-        ORDER BY contype, conname""", (oid,))
+        ORDER BY contype, conname""",
+        (oid,),
+    )
 
 
 def indexes(conn, name):
-    return q(conn, "SELECT indexname, indexdef FROM pg_indexes "
-                   "WHERE schemaname='public' AND tablename=%s ORDER BY indexname", (name,))
+    return q(
+        conn,
+        "SELECT indexname, indexdef FROM pg_indexes "
+        "WHERE schemaname='public' AND tablename=%s ORDER BY indexname",
+        (name,),
+    )
 
 
 def rls_enabled(conn, oid):
-    r = conn.execute("SELECT relrowsecurity, relforcerowsecurity FROM pg_class WHERE oid=%s",
-                     (oid,)).fetchone()
+    r = conn.execute(
+        "SELECT relrowsecurity, relforcerowsecurity FROM pg_class WHERE oid=%s", (oid,)
+    ).fetchone()
     return r["relrowsecurity"], r["relforcerowsecurity"]
 
 
@@ -321,7 +427,11 @@ def render_table(conn, name, out):
     for c in fks:
         # def looks like: FOREIGN KEY (x) REFERENCES t(y) ON DELETE ...
         d = c["def"]
-        ref = d.split("REFERENCES", 1)[1].strip().split("(", 1)[0].strip() if "REFERENCES" in d else "?"
+        ref = (
+            d.split("REFERENCES", 1)[1].strip().split("(", 1)[0].strip()
+            if "REFERENCES" in d
+            else "?"
+        )
         for col in c["cols"]:
             fk_by_col[col] = ref
 
@@ -340,16 +450,23 @@ def render_table(conn, name, out):
             keyparts.append(f"FK→{fk_by_col[c['attname']]}")
         if c["attname"] in uk_cols and c["attname"] not in pk_cols:
             keyparts.append("UQ")
-        out.append("| `{name}` | {type} | {null} | {key} | {dflt} | {note} |".format(
-            name=c["attname"], type=md_escape(c["type"]),
-            null="" if c["attnotnull"] else "yes",
-            key=", ".join(keyparts),
-            dflt=f"`{md_escape(c['dflt'])}`" if c["dflt"] else "",
-            note=md_escape(c["comment"])))
+        out.append(
+            "| `{name}` | {type} | {null} | {key} | {dflt} | {note} |".format(
+                name=c["attname"],
+                type=md_escape(c["type"]),
+                null="" if c["attnotnull"] else "yes",
+                key=", ".join(keyparts),
+                dflt=f"`{md_escape(c['dflt'])}`" if c["dflt"] else "",
+                note=md_escape(c["comment"]),
+            )
+        )
     out.append("")
 
     if pk:
-        out.append(f"- **Primary key:** {pk['def'][len('PRIMARY KEY '):] if pk['def'].startswith('PRIMARY KEY ') else pk['def']}")
+        pk_def = pk["def"]
+        if pk_def.startswith("PRIMARY KEY "):
+            pk_def = pk_def[len("PRIMARY KEY ") :]
+        out.append(f"- **Primary key:** {pk_def}")
     for c in uks:
         out.append(f"- **Unique:** {c['def']}")
     for c in fks:
@@ -363,8 +480,10 @@ def render_table(conn, name, out):
         out.append(f"- **Index** `{i['indexname']}`: {md_escape(body)}")
     en, force = rls_enabled(conn, oid)
     if en:
-        out.append(f"- **RLS:** enabled — read/write policies via *{RLS_PATH.get(name, '?')}*"
-                   + (" (FORCED)" if force else ""))
+        out.append(
+            f"- **RLS:** enabled — read/write policies via *{RLS_PATH.get(name, '?')}*"
+            + (" (FORCED)" if force else "")
+        )
     out.append("")
 
 
@@ -380,36 +499,50 @@ def main() -> int:
     o.append("# doc-ray — Database ERD & Data Dictionary\n")
     if ver:
         o.append(f"**Schema version `{ver}`** (SemVer) · {applied} migrations applied\n")
-    o.append(f"> Generated from the live schema by `scripts/gen_data_dictionary.py`. "
-             f"Do not edit by hand — re-run the generator.\n")
+    o.append(
+        "> Generated from the live schema by `scripts/gen_data_dictionary.py`. "
+        "Do not edit by hand — re-run the generator.\n"
+    )
     o.append("## 1. Overview\n")
     o.append(OVERVIEW)
     o.append("\n## 2. Conventions\n")
     o.append(CONVENTIONS)
 
     o.append("\n## 3. Entity-Relationship Diagrams\n")
-    o.append("_Rendered as Mermaid; attributes are catalogued in §5. Diagrams are grouped "
-             "by domain for legibility (the full schema is one connected graph)._\n")
+    o.append(
+        "_Rendered as Mermaid; attributes are catalogued in §5. Diagrams are grouped "
+        "by domain for legibility (the full schema is one connected graph)._\n"
+    )
     for title, mer in ERDS:
         o.append(f"### {title}\n")
         o.append("```mermaid\n" + mer + "```\n")
 
     # domains + enums
     o.append("\n## 4. Domains & enumerated types\n")
-    doms = q(conn, """
+    doms = q(
+        conn,
+        """
         SELECT t.typname,
                format_type(t.typbasetype, t.typtypmod) AS base,
-               (SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE contypid=t.oid LIMIT 1) AS chk
+               (SELECT pg_get_constraintdef(oid) FROM pg_constraint
+                WHERE contypid=t.oid LIMIT 1) AS chk
         FROM pg_type t JOIN pg_namespace n ON n.oid=t.typnamespace
-        WHERE n.nspname='public' AND t.typtype='d' ORDER BY t.typname""")
+        WHERE n.nspname='public' AND t.typtype='d' ORDER BY t.typname""",
+    )
     for d in doms:
-        o.append(f"- **domain `{d['typname']}`** = `{d['base']}` "
-                 + (f"— `{md_escape(d['chk'])}`" if d["chk"] else ""))
-    enums = q(conn, """
-        SELECT t.typname, string_agg(quote_literal(e.enumlabel), ', ' ORDER BY e.enumsortorder) AS labels
+        o.append(
+            f"- **domain `{d['typname']}`** = `{d['base']}` "
+            + (f"— `{md_escape(d['chk'])}`" if d["chk"] else "")
+        )
+    enums = q(
+        conn,
+        """
+        SELECT t.typname,
+               string_agg(quote_literal(e.enumlabel), ', ' ORDER BY e.enumsortorder) AS labels
         FROM pg_type t JOIN pg_enum e ON e.enumtypid=t.oid
         JOIN pg_namespace n ON n.oid=t.typnamespace WHERE n.nspname='public'
-        GROUP BY t.typname ORDER BY t.typname""")
+        GROUP BY t.typname ORDER BY t.typname""",
+    )
     for e in enums:
         o.append(f"- **enum `{e['typname']}`** ∈ {{ {md_escape(e['labels'])} }}")
     o.append("")
@@ -423,38 +556,49 @@ def main() -> int:
 
     # views
     o.append("\n## 6. Views\n")
-    views = q(conn, """
+    views = q(
+        conn,
+        """
         SELECT c.relname,
                COALESCE((SELECT option_value FROM pg_options_to_table(c.reloptions)
                          WHERE option_name='security_invoker'), 'false') AS invoker,
                pg_get_viewdef(c.oid, true) AS def
         FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
-        WHERE n.nspname='public' AND c.relkind='v' ORDER BY c.relname""")
+        WHERE n.nspname='public' AND c.relkind='v' ORDER BY c.relname""",
+    )
     for v in views:
         o.append(f"#### `{v['relname']}`  \n`security_invoker = {v['invoker']}`\n")
         o.append("```sql\n" + v["def"].strip() + "\n```\n")
 
     # functions
     o.append("\n## 7. Functions & triggers\n")
-    fns = q(conn, """
+    fns = q(
+        conn,
+        """
         SELECT p.proname, pg_get_function_arguments(p.oid) AS args,
                pg_get_function_result(p.oid) AS ret, p.prosecdef, l.lanname
         FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
         JOIN pg_language l ON l.oid=p.prolang
         WHERE n.nspname='public'
           AND NOT EXISTS (SELECT 1 FROM pg_depend d WHERE d.objid=p.oid AND d.deptype='e')
-        ORDER BY p.proname""")
+        ORDER BY p.proname""",
+    )
     o.append("| Function | Returns | Security | Lang |")
     o.append("|---|---|---|---|")
     for f in fns:
-        o.append(f"| `{f['proname']}({md_escape(f['args'])})` | `{md_escape(f['ret'])}` | "
-                 f"{'DEFINER' if f['prosecdef'] else 'invoker'} | {f['lanname']} |")
+        o.append(
+            f"| `{f['proname']}({md_escape(f['args'])})` | `{md_escape(f['ret'])}` | "
+            f"{'DEFINER' if f['prosecdef'] else 'invoker'} | {f['lanname']} |"
+        )
     o.append("")
-    trigs = q(conn, """
+    trigs = q(
+        conn,
+        """
         SELECT c.relname AS tbl, t.tgname, pg_get_triggerdef(t.oid) AS def
         FROM pg_trigger t JOIN pg_class c ON c.oid=t.tgrelid
         JOIN pg_namespace n ON n.oid=c.relnamespace
-        WHERE n.nspname='public' AND NOT t.tgisinternal ORDER BY c.relname, t.tgname""")
+        WHERE n.nspname='public' AND NOT t.tgisinternal ORDER BY c.relname, t.tgname""",
+    )
     for tr in trigs:
         o.append(f"- **{tr['tbl']}** `{tr['tgname']}`: {md_escape(tr['def'].split(' ON ')[0])} …")
     o.append("")
@@ -472,8 +616,10 @@ def main() -> int:
     text = "\n".join(o) + "\n"
     with open(os.path.abspath(OUT), "w", encoding="utf-8") as f:
         f.write(text)
-    print(f"Wrote {os.path.abspath(OUT)} ({len(text):,} bytes) — "
-          f"{sum(len(g[2]) for g in GROUPS)} tables, {len(views)} views, {len(fns)} functions.")
+    print(
+        f"Wrote {os.path.abspath(OUT)} ({len(text):,} bytes) — "
+        f"{sum(len(g[2]) for g in GROUPS)} tables, {len(views)} views, {len(fns)} functions."
+    )
     return 0
 
 
