@@ -49,10 +49,26 @@ decisions:
       - claim_id:    "D-001.k1"
         claim_text:  "A Strawberry GraphQL schema is served from src/doc_ray/entrypoints/api/."
         auditable:   true
-        status:      "pending"
-        declared_checks_count: 0
-        checks:      []
-    open_issue: "Implemented in Phase 2 (read-only GraphQL); checks written then."
+        status:      "populated"
+        declared_checks_count: 2
+        checks:
+          - check_id:    "D-001.k1.c1"
+            description: "The GraphQL schema module is present."
+            check_kind:  "file-exists"
+            severity:    "error"
+            context:     "workspace"
+            path:        "src/doc_ray/entrypoints/api/schema.py"
+            expect:
+              present:   true
+          - check_id:    "D-001.k1.c2"
+            description: "Strawberry is a declared runtime dependency."
+            check_kind:  "grep"
+            severity:    "error"
+            context:     "workspace"
+            path:        "requirements.txt"
+            pattern:     'strawberry-graphql'
+            expect:
+              present:   true
 
   - id:                 "D-002"
     title:              "Serve reads through a ReadRepository port + async adapter"
@@ -228,12 +244,12 @@ decisions:
               present:   true
 
   - id:                 "D-007"
-    title:              "jobs table: text+CHECK status, open text kind (migration 019)"
+    title:              "jobs table: text+CHECK status, open text kind (migration 020)"
     version_introduced: "0.1.0"
     category:           "enums"
     decision: |
-      The `jobs` table lands as db/migrations/019_jobs.sql (016-018 already taken by
-      fts/schema-fixes/rbac). Status is a closed set enforced with text+CHECK
+      The `jobs` table lands as db/migrations/020_jobs.sql (016-019 already taken by
+      fts/schema-fixes/rbac/schema-version). Status is a closed set enforced with text+CHECK
       (queued|running|succeeded|failed|canceled) — not a PG enum, which is not
       transaction-safe to evolve. `kind` is open text validated by the worker.
     rationale: |
@@ -242,10 +258,10 @@ decisions:
     decision_status:    "accepted"
     decision_date:      "2026-07-01"
     owner:              ["pedroanisio@faz.ai"]
-    scope_path:         ["db/migrations/019_jobs.sql"]
+    scope_path:         ["db/migrations/020_jobs.sql"]
     claims:
       - claim_id:    "D-007.k1"
-        claim_text:  "db/migrations/019_jobs.sql defines jobs.status as text with a closed CHECK constraint."
+        claim_text:  "db/migrations/020_jobs.sql defines jobs.status as text with a closed CHECK constraint."
         auditable:   true
         status:      "pending"
         declared_checks_count: 0
@@ -269,12 +285,29 @@ decisions:
     scope_path:         ["src/doc_ray/entrypoints/api/extensions/**/*.py"]
     claims:
       - claim_id:    "D-008.k1"
-        claim_text:  "The API rejects queries exceeding the configured depth/complexity limits."
+        claim_text:  "The schema installs a query-depth limiter and a token (complexity) limiter."
         auditable:   true
-        status:      "pending"
-        declared_checks_count: 0
-        checks:      []
-    open_issue: "Implemented in Phase 2; a test_depth_complexity gate is added then."
+        status:      "populated"
+        declared_checks_count: 2
+        checks:
+          - check_id:    "D-008.k1.c1"
+            description: "The schema installs a QueryDepthLimiter."
+            check_kind:  "grep"
+            severity:    "error"
+            context:     "workspace"
+            path:        "src/doc_ray/entrypoints/api/schema.py"
+            pattern:     'QueryDepthLimiter'
+            expect:
+              present:   true
+          - check_id:    "D-008.k1.c2"
+            description: "The schema installs a MaxTokensLimiter (complexity proxy)."
+            check_kind:  "grep"
+            severity:    "error"
+            context:     "workspace"
+            path:        "src/doc_ray/entrypoints/api/schema.py"
+            pattern:     'MaxTokensLimiter'
+            expect:
+              present:   true
 
   - id:                 "D-009"
     title:              "Pluggable extractor & analyzer registries"
@@ -326,13 +359,13 @@ decisions:
     decision_status:    "accepted"
     decision_date:      "2026-07-01"
     owner:              ["pedroanisio@faz.ai"]
-    scope_path:         ["db/migrations/018_rbac.sql", "src/doc_ray/entrypoints/api/security/**/*.py"]
+    scope_path:         ["db/migrations/018_rbac.sql", "src/doc_ray/entrypoints/api/security.py"]
     claims:
       - claim_id:    "D-010.k1"
-        claim_text:  "Document-scoped tables enforce access with Postgres Row-Level Security."
+        claim_text:  "Document-scoped tables enforce access with Postgres RLS; the API binds the principal."
         auditable:   true
         status:      "populated"
-        declared_checks_count: 2
+        declared_checks_count: 3
         checks:
           - check_id:    "D-010.k1.c1"
             description: "The RBAC/RLS migration is present."
@@ -349,6 +382,15 @@ decisions:
             context:     "workspace"
             path:        "db/migrations/018_rbac.sql"
             pattern:     'ROW LEVEL SECURITY'
+            expect:
+              present:   true
+          - check_id:    "D-010.k1.c3"
+            description: "The API binds requests to the docray_client RLS role."
+            check_kind:  "grep"
+            severity:    "error"
+            context:     "workspace"
+            path:        "src/doc_ray/entrypoints/api/security.py"
+            pattern:     'docray_client'
             expect:
               present:   true
 

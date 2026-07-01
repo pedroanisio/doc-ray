@@ -9,6 +9,8 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY src ./src
+# The runtime migration runner reads db/migrations/*.sql at run time.
+COPY db ./db
 
-# Default command is overridden by `docker compose run ingester ...`
+# Default entrypoint for the ingester; the api/migrate services override it.
 ENTRYPOINT ["python", "-m", "doc_ray.entrypoints.cli"]

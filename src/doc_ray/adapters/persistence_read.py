@@ -181,6 +181,69 @@ async def get_provenance(conn: _AConn, document_id: str) -> list[Row]:
 
 
 # --------------------------------------------------------------------------
+# Batched by-document readers (feed the API DataLoaders; avoid N+1)
+# --------------------------------------------------------------------------
+
+
+async def authors_by_documents(conn: _AConn, document_ids: list[str]) -> dict[str, list[str]]:
+    """Return ``{document_id: [author, ...]}`` for every id (ordered by position)."""
+    out: dict[str, list[str]] = {str(i): [] for i in document_ids}
+    rows = await _rows(
+        conn,
+        "SELECT da.document_id, a.name FROM document_authors da "
+        "JOIN authors a ON a.id = da.author_id "
+        "WHERE da.document_id = ANY(%s::uuid[]) ORDER BY da.document_id, da.position",
+        (document_ids,),
+    )
+    for r in rows:
+        out[str(r["document_id"])].append(r["name"])
+    return out
+
+
+async def tags_by_documents(conn: _AConn, document_ids: list[str]) -> dict[str, list[str]]:
+    """Return ``{document_id: [tag, ...]}`` for every id (alphabetical)."""
+    out: dict[str, list[str]] = {str(i): [] for i in document_ids}
+    rows = await _rows(
+        conn,
+        "SELECT dt.document_id, t.tag FROM document_tags dt "
+        "JOIN tags t ON t.id = dt.tag_id "
+        "WHERE dt.document_id = ANY(%s::uuid[]) ORDER BY dt.document_id, t.tag",
+        (document_ids,),
+    )
+    for r in rows:
+        out[str(r["document_id"])].append(r["tag"])
+    return out
+
+
+async def metadata_by_documents(conn: _AConn, document_ids: list[str]) -> dict[str, dict[str, str]]:
+    """Return ``{document_id: {key: value}}`` metadata for every id."""
+    out: dict[str, dict[str, str]] = {str(i): {} for i in document_ids}
+    rows = await _rows(
+        conn,
+        "SELECT document_id, key, value FROM document_metadata "
+        "WHERE document_id = ANY(%s::uuid[]) ORDER BY document_id, key",
+        (document_ids,),
+    )
+    for r in rows:
+        out[str(r["document_id"])][r["key"]] = r["value"]
+    return out
+
+
+async def sentence_counts_by_documents(conn: _AConn, document_ids: list[str]) -> dict[str, int]:
+    """Return ``{document_id: sentence_count}`` for every id (0 when none)."""
+    out: dict[str, int] = {str(i): 0 for i in document_ids}
+    rows = await _rows(
+        conn,
+        "SELECT document_id, count(*) AS n FROM sentences "
+        "WHERE document_id = ANY(%s::uuid[]) GROUP BY document_id",
+        (document_ids,),
+    )
+    for r in rows:
+        out[str(r["document_id"])] = int(r["n"])
+    return out
+
+
+# --------------------------------------------------------------------------
 # Lexemes
 # --------------------------------------------------------------------------
 
