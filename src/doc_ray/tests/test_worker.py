@@ -84,6 +84,62 @@ def test_run_once_handler_error_requeues(qconn):
     assert q.get(conn, job_id).status is JobStatus.QUEUED  # attempts 1 < 3 -> retry
 
 
+class _MemStore:
+    """In-memory ObjectStore stand-in for upload-ingest tests (no S3/boto3)."""
+
+    bucket = "test-bucket"
+
+    def __init__(self, blobs):
+        self._blobs = dict(blobs)
+
+    def ensure_bucket(self):
+        return None
+
+    def put(self, key, data, content_type):
+        self._blobs[key] = data
+        return f"mem://{self.bucket}/{key}"
+
+    def get(self, key):
+        return self._blobs[key]
+
+
+def test_upload_ingest_preserves_original_filename_and_title(qconn):
+    # Live-fire regression: the upload path materialized the blob to a random
+    # NamedTemporaryFile, so documents.title became 'tmpXXXX' instead of the
+    # uploaded file's name. The payload's original_filename and title must win.
+    conn, created = qconn
+    from doc_ray.application.jobs import HANDLERS
+
+    body = b"Einstein talked about light. The interviewer listened."
+    store = _MemStore({"5a/blob.txt": body})
+    job_id = q.enqueue(
+        conn,
+        "ingest",
+        {
+            "storage_key": "5a/blob.txt",
+            "extension": ".txt",
+            "original_filename": "einstein_interview.txt",
+            "title": "Conversations with Einstein",
+        },
+        priority=0,
+    )
+    created.append(job_id)
+
+    done = run_once(conn, store, worker_id="w1", handlers=HANDLERS)
+    assert done is not None and q.get(conn, job_id).status is JobStatus.SUCCEEDED
+    result = conn.execute("SELECT result FROM jobs WHERE id = %s", (job_id,)).fetchone()["result"]
+    doc_id = result["document_id"]
+    try:
+        row = conn.execute(
+            "SELECT title, original_filename FROM documents WHERE id = %s", (doc_id,)
+        ).fetchone()
+        assert row["original_filename"] == "einstein_interview.txt"  # not tmpXXXX.txt
+        assert row["title"] == "Conversations with Einstein"  # explicit payload title wins
+        assert "tmp" not in (row["title"] or "").lower()
+    finally:
+        conn.execute("DELETE FROM documents WHERE id = %s", (doc_id,))
+
+
 def test_delete_handler_removes_document(qconn):
     import _itdb
 

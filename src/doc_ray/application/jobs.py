@@ -70,22 +70,33 @@ def handle_reannotate(
 def handle_ingest(
     conn: psycopg.Connection[Any], store: ObjectStore | None, job: Job
 ) -> dict[str, Any]:
-    """Ingest an uploaded blob: fetch bytes, run the path-based pipeline."""
+    """Ingest an uploaded blob: fetch bytes, run the path-based pipeline.
+
+    The blob is materialised under the payload's ``original_filename`` (basename
+    only — never a caller-controlled path) so the pipeline derives the document's
+    title/filename from the *uploaded* name, not a random temp name. An explicit
+    payload ``title`` overrides whatever the extractor derived.
+    """
     from doc_ray.application.pipeline import ingest_file
 
     if store is None:
         raise RuntimeError("ingest requires an object store")
     data = store.get(job.payload["storage_key"])
-    # pipeline.ingest_file is path-based; materialise the blob to a temp file so
+    original = job.payload.get("original_filename") or f"upload{job.payload.get('extension', '')}"
+    safe_name = Path(str(original)).name or "upload"
+    # pipeline.ingest_file is path-based; materialise the blob under its real name so
     # the proven pipeline is reused unchanged (its re-PUT is content-addressed/idempotent).
-    with tempfile.NamedTemporaryFile(suffix=job.payload.get("extension", ""), delete=False) as tmp:
-        tmp.write(data)
-        tmp_path = Path(tmp.name)
-    try:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmp_path = Path(tmpdir) / safe_name
+        tmp_path.write_bytes(data)
         # store is the concrete S3 adapter at runtime; the pipeline is typed against it.
         result = ingest_file(conn, cast("S3ObjectStore", store), tmp_path)
-    finally:
-        tmp_path.unlink(missing_ok=True)
+
+    title = job.payload.get("title")
+    if title and result.status == "ingested" and result.document_id is not None:
+        conn.execute(
+            "UPDATE documents SET title = %s WHERE id = %s", (str(title), result.document_id)
+        )
     return {"document_id": result.document_id, "status": result.status}
 
 
