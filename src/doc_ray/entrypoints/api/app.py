@@ -1,6 +1,7 @@
 """FastAPI ASGI application: GraphQL router + async connection-pool lifecycle.
 
-Serves the read-only GraphQL API at ``/graphql`` and a ``/health`` liveness probe.
+Serves the GraphQL API (reads plus enqueue/upload mutations) at ``/graphql`` and a
+``/health`` liveness probe.
 An :class:`~psycopg_pool.AsyncConnectionPool` is opened on startup and closed on
 shutdown; each request borrows one connection, binds the authenticated principal to
 it (so RLS applies), and returns it — resetting the role — on the way out.
@@ -79,9 +80,17 @@ def create_app(cfg: Config | None = None, authenticator: Authenticator | None = 
     app = FastAPI(title="doc-ray API", lifespan=lifespan)
     app.state.pool = pool
     app.state.authenticator = auth
-    app.include_router(
-        GraphQLRouter(build_schema(), context_getter=_get_context), prefix="/graphql"
+    # ``multipart_uploads_enabled`` is opt-in in Strawberry (>=0.243): without it the
+    # transport rejects ``multipart/form-data`` with HTTP 400 before the resolver runs,
+    # which silently breaks the ``ingestDocument`` upload mutation. Enable it and keep a
+    # handle on the router so the wiring stays introspectable.
+    graphql_router = GraphQLRouter(
+        build_schema(),
+        context_getter=_get_context,
+        multipart_uploads_enabled=True,
     )
+    app.state.graphql_router = graphql_router
+    app.include_router(graphql_router, prefix="/graphql")
 
     @app.get("/health")
     async def health() -> dict[str, str]:

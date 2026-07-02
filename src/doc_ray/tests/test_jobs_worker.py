@@ -179,6 +179,43 @@ def test_handle_ingest_requires_store(qconn):
         jobs_mod.handle_ingest(qconn, None, job)
 
 
+def _seed_blob(store: _BlobStore, body: bytes, ext: str) -> str:
+    """Content-address ``body`` into ``store`` and return its storage key."""
+    import hashlib
+
+    sha = hashlib.sha256(body).hexdigest()
+    key = f"{sha[:2]}/{sha}{ext}"
+    store.blobs[key] = body
+    return key
+
+
+def test_handle_ingest_title_falls_back_to_original_filename(qconn):
+    """Without an explicit title, the document title is the real filename stem.
+
+    Regression for the temp-name leak: before the fix the worker materialised the
+    blob to a random ``tempfile`` name, so an upload without an explicit title took
+    a ``tmp…`` scratch name as its title. The no-title path must fall back to the
+    uploaded name (``Animal Farm``). The explicit-title path is covered by
+    ``test_worker.test_upload_ingest_preserves_original_filename_and_title``.
+    """
+    body = f"No title supplied. {_itdb.unique_sha()[:8]}.".encode()
+    store = _BlobStore()
+    key = _seed_blob(store, body, ".txt")
+    job = Job(
+        id="0" * 26,
+        kind="ingest",
+        status="queued",  # type: ignore[arg-type]
+        payload={"storage_key": key, "extension": ".txt", "original_filename": "Animal Farm.txt"},
+    )
+    out = jobs_mod.handle_ingest(qconn, store, job)
+    row = qconn.execute(
+        "SELECT title FROM documents WHERE id = %s", (out["document_id"],)
+    ).fetchone()
+    qconn.execute("DELETE FROM documents WHERE id = %s", (out["document_id"],))
+    assert row["title"] == "Animal Farm"
+    assert not row["title"].startswith("tmp")
+
+
 def test_handle_reannotate_runs_spacy(qconn, pg):
     conn, created = pg
     doc_id = _itdb.make_doc(conn, "Elena founded a startup in Berlin.")

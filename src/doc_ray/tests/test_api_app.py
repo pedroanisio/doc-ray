@@ -7,6 +7,7 @@ never enqueues onto the real queue another worker could claim.
 from __future__ import annotations
 
 import asyncio
+import json
 
 import _itdb
 import psycopg
@@ -171,6 +172,57 @@ def test_document_satellites_resolve_in_listing(pg):
             await aconn.close()
 
     asyncio.run(check())
+
+
+def _upload_form(query: str) -> dict:
+    """Build a GraphQL multipart-request form (jaydenseric multipart spec).
+
+    Maps a single file to ``variables.f``; the caller supplies the operation
+    ``query`` (``$f: Upload!``). Returned in httpx ``files=`` tuple form so the
+    request carries a real ``multipart/form-data`` body.
+    """
+    return {
+        "operations": (None, json.dumps({"query": query, "variables": {"f": None}})),
+        "map": (None, json.dumps({"0": ["variables.f"]})),
+        "0": ("regression.txt", b"regression upload bytes", "text/plain"),
+    }
+
+
+def test_graphql_router_enables_multipart_uploads():
+    """Regression (D-001): the mounted GraphQL router must opt into file uploads.
+
+    Strawberry disables multipart uploads by default (>=0.243), which silently
+    breaks ``ingestDocument`` at the transport layer. ``create_app`` must set
+    ``multipart_uploads_enabled`` on the router it mounts, so the upload surface
+    stays wired. This guard runs offline (no DB/object store) and fails the
+    instant the flag is dropped.
+    """
+    app = create_app(_cfg())
+    assert app.state.graphql_router.multipart_uploads_enabled is True
+
+
+def test_ingest_upload_transport_accepts_multipart():
+    """Regression: an HTTP ``multipart/form-data`` upload must reach execution.
+
+    With uploads disabled the transport rejects the request with HTTP 400
+    ("Unsupported content type") *before* the resolver runs. We send a
+    deliberately invalid query so execution stops at validation — HTTP 200 with
+    a GraphQL error — proving the multipart transport is enabled without hitting
+    the object store or enqueuing a job. Mirrors ``test_app_serves_health_and_graphql``
+    (needs the live DB the pool opens on startup).
+    """
+    from fastapi.testclient import TestClient
+
+    app = create_app(_cfg())
+    with TestClient(app) as client:  # context manager runs the lifespan (pool open/close)
+        resp = client.post(
+            "/graphql", files=_upload_form("mutation($f: Upload!){ noSuchField(file: $f) }")
+        )
+    assert resp.status_code == 200, f"multipart rejected at transport: {resp.status_code} {resp.text!r}"
+    body = resp.json()
+    assert body.get("data") is None
+    assert body["errors"], body
+    assert "noSuchField" in body["errors"][0]["message"]
 
 
 def test_ingest_document_upload_mutation(pg):
