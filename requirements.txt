@@ -12,6 +12,9 @@ python-multipart==0.0.*
 
 # Entity canonicalization (domain/canonical_norm) — form_norm transliteration.
 Unidecode==1.4.*
+# KB clients (adapters/wikidata, adapters/wikipedia) and the webapp's GraphQL
+# write path — previously only transitive, now a direct dependency.
+httpx==0.28.*
 # Frontier entity resolver (adapters/resolver_claude) — worker-only, lazy-imported.
 anthropic==0.113.*
 

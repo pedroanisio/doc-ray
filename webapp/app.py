@@ -110,6 +110,33 @@ def q1(sql, params=()):
         return cur.fetchone()
 
 
+# --- GraphQL write path -----------------------------------------------------
+#
+# The browser stays read-only over Postgres; every WRITE goes through the
+# GraphQL API so there is exactly one write path (mutations enqueue worker
+# jobs — the webapp never touches the queue or the registry directly).
+
+API_URL = os.environ.get("DOCRAY_API_URL", "http://localhost:8000/graphql")
+
+
+def gql(query: str, variables: dict | None = None) -> dict:
+    """POST one GraphQL operation to the API and return its ``data`` payload.
+
+    Raises:
+        RuntimeError: If the API reports GraphQL errors.
+    """
+    import httpx
+
+    response = httpx.post(
+        API_URL, json={"query": query, "variables": variables or {}}, timeout=30.0
+    )
+    response.raise_for_status()
+    body = response.json()
+    if body.get("errors"):
+        raise RuntimeError(body["errors"][0].get("message", "GraphQL error"))
+    return body["data"]
+
+
 # --- annotation rendering --------------------------------------------------
 
 
@@ -270,6 +297,78 @@ def document(doc_id):
         n_sent=n_sent,
         annotate=annotate,
     )
+
+
+@app.route("/doc/<uuid:doc_id>/seeding")
+def seeding(doc_id):
+    """Render the domain-seeding curation screen for one document.
+
+    Suggestions are read directly (like every read on this app); the QID,
+    label, and description columns are the audit surface — a curator approves
+    or rejects each row before anything reaches the canonical registry.
+    """
+    doc = q1("SELECT id, title FROM documents WHERE id = %s", (doc_id,))
+    if doc is None:
+        return ("document not found", 404)
+    rows = q(
+        """
+        SELECT id, term, occurrences, source, qid, label, description, entity_type,
+               status
+        FROM seed_suggestion WHERE document_id = %s
+        ORDER BY (qid IS NULL), (status <> 'pending'), occurrences DESC, term
+        """,
+        (doc_id,),
+    )
+    counts = {s: 0 for s in ("pending", "approved", "rejected", "seeded")}
+    for r in rows:
+        counts[r["status"]] += 1
+    return render_template(
+        "seeding.html",
+        doc=doc,
+        rows=rows,
+        counts=counts,
+        notice=request.args.get("notice"),
+        error=request.args.get("error"),
+    )
+
+
+@app.route("/doc/<uuid:doc_id>/seeding", methods=["POST"])
+def seeding_action(doc_id):
+    """Dispatch a curation action to the GraphQL API and redirect back.
+
+    Actions: ``mine`` enqueues candidate mining, ``approve``/``reject`` record
+    decisions for the checked rows, ``seed`` enqueues seeding of everything
+    approved. All writes go through the API — one write path.
+    """
+    from flask import redirect, url_for
+
+    action = request.form.get("action", "")
+    try:
+        if action == "mine":
+            job = gql(
+                "mutation($d: ID!) { suggestSeeds(documentId: $d) { id } }",
+                {"d": str(doc_id)},
+            )["suggestSeeds"]
+            notice = f"mining job {job['id']} queued — refresh shortly"
+        elif action in ("approve", "reject"):
+            ids = request.form.getlist("sid")
+            key = "approveIds" if action == "approve" else "rejectIds"
+            n = gql(
+                f"mutation($ids: [ID!]) {{ decideSeeds({key}: $ids) }}",
+                {"ids": ids},
+            )["decideSeeds"]
+            notice = f"{n} suggestion(s) {action}d"
+        elif action == "seed":
+            job = gql(
+                "mutation($d: ID!) { seedApproved(documentId: $d) { id } }",
+                {"d": str(doc_id)},
+            )["seedApproved"]
+            notice = f"seeding job {job['id']} queued — refresh shortly"
+        else:
+            return ("unknown action", 400)
+    except Exception as exc:
+        return redirect(url_for("seeding", doc_id=doc_id, error=str(exc)))
+    return redirect(url_for("seeding", doc_id=doc_id, notice=notice))
 
 
 @app.route("/lexemes")

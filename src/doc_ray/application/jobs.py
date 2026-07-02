@@ -25,7 +25,9 @@ from doc_ray.domain.jobs import (
     KIND_DELETE,
     KIND_INGEST,
     KIND_REANNOTATE,
+    KIND_SEED_APPROVED,
     KIND_SEED_CANONICAL,
+    KIND_SEED_SUGGEST,
     Job,
 )
 from doc_ray.ports.object_store import ObjectStore
@@ -138,6 +140,64 @@ def handle_seed_canonical(
     return {"seeded": len(ids)}
 
 
+def handle_seed_suggest(
+    conn: psycopg.Connection[Any], store: ObjectStore | None, job: Job
+) -> dict[str, Any]:
+    """Mine and KB-resolve a document's seed candidates into ``seed_suggestion``.
+
+    Nothing is seeded here — rows land as ``pending`` for human curation (the
+    webapp's audit screen). Payload knobs: ``limit``, ``min_mentions``,
+    ``min_lexemes``.
+    """
+    from doc_ray.adapters.wikidata import WikidataClient
+    from doc_ray.adapters.wikipedia import WikipediaClient
+    from doc_ray.application import seed_suggest
+
+    if job.document_id is None:
+        raise RuntimeError("seed_suggest requires a document_id")
+    wiki = WikipediaClient()
+    kb = WikidataClient()
+    try:
+        return seed_suggest.suggest_for_document(
+            conn,
+            wiki,
+            kb,
+            job.document_id,
+            limit=int(job.payload.get("limit", 40)),
+            min_mentions=int(job.payload.get("min_mentions", 3)),
+            min_lexemes=int(job.payload.get("min_lexemes", 10)),
+        )
+    finally:
+        wiki.close()
+        kb.close()
+
+
+def handle_seed_approved(
+    conn: psycopg.Connection[Any], store: ObjectStore | None, job: Job
+) -> dict[str, Any]:
+    """Seed this document's curator-approved suggestions into the registry.
+
+    Reads the approved+resolved QIDs, seeds them through the ordinary
+    ``canonical_seed`` path, and advances those rows to ``seeded`` (final).
+    """
+    from doc_ray.adapters import seed_suggestion_store as sstore
+    from doc_ray.adapters.wikidata import WikidataClient
+    from doc_ray.application import canonical_seed
+
+    if job.document_id is None:
+        raise RuntimeError("seed_approved requires a document_id")
+    qids = sstore.approved_qids(conn, job.document_id)
+    if not qids:
+        return {"seeded": 0}
+    kb = WikidataClient()
+    try:
+        ids = canonical_seed.seed_from_ids(conn, kb, qids)
+    finally:
+        kb.close()
+    sstore.mark_seeded(conn, job.document_id)
+    return {"seeded": len(ids)}
+
+
 def handle_canonicalize(
     conn: psycopg.Connection[Any], store: ObjectStore | None, job: Job
 ) -> dict[str, Any]:
@@ -182,6 +242,8 @@ HANDLERS: dict[str, Handler] = {
     KIND_DELETE: handle_delete,
     KIND_INGEST: handle_ingest,
     KIND_SEED_CANONICAL: handle_seed_canonical,
+    KIND_SEED_SUGGEST: handle_seed_suggest,
+    KIND_SEED_APPROVED: handle_seed_approved,
     KIND_CANONICALIZE: handle_canonicalize,
 }
 

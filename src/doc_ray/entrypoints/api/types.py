@@ -385,3 +385,39 @@ class Job:
             error=row.get("error"),
             result=cast(JSON, res) if res is not None else None,
         )
+
+
+@strawberry.type
+class SeedSuggestion:
+    """A mined, KB-resolved seed candidate awaiting curation.
+
+    The audit surface for domain seeding: ``description`` is what lets a curator
+    catch a wrong-identity resolution before it reaches the registry.
+    """
+
+    id: strawberry.ID
+    document_id: strawberry.ID
+    term: str
+    occurrences: int
+    source: str
+    qid: str | None
+    label: str | None
+    description: str | None
+    entity_type: str | None
+    status: str
+
+    @classmethod
+    def from_row(cls, row: Row) -> SeedSuggestion:
+        """Build a ``SeedSuggestion`` from a store row."""
+        return cls(
+            id=strawberry.ID(str(row["id"])),
+            document_id=strawberry.ID(str(row["document_id"])),
+            term=row["term"],
+            occurrences=row["occurrences"],
+            source=row["source"],
+            qid=row.get("qid"),
+            label=row.get("label"),
+            description=row.get("description"),
+            entity_type=row.get("entity_type"),
+            status=row["status"],
+        )

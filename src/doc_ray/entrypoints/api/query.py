@@ -11,6 +11,7 @@ import strawberry
 
 from doc_ray.adapters import persistence_read as read
 from doc_ray.adapters import queue_postgres as queue
+from doc_ray.adapters import seed_suggestion_store as seeds
 from doc_ray.entrypoints.api.types import (
     Document,
     DocumentHit,
@@ -19,6 +20,7 @@ from doc_ray.entrypoints.api.types import (
     Info,
     Job,
     Lexeme,
+    SeedSuggestion,
     SentenceHit,
 )
 
@@ -156,3 +158,13 @@ class Query:
         """Return a background job's status by id, or ``None`` if unknown."""
         row = await queue.status_async(info.context.conn, str(id))
         return Job.from_row(row) if row is not None else None
+
+    @strawberry.field
+    async def seed_suggestions(
+        self, info: Info, document_id: strawberry.ID, status: str | None = None
+    ) -> list[SeedSuggestion]:
+        """Return a document's seed suggestions (unresolved last, then by frequency)."""
+        rows = await seeds.list_for_document_async(
+            info.context.conn, str(document_id), status=status
+        )
+        return [SeedSuggestion.from_row(r) for r in rows]

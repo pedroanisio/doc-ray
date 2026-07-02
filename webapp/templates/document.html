@@ -63,6 +63,7 @@
     <span class="pill">{{ "{:,}".format(doc.char_count or 0) }} chars</span>
     {% if doc.page_count %}<span class="pill">{{ doc.page_count }} pp.</span>{% endif %}
     <span class="pill">{{ doc.status }}</span>
+    <a class="pill" href="/doc/{{ doc.id }}/seeding">domain seeding &rarr;</a>
     {% if authors %}<span style="color:var(--ink-soft)">&nbsp; by {{ authors|join(", ") }}</span>{% endif %}
     {% for t in tags %}<span class="pill">{{ t }}</span>{% endfor %}
   </div>
