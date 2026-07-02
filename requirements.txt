@@ -12,3 +12,5 @@ python-multipart==0.0.*
 
 # Entity canonicalization (domain/canonical_norm) — form_norm transliteration.
 Unidecode==1.4.*
+# Frontier entity resolver (adapters/resolver_claude) — worker-only, lazy-imported.
+anthropic==0.113.*

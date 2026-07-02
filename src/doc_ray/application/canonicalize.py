@@ -28,6 +28,8 @@ class ResidueMention:
     surface: str
     entity_type: str
     candidates: list[Candidate] = field(default_factory=list)
+    char_start: int = 0
+    char_end: int = 0
 
 
 @dataclass(frozen=True)
@@ -55,6 +57,8 @@ def autolink_document(conn: _Conn, document_id: str) -> AutolinkResult:
                     surface=surface,
                     entity_type=mention["entity_type"],
                     candidates=blocking.candidates,
+                    char_start=int(mention["char_start"]),
+                    char_end=int(mention["char_end"]),
                 )
             )
     return AutolinkResult(linked=linked, residue=residue)

@@ -149,3 +149,14 @@ def canonical_for_mention(conn: _Conn, mention_id: str) -> int | None:
         (mention_id,),
     ).fetchone()
     return int(row["kb_id"]) if row is not None else None
+
+
+def sentence_for_span(conn: _Conn, document_id: str, char_start: int, char_end: int) -> str | None:
+    """Return the sentence text containing the [char_start, char_end) span, if any."""
+    row = conn.execute(
+        "SELECT s.text FROM sentences s JOIN spans sp ON sp.id = s.span_id "
+        "WHERE s.document_id = %s AND sp.char_start <= %s AND sp.char_end >= %s "
+        "ORDER BY sp.char_start LIMIT 1",
+        (document_id, char_start, char_end),
+    ).fetchone()
+    return str(row["text"]) if row is not None else None

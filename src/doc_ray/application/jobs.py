@@ -111,13 +111,32 @@ def handle_seed_canonical(
 def handle_canonicalize(
     conn: psycopg.Connection[Any], store: ObjectStore | None, job: Job
 ) -> dict[str, Any]:
-    """Canonicalize a document's mentions (Stage-2 auto-link pass; residue counted)."""
+    """Canonicalize a document's mentions: Stage-2 auto-link, then (opt-in) Stage 3.
+
+    The frontier resolver runs only when the payload sets ``resolve`` truthy —
+    LLM cost is an explicit request, never a side effect. It processes only the
+    Stage-2 residue (index-first, D-019) and its verdicts are validated by the
+    adapter (PALS): uncommitted ones land in ``resolution_review``.
+    """
     from doc_ray.application import canonicalize
 
     if job.document_id is None:
         raise RuntimeError("canonicalize requires a document_id")
     result = canonicalize.autolink_document(conn, job.document_id)
-    return {"linked": result.linked, "residue": len(result.residue)}
+    out: dict[str, Any] = {"linked": result.linked, "residue": len(result.residue)}
+    if job.payload.get("resolve") and result.residue:
+        from doc_ray.adapters.resolver_claude import ClaudeResolver
+        from doc_ray.application.resolution import resolve_residue
+
+        outcome = resolve_residue(conn, ClaudeResolver(), job.document_id, result.residue)
+        out.update(
+            {
+                "resolved": outcome.linked + outcome.created,
+                "created": outcome.created,
+                "review": outcome.review,
+            }
+        )
+    return out
 
 
 HANDLERS: dict[str, Handler] = {
