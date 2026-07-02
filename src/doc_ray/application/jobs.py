@@ -20,6 +20,7 @@ import psycopg
 
 from doc_ray.adapters import queue_postgres as queue
 from doc_ray.domain.jobs import (
+    KIND_ANNOTATE,
     KIND_CANONICALIZE,
     KIND_DELETE,
     KIND_INGEST,
@@ -100,6 +101,24 @@ def handle_ingest(
     return {"document_id": result.document_id, "status": result.status}
 
 
+def handle_annotate(
+    conn: psycopg.Connection[Any], store: ObjectStore | None, job: Job
+) -> dict[str, Any]:
+    """Run Stage-1 spaCy annotation (tokens/NER/deps/coref) for one document.
+
+    This is the worker-invocable form of the ``annotate_spacy`` CLI — required so
+    the deployed worker can produce the ``entity_mention`` rows the
+    canonicalization stages consume (spaCy loads lazily; ~sm model per language).
+    """
+    from doc_ray.adapters.annotation_spacy import SpacyAnnotator
+
+    if job.document_id is None:
+        raise RuntimeError("annotate requires a document_id")
+    return SpacyAnnotator().annotate(
+        conn, job.document_id, lang_default=str(job.payload.get("lang", "en"))
+    )
+
+
 def handle_seed_canonical(
     conn: psycopg.Connection[Any], store: ObjectStore | None, job: Job
 ) -> dict[str, Any]:
@@ -151,6 +170,7 @@ def handle_canonicalize(
 
 
 HANDLERS: dict[str, Handler] = {
+    KIND_ANNOTATE: handle_annotate,
     KIND_REANNOTATE: handle_reannotate,
     KIND_DELETE: handle_delete,
     KIND_INGEST: handle_ingest,

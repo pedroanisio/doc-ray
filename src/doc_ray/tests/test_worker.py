@@ -140,6 +140,36 @@ def test_upload_ingest_preserves_original_filename_and_title(qconn):
         conn.execute("DELETE FROM documents WHERE id = %s", (doc_id,))
 
 
+def test_annotate_job_produces_entity_mentions(qconn):
+    # Architecture requirement: the WORKER must be able to run Stage-1 NER on
+    # demand — an 'annotate' job for a document yields entity_mention rows the
+    # canonicalization stages can consume. (Previously NER was host-CLI-only.)
+    import _itdb
+
+    from doc_ray.application.jobs import HANDLERS
+
+    conn, created = qconn
+    doc_id = _itdb.make_doc(conn, "Elena founded a startup in Berlin. Boxer worked hard.")
+    job_id = q.enqueue(conn, "annotate", {}, priority=0, document_id=doc_id)
+    created.append(job_id)
+    try:
+        done = run_once(conn, None, worker_id="w1", handlers=HANDLERS)
+        assert done is not None and done.id == job_id
+        assert q.get(conn, job_id).status is JobStatus.SUCCEEDED
+        n_mentions = conn.execute(
+            "SELECT count(*) n FROM entity_mention em JOIN annotations a ON a.id=em.annotation_id "
+            "WHERE a.document_id = %s",
+            (doc_id,),
+        ).fetchone()["n"]
+        assert n_mentions > 0  # Berlin / Elena / Boxer should be found
+        result = conn.execute("SELECT result FROM jobs WHERE id = %s", (job_id,)).fetchone()[
+            "result"
+        ]
+        assert result and result.get("entities", 0) > 0
+    finally:
+        conn.execute("DELETE FROM documents WHERE id = %s", (doc_id,))
+
+
 def test_delete_handler_removes_document(qconn):
     import _itdb
 

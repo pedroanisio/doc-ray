@@ -26,6 +26,7 @@ class JobStatus(str, Enum):
 # Well-known job kinds. `kind` is open text at the storage layer; these are the
 # kinds the worker's dispatch table understands today.
 KIND_INGEST = "ingest"
+KIND_ANNOTATE = "annotate"
 KIND_REANNOTATE = "reannotate"
 KIND_DELETE = "delete"
 KIND_SEED_CANONICAL = "seed_canonical"
