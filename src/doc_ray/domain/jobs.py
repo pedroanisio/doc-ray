@@ -29,6 +29,7 @@ KIND_INGEST = "ingest"
 KIND_REANNOTATE = "reannotate"
 KIND_DELETE = "delete"
 KIND_SEED_CANONICAL = "seed_canonical"
+KIND_CANONICALIZE = "canonicalize"
 
 
 @dataclass(frozen=True)

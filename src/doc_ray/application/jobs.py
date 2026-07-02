@@ -20,6 +20,7 @@ import psycopg
 
 from doc_ray.adapters import queue_postgres as queue
 from doc_ray.domain.jobs import (
+    KIND_CANONICALIZE,
     KIND_DELETE,
     KIND_INGEST,
     KIND_REANNOTATE,
@@ -107,11 +108,24 @@ def handle_seed_canonical(
     return {"seeded": len(ids)}
 
 
+def handle_canonicalize(
+    conn: psycopg.Connection[Any], store: ObjectStore | None, job: Job
+) -> dict[str, Any]:
+    """Canonicalize a document's mentions (Stage-2 auto-link pass; residue counted)."""
+    from doc_ray.application import canonicalize
+
+    if job.document_id is None:
+        raise RuntimeError("canonicalize requires a document_id")
+    result = canonicalize.autolink_document(conn, job.document_id)
+    return {"linked": result.linked, "residue": len(result.residue)}
+
+
 HANDLERS: dict[str, Handler] = {
     KIND_REANNOTATE: handle_reannotate,
     KIND_DELETE: handle_delete,
     KIND_INGEST: handle_ingest,
     KIND_SEED_CANONICAL: handle_seed_canonical,
+    KIND_CANONICALIZE: handle_canonicalize,
 }
 
 
