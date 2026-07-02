@@ -12,7 +12,7 @@ import io
 import posixpath
 import re as _re
 import zipfile
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from html.parser import HTMLParser as _HTMLParser
 from typing import Any
 from xml.etree import ElementTree as ET
@@ -372,4 +372,25 @@ def extract(data: bytes, filename: str, extension: str) -> Extracted:
     fn = _EXTRACTORS.get(extension.lower())
     if fn is None:
         raise ValueError(f"unsupported document type: {extension!r}")
-    return fn(data, fallback_title=filename)
+    return _sanitize(fn(data, fallback_title=filename))
+
+
+def _sanitize(extracted: Extracted) -> Extracted:
+    """Strip NUL (0x00) bytes from every extracted string.
+
+    Real-world PDFs emit NULs in extracted text (embedded glyph/binary
+    artifacts), and PostgreSQL ``text``/``jsonb`` values categorically reject
+    them — one NUL fails the whole ingest. Sanitizing at the dispatcher covers
+    every format with one chokepoint.
+    """
+
+    def clean(value: str) -> str:
+        return value.replace("\x00", "") if "\x00" in value else value
+
+    return replace(
+        extracted,
+        title=clean(extracted.title),
+        author=clean(extracted.author) if extracted.author else extracted.author,
+        full_text=clean(extracted.full_text),
+        metadata={k: clean(v) if isinstance(v, str) else v for k, v in extracted.metadata.items()},
+    )

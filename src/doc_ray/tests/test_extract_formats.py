@@ -77,3 +77,14 @@ def test_epub_reads_in_spine_order():
 def test_unsupported_format_raises():
     with pytest.raises(ValueError):
         extract(b"data", "f", ".xyz")
+
+
+def test_extraction_strips_nul_bytes():
+    # Live incident: a PDF's extracted text carried \x00 bytes, which Postgres
+    # text/jsonb columns categorically reject (DataError on ingest, 3 failed
+    # attempts). The dispatcher must sanitize every string it hands back.
+    data = b"Clear\x00 writing\x00 wins."
+    e = extract(data, "writing\x00clearly", ".txt")
+    assert "\x00" not in e.full_text
+    assert "\x00" not in e.title
+    assert "Clear writing wins." in e.full_text
