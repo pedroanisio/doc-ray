@@ -387,7 +387,7 @@ def draw_motif(p, cx, cy, r, *, bg="night"):
 
 def pg_half_title(b):
     p = new_page(b, "cover", chrome=False, folio=False, bg="night")
-    p.text([0, 170, W, 20], "TWO CHAPTERS ON THE CRAFTS OF TYPE AND COLOUR",
+    p.text([0, 170, W, 20], "FOUR CHAPTERS ON THE CRAFTS OF DESIGN",
            style="kickerC")
     draw_motif(p, W / 2, 440, 168)
     p.text([0, 682, W, 88], "The Letter",
@@ -413,13 +413,17 @@ def pg_frontispiece(b):
 
 def pg_title(b):
     p = new_page(b, "title", chrome=False, folio=False)
-    p.text([0, 240, W, 20], "TWO CHAPTERS ON THE CRAFTS OF TYPE AND COLOUR", style="kickerC")
-    p.text([0, 300, W, 220], "The Letter\n& the Hue", style="hcover")
+    p.text([0, 240, W, 20], "FOUR CHAPTERS ON THE CRAFTS OF DESIGN", style="kickerC")
+    p.text([0, 300, W, 110], "The Letter", style="hcover")
+    p.text([0, 412, W, 110], "& the Hue", style="hcover")
     p.rect([W / 2 - 40, 540, 80, 2.5], fill="rubric")
-    p.text([0, 580, W, 34], "Chapter I · The Letter — on the forms of typefaces",
-           style="leadC")
-    p.text([0, 616, W, 34], "Chapter II · The Hue — on the behaviour of colour",
-           style="leadC")
+    for i, ln in enumerate([
+            "Chapter I · The Letter — on the forms of typefaces",
+            "Chapter II · The Hue — on the behaviour of colour",
+            "Chapter III · The Arrangement — on balance, rhythm & harmony",
+            "Chapter IV · Colour at Work — on the law applied",
+    ]):
+        p.text([0, 570 + i * 32, W, 30], ln, style={"class": "leadC", "font_size": 16.5})
     # small skeleton flourish
     skeleton_word(p, "AHO", W / 2 - 86, 720, 52, w=3, color=RUBRIC)
     p.text([0, 950, W, 16], "AFTER EDWARD JOHNSTON & M. E. CHEVREUL", style="attrC")
@@ -455,91 +459,122 @@ def pg_copyright(b):
     note(p, [M, y + 352, CW, 20],
          "All plates are drawn, not photographed. Composed by Claude (Fable 5).")
     note(p, [M, y + 376, CW, 18],
-         "First edition, third revision (build 2026-07-02) — July 2026.")
+         "Second edition — four chapters (build 2026-07-02) — July 2026.")
 
 
 def pg_contents(b):
     p = new_page(b, "contents", chrome=False, folio=True)
     p.text([M, 96, CW, 20], "CONTENTS", style="kicker")
     p.text([M, 134, CW, 60], "Contents", style="h1")
-    entries = [
-        ("Preface — the two crafts", 6, False),
+    col1 = [
+        ("Preface — the four crafts", 6, False),
         ("CHAPTER I · THE LETTER", 7, True),
         ("1.1   A lineage of two thousand years", 8, False),
         ("1.2   The essential form", 10, False),
         ("1.3   The tool makes the letter", 12, False),
         ("1.4   The serif — a stroke, finished", 14, False),
         ("1.5   Anatomy of the letterform", 16, False),
-        ("1.6   The nine qualities of good lettering", 18, False),
-        ("1.7   Proportion — the widths of the capitals", 23, False),
+        ("1.6   The nine qualities", 18, False),
+        ("1.7   The widths of the capitals", 23, False),
         ("1.8   A taxonomy of typefaces", 25, False),
-        ("1.9   Weight — the family and its axis", 31, False),
-        ("1.10  Scale — a modular scale for sizes", 32, False),
-        ("1.11  Spacing — letters, words, lines", 33, False),
+        ("1.9   Weight — the family", 31, False),
+        ("1.10  Scale — a modular scale", 32, False),
+        ("1.11  Spacing", 33, False),
         ("1.12  Measure & leading", 34, False),
-        ("1.13  The page — margins & the opening", 35, False),
+        ("1.13  The page — margins", 35, False),
         ("CHAPTER II · THE HUE", 37, True),
         ("2.1   Tones, scales & hues", 38, False),
         ("2.2   The wheel", 40, False),
-        ("2.3   The law of simultaneous contrast", 41, False),
-        ("2.4   Successive contrast — the eye replies", 43, False),
+        ("2.3   Simultaneous contrast", 41, False),
+        ("2.4   Successive contrast", 43, False),
         ("2.5   The complementaries", 44, False),
         ("2.6   The six harmonies", 45, False),
-        ("2.7   Colours with white, black & grey", 52, False),
+        ("2.7   Colours with the neutrals", 52, False),
         ("2.8   Value does the work", 53, False),
         ("2.9   Colour meets the letter", 54, False),
         ("2.10  Red, the working accent", 55, False),
         ("2.11  The closed palette", 56, False),
         ("2.12  Never hue alone", 57, False),
-        ("Sources & further reading", 59, False),
-        ("List of plates", 60, False),
     ]
-    y = 224
-    for label, page_n, is_ch in entries:
-        if is_ch:
-            y += 14
-            p.text([M, y, CW - 70, 22], label, style="h3r")
-            p.text([M + CW - 60, y + 2, 60, 16], str(page_n), style="tocn")
-            y += 36
-            continue
-        p.text([M + 14, y, CW - 90, 20], label,
-               style={"class": "toc", "font_size": 14.5})
-        p.text([M + CW - 60, y + 2, 60, 16], str(page_n), style="tocn")
-        y += 25
+    col2 = [
+        ("CHAPTER III · THE ARRANGEMENT", 59, True),
+        ("3.1   The third craft", 60, False),
+        ("3.2   Terms & principles", 61, False),
+        ("3.3   Tone balance", 62, False),
+        ("3.4   Measure balance — the steelyard", 64, False),
+        ("3.5   Shape balance & symmetry", 66, False),
+        ("3.6   Rhythm", 68, False),
+        ("3.7   Harmony — likeness in accord", 70, False),
+        ("3.8   The page as pure design", 72, False),
+        ("3.9   The grid — a balance instrument", 73, False),
+        ("CHAPTER IV · COLOUR AT WORK", 75, True),
+        ("4.1   The Gobelins complaint", 76, False),
+        ("4.2   The room", 78, False),
+        ("4.3   The garden", 80, False),
+        ("4.4   The person", 82, False),
+        ("4.5   The printed page", 84, False),
+        ("4.6   1839, re-measured", 86, False),
+        ("4.7   The designer as dyer", 87, False),
+        ("END MATTER", 90, True),
+        ("Sources & further reading", 90, False),
+        ("List of plates", 91, False),
+        ("Specimen sources", 92, False),
+    ]
+    colw = (CW - 28) / 2
+    for ci, entries in enumerate((col1, col2)):
+        x = M + ci * (colw + 28)
+        y = 224
+        for label, page_n, is_ch in entries:
+            if is_ch:
+                y += 12
+                p.text([x, y, colw - 50, 20], label,
+                       style={"class": "h3r", "font_size": 15.5})
+                p.text([x + colw - 44, y + 2, 44, 14], str(page_n), style="tocn")
+                y += 32
+                continue
+            p.text([x + 12, y, colw - 68, 18], label,
+                   style={"class": "toc", "font_size": 12.5})
+            p.text([x + colw - 44, y + 1, 44, 14], str(page_n), style="tocn")
+            y += 23
 
 
 def pg_preface(b):
     p = new_page(b, "preface", chrome=False, folio=True)
-    p.text([M, 120, CW, 20], "PREFACE", style="kicker")
-    p.text([M, 160, CW, 60], "The two crafts", style="h1")
-    p.rect([M, 236, 64, 2], fill="rubric")
-    p.text([M, 270, CW, 120],
-           "A page works on the reader twice. Once through its letters — the shapes "
-           "that carry the words — and once through its colour: the black of the text, "
-           "the white of the ground, and whatever third voice the designer admits. "
-           "These two systems are usually taught apart. This book holds them together.",
+    p.text([M, 108, CW, 20], "PREFACE", style="kicker")
+    p.text([M, 146, CW, 60], "The four crafts", style="h1")
+    p.rect([M, 222, 64, 2], fill="rubric")
+    p.text([M, 252, CW, 156],
+           "A page works on the reader more than once. Through its letters — the "
+           "shapes that carry the words; through its colour — the ground, the ink, "
+           "whatever third voice the designer admits; and through its arrangement — "
+           "the quiet mechanics of where everything sits. These crafts are usually "
+           "taught apart. This book holds them together.",
            style="lead")
-    p.text([M, 410, CW, 200],
-           "Chapter I is about the letter. Its guide is Edward Johnston, the scribe who, "
-           "in 1906, reduced good lettering to a short table of virtues — readableness "
-           "first, then fitness for use, then beauty and character — and showed that every "
-           "typeface we use is the record of a tool moving over a surface. His doctrine "
-           "was written for the pen, but it survives translation to the screen unharmed: "
-           "the essential form, the finishing stroke, the family likeness of letters that "
-           "“go well together.”",
-           style="body")
-    p.text([M, 620, CW, 200],
+    p.text([M, 424, CW, 168],
+           "Chapter I is about the letter. Its guide is Edward Johnston, the scribe "
+           "who, in 1906, reduced good lettering to a short table of virtues — "
+           "readableness first, then fitness for use, then beauty and character — and "
+           "showed that every typeface is the record of a tool moving over a surface. "
            "Chapter II is about colour, and its guide is Michel-Eugène Chevreul, the "
-           "chemist who directed the dye-works at the Gobelins tapestry manufactory and "
-           "found that complaints about his blacks were not failures of chemistry at all. "
-           "Colours change one another merely by standing side by side. From that single "
-           "law he derived a complete grammar of harmony and contrast, and it remains the "
-           "most useful instrument a designer can hold when choosing what goes next to "
-           "what.",
+           "chemist of the Gobelins dye-works, who found that colours change one "
+           "another merely by standing side by side, and derived from that single law "
+           "a complete grammar of harmony and contrast.",
            style="body")
-    p.text([M, 830, CW, 90],
-           "Read the plates as slowly as the prose. They are drawn, not decorated: each "
-           "one exists to make a claim visible.",
+    p.text([M, 608, CW, 168],
+           "Chapter III is about arrangement, and its guide is Ernest Batchelder, who "
+           "carried Denman Ross's Harvard theory of pure design to working craftsmen "
+           "through the pages of a printers' trade journal: composition reduced to "
+           "three terms — tones, measures, shapes — governed by three principles — "
+           "rhythm, balance, harmony. Chapter IV returns to Chevreul and follows the "
+           "law out of the laboratory, into the room, the garden, the wardrobe and "
+           "the printing house — and re-measures his oldest experiment with modern "
+           "instruments.",
+           style="body")
+    p.text([M, 800, CW, 130],
+           "The first two chapters teach the materials; the last two teach their "
+           "government and their use. Read the plates as slowly as the prose. They "
+           "are drawn, not decorated: each one exists to make a claim visible, and "
+           "several exist to test one.",
            style="body")
 
 
@@ -1600,6 +1635,8 @@ def pg_ch1_close(b):
 # --------------------------------------------------------------------------- #
 
 CH2 = "Chapter II · The Hue"
+CH3 = "Chapter III · The Arrangement"
+CH4 = "Chapter IV · Colour at Work"
 
 
 def luma_grey(hx: str) -> str:
@@ -1734,7 +1771,7 @@ def pg_wheel_plate(b):
     draw_wheel(p, W / 2, y + 300, 212, labels=True)
     p.text([W / 2 - 60, y + 280, 120, 40], "R · Y · B", style="labelRC")
     caption(p, [M, y + 570, CW, 54],
-            "The painter's wheel Chevreul worked with: red, yellow and blue as "
+            "Chevreul's painter's wheel: red, yellow and blue as "
             "primaries; orange, green and violet mixed between them; twelve named "
             "stations in all. Neighbours share pigment; opposites share nothing.")
     p.text([M, y + 650, CW, 150],
@@ -2375,18 +2412,21 @@ def pg_sources(b):
          "the nine qualities (ch. XIV), the capital proportions (ch. XV), spacing "
          "(ch. IV), the margin canon (ch. VI), and the stone-cutting appendix by "
          "A. E. R. Gill. All Chapter I quotations are from this work."),
-        ("M. E. Chevreul", "De la loi du contraste simultané des couleurs", 122,
-         "Pitois-Levrault, Paris, 1839. Read here in the nineteenth-century "
-         "English translation published as The Laws of Contrast of Colour "
-         "(London); the better-known Martel translation appeared as The "
-         "Principles of Harmony and Contrast of Colours (1854). The source of "
-         "Chapter II: the definitions of tone, scale and hue (§§122–127), the law "
-         "(Part I, ch. II), the six harmonies (§§172–176), and the assortments "
-         "with white, black and grey. All Chapter II quotations are from this "
-         "work."),
-        ("The Trajan Column inscription", "Rome, c. 113", 44,
-         "The monumental model behind §1.7 — the proportions of the capitals as "
-         "Johnston (and five centuries of type designers) measured them."),
+        ("M. E. Chevreul", "De la loi du contraste simultané des couleurs", 128,
+         "Pitois-Levrault, Paris, 1839. Read here in two English renderings: "
+         "The Laws of Contrast of Colour (London) and the fuller Principles of "
+         "Harmony and Contrast of Colours (Martel line, 1854). Source of Chapter "
+         "II — the definitions (§§122–127), the law (Part I, ch. II), the six "
+         "harmonies — and of Chapter IV: the applications to tapestry, "
+         "interiors, gardens, dress, and printing with types on coloured paper "
+         "(Third Division)."),
+        ("Ernest A. Batchelder", "The Principles of Design", 64,
+         "The Inland Printer Company, Chicago, 1904 (2nd ed. 1906; printed "
+         "uncopyrighted). The source of Chapter III: the terms and principles of "
+         "pure design after Denman W. Ross's Harvard theory — tones, measures, "
+         "shapes; rhythm, balance, harmony — and the balance demonstrations."),
+        ("The Trajan Column inscription", "Rome, c. 113", 30,
+         "The monumental model behind §1.7 — the capital proportions."),
         ("T. J. Cobden-Sanderson", "The Book Beautiful", 44,
          "Doves Press, London, 1902. The 'whole duty of typography' passage "
          "quoted on the Character page, as Johnston quotes it."),
@@ -2399,16 +2439,7 @@ def pg_sources(b):
                       "italic": True})
         p.text([M, y + 52, CW, note_h], note, style="bodyS")
         y += 52 + note_h + 26
-    p.text([M, y + 6, CW, 14], "FURTHER READING & MODERN CLAIMS", style="labelR")
-    for i, ln in enumerate([
-        "Robert Bringhurst, The Elements of Typographic Style — the modern "
-        "classification (garalde, didone, grotesque) used in §1.8.",
-        "National Eye Institute, facts on colour blindness — the prevalence of "
-        "red–green colour-vision deficiency (roughly 8% of men) cited in §2.12.",
-        "Timeline dates in plate 1 are summarised from Johnston's development "
-        "chapters (chs. I\u2013III) and Bringhurst's historical appendices.",
-    ]):
-        p.text([M, y + 28 + i * 36, CW, 32], ln, style="cap")
+
 
 
 def pg_plate_list(b):
@@ -2418,21 +2449,27 @@ def pg_plate_list(b):
     p.rect([M, 208, 64, 2], fill="rubric")
     colw = (CW - 24) / 2
     per_col = (len(PLATES) + 1) // 2
+    pitch = 24 if per_col > 28 else 26
     for i, (num, title, page_n) in enumerate(PLATES):
         cx = M + (i // per_col) * (colw + 24)
-        cy = 248 + (i % per_col) * 26
+        cy = 248 + (i % per_col) * pitch
         p.text([cx, cy, 30, 13], f"{num}", style="tocn")
         p.text([cx + 40, cy - 1, colw - 96, 22], title,
                style={"class": "cap", "font_size": 9.5})
         p.text([cx + colw - 46, cy, 40, 13], str(page_n), style="tocn")
-    yy = 248 + per_col * 26 + 16
+    yy = 248 + per_col * pitch + 14
     note(p, [M, yy, CW, 54],
          "Every plate is an original vector drawing: demonstrations devised for "
-         "this book, or reconstructions after Johnston and Chevreul where the "
-         "caption names them. Specimens are modern, openly licensed faces "
-         "standing for their historical classes — none is the original metal.")
-    # Specimen sources — the faces shown in §1.8, with designers and licences
-    yy += 64
+         "this book, or reconstructions after Johnston, Chevreul and Batchelder "
+         "where the caption names them.")
+
+
+def pg_specimen_sources(b):
+    p = new_page(b, "specimen-sources", chrome=False, folio=True)
+    p.text([M, 96, CW, 20], "SPECIMEN SOURCES & FURTHER READING", style="kicker")
+    p.text([M, 134, CW, 60], "Apparatus", style="h1")
+    p.rect([M, 208, 64, 2], fill="rubric")
+    yy = 236
     p.text([M, yy, CW, 14], "SPECIMEN SOURCES", style="labelR")
     p.rect([M, yy + 22, CW, 1], fill="hair")
     faces = [
@@ -2459,6 +2496,23 @@ def pg_plate_list(b):
         p.text([M + 506, ty + 1, CW - 506, 26], status,
                style={"class": "cap", "font_size": 9.5})
         ty += 26
+    note(p, [M, ty + 18, CW, 40],
+         "Specimens are modern, openly licensed faces standing for their "
+         "historical classes — none is the original metal. Garamont is the "
+         "punchcutter's own spelling; Garamond names the genre.")
+    ty += 74
+    p.text([M, ty, CW, 14], "FURTHER READING & MODERN CLAIMS", style="labelR")
+    for i, ln in enumerate([
+        "Robert Bringhurst, The Elements of Typographic Style — the modern "
+        "classification (garalde, didone, grotesque) used in §1.8.",
+        "National Eye Institute, facts on colour blindness — the prevalence of "
+        "red–green colour-vision deficiency (roughly 8% of men) cited in §2.12.",
+        "Timeline dates in plate 1 are summarised from Johnston's development "
+        "chapters (chs. I–III) and Bringhurst's historical appendices.",
+        "Contrast ratios in plate 37 and the 1839 re-measurement follow the "
+        "WCAG 2.x relative-luminance formula, computed for this book.",
+    ]):
+        p.text([M, ty + 24 + i * 36, CW, 32], ln, style="cap")
 
 
 def pg_back_cover(b):
@@ -2467,13 +2521,17 @@ def pg_back_cover(b):
     draw_motif(p, cx, cy, r)
     for i, ln in enumerate(["A letter is a skeleton given voice by a tool.",
                             "A colour is a note played by its neighbours.",
+                            "An arrangement is a truce among attractions.",
                             "Everything else in design is dosage."]):
-        p.text([120, 580 + i * 36, W - 240, 32], ln,
+        p.text([120, 572 + i * 34, W - 240, 30], ln,
                style={"class": "leadC", "color": "#d8c9ae"})
     p.rect([W / 2 - 30, 740, 60, 2], fill="rubric")
-    p.text([0, 780, W, 14], f"THE LETTER & THE HUE · TWO CHAPTERS · {PLATES[-1][0] if PLATES else 40} PLATES · MMXXVI",
+    p.text([0, 780, W, 14], f"THE LETTER & THE HUE · FOUR CHAPTERS · {PLATES[-1][0] if PLATES else 66} PLATES · MMXXVI",
            style="attrC")
 
+
+CH3_PAGES: list = []  # populated after the chapter functions are defined
+CH4_PAGES: list = []  # populated after the chapter functions are defined
 
 CH2_PAGES = [
     pg_ch2_opener, pg_vocab_text, pg_tone_scales_plate, pg_wheel_plate, pg_law_text,
@@ -2481,6 +2539,1215 @@ CH2_PAGES = [
     pg_harmonies_table, pg_harm_scale, pg_harm_hues, pg_harm_dominant,
     pg_contr_scale, pg_contr_hues, pg_contr_colours, pg_wbg, pg_value,
     pg_type_grounds, pg_rubric, pg_palette, pg_hue_alone, pg_ch2_close,
+]
+
+
+# --------------------------------------------------------------------------- #
+# CHAPTER III — THE ARRANGEMENT (pp. 59-74)                                    #
+# After Ernest A. Batchelder, The Principles of Design (1904), itself after    #
+# Denman W. Ross. Quotation ordinals refer to the corpus edition.              #
+# --------------------------------------------------------------------------- #
+
+def pg_ch3_opener(b):
+    p = new_page(b, "ch3-opener", chrome=False, folio=False, bg="night")
+    p.text([M, 200, CW, 24], "CHAPTER III", style="kickerC")
+    p.text([0, 240, W, 170], "III", style={"class": "cnum", "align": "center"})
+    p.text([0, 430, W, 80], "The Arrangement",
+           style={"class": "hcover", "font_size": 74, "color": "#f4ead6"})
+    p.rect([W / 2 - 30, 560, 60, 2], fill="rubric")
+    p.text([120, 610, W - 240, 90],
+           "On tones, measures and shapes; on rhythm, balance and harmony; "
+           "and on the page as a field of attractions held in repose.",
+           style={"class": "leadC", "color": "#d8c9ae"})
+    # opener motif: a balanced beam of spots
+    by = 810
+    p.line([W / 2 - 170, by], [W / 2 + 170, by], **stroke(2.5, color=CREAM))
+    p.polygon([[W / 2 - 8, by + 26], [W / 2 + 8, by + 26], [W / 2, by + 4]],
+              fill=RUBRIC)
+    p.circle([W / 2 - 60, by - 26], 24, fill=CREAM)
+    p.circle([W / 2 + 80, by - 14], 12, fill=CREAM)
+    p.circle([W / 2 + 117, by - 16], 14, fill=CREAM)
+
+
+def pg_third_craft(b):
+    p = new_page(b, "third-craft", chapter=CH3)
+    y = section_head(p, 96, "3.1 · THE THIRD CRAFT", "Pure design",
+                     lead="Letters and colours are materials. Arrangement is what "
+                          "is done with them — and it, too, has a grammar.")
+    p.text([M, y, CW, 150],
+           "The grammar came out of Harvard. Denman W. Ross, lecturing on the theory "
+           "of design at the turn of the century, proposed that composition could be "
+           "studied apart from any subject — as pure design. His student and "
+           "colleague Ernest Batchelder carried the theory to working craftsmen "
+           "through a printers' trade journal, The Inland Printer, and gathered the "
+           "articles into a book in 1904. It is the most practical statement of the "
+           "theory ever printed, and he refused even to copyright it.",
+           style="body")
+    quote_block(p, y + 172,
+                "Pure design is the composition of tones, measures, shapes, for the "
+                "sake of rhythm, balance, harmony, the principles of order and "
+                "beauty.", None)
+    p.text([M, y + 292, CW, 14],
+           "BATCHELDER, THE PRINCIPLES OF DESIGN (1904), AFTER ROSS", style="attr")
+    p.text([M, y + 336, CW, 150],
+           "Everything in this chapter unpacks that sentence. Three terms — tones "
+           "(light and dark), measures (large and small), shapes (this form and "
+           "that) — are all a composition contains. Three principles — rhythm, "
+           "balance, harmony — are all that can be done well with them. The scheme "
+           "sounds austere; in use it is the opposite. It gives the designer what "
+           "Johnston's table gave the letterer and Chevreul's law gave the "
+           "colourist: a small set of names for what the eye already knows.",
+           style="body")
+
+
+def pg_terms_principles(b):
+    p = new_page(b, "terms-principles", chapter=CH3)
+    y = section_head(p, 96, "3.2 · THE SYSTEM", "Three terms, three principles")
+    framed_panel(p, [M, y + 4, CW, 560])
+    # 3x3 grid: rows = terms, cols = principles
+    gx, gy = M + 130, y + 64
+    cw2 = (CW - 160) / 3
+    rh = 150
+    prins = [("RHYTHM", "regular change"), ("BALANCE", "opposed attractions"),
+             ("HARMONY", "likeness in accord")]
+    terms = [("TONES", "light & dark"), ("MEASURES", "large & small"),
+             ("SHAPES", "this form & that")]
+    for j, (pn, pd) in enumerate(prins):
+        p.text([gx + j * cw2, y + 24, cw2, 13], pn, style="labelRC")
+        p.text([gx + j * cw2, y + 40, cw2, 12], pd, style="capC")
+    for i, (tn, td) in enumerate(terms):
+        p.text([M + 20, gy + i * rh + 56, 104, 13], tn, style="labelR")
+        p.text([M + 20, gy + i * rh + 72, 104, 24], td, style="cap")
+    # cell demos, drawn small
+    for i in range(3):
+        for j in range(3):
+            cx = gx + j * cw2 + 12
+            cy = gy + i * rh + 8
+            w2, h2 = cw2 - 24, rh - 24
+            p.rect([cx, cy, w2, h2], fill="#ffffff")
+            p.rect([cx, cy, w2, h2], fill="none", **stroke(1, color=HAIR))
+            if i == 0:  # tones
+                seq = ([0.9, 0.35, 0.9, 0.35, 0.9] if j == 0 else
+                       [0.75, 0.2] if j == 1 else [0.55, 0.45, 0.5])
+                if j == 0:
+                    for k, t in enumerate(seq):
+                        p.rect([cx + 10 + k * (w2 - 20) / 5, cy + 14,
+                                (w2 - 20) / 5 - 4, h2 - 28],
+                               fill=mix(INK, "#ffffff", t))
+                elif j == 1:
+                    p.rect([cx + 10, cy + 14, (w2 - 20) * 0.7, h2 - 28],
+                           fill=mix(INK, "#ffffff", 0.75))
+                    p.rect([cx + 10 + (w2 - 20) * 0.72, cy + 14, (w2 - 20) * 0.28,
+                            h2 - 28], fill=mix(INK, "#ffffff", 0.1))
+                else:
+                    for k, t in enumerate(seq):
+                        p.circle([cx + w2 * (0.25 + 0.25 * k), cy + h2 / 2],
+                                 h2 * 0.22, fill=mix(INK, "#ffffff", t))
+            elif i == 1:  # measures
+                if j == 0:
+                    for k in range(5):
+                        r = 5 + k * 3.5
+                        p.circle([cx + 16 + k * (w2 - 32) / 4, cy + h2 / 2], r,
+                                 fill=INK)
+                elif j == 1:
+                    p.circle([cx + w2 * 0.30, cy + h2 / 2], 17, fill=INK)
+                    p.circle([cx + w2 * 0.78, cy + h2 / 2], 9, fill=INK)
+                    p.line([cx + 10, cy + h2 - 10], [cx + w2 - 10, cy + h2 - 10],
+                           **stroke(1, color=SUB))
+                else:
+                    for k in range(4):
+                        p.circle([cx + 18 + k * (w2 - 36) / 3, cy + h2 / 2], 11,
+                                 fill=INK)
+            else:  # shapes
+                if j == 0:
+                    for k in range(4):
+                        xx = cx + 14 + k * (w2 - 28) / 3.5
+                        if k % 2 == 0:
+                            p.regular_polygon([xx, cy + h2 / 2], 11, 3, fill=INK)
+                        else:
+                            p.circle([xx, cy + h2 / 2], 9, fill=INK)
+                elif j == 1:
+                    p.regular_polygon([cx + w2 * 0.3, cy + h2 / 2], 15, 3, fill=INK)
+                    p.rect([cx + w2 * 0.68 - 9, cy + h2 / 2 - 9, 18, 18], fill=INK)
+                else:
+                    for k in range(3):
+                        p.regular_polygon([cx + w2 * (0.25 + 0.25 * k),
+                                           cy + h2 / 2], 10 + k * 2, 6, fill=INK)
+    caption(p, [M, y + 588, CW, 54],
+            "The Ross system, drawn as a working grid — an author's reconstruction "
+            "after Batchelder. Every cell is a composition of one term under one "
+            "principle; every page you have ever admired is some weighting of the "
+            "nine.")
+    p.text([M, y + 664, CW, 104],
+           "The system's whole ontology fits in one of his sentences: “a spot "
+           "of paint may be described in three words; it is a tone, a measure, a "
+           "shape.” Problems are “combinations of terms with principles.” "
+           "The rest of the chapter works the grid.",
+           style="body")
+
+
+def pg_tone_balance_text(b):
+    p = new_page(b, "tone-balance-1", chapter=CH3)
+    y = section_head(p, 96, "3.3 · BALANCE OF TONE", "Repose, defined",
+                     lead="“Balance means repose that results from the "
+                          "opposition of attractions.”")
+    p.text([M, y, CW, 128],
+           "Everything on a page pulls at the eye: the darker, the larger, the more "
+           "eccentric, the harder. Batchelder's definition makes balance a physical "
+           "affair — not a look but an equilibrium. A composition is balanced when "
+           "its attractions oppose one another so completely that the eye comes to "
+           "rest; it is unbalanced when some pull goes unanswered.",
+           style="body")
+    p.text([M, y + 150, CW, 128],
+           "Tone balance is the first case: “the result of a selection and "
+           "arrangement of contrasts in such way that each part of a design may "
+           "keep its proper place without being unduly emphasized at the expense of "
+           "other parts.” Black is the heaviest material on a white page; a "
+           "little of it outweighs a great deal of grey.",
+           style="body")
+    # small inline demo: same grey field, one black spot moves the weight
+    yy = y + 306
+    framed_panel(p, [M, yy, CW, 250])
+    for k, (spot_x, verdict) in enumerate([(0.78, "UNANSWERED — the page lists"),
+                                           (0.30, "OPPOSED — the page rests")]):
+        bx = M + 30 + k * (CW - 60) / 2
+        bw2 = (CW - 60) / 2 - 20
+        p.rect([bx, yy + 24, bw2, 160], fill="#ffffff")
+        p.rect([bx, yy + 24, bw2, 160], fill="none", **stroke(1, color=HAIR))
+        p.rect([bx + bw2 * 0.08, yy + 44, bw2 * 0.38, 120],
+               fill=mix(INK, "#ffffff", 0.72))
+        p.circle([bx + bw2 * spot_x, yy + 104], 17, fill=INK)
+        if k == 1:
+            p.circle([bx + bw2 * 0.82, yy + 76, ], 7, fill=INK)
+            p.circle([bx + bw2 * 0.86, yy + 136], 5, fill=INK)
+        p.text([bx, yy + 196, bw2, 12], verdict, style="labelC")
+    caption(p, [M, yy + 276, CW, 40],
+            "One grey mass, one black spot. Alone, the spot drags the composition "
+            "rightward; answered by two small blacks, the attractions oppose and "
+            "the field comes to rest.")
+
+
+def pg_tone_balance_plate(b):
+    p = new_page(b, "tone-balance-2", chapter=CH3)
+    framed_panel(p, [M, 90, CW, 620])
+    # two full compositions: distribution of two tones
+    for k, mode in enumerate(("massed", "scattered")):
+        bx = M + 30 + k * (CW - 60) / 2
+        bw2 = (CW - 60) / 2 - 20
+        p.rect([bx, 130, bw2, 400], fill="#ffffff")
+        p.rect([bx, 130, bw2, 400], fill="none", **stroke(1, color=HAIR))
+        if mode == "massed":
+            p.rect([bx + 20, 150, bw2 - 40, 150], fill=INK)
+            p.rect([bx + 20, 320, bw2 * 0.5, 16], fill=INK)
+            p.rect([bx + 20, 352, bw2 * 0.62, 16], fill=mix(INK, "#ffffff", 0.45))
+            p.rect([bx + 20, 384, bw2 * 0.44, 16], fill=mix(INK, "#ffffff", 0.45))
+            p.rect([bx + 20, 470, bw2 - 40, 40], fill=mix(INK, "#ffffff", 0.82))
+            p.text([bx, 546, bw2, 12], "TONES MASSED — QUIET", style="labelC")
+        else:
+            import random as _r
+            _r.seed(7)
+            for i in range(26):
+                xx = bx + 18 + _r.random() * (bw2 - 48)
+                yy2 = 148 + _r.random() * 356
+                if i % 2 == 0:
+                    p.rect([xx, yy2, 14 + _r.random() * 22, 10], fill=INK)
+                else:
+                    p.rect([xx, yy2, 10 + _r.random() * 30, 8],
+                           fill=mix(INK, "#ffffff", 0.5))
+            p.text([bx, 546, bw2, 12], "THE SAME INK, SCATTERED — NOISE",
+                   style="labelC")
+    p.text([M + 30, 586, CW - 60, 90],
+           "Black and grey, massed against scattered. Massed, the tones keep "
+           "station and the design reads at a glance; scattered, every fragment "
+           "is an unanswered attraction and the eye is pulled twenty-six ways.",
+           style={"font_family": SERIF, "font_size": 14, "color": INK,
+                  "line_height": 1.5})
+    caption(p, [M, 736, CW, 40],
+            "Tone balance as distribution — an author's demonstration on "
+            "Batchelder's principle. Ink is weight; weight wants marshalling.")
+    p.text([M, 812, CW, 110],
+           "The typographic translation is immediate. A page's blacks are its "
+           "display sizes and its bolds; its greys are the text; its whites, the "
+           "margins. A layout that bolds everything scatters its ink — and a reader "
+           "who cannot find the heaviest thing has been told nothing about where to "
+           "begin.",
+           style="body")
+
+
+def pg_steelyard_text(b):
+    p = new_page(b, "steelyard-1", chapter=CH3)
+    y = section_head(p, 96, "3.4 · BALANCE OF MEASURE", "The steelyard",
+                     lead="“The spots are to the eye precisely like physical "
+                          "forces in nature, at least in so far as this law of "
+                          "balance applies.”")
+    p.text([M, y, CW, 168],
+           "Batchelder's boldest move is to make balance computable, and his "
+           "figure for it is a playground: two unequal spots “may be likened to "
+           "a man and a boy on a ‘see-saw,’ the man weighing twice as much as the "
+           "boy” — so “it would be necessary to give the boy two parts of "
+           "the board and the man one.” The larger measure sits nearer the "
+           "fulcrum, the smaller farther out, and their moments must agree; then "
+           "“the point of balance of the measures shall coincide with the "
+           "center of the frame,” for the eye seeks both at once.",
+           style="body")
+    p.text([M, y + 190, CW, 128],
+           "This is not a metaphor; it is a procedure, and the plate opposite "
+           "performs it with real numbers. Two discs are weighed by their areas; "
+           "the balance point is computed as any physicist would compute it; and "
+           "the pair is then set so that this point falls on the frame's centre. "
+           "The repose you feel looking at the result is arithmetic, felt.",
+           style="body")
+    p.text([M, y + 340, CW, 90],
+           "Asymmetric layout — the whole modern art of it — is this steelyard "
+           "worked at speed: a large image close to the axis, a small caption far "
+           "from it, and the page at rest without a single centred element.",
+           style="body")
+
+
+def pg_steelyard_plate(b):
+    p = new_page(b, "steelyard-2", chapter=CH3)
+    framed_panel(p, [M, 90, CW, 640])
+    # Demo 1: equal measures
+    cy1 = 200
+    cx = M + CW / 2
+    r_eq = 26
+    d_eq = 150
+    p.line([cx - d_eq, cy1], [cx + d_eq, cy1], **stroke(2, color=SUB))
+    p.polygon([[cx - 7, cy1 + 22], [cx + 7, cy1 + 22], [cx, cy1 + 2]], fill=RUBRIC)
+    p.circle([cx - d_eq, cy1 - r_eq - 4], r_eq, fill=INK)
+    p.circle([cx + d_eq, cy1 - r_eq - 4], r_eq, fill=INK)
+    for sgn in (-1, 1):
+        p.line([cx, cy1 + 34], [cx + sgn * d_eq, cy1 + 34], **stroke(1, color=RUBRIC))
+        p.text([cx + sgn * d_eq / 2 - 30, cy1 + 40, 60, 12], "d", style="labelC")
+    p.text([M + 30, 130, 400, 13], "EQUAL MEASURES — EQUAL ARMS", style="labelR")
+    # Demo 2: unequal measures, computed
+    cy2 = 440
+    r1, r2 = 34, 24
+    a1, a2 = r1 ** 2, r2 ** 2         # attraction ~ area
+    d1 = 90
+    d2 = d1 * a1 / a2                 # moments agree: a1*d1 = a2*d2
+    p.text([M + 30, 330, 480, 13],
+           "UNEQUAL MEASURES — ARMS INVERSELY AS THE ATTRACTIONS", style="labelR")
+    p.line([cx - d1 - 40, cy2], [cx + d2 + 40, cy2], **stroke(2, color=SUB))
+    p.polygon([[cx - 7, cy2 + 22], [cx + 7, cy2 + 22], [cx, cy2 + 2]], fill=RUBRIC)
+    p.circle([cx - d1, cy2 - r1 - 4], r1, fill=INK)
+    p.circle([cx + d2, cy2 - r2 - 4], r2, fill=INK)
+    p.line([cx, cy2 + 34], [cx - d1, cy2 + 34], **stroke(1, color=RUBRIC))
+    p.line([cx, cy2 + 52], [cx + d2, cy2 + 52], **stroke(1, color=RUBRIC))
+    p.text([cx - d1, cy2 + 38, 90, 12], f"d1 = {d1}", style="label")
+    p.text([cx + d2 - 96, cy2 + 56, 96, 12], f"d2 = {d2:.1f}", style="label")
+    p.text([M + 30, cy2 + 84, CW - 60, 40],
+           f"attractions as areas -- a1 : a2 = {a1} : {a2} ; "
+           f"d2 = d1 x {a1}/{a2} = {d2:.1f}. the moments agree: "
+           f"{a1} x {d1} = {a1 * d1} = {a2} x {d2:.1f}.",
+           style="mono")
+    # Demo 3: the same pair placed in a frame, balance point on centre
+    fy = 600
+    fw, fh = 300, 104
+    fx = M + (CW - fw) / 2
+    p.rect([fx, fy, fw, fh], fill="#ffffff")
+    p.rect([fx, fy, fw, fh], fill="none", **stroke(1.2, color=SUB))
+    scale = 0.55
+    bal_x = fx + fw / 2
+    p.circle([bal_x - d1 * scale, fy + fh / 2], r1 * scale, fill=INK)
+    p.circle([bal_x + d2 * scale, fy + fh / 2], r2 * scale, fill=INK)
+    p.line([bal_x, fy + 6], [bal_x, fy + fh - 6], **stroke(1, color=RUBRIC))
+    p.text([fx - 60, fy + fh + 10, fw + 120, 14],
+           "the computed balance point, set on the frame's centre",
+           style="capC")
+    caption(p, [M, 756, CW, 54],
+            "The steelyard, solved — Batchelder's demonstration (plates XXI–XXIII "
+            "of his book) re-computed for this one. His concise law: unequal "
+            "measures “balance … at distances that will be in inverse ratio to "
+            "the measures.” The frame's centre is where the equation must come "
+            "out.")
+    p.text([M, 836, CW, 80],
+           "Work the procedure once by hand and you will never again centre a "
+           "layout out of helplessness. Centring is the special case where the "
+           "two arms are equal; the general instrument is the beam.",
+           style="body")
+
+
+def pg_shape_balance_text(b):
+    p = new_page(b, "shape-balance-1", chapter=CH3)
+    y = section_head(p, 96, "3.5 · BALANCE OF SHAPE", "Symmetry and its escape",
+                     lead="“Shape balance in design may be defined as symmetry "
+                          "… shapes on one side are opposed by corresponding "
+                          "shapes on the other side.”")
+    p.text([M, y, CW, 150],
+           "Symmetry is balance made obvious: fold the design on its axis and the "
+           "attractions cancel pair by pair. Batchelder honours it — “no "
+           "difficulty will be experienced in finding examples of shape balance in "
+           "the work of all nations and periods” — and then teaches the escape "
+           "from it, because measure balance offers “the same feeling of repose "
+           "that is found in symmetry” without the stiffness.",
+           style="body")
+    p.text([M, y + 190, CW, 128],
+           "The pairing is the deep lesson of the chapter. Symmetry and asymmetry "
+           "are not rival styles but two solutions of one equation — the first "
+           "solved by mirroring, the second by weighing. A title page centred on "
+           "its axis and a modernist spread with its heavy image high and left are "
+           "obeying the same law with different arithmetic.",
+           style="body")
+    p.text([M, y + 340, CW, 80],
+           "The plate opposite sets the two solutions side by side, built from the "
+           "same three shapes — then breaks one, so the eye can feel the equation "
+           "fail.",
+           style="body")
+
+
+def pg_shape_balance_plate(b):
+    p = new_page(b, "shape-balance-2", chapter=CH3)
+    framed_panel(p, [M, 90, CW, 620])
+    w3 = (CW - 100) / 3
+    demos = ["SYMMETRIC — MIRRORED", "ASYMMETRIC — WEIGHED", "BROKEN — UNANSWERED"]
+    for k, name in enumerate(demos):
+        bx = M + 30 + k * (w3 + 20)
+        p.rect([bx, 130, w3, 420], fill="#ffffff")
+        p.rect([bx, 130, w3, 420], fill="none", **stroke(1, color=HAIR))
+        cxk = bx + w3 / 2
+        if k == 0:
+            p.regular_polygon([cxk, 220], 34, 3, rotation=-90, fill=INK)
+            p.circle([cxk - 44, 330], 20, fill=INK)
+            p.circle([cxk + 44, 330], 20, fill=INK)
+            p.rect([cxk - 52, 420, 104, 66], fill=mix(INK, "#ffffff", 0.55))
+            p.line([cxk, 140, ], [cxk, 540], **stroke(1, color=RUBRIC))
+        elif k == 1:
+            p.rect([bx + 16, 170, w3 * 0.52, 200], fill=INK)
+            p.circle([bx + w3 * 0.78, 300], 16, fill=INK)
+            p.rect([bx + w3 * 0.66, 430, w3 * 0.26, 56],
+                   fill=mix(INK, "#ffffff", 0.55))
+            p.regular_polygon([bx + w3 * 0.30, 470], 14, 3, fill=INK)
+        else:
+            p.rect([bx + 16, 170, w3 * 0.52, 200], fill=INK)
+            p.circle([bx + w3 * 0.30, 470], 8, fill=mix(INK, "#ffffff", 0.5))
+        p.text([bx, 560, w3, 24], name, style="labelC")
+    caption(p, [M, 736, CW, 54],
+            "Three fields, one law. The mirrored field cancels its attractions in "
+            "pairs; the weighed field cancels them on the beam; the third leaves "
+            "its great black mass unanswered, and the whole page leans.")
+    p.text([M, 812, CW, 100],
+           "Cover the right-hand two-thirds of any spread you admire and guess "
+           "where the answering weights must be; then look. The pleasure of a good "
+           "asymmetric layout is the pleasure of a sum that comes out.",
+           style="body")
+
+
+def pg_rhythm_text(b):
+    p = new_page(b, "rhythm-1", chapter=CH3)
+    y = section_head(p, 96, "3.6 · RHYTHM", "Regular change",
+                     lead="“Rhythm means joint action or movement … that enables "
+                          "the eye to find a way through all the details of a "
+                          "design.”")
+    p.text([M, y, CW, 150],
+           "The definition earns its length: rhythm is not decoration but "
+           "navigation — the property that lets the eye find a way through. His "
+           "image for it is a pond: “drop a stone into the water and as the "
+           "waves grow larger and larger you have measure rhythm, a movement by "
+           "means of interrelated measures.” A colonnade has it nobly; a "
+           "well-set text page has it invisibly — the even fall of the baselines, "
+           "the drumbeat of the word-spaces, the eye returned to the margin line "
+           "after line like a carriage.",
+           style="body")
+    p.text([M, y + 190, CW, 128],
+           "Two failures bound the principle. Repetition without change is "
+           "monotony — the eye stops listening. Change without repetition is "
+           "incident — the eye has nothing to learn. And rhythm cannot govern "
+           "alone: “rhythm may enter into any arrangement; but rhythm without "
+           "balance is a step toward ‘mob rule.’” Movement, in a composition "
+           "as in a republic, wants a constitution.",
+           style="body")
+    p.text([M, y + 340, CW, 80],
+           "The plate opposite drums the three cases: monotone, measured "
+           "progression, and noise — the same marks in each.",
+           style="body")
+
+
+def pg_rhythm_plate(b):
+    p = new_page(b, "rhythm-2", chapter=CH3)
+    framed_panel(p, [M, 90, CW, 620])
+    rows = [("MONOTONY — REPETITION WITHOUT CHANGE",
+             [16] * 12, [1] * 12),
+            ("RHYTHM — REPETITION WITH GOVERNED CHANGE",
+             [12, 16, 22, 12, 16, 22, 12, 16, 22, 12, 16, 22], None),
+            ("NOISE — CHANGE WITHOUT REPETITION",
+             [8, 30, 11, 24, 6, 19, 33, 9, 15, 27, 7, 21], None)]
+    y = 140
+    for name, heights, _ in rows:
+        p.text([M + 30, y, CW - 60, 13], name, style="labelR")
+        bx = M + 40
+        bw2 = (CW - 100) / 12
+        for i, h in enumerate(heights):
+            p.rect([bx + i * bw2 + bw2 * 0.2, y + 90 - h * 2, bw2 * 0.6, h * 2],
+                   fill=INK)
+        p.line([M + 40, y + 92], [M + CW - 60, y + 92], **stroke(1, color=HAIR))
+        y += 160
+    # baseline rhythm demo: three leadings on one staff
+    p.text([M + 30, y, CW - 60, 13],
+           "THE PAGE'S OWN DRUM — BASELINES AT ONE LEADING", style="labelR")
+    for i in range(4):
+        yy = y + 22 + i * 16
+        p.rect([M + 40, yy, (CW - 120) * (0.94 - 0.06 * (i % 3)), 6],
+               fill=mix(INK, "#ffffff", 0.35))
+    caption(p, [M, 736, CW, 54],
+            "Rhythm as governed change — an author's demonstration. The middle "
+            "staff repeats a three-term motif (the modular scale in miniature); "
+            "the last is the same ink with the government removed. Batchelder: "
+            "measure rhythm “is to design what the crescendo and diminuendo "
+            "are to music.”")
+    p.text([M, 812, CW, 90],
+           "Rhythm is also the reader's stamina. A page whose recurrences are "
+           "learnable is a page the eye can walk through on habit, saving its "
+           "attention for the sense — Johnston's readableness, arrived at from "
+           "the other side.",
+           style="body")
+
+
+def pg_harmony_text(b):
+    p = new_page(b, "harmony3-1", chapter=CH3)
+    y = section_head(p, 96, "3.7 · HARMONY", "Likeness in accord",
+                     lead="“Harmony means the consistency of likeness; having "
+                          "something in common … a unity, all the terms of which "
+                          "are in interior accord.”")
+    p.text([M, y, CW, 150],
+           "The third principle is the quietest, and the book you are holding has "
+           "been arguing for it since page one. Johnston called it uniformity — the "
+           "family likeness of letters. Chevreul called it harmony of scale and of "
+           "hues — colours with pigment in common. Batchelder generalises: any "
+           "composition holds together exactly in so far as its parts share "
+           "something — a unit of measure, a family of shapes, a range of tones.",
+           style="body")
+    p.text([M, y + 190, CW, 128],
+           "His practical instrument is the common unit: designs governed by "
+           "“a common unit of measure, the quarter-inch of the squared "
+           "paper.” Set every dimension as a multiple of one module and measure "
+           "harmony is manufactured, not hoped for — the ancestor, four decades "
+           "early, of the baseline grid and the 8-point spacing system.",
+           style="body")
+    p.text([M, y + 340, CW, 90],
+           "The plate opposite turns the principle on this book itself: one of its "
+           "own pages, weighed and measured by the system it has been teaching.",
+           style="body")
+
+
+def pg_book_weighed_plate(b):
+    p = new_page(b, "book-weighed", chapter=CH3)
+    framed_panel(p, [M, 90, CW, 640])
+    # A miniature facsimile of plate 25's page (p42, simultaneous contrast),
+    # rebuilt at scale from its real geometry, then annotated as pure design.
+    s = 0.44
+    fx, fy = M + 90, 128
+    pw2, ph2 = W * s, H * s
+    p.rect([fx, fy, pw2, ph2], fill=PAPER)
+    p.rect([fx, fy, pw2, ph2], fill="none", **stroke(1.2, color=SUB))
+    grounds = ["#ffffff", "#17130e", hue("Yellow"), hue("Blue"), hue("Red"),
+               hue("Green")]
+    GREY = "#8a8378"
+    colw = (CW - 60) / 3
+    masses = []  # (cx, cy, weight) for the tone-centroid computation
+    for i, g in enumerate(grounds):
+        x = (M + 30 + (i % 3) * colw) * s + fx
+        yy = (130 + (i // 3) * 250) * s + fy
+        wj, hj = (colw - 20) * s, 190 * s
+        p.rect([x, yy, wj, hj], fill=g)
+        p.rect([x + wj / 2 - 34 * s, yy + 61 * s, 68 * s, 68 * s], fill=GREY)
+        lum = wcag_ratio("#ffffff", g)  # darker ground => higher ratio vs white
+        weight = lum * wj * hj
+        masses.append((x + wj / 2, yy + hj / 2, weight))
+    # fluting strip
+    for i in range(8):
+        p.rect([(M + i * CW / 8) * s + fx, 810 * s + fy, (CW / 8) * s + 0.5,
+                90 * s], fill=tone(hue("Blue"), -0.85 + i * 0.2))
+        masses.append(((M + (i + 0.5) * CW / 8) * s + fx, (810 + 45) * s + fy,
+                       wcag_ratio("#ffffff", tone(hue("Blue"), -0.85 + i * 0.2))
+                       * (CW / 8) * 90 * s * s))
+    # computed tone centroid
+    tw = sum(m[2] for m in masses)
+    cx0 = sum(m[0] * m[2] for m in masses) / tw
+    cy0 = sum(m[1] * m[2] for m in masses) / tw
+    p.circle([cx0, cy0], 16, fill="#ffffff")
+    p.line([cx0 - 22, cy0], [cx0 + 22, cy0], **stroke(1.8, color=RUBRIC))
+    p.line([cx0, cy0 - 22], [cx0, cy0 + 22], **stroke(1.8, color=RUBRIC))
+    p.circle([cx0, cy0], 10, fill="none", **stroke(1.8, color=RUBRIC))
+    p.line([fx + pw2 / 2, fy + 6], [fx + pw2 / 2, fy + ph2 - 6],
+           **stroke(0.8, color=SUB))
+    # annotations at right — fixed slots so none collide
+    ax = fx + pw2 + 26
+    notes = [
+        (fy + 16, "TONES — six heavy grounds, one grey constant, a graded strip"),
+        (fy + 130, "MEASURES — three columns on one module; margins as the frame"),
+        (fy + 244, "SHAPES — one rectangle, repeated; harmony by one shape"),
+        (max(cy0 - 8, fy + 358),
+         "the computed centre of tone-weight, landing on the column axis"),
+    ]
+    for ny, nt in notes:
+        p.line([ax - 12, ny + 8], [ax - 2, ny + 8], **stroke(1, color=RUBRIC))
+        p.text([ax, ny, W - M - ax - 10, 56], nt, style="cap")
+    caption(p, [M, 756, CW, 54],
+            "This book, weighed: plate 25's page rebuilt in miniature from its own "
+            "geometry, its tone-weighted centre computed as §3.4 computes it. The "
+            "cross lands a hair below the optical centre, on the middle column's "
+            "axis — the page rests because its sums do.")
+    p.text([M, 836, CW, 80],
+           "Any page will submit to this audit. Redraw it as tones, measures and "
+           "shapes, find the unanswered attraction, and you have found the thing "
+           "that has been bothering you about it.",
+           style="body")
+
+
+def pg_pure_page_text(b):
+    p = new_page(b, "pure-page", chapter=CH3)
+    y = section_head(p, 96, "3.8 · THE PAGE AS PURE DESIGN", "One system, three crafts",
+                     lead="His own bridge: proportion means the same “whether in a "
+                          "house, on the page of a book, or in the formation of a "
+                          "single letter.”")
+    p.text([M, y, CW, 108],
+           "So the three chapters of this book so far are one subject. The mapping "
+           "below is the author's, but every row of it is licensed by that "
+           "sentence — the Ross terms, translated into the working matter of "
+           "typography and colour.",
+           style="body")
+    framed_panel(p, [M, y + 128, CW, 330])
+    rows = [
+        ("TONES", "weight & colour", "type weight, ink greys, accent duty",
+         "ch. I §1.9 · ch. II §2.8"),
+        ("MEASURES", "size & space", "modular scale, leading, margins, grid",
+         "ch. I §1.10–1.13"),
+        ("SHAPES", "form", "letterforms, text blocks, plates",
+         "ch. I §1.2–1.5"),
+        ("RHYTHM", "regular change", "baselines, word-spaces, scale ratio",
+         "§3.6"),
+        ("BALANCE", "opposed attractions", "the spread at rest; the steelyard",
+         "§3.3–3.5"),
+        ("HARMONY", "likeness in accord", "one family, one palette, one module",
+         "ch. I §1.6 · ch. II §2.11"),
+    ]
+    yy = y + 152
+    for term, gloss, means, where in rows:
+        p.text([M + 24, yy, 110, 13], term, style="labelR")
+        p.text([M + 138, yy, 130, 26], gloss, style="cap")
+        p.text([M + 272, yy - 2, 260, 40], means, style="bodyS")
+        p.text([M + CW - 130, yy, 118, 26], where,
+               style={"class": "cap", "font_size": 9})
+        yy += 52
+    caption(p, [M, y + 478, CW, 40],
+            "The Ross system, mapped onto the book's own crafts — an author's "
+            "table. Nothing in chapters I and II escapes the six rows.")
+    p.text([M, y + 542, CW, 108],
+           "This is why the old books keep working. Tools change every decade; "
+           "attractions do not. A theory written for spot and ground survives "
+           "translation to pixel and viewport because the eye it describes has not "
+           "shipped a new version.",
+           style="body")
+
+
+def pg_grid_plate(b):
+    p = new_page(b, "grid-plate", chapter=CH3)
+    y = section_head(p, 96, "3.9 · THE GRID", "A balance instrument",
+                     lead="The modern grid is the steelyard institutionalised: a "
+                          "frame that quantises attractions before they argue.")
+    framed_panel(p, [M, y + 6, CW, 520])
+    # a mini page with a 6-column grid and balanced blocks
+    gx, gy = M + 90, y + 40
+    gw, gh = CW - 300, 440
+    p.rect([gx, gy, gw, gh], fill="#ffffff")
+    p.rect([gx, gy, gw, gh], fill="none", **stroke(1.2, color=SUB))
+    cols, gut = 6, 8
+    cw3 = (gw - 32 - (cols - 1) * gut) / cols
+    for i in range(cols):
+        p.rect([gx + 16 + i * (cw3 + gut), gy + 16, cw3, gh - 32],
+               fill=mix(RUBRIC, "#ffffff", 0.93))
+    # blocks: heavy image 4 cols, text 2 cols; caption counterweight
+    p.rect([gx + 16, gy + 40, 4 * cw3 + 3 * gut, 190], fill=INK)
+    for i in range(9):
+        p.rect([gx + 16 + 4 * (cw3 + gut), gy + 44 + i * 20,
+                2 * cw3 + gut - (18 if i % 4 == 3 else 0), 8],
+               fill=mix(INK, "#ffffff", 0.45))
+    p.rect([gx + 16 + 2 * (cw3 + gut), gy + 260, 2 * cw3 + gut, 120],
+           fill=mix(INK, "#ffffff", 0.72))
+    for i in range(4):
+        p.rect([gx + 16, gy + 262 + i * 22, cw3 * 2 - 12, 8],
+               fill=mix(INK, "#ffffff", 0.45))
+    p.rect([gx + 16 + 4 * (cw3 + gut), gy + 340, 1.4 * cw3, 40], fill=INK)
+    ax = gx + gw + 26
+    for ny, nt in [(gy + 60, "the heavy measure sits high\nand left of the axis"),
+                   (gy + 270, "middle-tone mass answers it\nacross the centre"),
+                   (gy + 344, "a small black, far out on the\nbeam, completes the sum"),
+                   (gy + 410, "columns quantise every arm\nto a shared module")]:
+        p.line([ax - 12, ny + 8], [ax - 2, ny + 8], **stroke(1, color=RUBRIC))
+        p.text([ax, ny, W - M - ax - 4, 44], nt, style="cap")
+    caption(p, [M, y + 548, CW, 54],
+            "An asymmetric spread audited by the beam — an author's construction. "
+            "The grid does not create the balance; it makes the arithmetic "
+            "repeatable, page after page, by many hands.")
+    p.text([M, y + 626, CW, 66],
+           "Batchelder's quarter-inch squared paper, Ross's common unit, the "
+           "printer's em, the interface designer's 8-point step: one instrument, "
+           "four names, a century of service.",
+           style="body")
+
+
+def pg_ch3_close(b):
+    p = new_page(b, "ch3-close", chrome=False, folio=True)
+    p.text([M, 170, CW, 16], "CHAPTER III · A SUMMARY IN FIVE LINES", style="kickerC")
+    lines = [
+        "A composition contains only tones, measures and shapes.",
+        "Balance is repose: every attraction answered, the sums agreeing.",
+        "The steelyard makes asymmetry as lawful as symmetry.",
+        "Rhythm is repetition with governed change — the page's own drum.",
+        "Harmony is manufactured by the common unit, not hoped for.",
+    ]
+    y = 280
+    for i, ln in enumerate(lines):
+        p.text([M + 40, y, 40, 40], ["I", "II", "III", "IV", "V"][i], style="h3r")
+        p.text([M + 110, y - 4, CW - 150, 60], ln, style="lead")
+        y += 92
+    p.rect([W / 2 - 30, y + 30, 60, 2], fill="rubric")
+    # beam motif
+    by = y + 84
+    p.line([W / 2 - 120, by], [W / 2 + 120, by], **stroke(2, color=SUB))
+    p.polygon([[W / 2 - 6, by + 18], [W / 2 + 6, by + 18], [W / 2, by + 2]],
+              fill=RUBRIC)
+    p.circle([W / 2 - 42, by - 16], 15, fill=SUB)
+    p.circle([W / 2 + 117, by - 10], 9, fill=SUB)
+    p.text([0, y + 150, W, 14], "COLOUR AT WORK FOLLOWS — THE LAW LEAVES THE LABORATORY",
+           style="attrC")
+
+# --------------------------------------------------------------------------- #
+# CHAPTER IV — COLOUR AT WORK (pp. 75-90)                                      #
+# After Chevreul's applications (Principles of Harmony and Contrast, Part II   #
+# and Third Division). Ordinals cite the full-translation corpus edition.      #
+# --------------------------------------------------------------------------- #
+
+# Chevreul's §516 ranking of black type on coloured papers (1839), with this
+# book's hex approximations of the papers. The ratios are computed at build
+# time and drawn beside his order — the re-measurement of §4.6.
+CHEVREUL_PAPERS = [
+    ("1°", "White", "#ffffff"),
+    ("2°", "light Yellow", "#f4ead0"),
+    ("3°", "light Yellow-Green", "#e6ecc6"),
+    ("4°", "light Orange", "#f5ddba"),
+    ("5°", "light Blue", "#ccdcec"),
+    ("6°", "Crimson-Red", "#c05068"),
+    ("7°", "deep Orange", "#d07a2a"),
+    ("8°", "deep Red", "#9c2f34"),
+    ("9°", "deep Violet", "#584371"),
+]
+TYPE_INK = "#17130e"
+
+
+def pg_ch4_opener(b):
+    p = new_page(b, "ch4-opener", chrome=False, folio=False, bg="night")
+    p.text([M, 200, CW, 24], "CHAPTER IV", style="kickerC")
+    p.text([0, 240, W, 170], "IV", style={"class": "cnum", "align": "center"})
+    p.text([0, 430, W, 80], "Colour at Work",
+           style={"class": "hcover", "font_size": 76, "color": "#f4ead6"})
+    p.rect([W / 2 - 30, 560, 60, 2], fill="rubric")
+    p.text([120, 610, W - 240, 90],
+           "On the law applied — in the tapestry shed, the room, the garden, "
+           "the wardrobe and the printing house — and on the oldest reading "
+           "experiment, re-measured.",
+           style={"class": "leadC", "color": "#d8c9ae"})
+    # opener motif: paper chips ranked
+    bw = (W - 2 * 190) / 9
+    for i, (_, _, hx) in enumerate(CHEVREUL_PAPERS):
+        p.rect([190 + i * bw, 796, bw - 5, 40], fill=hx)
+
+
+def pg_gobelins_text(b):
+    p = new_page(b, "gobelins-1", chapter=CH4)
+    y = section_head(p, 96, "4.1 · THE GOBELINS COMPLAINT", "Where application began",
+                     lead="The most consequential quality complaint in the history "
+                          "of design was filed against a dye vat that was innocent.")
+    p.text([M, y, CW, 170],
+           "Chapter II told the story's first half: weavers at the Gobelins "
+           "manufactory reported that the black yarns were feeble beside the blues, "
+           "and Chevreul the chemist found the dyes beyond reproach. The defect was "
+           "optical — every colour tints its neighbour with its own complement — "
+           "and the law of simultaneous contrast followed. This chapter is the "
+           "second half: what Chevreul did next. Rather than file the law away as "
+           "science, he spent five hundred pages walking it through every trade "
+           "that puts one colour beside another.",
+           style="body")
+    p.text([M, y + 192, CW, 130],
+           "His own inventory of the territory: “I have thus been led to extend "
+           "it to the arts of tapestry” — and onward through carpets, dress, "
+           "gardens, apartments, painting and printing. The pattern is always the "
+           "same, and it is the pattern of this chapter: the material is blameless; "
+           "the neighbourhood is responsible; therefore design the neighbourhood.",
+           style="body")
+    p.text([M, y + 344, CW, 90],
+           "Read that way, Chevreul is not a colour theorist at all. He is the "
+           "first design reviewer — the first professional to be handed a defect "
+           "report and to locate the bug in perception rather than production.",
+           style="body")
+
+
+def pg_gobelins_plate(b):
+    p = new_page(b, "gobelins-2", chapter=CH4)
+    framed_panel(p, [M, 90, CW, 620])
+    # the weaver's problem: identical black hanks on two grounds
+    for k, (ground, gname, verdict) in enumerate([
+            (hue("Blue"), "WOVEN BESIDE BLUE", "the black warms — the eye adds orange"),
+            ("#efe6d2", "WOVEN BESIDE UNDYED LINEN", "the same black reads full and cold")]):
+        bx = M + 30 + k * (CW - 60) / 2
+        bw2 = (CW - 60) / 2 - 20
+        p.rect([bx, 130, bw2, 330], fill=ground)
+        # yarn hank: parallel strokes
+        for i in range(9):
+            xx = bx + bw2 * 0.28 + i * bw2 * 0.055
+            p.polyline([(xx, 180), (xx - 10, 250), (xx + 6, 330), (xx - 4, 410)],
+                       smooth=True, fill="none",
+                       **stroke(7, color=mix("#17130e", ground, 0.06 + 0.012 * i),
+                                cap="round"))
+        p.text([bx, 470, bw2, 12], gname, style="labelC")
+        p.text([bx, 490, bw2, 26], verdict, style="capC")
+    # the extension list
+    p.text([M + 30, 546, CW - 60, 13],
+           "THE LAW'S ITINERARY — CHEVREUL'S OWN LIST", style="labelR")
+    arts = ["tapestry", "carpets", "dress", "gardens", "apartments",
+            "picture-framing", "calico", "printing with types"]
+    xx = M + 30
+    yy = 572
+    for a in arts:
+        wpx = 9.2 * len(a) + 28
+        if xx + wpx > M + CW - 30:
+            xx = M + 30
+            yy += 40
+        p.rect([xx, yy, wpx, 28], fill="none", **stroke(1, color=SUB))
+        p.text([xx, yy + 7, wpx, 14], a.upper(),
+               style={"class": "labelC", "font_size": 9})
+        xx += wpx + 12
+    caption(p, [M, 736, CW, 54],
+            "The weaver's problem, drawn: one black yarn, two neighbourhoods — an "
+            "author's reconstruction of the Gobelins complaint. Below, the trades "
+            "through which Chevreul then marched the law.")
+    p.text([M, 812, CW, 80],
+           "Every section that follows is one stop on that itinerary, and each "
+           "ends the same way: with the law doing quietly what taste was thought "
+           "to do mysteriously.",
+           style="body")
+
+
+def pg_room_text(b):
+    p = new_page(b, "room-1", chapter=CH4)
+    y = section_head(p, 96, "4.2 · THE ROOM", "Assortment as architecture",
+                     lead="A furnished room is a composition the occupant lives "
+                          "inside — walls, hangings, borders and furniture, all "
+                          "obeying the law together.")
+    p.text([M, y, CW, 150],
+           "Chevreul treats the interior exactly as he treats the page: as figure "
+           "and ground at scale. The dominant surface — the hangings — sets the "
+           "scale; everything laid against it either agrees by analogy or answers "
+           "by contrast. His rule for the border is the palette recipe of §2.11, "
+           "sixty years early: “harmony of contrast is the most suitable to "
+           "papers of a uniform pure colour … consequently we recommend for the "
+           "dominant colour of the border the complementary of that of the "
+           "hangings.”",
+           style="body")
+    p.text([M, y + 190, CW, 130],
+           "And his warning against busy pattern is a whole modern debate settled "
+           "in a clause: “patterns for hangings must recommend themselves more "
+           "by opposite colours than by minute finish in the details.” The eye "
+           "reads a wall at wall distance. Detail invisible at that distance is "
+           "not richness; it is mud.",
+           style="body")
+    p.text([M, y + 340, CW, 84],
+           "The plate opposite draws a wall elevation twice — once assorted by the "
+           "law, once by accumulation — with the same inventory of parts.",
+           style="body")
+
+
+def pg_room_plate(b):
+    p = new_page(b, "room-2", chapter=CH4)
+    framed_panel(p, [M, 90, CW, 620])
+    for k in range(2):
+        bx = M + 30 + k * (CW - 60) / 2
+        bw2 = (CW - 60) / 2 - 20
+        if k == 0:
+            wall = tone(hue("Blue-green"), -0.55)
+            border = tone(hue("Red"), -0.12)
+            p.rect([bx, 130, bw2, 380], fill=wall)
+            p.rect([bx, 130, bw2, 24], fill=border)
+            p.rect([bx, 396, bw2, 114], fill=tone(hue("Blue-green"), 0.30))
+            p.rect([bx, 392, bw2, 6], fill=border)
+            # one picture, framed in the wall's own deep tone
+            p.rect([bx + bw2 * 0.30, 210, bw2 * 0.40, 120],
+                   fill=tone(hue("Blue-green"), 0.5))
+            p.rect([bx + bw2 * 0.33, 222, bw2 * 0.34, 96], fill="#efe6d2")
+            # a settee as a middle tone
+            p.rect([bx + bw2 * 0.18, 430, bw2 * 0.64, 56],
+                   fill=tone(hue("Red"), 0.35))
+            p.text([bx, 546, bw2, 12], "ASSORTED — BORDER COMPLEMENTARY,",
+                   style="labelC")
+            p.text([bx, 562, bw2, 12], "WAINSCOT FROM THE WALL'S OWN SCALE",
+                   style="labelC")
+        else:
+            p.rect([bx, 130, bw2, 380], fill="#c9b791")
+            clutter = [hue("Violet"), hue("Yellow-orange"), hue("Green"),
+                       hue("Red-violet"), hue("Blue"), hue("Orange")]
+            for i, c in enumerate(clutter):
+                p.rect([bx + 14 + (i % 3) * bw2 * 0.31, 168 + (i // 3) * 130,
+                        bw2 * 0.26, 100], fill=c)
+            p.rect([bx, 396, bw2, 114], fill="#7a6a4d")
+            p.rect([bx + bw2 * 0.18, 430, bw2 * 0.64, 56], fill=hue("Red-orange"))
+            p.text([bx, 546, bw2, 12], "ACCUMULATED — SIX DOMINANTS,",
+                   style="labelC")
+            p.text([bx, 562, bw2, 12], "EVERY NEIGHBOUR AT WAR", style="labelC")
+    caption(p, [M, 736, CW, 54],
+            "One wall dressed twice — an author's construction on Chevreul's "
+            "interior chapters. Left, the border takes the hangings' complement "
+            "and the wainscot deepens the wall's own scale; right, no border, no "
+            "plan — six unrelated dominants, and the room argues with itself.")
+    p.text([M, 812, CW, 84],
+           "The room is the palette recipe at architectural scale: one ground, "
+           "one answering accent, the rest drawn from the ground's own scale. "
+           "Swap ‘wall’ for ‘screen’ and the clause needs no other edit.",
+           style="body")
+
+
+def pg_garden_text(b):
+    p = new_page(b, "garden-1", chapter=CH4)
+    y = section_head(p, 96, "4.3 · THE GARDEN", "Planting by the law",
+                     lead="Horticulture had colour advice for centuries — “in "
+                          "a vague and general manner.” Chevreul replaces it "
+                          "with prescriptions.")
+    p.text([M, y, CW, 150],
+           "Once the law is stated, “the grouping of flowers will present no "
+           "difficulty, since it will only be a simple conclusion from facts.” "
+           "The prescriptions follow like theorems. Complementary masses first: "
+           "“blue flowers and orange flowers, yellow flowers and violet "
+           "flowers.” Red needs no partner planted for it, since “rose or "
+           "red flowers contrast with their own leaves” — the rose bed carries "
+           "its complement on its stems.",
+           style="body")
+    p.text([M, y + 190, CW, 150],
+           "Then the separations, which are the same lesson as plate 33's warning "
+           "about neighbouring scales: “we must separate pink flowers from "
+           "those that are either scarlet or crimson; orange flowers from "
+           "orange-yellow flowers; blue flowers from violet-blue flowers.” "
+           "Near-likeness reads as error in a border exactly as it does in a "
+           "palette. And to the objection that green foliage drowns the whole "
+           "exercise, his answer is the plate opposite: the leaves are not the "
+           "enemy of the contrast but its ground.",
+           style="body")
+
+
+def pg_garden_plate(b):
+    p = new_page(b, "garden-2", chapter=CH4)
+    framed_panel(p, [M, 90, CW, 620])
+    leaf = tone(hue("Green"), 0.15)
+    p.rect([M + 30, 130, CW - 60, 420], fill=mix(leaf, "#ffffff", 0.18))
+
+    def bed(cx, cy, r, colours, n=14):
+        for i in range(n):
+            a = i * 2.399963  # golden angle: even, natural scatter
+            rr = r * math.sqrt((i + 0.5) / n)
+            p.circle([cx + rr * math.cos(a), cy + rr * math.sin(a)],
+                     7.5, fill=colours[i % len(colours)])
+    # complementary beds
+    bed(M + 140, 250, 62, [hue("Blue")])
+    bed(M + 272, 250, 62, [hue("Orange")])
+    p.text([M + 70, 336, 280, 12], "BLUE WITH ORANGE — THE FULL CHORD",
+           style="labelC")
+    bed(M + 430, 250, 62, [hue("Yellow")])
+    bed(M + 548, 250, 56, [hue("Violet")])
+    p.text([M + 396, 336, 224, 12], "YELLOW WITH VIOLET", style="labelC")
+    # roses against their own leaves
+    bed(M + 150, 448, 66, [tone(hue("Red"), -0.15)])
+    p.text([M + 60, 534, 280, 12], "RED AGAINST ITS OWN LEAVES", style="labelC")
+    # the forbidden neighbours
+    bed(M + 440, 448, 54, [mix(hue("Red-violet"), "#ffffff", 0.35)])
+    bed(M + 552, 448, 54, [hue("Red")])
+    p.text([M + 372, 534, 264, 12], "PINK AGAINST SCARLET — SEPARATE THESE",
+           style={"class": "labelC", "font_size": 9})
+    p.rect([M + 497, 402, 3, 92], fill=RUBRIC)
+    caption(p, [M, 736, CW, 54],
+            "Chevreul's borders, drawn as beds on their ground of leaves — an "
+            "author's construction from his prescriptions. The green is not "
+            "noise: it is the field that lets red bloom unpartnered, and the "
+            "red bar marks the association he orders broken up.")
+    p.text([M, 812, CW, 84],
+           "A garden is a palette that grows. The gardener's advantage over the "
+           "designer is that the ground colour is fixed by botany — which is "
+           "why the law's garden chapter reads like a solved exercise.",
+           style="body")
+
+
+def pg_person_text(b):
+    p = new_page(b, "person-1", chapter=CH4)
+    y = section_head(p, 96, "4.4 · THE PERSON", "The garment tints the face",
+                     lead="The most intimate application: whatever colour is worn "
+                          "near the face lends the face its complement.")
+    p.text([M, y, CW, 168],
+           "The mechanism is the law of §2.3 with a human ground. “A delicate "
+           "green is … favourable to all fair complexions which are deficient "
+           "in rose” — because green's complement is rose, and the eye "
+           "delivers it to the skin. “Yellow imparts violet to a fair skin,” "
+           "and is therefore less kind; violet returns the favour, imparting "
+           "“greenish-yellow”; while “blue imparts orange, which is "
+           "susceptible of allying itself favourably … to the light flesh "
+           "tints.” Every verdict is the same theorem with a different ground.",
+           style="body")
+    p.text([M, y + 208, CW, 130],
+           "Chevreul's millinery pages run the theorem through bonnets and "
+           "trimmings with the patience of a test suite — and when a colour "
+           "fails against a complexion, his remedy is an interposed neutral: "
+           "hair, ribbon, or “wreaths or detached flowers” to break the "
+           "juxtaposition. The modern name for that remedy is a border, a "
+           "keyline, a breathing space.",
+           style="body")
+    p.text([M, y + 358, CW, 60],
+           "The plate opposite runs the four draperies against two grounds — "
+           "abstracted to swatches, as befits a book and the dignity of readers.",
+           style="body")
+
+
+def pg_person_plate(b):
+    p = new_page(b, "person-2", chapter=CH4)
+    framed_panel(p, [M, 90, CW, 620])
+    skins = [("A FAIR GROUND", "#ecd3c0"), ("A DEEP GROUND", "#8a5a3c")]
+    drapes = [("GREEN", tone(hue("Green"), -0.2), "imparts rose"),
+              ("YELLOW", hue("Yellow"), "imparts violet"),
+              ("VIOLET", hue("Violet"), "imparts green-yellow"),
+              ("BLUE", hue("Blue"), "imparts orange")]
+    for k, (sname, skin) in enumerate(skins):
+        bx = M + 30 + k * (CW - 60) / 2
+        bw2 = (CW - 60) / 2 - 20
+        p.text([bx, 128, bw2, 13], sname, style="labelRC")
+        for i, (dn, dc, effect) in enumerate(drapes):
+            yy = 160 + i * 100
+            p.rect([bx + 20, yy, bw2 - 40, 78], fill=dc)
+            p.circle([bx + bw2 / 2, yy + 39, ], 26, fill=skin)
+            p.text([bx + 20, yy + 82, bw2 - 40, 12],
+                   f"{dn} — {effect}",
+                   style={"class": "capC", "font_size": 9})
+    caption(p, [M, 736, CW, 54],
+            "Four draperies, two grounds, abstracted to chip and disc — an "
+            "author's construction on Chevreul's complexion chapters. Stare at "
+            "each disc and its ground delivers the promised complement; the "
+            "effect is strongest at the boundary, which is why his remedy for a "
+            "failed pairing is always an interposed neutral.")
+    p.text([M, 812, CW, 84],
+           "Substitute ‘avatar’ for ‘complexion’ and ‘theme’ for ‘bonnet’ and "
+           "the chapter reads as written this year: every profile picture sits "
+           "on a ground that is quietly recolouring it.",
+           style="body")
+
+
+def pg_print_text(b):
+    p = new_page(b, "print-text", chapter=CH4)
+    y = section_head(p, 96, "4.5 · THE PRINTED PAGE", "Types upon coloured paper",
+                     lead="At the itinerary's end Chevreul arrives on our ground: "
+                          "black type, coloured paper, and the question of what "
+                          "reads best.")
+    p.text([M, y, CW, 150],
+           "The Third Division of his applications takes printing in order — "
+           "calico, paper-hangings, and at last “printing with types upon "
+           "coloured paper.” The calico chapter issues the warning every "
+           "brand-guideline PDF still repeats: “the pattern may appear to be "
+           "very different in colour from what was intended, and from what it "
+           "really is.” The type chapter then runs the experiment this book "
+           "has been circling since plate 37.",
+           style="body")
+    p.text([M, y + 190, CW, 150],
+           "His protocol is startlingly modern. He separates the cases — reading "
+           "“of some minutes'” duration from reading “of some hours'”; "
+           "daylight from artificial light — notes that letters present “much "
+           "less extent of surface than the paper which serves as their ground,” "
+           "and even accounts for afterimage fatigue, “the impression of their "
+           "respective complementaries,” during long reading. Then he ranks "
+           "nine papers by eye, “commencing with those which appeared to me "
+           "the easiest to read.”",
+           style="body")
+    p.text([M, y + 380, CW, 70],
+           "The plate opposite prints his ranking — and re-measures it with the "
+           "instrument his century did not have.",
+           style="body")
+
+
+def pg_remeasure_plate(b):
+    p = new_page(b, "remeasure", chapter=CH4)
+    framed_panel(p, [M, 90, CW, 700])
+    p.text([M + 30, 112, CW - 60, 13],
+           "CHEVREUL'S §516 RANKING (1839) — RE-MEASURED (WCAG 2.x, 2026)",
+           style="labelR")
+    rows_y = 148
+    rh = 64
+    ratios = [wcag_ratio(TYPE_INK, hx) for _, _, hx in CHEVREUL_PAPERS]
+    max_ratio = max(ratios)
+    thr_x = M + 460 + (CW - 520) * 4.5 / max_ratio
+    p.line([thr_x, rows_y - 6], [thr_x, rows_y + 9 * rh - 8],
+           **stroke(1.2, color=GOLD))
+    p.text([thr_x - 34, rows_y + 9 * rh, 110, 12], "WCAG 4.5:1", style="cap")
+    modern_rank = {i: r + 1 for r, i in
+                   enumerate(sorted(range(9), key=lambda i: -ratios[i]))}
+    for i, ((rank, name, hx), ratio) in enumerate(zip(CHEVREUL_PAPERS, ratios)):
+        yy = rows_y + i * rh
+        p.text([M + 30, yy + 14, 30, 14], rank, style="label")
+        p.rect([M + 70, yy, 220, rh - 14], fill=hx)
+        p.rect([M + 70, yy, 220, rh - 14], fill="none", **stroke(1, color=HAIR))
+        p.text([M + 82, yy + 12, 200, 26], "legibility",
+               style={"font_family": SERIF, "font_size": 17, "color": TYPE_INK})
+        p.text([M + 302, yy + 4, 150, 13], name.upper(),
+               style={"class": "label", "font_size": 8.5})
+        p.text([M + 302, yy + 22, 150, 12],
+                f"modern rank {modern_rank[i]}°",
+                style={"class": "cap", "font_size": 9,
+                       "color": (RUBRIC if modern_rank[i] != i + 1 else SUB)})
+        bar_w = (CW - 520) * ratio / max_ratio
+        p.rect([M + 460, yy + 8, bar_w, 22],
+               fill=(INK if modern_rank[i] == i + 1 else RUBRIC))
+        p.text([M + 466 + bar_w, yy + 12, 70, 13], f"{ratio:.1f}:1", style="label")
+
+    caption(p, [M, 816, CW, 54],
+            "The 1839 ranking, re-measured. Chevreul's order by eye against the "
+            "contrast ratio of near-black ink on each paper (papers are this "
+            "book's hex approximations). Black bars: his rank and the formula "
+            "agree; red bars mark the disagreements.")
+    p.text([M, 892, CW, 84],
+           "Seven of nine placings survive a formula written a century and a half "
+           "later. The two that move are the two he flagged himself — the deep "
+           "warm papers, where hue pleads and luminance disagrees.",
+           style="body")
+
+
+def pg_remeasure_analysis(b):
+    p = new_page(b, "remeasure-2", chapter=CH4)
+    y = section_head(p, 96, "4.6 · 1839, RE-MEASURED", "What the eye knew early",
+                     lead="An experiment that survives its own re-measurement is "
+                          "rarer than a law. Chevreul's mostly does.")
+    p.text([M, y, CW, 216],
+           "The agreement is the headline: ranked by one careful pair of eyes in "
+           "1839, the light papers fall in almost exactly the order that relative "
+           "luminance assigns them today. The formula is measuring what his eye "
+           "was reporting — tone contrast between figure and ground — which is the "
+           "thesis of §2.9 arriving with a hundred and eighty years of "
+           "corroboration. Where eye and formula part ways, on the crimson and the "
+           "deep orange, the disagreement is itself informative: saturated warm "
+           "grounds flatter type with hue-difference while quietly starving it of "
+           "tone-difference. The formula refuses the flattery.",
+           style="body")
+    quote_block(p, y + 238,
+                "I have every reason to believe that other eyes than mine would "
+                "require some change in the order I have assigned to the preceding "
+                "assortments.", None)
+    p.text([M, y + 342, CW, 14], "CHEVREUL, §517 — THE FIRST REVIEWER'S CAVEAT",
+           style="attr")
+    p.text([M, y + 386, CW, 130],
+           "That sentence deserves framing in every design studio. The author of "
+           "the strongest colour law of his century publishes a ranking and "
+           "immediately declares it one observer's data, awaiting other eyes. The "
+           "modern formula is those other eyes — millions of them, averaged into a "
+           "luminance curve — and it largely voted with him.",
+           style="body")
+    p.text([M, y + 536, CW, 130],
+           "One more anticipation deserves notice. Ranking by duration, he warns "
+           "that the strongest pairing “will be more favourable in a reading of "
+           "short duration, while it will be less so in a prolonged reading, "
+           "because … it will fatigue the eye more” (§503). Maximum contrast "
+           "is a sprinter: the whole modern argument over paper-white screens and "
+           "reading modes, run once, by lamplight, in 1839.",
+           style="body")
+
+
+def pg_dyer_text(b):
+    p = new_page(b, "dyer", chapter=CH4)
+    y = section_head(p, 96, "4.7 · THE METHOD", "The designer as dyer",
+                     lead="Strip the nineteenth century from Chevreul's procedure "
+                          "and what remains is the working loop of every design "
+                          "practice worth the name.")
+    framed_panel(p, [M, y + 6, CW, 380])
+    steps = [
+        ("THE COMPLAINT", "someone trusts their eyes and says so",
+         "the weavers report feeble blacks"),
+        ("THE AUDIT", "test the material before the theory",
+         "the dye is assayed — and acquitted"),
+        ("THE LAW", "name the mechanism, not the symptom",
+         "colours tint neighbours with complements"),
+        ("THE APPLICATION", "walk the law through every trade it touches",
+         "tapestry, rooms, gardens, dress, the page"),
+        ("THE CAVEAT", "publish the data and its observer",
+         "“other eyes than mine…” (§517)"),
+    ]
+    yy = y + 34
+    for i, (nm, gloss, ex) in enumerate(steps):
+        p.circle([M + 46, yy + 16], 15, fill="none", **stroke(1.6, color=RUBRIC))
+        p.text([M + 38, yy + 8, 20, 14], str(i + 1),
+               style={"class": "labelR", "align": "center"})
+        p.text([M + 78, yy, 190, 14], nm, style="labelR")
+        p.text([M + 78, yy + 18, 240, 30], gloss, style="cap")
+        p.text([M + 340, yy + 2, CW - 380, 46], ex, style="bodyS")
+        if i < 4:
+            p.line([M + 46, yy + 33], [M + 46, yy + 56], **stroke(1, color=HAIR))
+        yy += 70
+    caption(p, [M, y + 406, CW, 40],
+            "Chevreul's method, abstracted — an author's synthesis. Complaint, "
+            "audit, law, application, caveat: the quality loop, first run in 1839.")
+    p.text([M, y + 470, CW, 128],
+           "This book has tried to run the same loop on itself: its quotations "
+           "audited against their sources, its contrast claims measured, its own "
+           "pages weighed by the principles they teach, and its residual limits "
+           "declared in the apparatus. Where it fails, the method — not the "
+           "author's taste — is the court of appeal.",
+           style="body")
+
+
+def pg_ch4_quote_plate(b):
+    p = new_page(b, "ch4-quote", chapter=CH4, chrome=False, folio=True, bg="night")
+    p.text([M, 150, CW, 16], "THE LAW, LEAVING THE LABORATORY", style="kickerC")
+    display_quote(p, [110, 280, W - 220, 300],
+                  "In viewing the law of simultaneous contrast of colours with "
+                  "reference to its application, and in submitting to experiment "
+                  "all the consequences which appeared to me to result from it, I "
+                  "have thus been led to extend it to the arts of tapestry.",
+                  size=24, line_height=1.5, color=CREAM, align="center")
+    p.text([0, 620, W, 14], "CHEVREUL, PRINCIPLES OF HARMONY AND CONTRAST — INTRODUCTION",
+           style="attrC")
+    p.rect([W / 2 - 30, 668, 60, 2], fill="rubric")
+    p.text([140, 706, W - 280, 140],
+           "…and to everything after tapestry. A law that stops at the laboratory "
+           "door is a curiosity. Chevreul's walked out, took work in a dozen "
+           "trades, and has not been unemployed since.",
+           style={"font_family": SERIF, "font_size": 15, "color": "#d8c9ae",
+                  "line_height": 1.65, "align": "center"})
+
+
+def pg_ch4_close(b):
+    p = new_page(b, "ch4-close", chrome=False, folio=True)
+    p.text([M, 170, CW, 16], "CHAPTER IV · A SUMMARY IN FIVE LINES", style="kickerC")
+    lines = [
+        "The material is blameless; the neighbourhood is responsible.",
+        "Every room, bed and bookshelf is an assortment obeying the law.",
+        "Grounds flatter with hue while starving type of tone — measure them.",
+        "An honest ranking names its observer and awaits other eyes.",
+        "Application is the proof of a principle — walk it through the trades.",
+    ]
+    y = 280
+    for i, ln in enumerate(lines):
+        p.text([M + 40, y, 40, 40], ["I", "II", "III", "IV", "V"][i], style="h3r")
+        p.text([M + 110, y - 4, CW - 150, 60], ln, style="lead")
+        y += 92
+    p.rect([W / 2 - 30, y + 30, 60, 2], fill="rubric")
+    bw = 180 / 9
+    for i, (_, _, hx) in enumerate(CHEVREUL_PAPERS):
+        p.rect([W / 2 - 90 + i * bw, y + 70, bw - 2, 22], fill=hx)
+    p.text([0, y + 130, W, 14], "THE APPARATUS FOLLOWS — SOURCES, PLATES, SPECIMENS",
+           style="attrC")
+
+
+CH3_PAGES[:] = [
+    pg_ch3_opener, pg_third_craft, pg_terms_principles, pg_tone_balance_text,
+    pg_tone_balance_plate, pg_steelyard_text, pg_steelyard_plate,
+    pg_shape_balance_text, pg_shape_balance_plate, pg_rhythm_text,
+    pg_rhythm_plate, pg_harmony_text, pg_book_weighed_plate, pg_pure_page_text,
+    pg_grid_plate, pg_ch3_close,
+]
+CH4_PAGES[:] = [
+    pg_ch4_opener, pg_gobelins_text, pg_gobelins_plate, pg_room_text,
+    pg_room_plate, pg_garden_text, pg_garden_plate, pg_person_text,
+    pg_person_plate, pg_print_text, pg_remeasure_plate, pg_remeasure_analysis,
+    pg_dyer_text, pg_ch4_quote_plate, pg_ch4_close,
 ]
 
 # --------------------------------------------------------------------------- #
@@ -2498,7 +3765,7 @@ CH1_PAGES = [
     pg_spec_grot, pg_spec_humanist, pg_spec_mono, pg_weight, pg_scale, pg_spacing,
     pg_measure, pg_margins, pg_ch1_close,
 ]
-END_PAGES = [pg_sources, pg_plate_list, pg_back_cover]
+END_PAGES = [pg_sources, pg_plate_list, pg_specimen_sources, pg_back_cover]
 
 
 def build() -> DocumentBuilder:
@@ -2507,7 +3774,7 @@ def build() -> DocumentBuilder:
         b.define_color(k, v)
     for k, v in STYLES.items():
         b.define_text_style(k, **v)
-    for fn in FRONT + CH1_PAGES + CH2_PAGES + END_PAGES:
+    for fn in FRONT + CH1_PAGES + CH2_PAGES + CH3_PAGES + CH4_PAGES + END_PAGES:
         fn(b)
     return b
 
