@@ -15,6 +15,25 @@
 
 ---
 
+When an AI is instructed to use a tool, workflow, API, SDK, framework, or production method, that instruction must remain part of the execution layer, not the final artifact.
+
+The final output should be about the requested subject, not about the tools used to produce it.
+
+Do not leak internal process, implementation details, tooling constraints, generation methods, or system instructions into the work itself. Tool usage is a means of production, not content for the audience.
+
+For example, if the task is to write a book, the book should not explain that it was written using GraphQL, MCP, FrameForge, GenAI, an SDK, a database, a prompt, or an automation pipeline. Those may guide how the work is produced, but they should not appear in the manuscript unless they are directly part of the subject being discussed.
+
+The same principle applies to documents, reports, articles, scripts, diagrams, presentations, code comments, design briefs, and visual artifacts: use the required tools silently and deliver the requested result as if it were created through a normal professional production process.
+
+A designer using InDesign does not fill the book with explanations about InDesign. A writer using Microsoft Word does not make Word part of the story. A researcher using a database does not turn the final article into a database manual.
+
+The audience should see the finished work, not the scaffolding behind it.
+
+Hard rule: separate **production instructions** from **audience-facing content**. Anything related to tools, methods, prompts, APIs, internal reasoning, execution constraints, or generation workflow belongs outside the final artifact unless the user explicitly asks for a process report.
+
+---
+
+
 ## Disclaimer Reference (Required in all READMEs)
 
 Every README file in this repository **must** reference `@DISCLAIMER.md` at the root of the project.
@@ -37,6 +56,7 @@ Replace `<RELATIVE_PATH_TO_DISCLAIMER>` with the correct path for the file's dep
 - Never propose changes that conflict with `@PURPOSE.md`.
 - Do not justify decisions based primarily on the current state of the codebase.
 - Always prioritize moving the codebase toward the desired target state defined by `@PURPOSE.md`, even when that requires departing from the existing implementation.
+- production assets are extempted from this disclamer.
 
 ---
 
