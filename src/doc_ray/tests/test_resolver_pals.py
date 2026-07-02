@@ -25,6 +25,7 @@ def test_tool_schema_is_strict_and_enum_is_the_candidate_set():
         "canonical_id",
         "confidence",
         "new_preferred",
+        "new_entity_type",
         "aliases",
     }
     id_options = schema["properties"]["canonical_id"]["anyOf"]
@@ -97,3 +98,42 @@ def test_nan_and_inf_confidence_never_auto_commit():
 def test_alias_junk_is_filtered():
     res = to_resolution({"verdict": "abstain", "aliases": ["Ze", "", 42, "  ", " Zelya "]}, CANDS)
     assert res.harvested_aliases == ("Ze", "Zelya")
+
+
+def test_schema_offers_entity_type_choice_for_new_entities():
+    # The resolver may propose the entity type on NEW (fixes spaCy mistypes like
+    # Clover-as-GPE); the choice is constrained to a closed enum, per PALS.
+    schema = build_tool(CANDS)["input_schema"]
+    assert "new_entity_type" in schema["required"]
+    type_options = schema["properties"]["new_entity_type"]["anyOf"]
+    enum = next(o for o in type_options if "enum" in o)
+    assert "ANIMAL" in enum["enum"] and "PERSON" in enum["enum"]
+    assert {"type": "null"} in type_options
+
+
+def test_new_entity_carries_proposed_type():
+    res = to_resolution(
+        {
+            "verdict": "new_entity",
+            "new_preferred": "Clover",
+            "new_entity_type": "ANIMAL",
+            "confidence": 0.9,
+        },
+        CANDS,
+    )
+    assert res.kind is ResolutionKind.NEW
+    assert res.new_entity_type == "ANIMAL"
+
+
+def test_junk_proposed_type_is_dropped_not_fatal():
+    res = to_resolution(
+        {
+            "verdict": "new_entity",
+            "new_preferred": "Clover",
+            "new_entity_type": 42,
+            "confidence": 0.9,
+        },
+        CANDS,
+    )
+    assert res.kind is ResolutionKind.NEW  # the verdict survives
+    assert res.new_entity_type is None  # the junk type does not

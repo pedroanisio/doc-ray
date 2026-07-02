@@ -38,6 +38,19 @@ DEFAULT_MODEL = "claude-opus-4-8"
 
 _TOOL_NAME = "resolve_entity"
 
+#: Closed entity-class vocabulary the resolver may propose for a NEW entity
+#: (constrained choice — free-text types would reintroduce unvalidated output).
+ENTITY_TYPES = (
+    "PERSON",
+    "PLACE",
+    "ORG",
+    "EVENT",
+    "WORK",
+    "ANIMAL",
+    "CONCEPT",
+    "OTHER",
+)
+
 _SYSTEM = (
     "You are an entity-resolution engine. You are given a mention in its sentence "
     "and a closed set of candidate canonical entities. You must call the "
@@ -95,13 +108,24 @@ def build_tool(candidates: list[Candidate]) -> dict[str, Any]:
                     "anyOf": [{"type": "string"}, {"type": "null"}],
                     "description": "Preferred label (new_entity only), else null.",
                 },
+                "new_entity_type": {
+                    "anyOf": [{"type": "string", "enum": list(ENTITY_TYPES)}, {"type": "null"}],
+                    "description": "Entity class (new_entity only), else null.",
+                },
                 "aliases": {
                     "type": "array",
                     "items": {"type": "string"},
                     "description": "Alternate surface forms observed for the entity.",
                 },
             },
-            "required": ["verdict", "canonical_id", "confidence", "new_preferred", "aliases"],
+            "required": [
+                "verdict",
+                "canonical_id",
+                "confidence",
+                "new_preferred",
+                "new_entity_type",
+                "aliases",
+            ],
             "additionalProperties": False,
         },
     }
@@ -167,11 +191,18 @@ def to_resolution(raw: dict[str, Any], candidates: list[Candidate]) -> Resolutio
         preferred = raw.get("new_preferred")
         if not isinstance(preferred, str) or not preferred.strip():
             return abstain  # a new entity without a name is not actionable
+        proposed_type = raw.get("new_entity_type")
+        entity_type = (
+            proposed_type.strip().upper()
+            if isinstance(proposed_type, str) and proposed_type.strip()
+            else None
+        )  # junk type drops to None (mention type wins); the verdict itself survives
         return Resolution(
             kind=ResolutionKind.NEW,
             confidence=confidence,
             harvested_aliases=aliases,
             new_preferred=preferred.strip(),
+            new_entity_type=entity_type,
         )
     return abstain  # unknown verdict (or explicit abstain)
 

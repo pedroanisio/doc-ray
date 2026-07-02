@@ -124,6 +124,88 @@ def test_new_entity_commits_and_closes_the_flywheel():
         conn.close()
 
 
+def test_new_entity_uses_resolver_proposed_type_over_mention_type():
+    # The live run minted Clover as GPE because spaCy mistyped the mention; the
+    # resolver's proposed type must win over the mention's NER type.
+    conn = _connect_or_skip()
+    docs: list[str] = []
+    canon: list[int] = []
+    try:
+        doc_id, elena_m, _berlin_m = _seed_doc_with_mentions(conn)
+        docs.append(doc_id)
+        result = autolink_document(conn, doc_id)
+        elena_res = next(r for r in result.residue if r.surface == "Elena")
+        assert elena_res.entity_type == "PER"  # what spaCy said
+
+        stub = _StubResolver(
+            {
+                "Elena": Resolution(
+                    kind=ResolutionKind.NEW,
+                    confidence=0.95,
+                    new_preferred="Elena the Goat",
+                    new_entity_type="ANIMAL",  # the resolver's correction
+                )
+            }
+        )
+        resolve_residue(conn, stub, doc_id, [elena_res])
+        cid = store.canonical_for_mention(conn, elena_m)
+        assert cid is not None
+        canon.append(cid)
+        row = conn.execute("SELECT entity_type FROM canonical WHERE id = %s", (cid,)).fetchone()
+        assert row["entity_type"] == "ANIMAL"  # not 'PER'
+    finally:
+        for d in docs:
+            conn.execute("DELETE FROM documents WHERE id = %s", (d,))
+        for c in canon:
+            conn.execute("DELETE FROM canonical WHERE id = %s", (c,))
+        conn.close()
+
+
+def test_non_referential_types_never_reach_the_frontier():
+    # CARDINAL/ORDINAL/DATE/... mentions are NER noise, not entities: they must be
+    # skipped before the resolver (cost control), not linked, not queued for review.
+    conn = _connect_or_skip()
+    docs: list[str] = []
+    try:
+        import _itdb
+
+        doc_id = _itdb.make_doc(conn, "Two pigs met on Sunday. Elena watched.")
+        docs.append(doc_id)
+        aid = _itdb.make_annotation(conn, doc_id, "ner", "test")
+        specs = [((0, 3), "CARDINAL"), ((16, 22), "DATE"), ((24, 29), "PER")]
+        mention_ids = []
+        for (s, e), etype in specs:
+            span = _itdb.span_of(conn, doc_id, s, e)
+            mid = new_ulid_str()
+            conn.execute(
+                "INSERT INTO entity_mention (id, annotation_id, span_id, entity_type) "
+                "VALUES (%s, %s, %s, %s)",
+                (mid, aid, span, etype),
+            )
+            mention_ids.append(mid)
+
+        result = autolink_document(conn, doc_id)
+        assert len(result.residue) == 3
+
+        stub = _StubResolver({})  # everything it IS asked about -> abstain -> review
+        outcome = resolve_residue(conn, stub, doc_id, result.residue)
+
+        surfaces_seen = [m for m, _ in stub.calls]
+        assert "Elena" in surfaces_seen  # referential type went through
+        assert "Two" not in surfaces_seen and "Sunday" not in surfaces_seen  # filtered
+        assert outcome.skipped == 2
+        assert outcome.review == 1  # only Elena's abstain landed in review
+        n_review = conn.execute(
+            "SELECT count(*) n FROM resolution_review WHERE mention_id = ANY(%s)",
+            (mention_ids,),
+        ).fetchone()["n"]
+        assert n_review == 1
+    finally:
+        for d in docs:
+            conn.execute("DELETE FROM documents WHERE id = %s", (d,))
+        conn.close()
+
+
 def test_low_confidence_select_goes_to_review_not_link():
     conn = _connect_or_skip()
     docs: list[str] = []

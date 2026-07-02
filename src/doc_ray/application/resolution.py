@@ -34,6 +34,12 @@ AUTO_COMMIT_THRESHOLD = 0.8
 #: source_types tag for forms learned from the corpus via the resolver.
 _SOURCE = "corpus"
 
+#: NER labels that are quantities/time expressions, not referential entities —
+#: they never reach the frontier (pure cost) and are neither linked nor reviewed.
+NON_REFERENTIAL_TYPES = frozenset(
+    {"CARDINAL", "ORDINAL", "DATE", "TIME", "PERCENT", "MONEY", "QUANTITY"}
+)
+
 
 @dataclass(frozen=True)
 class ResolutionOutcome:
@@ -43,11 +49,13 @@ class ResolutionOutcome:
         linked: Mentions committed to an existing canonical (SELECT).
         created: New canonicals minted and linked (NEW).
         review: Mentions queued for human review (abstain / low confidence).
+        skipped: Non-referential mentions filtered before the resolver.
     """
 
     linked: int = 0
     created: int = 0
     review: int = 0
+    skipped: int = 0
 
 
 def _write_back(
@@ -133,8 +141,11 @@ def resolve_residue(
         Counts of linked / created / queued-for-review mentions.
     """
     resolver_name = getattr(resolver, "name", type(resolver).__name__)
-    linked = created = review = 0
+    linked = created = review = skipped = 0
     for mention in residue:
+        if mention.entity_type in NON_REFERENTIAL_TYPES:
+            skipped += 1  # NER noise: never spend a frontier call on it
+            continue
         sentence = (
             store.sentence_for_span(conn, document_id, mention.char_start, mention.char_end) or ""
         )
@@ -152,8 +163,12 @@ def resolve_residue(
             linked += 1
         elif resolution.kind is ResolutionKind.NEW and resolution.confidence >= threshold:
             assert resolution.new_preferred is not None
+            # The resolver's proposed class (validated against a closed enum) wins over
+            # the mention's NER tag — it sees context and can correct upstream mistypes.
             canonical_id = store.create_canonical(
-                conn, preferred=resolution.new_preferred, entity_type=mention.entity_type
+                conn,
+                preferred=resolution.new_preferred,
+                entity_type=resolution.new_entity_type or mention.entity_type,
             )
             store.link_mention(
                 conn, mention.mention_id, canonical_id, confidence=resolution.confidence
@@ -169,4 +184,4 @@ def resolve_residue(
         else:
             _queue_review(conn, mention, resolution, resolver_name=resolver_name)
             review += 1
-    return ResolutionOutcome(linked=linked, created=created, review=review)
+    return ResolutionOutcome(linked=linked, created=created, review=review, skipped=skipped)

@@ -45,6 +45,9 @@ class Resolution:
         confidence: Model-reported confidence in ``[0, 1]``.
         harvested_aliases: Alternate surface forms the resolver observed in context.
         new_preferred: Proposed preferred label — set iff ``kind`` is NEW.
+        new_entity_type: Proposed entity class for a NEW entity (constrained enum in
+            the adapter schema), or ``None`` to fall back to the mention's NER type —
+            lets the resolver correct upstream mistypes (e.g. a character tagged GPE).
     """
 
     kind: ResolutionKind
@@ -52,6 +55,7 @@ class Resolution:
     confidence: float = 0.0
     harvested_aliases: tuple[str, ...] = field(default_factory=tuple)
     new_preferred: str | None = None
+    new_entity_type: str | None = None
 
 
 class EntityResolver(Protocol):
