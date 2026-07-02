@@ -42,6 +42,13 @@ repos:
         always_run: true
         files: ^engineering_decisions\.yml$
 
+      - id: version-consistency
+        name: SemVer surfaces agree with doc_ray.__version__
+        entry: python scripts/check_version_consistency.py
+        language: system
+        pass_filenames: false
+        always_run: true
+
       - id: coverage-gate
         name: pytest coverage >= 90% — D-013 (pre-push)
         entry: pytest --cov=doc_ray --cov-fail-under=90 tests src/doc_ray/tests -q

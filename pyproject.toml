@@ -4,10 +4,11 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "doc-ray"
-version = "0.1.0"
 description = "Document ingestion, decomposition, and annotation pipeline."
 requires-python = ">=3.10"
-dynamic = ["dependencies"]
+# version is single-sourced from doc_ray.__version__ (see [tool.setuptools.dynamic]);
+# dependencies are single-sourced from requirements.txt. Never hard-code either here.
+dynamic = ["version", "dependencies"]
 
 # src/ layout: the importable package lives under src/. The frontend (webapp/)
 # and standalone tools (scripts/) intentionally stay OUTSIDE src.
@@ -15,6 +16,7 @@ dynamic = ["dependencies"]
 where = ["src"]
 
 [tool.setuptools.dynamic]
+version = { attr = "doc_ray.__version__" }
 dependencies = { file = ["requirements.txt"] }
 
 [tool.pytest.ini_options]

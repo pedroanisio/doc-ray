@@ -94,8 +94,10 @@ def create_app(cfg: Config | None = None, authenticator: Authenticator | None = 
 
     @app.get("/health")
     async def health() -> dict[str, str]:
-        """Liveness probe."""
-        return {"status": "ok"}
+        """Liveness probe; reports the running service's semantic version."""
+        from doc_ray import __version__
+
+        return {"status": "ok", "version": __version__}
 
     return app
 

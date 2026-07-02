@@ -28,6 +28,13 @@ class Query:
     """The GraphQL query root."""
 
     @strawberry.field
+    def version(self) -> str:
+        """Return the running service's semantic version (``doc_ray.__version__``)."""
+        from doc_ray import __version__
+
+        return __version__
+
+    @strawberry.field
     async def documents(self, info: Info, limit: int = 50, offset: int = 0) -> list[Document]:
         """Return a bounded page of document summaries."""
         ctx = info.context
