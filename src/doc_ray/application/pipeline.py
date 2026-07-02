@@ -63,9 +63,8 @@ def ingest_file(conn: psycopg.Connection[Any], store: ObjectStore, path: Path) -
     # Content-addressed key keeps the bucket flat and collision-free.
     key = f"{sha[:2]}/{sha}{ext}"
 
-    try:
-        extracted = extract_mod.extract(data, filename=path.stem, extension=ext)
-    except Exception as exc:  # extraction failed -> still record the blob + failure
+    def record_failure(error: str) -> IngestResult:
+        """Store the blob and a FAILED document row carrying *error*."""
         uri = store.put(key, data, "application/octet-stream")
         provenance = prov_mod.build_events(
             content_sha256=sha,
@@ -75,7 +74,7 @@ def ingest_file(conn: psycopg.Connection[Any], store: ObjectStore, path: Path) -
             storage_key=key,
             storage_uri=uri,
             status="failed",
-            error=str(exc),
+            error=error,
         )
         doc_id = db.insert_document(
             conn,
@@ -88,10 +87,23 @@ def ingest_file(conn: psycopg.Connection[Any], store: ObjectStore, path: Path) -
             page_count=None,
             full_text=None,
             status="failed",
-            error=str(exc),
+            error=error,
             provenance=provenance,
         )
-        return IngestResult(str(path), doc_id, "failed", str(exc))
+        return IngestResult(str(path), doc_id, "failed", error)
+
+    try:
+        extracted = extract_mod.extract(data, filename=path.stem, extension=ext)
+    except Exception as exc:  # extraction failed -> still record the blob + failure
+        return record_failure(str(exc))
+
+    if not extracted.full_text.strip():
+        # A file with nothing to read must fail loudly, not become an empty
+        # document that "succeeds" through the whole pipeline (live incident:
+        # a 368-page scanned PDF with zero text layer).
+        return record_failure(
+            "no extractable text — scanned/image-only file? OCR required before ingest"
+        )
 
     uri = store.put(key, data, extracted.content_type)
 

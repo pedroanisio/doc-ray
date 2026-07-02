@@ -102,3 +102,22 @@ def test_expand_paths_recurses_and_filters(tmp_path):
     got = pipeline.expand_paths([str(tmp_path), str(keep1)], {".txt", ".md"})
     assert keep2 in got and got.count(keep1) == 2  # dir hit + explicit file hit
     assert all(p.suffix in {".txt", ".md"} for p in got)
+
+
+def test_ingest_file_with_no_extractable_text_fails_clearly(pg, store, tmp_path):
+    # Live incident: a 368-page scanned PDF (zero text layer) sailed through as
+    # an empty 'ingested' document and ran the whole chain on nothing. A file
+    # with no extractable text must record a FAILED document with a message
+    # that names the remedy — and (via the chain's status guard) never
+    # advance the pipeline.
+    path = _txt(tmp_path, f"it-{_itdb.unique_sha()[:8]}.txt", "\x00\x00 \x00\n")
+
+    r = pipeline.ingest_file(conn := pg[0], store, path)
+    pg[1].append(r.document_id)
+    assert r.status == "failed"
+    assert "no extractable text" in (r.detail or "")
+    row = conn.execute(
+        "SELECT status, error FROM documents WHERE id = %s", (r.document_id,)
+    ).fetchone()
+    assert row["status"] == "failed"
+    assert "OCR" in row["error"]
