@@ -45,7 +45,10 @@ def test_app_serves_health_and_graphql():
 
     app = create_app(_cfg())
     with TestClient(app) as client:  # context manager runs the lifespan (pool open/close)
-        assert client.get("/health").json() == {"status": "ok"}
+        health = client.get("/health").json()
+        assert health["status"] == "ok"
+        # optional version report (semantic-version string when present)
+        assert isinstance(health.get("version", ""), str)
         r = client.post("/graphql", json={"query": "{ documents(limit: 1) { id } }"})
         assert r.status_code == 200
         body = r.json()

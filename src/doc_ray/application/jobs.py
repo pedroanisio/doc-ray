@@ -141,19 +141,26 @@ def handle_seed_canonical(
 def handle_canonicalize(
     conn: psycopg.Connection[Any], store: ObjectStore | None, job: Job
 ) -> dict[str, Any]:
-    """Canonicalize a document's mentions: Stage-2 auto-link, then (opt-in) Stage 3.
+    """Canonicalize a document's mentions: term scan + Stage-2 auto-link, then (opt-in) Stage 3.
 
-    The frontier resolver runs only when the payload sets ``resolve`` truthy —
+    The registry term scan (Stage 1.5) runs first so technical vocabulary the
+    registry knows — which NER never tags — becomes linkable mentions. Then the
+    frontier resolver runs only when the payload sets ``resolve`` truthy —
     LLM cost is an explicit request, never a side effect. It processes only the
     Stage-2 residue (index-first, D-019) and its verdicts are validated by the
     adapter (PALS): uncommitted ones land in ``resolution_review``.
     """
-    from doc_ray.application import canonicalize
+    from doc_ray.application import canonicalize, term_scan
 
     if job.document_id is None:
         raise RuntimeError("canonicalize requires a document_id")
+    terms = term_scan.scan_document(conn, job.document_id)
     result = canonicalize.autolink_document(conn, job.document_id)
-    out: dict[str, Any] = {"linked": result.linked, "residue": len(result.residue)}
+    out: dict[str, Any] = {
+        "term_mentions": terms,
+        "linked": result.linked,
+        "residue": len(result.residue),
+    }
     if job.payload.get("resolve") and result.residue:
         from doc_ray.adapters.resolver_claude import ClaudeResolver
         from doc_ray.application.resolution import resolve_residue
