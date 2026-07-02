@@ -116,9 +116,19 @@ def handle_annotate(
 
     if job.document_id is None:
         raise RuntimeError("annotate requires a document_id")
-    return SpacyAnnotator().annotate(
+    info = SpacyAnnotator().annotate(
         conn, job.document_id, lang_default=str(job.payload.get("lang", "en"))
     )
+    # Record the detected language on the document: the migration-016 trigger
+    # then rebuilds the content tsvector with the language-aware config, so a
+    # separate reannotate pass is no longer needed for stemmed search.
+    lang = info.get("lang")
+    if lang:
+        conn.execute(
+            "UPDATE documents SET language = %s WHERE id = %s AND language IS DISTINCT FROM %s",
+            (lang, job.document_id, lang),
+        )
+    return info
 
 
 def handle_seed_canonical(
@@ -236,6 +246,8 @@ def handle_canonicalize(
     return out
 
 
+
+
 HANDLERS: dict[str, Handler] = {
     KIND_ANNOTATE: handle_annotate,
     KIND_REANNOTATE: handle_reannotate,
@@ -316,7 +328,24 @@ def run_once(
     )
     try:
         result = handler(conn, store, job)
-        queue.complete(conn, job.id, result=result)
+        # One transaction: success recording and chain advancement commit (or
+        # roll back) together. A crash or enqueue failure here leaves the job
+        # 'running', so the reaper requeues it and the step re-runs — no silent
+        # pipeline stall, and no recorded-success-without-successor window.
+        with conn.transaction():
+            if queue.complete(conn, job.id, result=result, worker_id=worker_id):
+                if (
+                    job.document_id is None
+                    and isinstance(result, dict)
+                    and result.get("document_id")
+                ):
+                    # Backfill the row (ingest starts with no document): progress
+                    # surfaces filter on jobs.document_id and must include step 1.
+                    conn.execute(
+                        "UPDATE jobs SET document_id = %s WHERE id = %s",
+                        (str(result["document_id"]), job.id),
+                    )
+                _advance_chain(conn, job, result)
     except Exception as exc:  # the worker must survive any handler failure
         retry = None if job.attempts >= job.max_attempts else backoff_seconds(job.attempts)
         queue.fail(conn, job.id, error=repr(exc), retry_in_seconds=retry)
@@ -324,3 +353,30 @@ def run_once(
         if stop_heartbeat is not None:
             stop_heartbeat()
     return job
+
+
+def _advance_chain(conn: psycopg.Connection[Any], job: Job, result: dict[str, Any]) -> None:
+    """Enqueue the next pipeline step from the payload's ``chain``, if any.
+
+    The chain travels in the payload (``["annotate", "canonicalize"]``): each
+    successful step enqueues the next kind for the same document with the
+    remaining chain — deterministic and auditable in the jobs table. An ingest
+    step starts with no ``document_id``: the chained step picks it up from the
+    handler's result, and the ingest job's own row is backfilled so progress
+    surfaces (``jobs(documentId:)``, the webapp cascade) include it. A failed
+    step never advances (the retry path re-runs the same step, so the chain
+    survives transient failures), and an ingest that did not actually ingest
+    (extraction failure, duplicate re-upload) ends the chain rather than
+    re-processing.
+    """
+    chain = list(job.payload.get("chain") or [])
+    if not chain:
+        return
+    if job.kind == KIND_INGEST and result.get("status") != "ingested":
+        return
+    document_id = job.document_id or (
+        result.get("document_id") if isinstance(result, dict) else None
+    )
+    if document_id is None:
+        return
+    queue.enqueue(conn, chain[0], {"chain": chain[1:]}, document_id=str(document_id))

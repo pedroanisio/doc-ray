@@ -61,7 +61,11 @@ def test_ambiguous_does_not_autolink():
         created += [a, b]
         blk = candidates_for_form(conn, "Acme")
         assert blk.auto_link_id is None
-        assert {c.canonical_id for c in blk.candidates} == {a, b}
+        # Inclusion, not equality: the shared live registry may legitimately hold
+        # other canonicals whose aliases normalize to 'acme' (live example: the
+        # narratology 'climax' Q569250 carries the alias 'acmé'). Extra
+        # candidates only reinforce the ambiguity this test asserts.
+        assert {c.canonical_id for c in blk.candidates} >= {a, b}
     finally:
         for c in created:
             conn.execute("DELETE FROM canonical WHERE id = %s", (c,))

@@ -4,6 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}doc·ray{% endblock %}</title>
+  {% block head %}{% endblock %}
   <script>
     /* Set theme before paint — no flash of wrong theme. */
     (function () {
@@ -153,6 +154,8 @@
       <a href="{{ url_for('documents') }}">Corpus</a>
       <a href="{{ url_for('lexemes') }}">Lexicon</a>
       <a href="{{ url_for('search') }}">Search</a>
+      <a href="{{ url_for('upload_form') }}">Upload</a>
+      <a href="{{ url_for('backups') }}">Backups</a>
     </nav>
     <button class="toggle" onclick="toggleTheme()" title="Toggle light / dark" aria-label="Toggle theme">
       <span class="sun">☀</span><span class="moon">☾</span>

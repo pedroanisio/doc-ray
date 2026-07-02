@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% block title %}job {{ job.id }} · doc·ray{% endblock %}
+{% block head %}{% if active %}<meta http-equiv="refresh" content="3">{% endif %}{% endblock %}
+{% block body %}
+<style>
+  main { max-width:860px; }
+  table.jobs { width:100%; border-collapse:collapse; font-size:.86rem; margin-top:1rem; }
+  table.jobs th { font-family:var(--mono); font-size:.62rem; letter-spacing:.1em;
+    text-transform:uppercase; color:var(--ink-soft); text-align:left;
+    padding:.45rem .6rem; border-bottom:1px solid var(--line); }
+  table.jobs td { padding:.45rem .6rem; border-bottom:1px solid var(--line);
+    vertical-align:top; }
+  .st { font-family:var(--mono); font-size:.64rem; letter-spacing:.06em;
+    padding:.14rem .5rem; border:1px solid var(--line); border-radius:999px;
+    color:var(--ink-soft); white-space:nowrap; }
+  .st-succeeded { color:var(--pos-num); border-color:var(--pos-num); }
+  .st-failed { color:var(--accent); border-color:var(--accent); }
+  .st-running { background:var(--sel); color:var(--ink); }
+  td.res { font-family:var(--mono); font-size:.7rem; color:var(--ink-soft);
+    max-width:30rem; overflow-wrap:anywhere; }
+  .hint { font-size:.82rem; color:var(--ink-faint); }
+</style>
+
+<h1>Pipeline status</h1>
+{% if doc %}
+  <p><a href="/doc/{{ doc.id }}">&rarr; {{ doc.title }}</a></p>
+{% elif active %}
+  <p class="hint">waiting for ingestion to produce a document&hellip; this page
+  refreshes every 3 seconds.</p>
+{% endif %}
+
+<table class="jobs">
+  <tr><th>job</th><th>kind</th><th>status</th><th>outcome</th></tr>
+  {% for j in (cascade or [job]) %}
+  <tr>
+    <td style="font-family:var(--mono); font-size:.68rem;">{{ j.id }}</td>
+    <td>{{ j.kind }}</td>
+    <td><span class="st st-{{ j.status }}">{{ j.status }}</span></td>
+    <td class="res">{{ j.error or j.result or '' }}</td>
+  </tr>
+  {% endfor %}
+</table>
+
+{% if not active %}
+<p class="hint" style="margin-top:1rem;">pipeline finished.
+  {% if doc %}Open <a href="/doc/{{ doc.id }}">{{ doc.title }}</a> or its
+  <a href="/doc/{{ doc.id }}/seeding">domain seeding</a> screen.{% endif %}</p>
+{% endif %}
+{% endblock %}

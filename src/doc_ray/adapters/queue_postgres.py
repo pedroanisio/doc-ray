@@ -115,6 +115,26 @@ async def status_async(conn: psycopg.AsyncConnection[Any], job_id: str) -> dict[
     return row
 
 
+async def list_async(
+    conn: psycopg.AsyncConnection[Any],
+    *,
+    document_id: str | None = None,
+    limit: int = 20,
+) -> list[dict[str, Any]]:
+    """Return recent job rows, newest first (optionally scoped to one document).
+
+    The pipeline-progress read: clients poll this to render a document's
+    ingest -> annotate -> canonicalize cascade.
+    """
+    cur = await conn.execute(
+        "SELECT id, kind, status, document_id, error, result "
+        "FROM jobs WHERE (%s::uuid IS NULL OR document_id = %s) "
+        "ORDER BY id DESC LIMIT %s",
+        (document_id, document_id, limit),
+    )
+    return await cur.fetchall()
+
+
 def heartbeat(conn: psycopg.Connection[Any], job_id: str, *, worker_id: str) -> bool:
     """Refresh liveness; ``False`` if the job was reclaimed/canceled out from under us."""
     cur = conn.execute(
@@ -126,14 +146,28 @@ def heartbeat(conn: psycopg.Connection[Any], job_id: str, *, worker_id: str) -> 
 
 
 def complete(
-    conn: psycopg.Connection[Any], job_id: str, *, result: dict[str, Any] | None = None
-) -> None:
-    """Mark a running job succeeded, recording an optional result."""
-    conn.execute(
+    conn: psycopg.Connection[Any],
+    job_id: str,
+    *,
+    result: dict[str, Any] | None = None,
+    worker_id: str | None = None,
+) -> bool:
+    """Mark a running job succeeded, recording an optional result.
+
+    With *worker_id* the update also requires holding the claim — a zombie
+    worker whose job was reaped and reclaimed matches zero rows. Callers gate
+    side effects (chain advancement) on the returned value.
+
+    Returns:
+        Whether this call actually transitioned the row.
+    """
+    cur = conn.execute(
         "UPDATE jobs SET status = 'succeeded', finished_at = now(), result = %s "
-        "WHERE id = %s AND status = 'running'",
-        (Jsonb(result) if result is not None else None, job_id),
+        "WHERE id = %s AND status = 'running' "
+        "AND (%s::text IS NULL OR locked_by = %s)",
+        (Jsonb(result) if result is not None else None, job_id, worker_id, worker_id),
     )
+    return cur.rowcount > 0
 
 
 def fail(

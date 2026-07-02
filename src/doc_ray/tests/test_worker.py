@@ -170,6 +170,87 @@ def test_annotate_job_produces_entity_mentions(qconn):
         conn.execute("DELETE FROM documents WHERE id = %s", (doc_id,))
 
 
+def test_chain_enqueues_next_kind_on_success(qconn):
+    # Pipeline automation: a job whose payload carries chain=["b", "c"] must, on
+    # success, enqueue kind "b" for the same document with chain=["c"].
+    conn, created = qconn
+    import _itdb
+
+    doc_id = _itdb.make_doc(conn, "Chain me. Second sentence.")
+    job_id = q.enqueue(
+        conn, "step-a", {"chain": ["step-b", "step-c"]}, priority=0, document_id=doc_id
+    )
+    created.append(job_id)
+    try:
+        run_once(conn, None, worker_id="w1", handlers={"step-a": lambda c, s, j: {"ok": 1}})
+        nxt = conn.execute(
+            "SELECT id, payload, document_id FROM jobs WHERE kind = 'step-b' AND document_id = %s",
+            (doc_id,),
+        ).fetchone()
+        assert nxt is not None
+        assert nxt["payload"]["chain"] == ["step-c"]
+        created.append(nxt["id"])
+    finally:
+        conn.execute("DELETE FROM documents WHERE id = %s", (doc_id,))
+
+
+def test_chain_does_not_fire_on_failure(qconn):
+    conn, created = qconn
+
+    def boom(_c, _s, _job):
+        raise ValueError("nope")
+
+    job_id = q.enqueue(conn, "step-a", {"chain": ["step-b-never"]}, priority=0)
+    created.append(job_id)
+    run_once(conn, None, worker_id="w1", handlers={"step-a": boom})
+    nxt = conn.execute("SELECT 1 FROM jobs WHERE kind = 'step-b-never'").fetchone()
+    assert nxt is None  # failed step never advances the pipeline
+
+
+def test_chain_takes_document_id_from_result(qconn):
+    # The ingest job starts with document_id=None; the chained annotate must
+    # pick the document id up from the handler's RESULT.
+    conn, created = qconn
+    import _itdb
+
+    doc_id = _itdb.make_doc(conn, "Result-id chain. Second sentence.")
+    job_id = q.enqueue(conn, "fake-ingest", {"chain": ["step-b-res"]}, priority=0)
+    created.append(job_id)
+    try:
+        run_once(
+            conn,
+            None,
+            worker_id="w1",
+            handlers={"fake-ingest": lambda c, s, j: {"document_id": doc_id, "status": "ingested"}},
+        )
+        nxt = conn.execute("SELECT id, document_id FROM jobs WHERE kind = 'step-b-res'").fetchone()
+        assert nxt is not None and str(nxt["document_id"]) == doc_id
+        created.append(nxt["id"])
+    finally:
+        conn.execute("DELETE FROM documents WHERE id = %s", (doc_id,))
+
+
+def test_annotate_job_sets_document_language(qconn):
+    # Architecture fix: annotate must set documents.language (which fires the
+    # migration-016 FTS rebuild trigger) so the redundant post-annotate
+    # reannotate pass is no longer needed for language-aware search.
+    import _itdb
+
+    from doc_ray.application.jobs import HANDLERS
+
+    conn, created = qconn
+    doc_id = _itdb.make_doc(conn, "Elena founded a startup in Berlin. It grew fast.")
+    job_id = q.enqueue(conn, "annotate", {}, priority=0, document_id=doc_id)
+    created.append(job_id)
+    try:
+        run_once(conn, None, worker_id="w1", handlers=HANDLERS)
+        assert q.get(conn, job_id).status is JobStatus.SUCCEEDED
+        row = conn.execute("SELECT language FROM documents WHERE id = %s", (doc_id,)).fetchone()
+        assert row["language"] == "en"
+    finally:
+        conn.execute("DELETE FROM documents WHERE id = %s", (doc_id,))
+
+
 def test_delete_handler_removes_document(qconn):
     import _itdb
 

@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import hashlib
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 
 import strawberry
 from starlette.datastructures import UploadFile
@@ -19,6 +19,8 @@ from strawberry.file_uploads import Upload
 from doc_ray.adapters import queue_postgres as queue
 from doc_ray.adapters import seed_suggestion_store as seeds
 from doc_ray.domain.jobs import (
+    KIND_ANNOTATE,
+    KIND_CANONICALIZE,
     KIND_DELETE,
     KIND_INGEST,
     KIND_REANNOTATE,
@@ -27,6 +29,11 @@ from doc_ray.domain.jobs import (
 )
 from doc_ray.entrypoints.api.context import RequestContext
 from doc_ray.entrypoints.api.types import Info, Job
+
+#: The default post-ingest pipeline: Stage-1 annotation, then deterministic
+#: canonicalization. The frontier resolver is never chained — LLM cost stays an
+#: explicit request (D-018).
+_PIPELINE_CHAIN = [KIND_ANNOTATE, KIND_CANONICALIZE]
 
 
 async def _job_status(ctx: RequestContext, job_id: str) -> Job:
@@ -55,6 +62,33 @@ class Mutation:
         """Enqueue deletion of a document (cascades to its layers); returns the job."""
         ctx = info.context
         job_id = await queue.enqueue_async(ctx.conn, KIND_DELETE, {}, document_id=str(document_id))
+        return await _job_status(ctx, job_id)
+
+    @strawberry.mutation
+    async def annotate_document(
+        self, info: Info, document_id: strawberry.ID, lang: str = "en"
+    ) -> Job:
+        """Enqueue Stage-1 annotation (tokens/NER/coref) for a document."""
+        ctx = info.context
+        job_id = await queue.enqueue_async(
+            ctx.conn, KIND_ANNOTATE, {"lang": lang}, document_id=str(document_id)
+        )
+        return await _job_status(ctx, job_id)
+
+    @strawberry.mutation
+    async def canonicalize_document(
+        self, info: Info, document_id: strawberry.ID, resolve: bool = False
+    ) -> Job:
+        """Enqueue canonicalization (term scan + Stage-2 auto-link) for a document.
+
+        ``resolve: true`` additionally runs the frontier resolver on the residue —
+        LLM cost is always an explicit request, never a default.
+        """
+        ctx = info.context
+        payload = {"resolve": True} if resolve else {}
+        job_id = await queue.enqueue_async(
+            ctx.conn, KIND_CANONICALIZE, payload, document_id=str(document_id)
+        )
         return await _job_status(ctx, job_id)
 
     @strawberry.mutation
@@ -99,12 +133,17 @@ class Mutation:
         return await _job_status(ctx, job_id)
 
     @strawberry.mutation
-    async def ingest_document(self, info: Info, file: Upload, title: str | None = None) -> Job:
+    async def ingest_document(
+        self, info: Info, file: Upload, title: str | None = None, pipeline: bool = True
+    ) -> Job:
         """Upload a document: store the blob, enqueue ingestion; returns the job.
 
-        The blob is stored content-addressed (``sha[:2]/sha.ext``) before enqueuing
-        so the worker can read it back; the object store's ``put`` (blocking boto3)
-        runs off the event loop.
+        With ``pipeline`` (the default) the ingest job carries the standard
+        chain — annotate, then deterministic canonicalize — so an upload flows
+        to a fully linked document with no further calls. The blob is stored
+        content-addressed (``sha[:2]/sha.ext``) before enqueuing so the worker
+        can read it back; the object store's ``put`` (blocking boto3) runs off
+        the event loop.
         """
         import anyio
 
@@ -123,12 +162,14 @@ class Mutation:
         store = ObjectStore(Config.from_env())
         await anyio.to_thread.run_sync(store.put, key, data, "application/octet-stream")
 
-        payload = {
+        payload: dict[str, Any] = {
             "storage_key": key,
             "sha256": sha,
             "extension": ext,
             "original_filename": filename,
             "title": title,
         }
+        if pipeline:
+            payload["chain"] = list(_PIPELINE_CHAIN)
         job_id = await queue.enqueue_async(ctx.conn, KIND_INGEST, payload, document_id=None)
         return await _job_status(ctx, job_id)

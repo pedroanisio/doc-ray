@@ -160,6 +160,23 @@ class Query:
         return Job.from_row(row) if row is not None else None
 
     @strawberry.field
+    async def jobs(
+        self, info: Info, document_id: strawberry.ID | None = None, limit: int = 20
+    ) -> list[Job]:
+        """Return recent jobs, newest first — a document's pipeline progress view."""
+        import uuid
+
+        ctx = info.context
+        doc: str | None = None
+        if document_id is not None:
+            try:
+                doc = str(uuid.UUID(str(document_id)))
+            except ValueError:  # not a document id -> no jobs, not a DB error
+                return []
+        rows = await queue.list_async(ctx.conn, document_id=doc, limit=ctx.page_size(limit))
+        return [Job.from_row(r) for r in rows]
+
+    @strawberry.field
     async def seed_suggestions(
         self, info: Info, document_id: strawberry.ID, status: str | None = None
     ) -> list[SeedSuggestion]:

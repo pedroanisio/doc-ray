@@ -13,6 +13,7 @@ or simply:
 
 from __future__ import annotations
 
+import json
 import os
 
 import psycopg
@@ -32,6 +33,9 @@ DB_ROLE = os.environ.get("DOCRAY_DB_ROLE", "docray_client")
 PRINCIPAL_ID = os.environ.get("DOCRAY_PRINCIPAL_ID") or None
 
 app = Flask(__name__)
+# Uploads are forwarded to the API, which buffers the file for hashing — cap
+# the request size here so an oversized POST is rejected at the front door.
+app.config["MAX_CONTENT_LENGTH"] = int(os.environ.get("DOCRAY_MAX_UPLOAD_MB", "200")) * 1024 * 1024
 
 
 # --- per-request DB connection --------------------------------------------
@@ -299,6 +303,111 @@ def document(doc_id):
     )
 
 
+@app.errorhandler(413)
+def _upload_too_large(_exc):
+    """Redirect oversized uploads back to the form with a friendly message."""
+    from flask import redirect, url_for
+
+    limit_mb = app.config["MAX_CONTENT_LENGTH"] // (1024 * 1024)
+    return redirect(url_for("upload_form", error=f"file exceeds the {limit_mb} MB upload limit"))
+
+
+@app.route("/upload")
+def upload_form():
+    """Render the document upload form (EPUB, PDF, TXT, MD, DOCX)."""
+    return render_template("upload.html", error=request.args.get("error"))
+
+
+@app.route("/upload", methods=["POST"])
+def upload_submit():
+    """Send the uploaded file to the GraphQL ingest mutation and track its job.
+
+    The full pipeline (ingest -> annotate -> canonicalize) is enqueued by
+    default; unticking the checkbox uploads ingest-only. The browser never
+    touches the object store or the queue — the API is the one write path.
+    """
+    import httpx
+    from flask import redirect, url_for
+
+    upload = request.files.get("file")
+    if upload is None or not upload.filename:
+        return redirect(url_for("upload_form", error="choose a file first"))
+    operations = {
+        "query": (
+            "mutation($file: Upload!, $title: String, $pipeline: Boolean!) {"
+            " ingestDocument(file: $file, title: $title, pipeline: $pipeline) { id } }"
+        ),
+        "variables": {
+            "file": None,
+            "title": request.form.get("title") or None,
+            "pipeline": request.form.get("pipeline") == "on",
+        },
+    }
+    try:
+        response = httpx.post(
+            API_URL,
+            data={
+                "operations": json.dumps(operations),
+                "map": json.dumps({"0": ["variables.file"]}),
+            },
+            files={"0": (upload.filename, upload.stream, upload.mimetype)},
+            timeout=120.0,
+        )
+        response.raise_for_status()
+        body = response.json()
+        if body.get("errors"):
+            # Our own API's message (validation text) — safe and useful to show.
+            raise RuntimeError(body["errors"][0].get("message", "GraphQL error"))
+        job_id = ((body.get("data") or {}).get("ingestDocument") or {}).get("id")
+        if not job_id:
+            raise RuntimeError("the API returned no job for this upload")
+    except httpx.HTTPError:
+        # Transport-level details (URLs, stack text) belong in the log, not the UI.
+        app.logger.exception("upload forwarding failed")
+        return redirect(url_for("upload_form", error="ingest API unreachable — is it running?"))
+    except Exception as exc:
+        app.logger.exception("upload rejected")
+        return redirect(url_for("upload_form", error=str(exc)))
+    return redirect(url_for("job_status", job_id=job_id))
+
+
+@app.route("/job/<job_id>")
+def job_status(job_id):
+    """Render one job's status plus its document's whole pipeline cascade.
+
+    Auto-refreshes while anything is queued or running; once the ingest step
+    reports a document id, every job for that document is shown so the chained
+    annotate/canonicalize steps are visible as they land.
+    """
+    job = q1(
+        "SELECT id, kind, status, document_id, error, result, created_at, finished_at "
+        "FROM jobs WHERE id = %s",
+        (job_id,),
+    )
+    if job is None:
+        return ("job not found", 404)
+    doc_id = job["document_id"] or (job["result"] or {}).get("document_id")
+    cascade = []
+    doc = None
+    if doc_id:
+        cascade = q(
+            "SELECT id, kind, status, error, result, created_at, finished_at "
+            "FROM jobs WHERE document_id = %s ORDER BY id",
+            (doc_id,),
+        )
+        # The originating ingest job carries document_id NULL (the id lives only
+        # in its result) — keep it visible at the head of the cascade.
+        if all(j["id"] != job["id"] for j in cascade):
+            cascade.insert(0, job)
+        doc = q1("SELECT id, title FROM documents WHERE id = %s", (doc_id,))
+    active = job["status"] in ("queued", "running") or any(
+        j["status"] in ("queued", "running") for j in cascade
+    )
+    return render_template(
+        "job.html", job=job, cascade=cascade, doc=doc, doc_id=doc_id, active=active
+    )
+
+
 @app.route("/doc/<uuid:doc_id>/seeding")
 def seeding(doc_id):
     """Render the domain-seeding curation screen for one document.
@@ -487,6 +596,67 @@ def search():
             pre, _, post = r["text"].partition(term)
             r["pre"], r["hit"], r["post"] = pre, (term if _ else ""), post
     return render_template("search.html", term=term, rows=rows)
+
+
+# --- backup / restore --------------------------------------------------------
+#
+# The catalog is read straight from Postgres (like every other list); the
+# create/restore WRITES go through the GraphQL API (the single write path), which
+# enqueues worker jobs. Download streams the archive back from the object store.
+
+
+@app.route("/backups")
+def backups():
+    """List backup archives with a create button and per-row restore/download."""
+    rows = q(
+        "SELECT id, created_at, status, object_key, archive_bytes, table_rows, "
+        "       blob_count, doc_count, note, error FROM backups ORDER BY created_at DESC"
+    )
+    return render_template("backups.html", rows=rows, error=request.args.get("error"))
+
+
+@app.route("/backups", methods=["POST"])
+def backups_create():
+    """Enqueue a full backup via the GraphQL API, then follow its job."""
+    from flask import redirect, url_for
+
+    note = (request.form.get("note") or "").strip() or None
+    try:
+        data = gql("mutation($n: String){ createBackup(note: $n){ id } }", {"n": note})
+    except Exception as exc:
+        return redirect(url_for("backups", error=str(exc)))
+    return redirect(url_for("job_status", job_id=data["createBackup"]["id"]))
+
+
+@app.route("/backups/<backup_id>/restore", methods=["POST"])
+def backups_restore(backup_id):
+    """Enqueue a restore of the whole corpus from *backup_id* (destructive)."""
+    from flask import redirect, url_for
+
+    try:
+        data = gql("mutation($id: ID!){ restoreBackup(backupId: $id){ id } }", {"id": backup_id})
+    except Exception as exc:
+        return redirect(url_for("backups", error=str(exc)))
+    return redirect(url_for("job_status", job_id=data["restoreBackup"]["id"]))
+
+
+@app.route("/backups/<backup_id>/download")
+def backups_download(backup_id):
+    """Stream a backup archive back from the object store as a download."""
+    from flask import Response, abort
+
+    from doc_ray.adapters.object_store import ObjectStore
+    from doc_ray.config import Config
+
+    row = q1("SELECT object_key FROM backups WHERE id = %s AND status = 'available'", (backup_id,))
+    if row is None or not row["object_key"]:
+        abort(404)
+    data = ObjectStore(Config.from_env()).get(row["object_key"])
+    return Response(
+        data,
+        mimetype="application/gzip",
+        headers={"Content-Disposition": f'attachment; filename="{backup_id}.tar.gz"'},
+    )
 
 
 if __name__ == "__main__":
