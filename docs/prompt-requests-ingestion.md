@@ -1,13 +1,3 @@
----
-disclaimer:
-  notice: >-
-    No information within this document should be taken for granted.
-    Any statement or premise not backed by a real logical definition
-    or verifiable reference may be invalid, erroneous, or a hallucination.
-  generated_by: "Claude Fable 5 via Claude Code"
-  date: "2026-07-02"
----
-
 # Request: Seed domain vocabulary, then ingest and verify a book
 
 ## Inputs
