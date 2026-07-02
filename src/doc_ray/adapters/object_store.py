@@ -34,6 +34,15 @@ class ObjectStore:
         if self._bucket not in existing:
             self._client.create_bucket(Bucket=self._bucket)
 
+    def ping(self) -> None:
+        """Cheap read-only reachability probe for readiness checks.
+
+        Lists buckets (a no-side-effect call) purely to confirm the endpoint answers.
+        Raises the underlying boto/botocore error when the store is unreachable or the
+        credentials are rejected, so callers can turn that into a readiness signal.
+        """
+        self._client.list_buckets()
+
     def put(self, key: str, data: bytes, content_type: str) -> str:
         """Upload bytes and return the canonical ``s3://`` URI.
 

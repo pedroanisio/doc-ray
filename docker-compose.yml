@@ -86,13 +86,16 @@ services:
       DATABASE_URL: postgresql://${POSTGRES_USER:-docray}:${POSTGRES_PASSWORD:-docray}@postgres:5432/${POSTGRES_DB:-docray}
     entrypoint: ["python", "-m", "doc_ray.entrypoints.migrate"]
 
-  # Read-only GraphQL API (D-001). Served at http://localhost:${API_PORT:-8000}/graphql
+  # GraphQL API (D-001): reads + enqueue/upload mutations. http://localhost:${API_PORT:-8000}/graphql
+  # Depends on minio being healthy so the upload path has its object store from the start.
   api:
     build: .
     container_name: docray-api
     restart: unless-stopped
     depends_on:
       postgres:
+        condition: service_healthy
+      minio:
         condition: service_healthy
       migrate:
         condition: service_completed_successfully
@@ -105,6 +108,16 @@ services:
       S3_BUCKET: ${S3_BUCKET:-documents}
     ports:
       - "${API_PORT:-8000}:8000"
+    # /readyz is 503 unless BOTH Postgres and the object store answer, so a
+    # misconfigured/unreachable MinIO shows up here as an `unhealthy` container
+    # (docker ps / orchestrator) instead of a silent failure at the first upload.
+    healthcheck:
+      test: ["CMD", "python", "-c",
+             "import urllib.request; urllib.request.urlopen('http://localhost:8000/readyz')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
     entrypoint:
       ["uvicorn", "doc_ray.entrypoints.api.app:app", "--host", "0.0.0.0", "--port", "8000"]
 

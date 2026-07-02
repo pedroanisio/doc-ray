@@ -1,7 +1,9 @@
 """FastAPI ASGI application: GraphQL router + async connection-pool lifecycle.
 
-Serves the GraphQL API (reads plus enqueue/upload mutations) at ``/graphql`` and a
-``/health`` liveness probe.
+Serves the GraphQL API (reads plus enqueue/upload mutations) at ``/graphql``, a
+``/health`` liveness probe, and a ``/readyz`` readiness probe that checks Postgres and
+the object store (so a store the API cannot reach is surfaced as HTTP 503 / an
+``unhealthy`` container, not a cryptic error at the first upload).
 An :class:`~psycopg_pool.AsyncConnectionPool` is opened on startup and closed on
 shutdown; each request borrows one connection, binds the authenticated principal to
 it (so RLS applies), and returns it — resetting the role — on the way out.
@@ -13,13 +15,17 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any, cast
 
+import anyio
 import psycopg
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Response
 from psycopg.rows import dict_row
 from psycopg_pool import AsyncConnectionPool
 from strawberry.fastapi import GraphQLRouter
 
+from doc_ray import __version__
+from doc_ray.adapters.object_store import ObjectStore
 from doc_ray.config import Config
+from doc_ray.entrypoints.api import health
 from doc_ray.entrypoints.api.context import RequestContext
 from doc_ray.entrypoints.api.loaders import Loaders
 from doc_ray.entrypoints.api.schema import build_schema
@@ -29,6 +35,16 @@ from doc_ray.entrypoints.api.security import (
     apply_principal,
     reset_principal,
 )
+
+
+async def _readiness_checks(
+    pool: AsyncConnectionPool[Any], store: health.Pingable
+) -> dict[str, str]:
+    """Probe every critical dependency and return a name -> status map."""
+    return {
+        "database": await health.probe_database(pool),
+        "object_store": await anyio.to_thread.run_sync(health.probe_object_store, store),
+    }
 
 
 async def _get_context(request: Request) -> AsyncIterator[RequestContext]:
@@ -63,6 +79,7 @@ def create_app(cfg: Config | None = None, authenticator: Authenticator | None = 
     """
     settings = cfg or Config.from_env()
     auth = authenticator or NoopAuthenticator()
+    store = ObjectStore(settings)
     pool = AsyncConnectionPool(
         settings.database_url,
         open=False,
@@ -80,6 +97,7 @@ def create_app(cfg: Config | None = None, authenticator: Authenticator | None = 
     app = FastAPI(title="doc-ray API", lifespan=lifespan)
     app.state.pool = pool
     app.state.authenticator = auth
+    app.state.object_store = store
     # ``multipart_uploads_enabled`` is opt-in in Strawberry (>=0.243): without it the
     # transport rejects ``multipart/form-data`` with HTTP 400 before the resolver runs,
     # which silently breaks the ``ingestDocument`` upload mutation. Enable it and keep a
@@ -93,11 +111,26 @@ def create_app(cfg: Config | None = None, authenticator: Authenticator | None = 
     app.include_router(graphql_router, prefix="/graphql")
 
     @app.get("/health")
-    async def health() -> dict[str, str]:
-        """Liveness probe; reports the running service's semantic version."""
-        from doc_ray import __version__
-
+    async def health_endpoint() -> dict[str, str]:
+        """Liveness probe: the process is up. Cheap and unconditional (no dependencies)."""
         return {"status": "ok", "version": __version__}
+
+    @app.get("/readyz")
+    async def readyz(request: Request, response: Response) -> dict[str, Any]:
+        """Readiness probe: 200 only when Postgres AND the object store are reachable.
+
+        Returns 503 with a per-dependency diagnostic otherwise, so a misconfigured
+        object store (the classic ``S3_ENDPOINT`` pointing nowhere) is caught here —
+        by a healthcheck or a curl — rather than at the first ``ingestDocument`` upload.
+        Reads dependencies off ``app.state`` so deployments (and tests) can swap them.
+        """
+        report = health.readiness(
+            await _readiness_checks(request.app.state.pool, request.app.state.object_store)
+        )
+        report["version"] = __version__
+        if not report["ready"]:
+            response.status_code = 503
+        return report
 
     return app
 

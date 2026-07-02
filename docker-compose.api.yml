@@ -1,11 +1,12 @@
-# Focused stack: Postgres (the store) + the read-only GraphQL API (D-001).
+# Focused stack: Postgres (the store) + the GraphQL API (D-001), read-oriented.
 #
 # A slim alternative to the full docker-compose.yml — it drops MinIO, the
-# bucket-init job, and the ingester, because the read-only GraphQL surface only
-# needs the database (Config supplies S3 defaults it never touches on the read
-# path). Run EITHER this file OR docker-compose.yml, not both at once: they share
-# the `pgdata` volume and the `docray-*` container names, so this reads the same
-# "current database" the full stack writes.
+# bucket-init job, and the ingester. Reads need only the database. The GraphQL
+# schema still exposes the ingestDocument upload mutation, so the api points at the
+# full stack's MinIO on the shared `docray` network; uploads work only while that
+# MinIO is running (check /readyz). Run EITHER this file OR docker-compose.yml, not
+# both at once: they share the `pgdata` volume and the `docray-*` container names, so
+# this reads the same "current database" the full stack writes.
 #
 # Usage:
 #   docker compose -f docker-compose.api.yml up -d --build
@@ -48,7 +49,7 @@ services:
       DATABASE_URL: postgresql://${POSTGRES_USER:-docray}:${POSTGRES_PASSWORD:-docray}@postgres:5432/${POSTGRES_DB:-docray}
     entrypoint: ["python", "-m", "doc_ray.entrypoints.migrate"]
 
-  # Read-only GraphQL API (D-001). Served at http://localhost:${API_PORT:-8000}/graphql
+  # GraphQL API (D-001). Served at http://localhost:${API_PORT:-8000}/graphql
   api:
     build: .
     container_name: docray-api
@@ -61,8 +62,28 @@ services:
     environment:
       PYTHONPATH: /app/src        # api package lives under src/ (src layout)
       DATABASE_URL: postgresql://${POSTGRES_USER:-docray}:${POSTGRES_PASSWORD:-docray}@postgres:5432/${POSTGRES_DB:-docray}
+      # The GraphQL schema includes the ingestDocument upload mutation, which needs an
+      # object store. This slim stack ships no MinIO; point at the full stack's MinIO on
+      # the shared `docray` network (resolves when docker-compose.yml's minio is running).
+      # Hard-coded (not ${S3_ENDPOINT}) on purpose: the in-container endpoint is minio:9000,
+      # whereas a host-oriented .env S3_ENDPOINT (e.g. http://localhost:9010) would be wrong
+      # here — leaking it caused the "connection refused at localhost:9000" upload failures.
+      S3_ENDPOINT: http://minio:9000
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY:-minioadmin}
+      S3_SECRET_KEY: ${S3_SECRET_KEY:-minioadmin}
+      S3_BUCKET: ${S3_BUCKET:-documents}
     ports:
       - "${API_PORT:-8000}:8000"
+    # Liveness only (this stack may legitimately run without an object store). Query
+    # /readyz for full readiness — it reports object-store reachability and returns 503
+    # when the upload path is not usable.
+    healthcheck:
+      test: ["CMD", "python", "-c",
+             "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
     entrypoint:
       ["uvicorn", "doc_ray.entrypoints.api.app:app", "--host", "0.0.0.0", "--port", "8000"]
 
