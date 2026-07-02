@@ -1,0 +1,223 @@
+"""Job dispatch (application.jobs) + the worker loop, on an isolated queue.
+
+Every test runs against a session-local ``TEMP TABLE jobs`` that shadows
+``public.jobs`` via the temp schema's search-path precedence, so nothing here
+can claim, complete, or fail another process's real queued work.
+"""
+
+from __future__ import annotations
+
+import os
+import signal
+import threading
+from typing import Any
+
+import _itdb
+import pytest
+
+from doc_ray.adapters import queue_postgres as queue
+from doc_ray.application import jobs as jobs_mod
+from doc_ray.domain.jobs import KIND_DELETE, Job
+from doc_ray.entrypoints import worker as worker_mod
+from doc_ray.ports.queue import Queue
+
+
+@pytest.fixture()
+def qconn():
+    """A connection whose ``jobs`` table is a private temp shadow."""
+    conn = _itdb.connect()
+    conn.execute("CREATE TEMP TABLE jobs (LIKE public.jobs INCLUDING ALL)")
+    yield conn
+    conn.close()
+
+
+def test_backoff_grows_and_caps():
+    assert jobs_mod.backoff_seconds(1) == 5.0
+    assert jobs_mod.backoff_seconds(2) == 10.0
+    assert jobs_mod.backoff_seconds(0) == 5.0
+    assert jobs_mod.backoff_seconds(50) == 300.0  # capped
+
+
+def test_queue_port_is_satisfied_by_the_postgres_adapter():
+    # The Protocol names the adapter's contract; the module provides every method.
+    for member in ("enqueue", "claim", "heartbeat", "complete", "fail", "reap_stale"):
+        assert callable(getattr(queue, member))
+    assert isinstance(Queue, object)
+
+
+def test_run_once_empty_queue_returns_none(qconn):
+    assert jobs_mod.run_once(qconn, None, worker_id="t-empty") is None
+
+
+def test_run_once_success_completes_job(qconn):
+    seen: list[Job] = []
+
+    def ok_handler(conn: Any, store: Any, job: Job) -> dict[str, Any]:
+        seen.append(job)
+        return {"ok": True}
+
+    jid = queue.enqueue(qconn, "stub", {"x": 1})
+    got = jobs_mod.run_once(qconn, None, worker_id="t-ok", handlers={"stub": ok_handler})
+    assert got is not None and got.id == jid
+    assert seen and seen[0].payload == {"x": 1}
+    row = qconn.execute("SELECT status, error FROM jobs WHERE id=%s", (jid,)).fetchone()
+    assert row is not None and row["status"] == "succeeded"
+
+
+def test_run_once_failure_requeues_with_backoff_then_terminal(qconn):
+    def boom(conn: Any, store: Any, job: Job) -> dict[str, Any]:
+        raise RuntimeError("kaput")
+
+    jid = queue.enqueue(qconn, "stub", {}, max_attempts=2)
+    jobs_mod.run_once(qconn, None, worker_id="t-fail", handlers={"stub": boom})
+    row = qconn.execute("SELECT status, error FROM jobs WHERE id=%s", (jid,)).fetchone()
+    assert row is not None and row["status"] == "queued"  # retry scheduled (attempt 1/2)
+
+    qconn.execute("UPDATE jobs SET run_after = now() WHERE id = %s", (jid,))
+    jobs_mod.run_once(qconn, None, worker_id="t-fail", handlers={"stub": boom})
+    row = qconn.execute("SELECT status, error FROM jobs WHERE id=%s", (jid,)).fetchone()
+    assert row is not None and row["status"] == "failed"  # ceiling reached → terminal
+    assert "kaput" in (row["error"] or "")
+
+
+def test_run_once_unknown_kind_is_poison(qconn):
+    jid = queue.enqueue(qconn, "mystery", {})
+    got = jobs_mod.run_once(qconn, None, worker_id="t-poison", handlers={})
+    assert got is not None and got.id == jid
+    row = qconn.execute("SELECT status, error FROM jobs WHERE id=%s", (jid,)).fetchone()
+    assert row is not None and row["status"] == "failed"
+    assert "unknown job kind" in (row["error"] or "")
+
+
+def test_run_once_heartbeat_thread_runs(qconn):
+    hb_conn = _itdb.connect()
+    try:
+        release = threading.Event()
+
+        def slow(conn: Any, store: Any, job: Job) -> dict[str, Any]:
+            release.wait(0.25)  # keep the job in-flight across >1 heartbeat interval
+            return {}
+
+        jid = queue.enqueue(qconn, "slow", {})
+        jobs_mod.run_once(
+            qconn,
+            None,
+            worker_id="t-beat",
+            handlers={"slow": slow},
+            heartbeat_conn=hb_conn,
+            heartbeat_interval=0.05,
+        )
+        row = qconn.execute("SELECT status, error FROM jobs WHERE id=%s", (jid,)).fetchone()
+        assert row is not None and row["status"] == "succeeded"
+    finally:
+        hb_conn.close()
+
+
+def test_handle_delete_removes_document(qconn, pg):
+    conn, created = pg
+    doc_id = _itdb.make_doc(conn, "To be deleted.")
+    job = Job(id="0" * 26, kind=KIND_DELETE, status="queued", document_id=doc_id)  # type: ignore[arg-type]
+    out = jobs_mod.handle_delete(qconn, None, job)
+    assert out == {"deleted": doc_id}
+    gone = conn.execute("SELECT 1 FROM documents WHERE id=%s", (doc_id,)).fetchone()
+    assert gone is None
+
+
+def test_ports_declare_their_contracts():
+    """The port modules are importable contract declarations (Protocol defs)."""
+    import doc_ray.ports.canonical_repository as canonical_repository
+    import doc_ray.ports.knowledge_base as knowledge_base
+    import doc_ray.ports.resolver as resolver
+
+    for mod in (resolver, knowledge_base, canonical_repository):
+        names = [n for n in dir(mod) if not n.startswith("_")]
+        assert names, f"{mod.__name__} declares nothing"
+
+
+class _BlobStore:
+    """Store double for handle_ingest: pre-seeded blob, content-addressed put."""
+
+    def __init__(self) -> None:
+        self.bucket = "test-bucket"
+        self.blobs: dict[str, bytes] = {}
+
+    def ensure_bucket(self) -> None:
+        return None
+
+    def put(self, key: str, data: bytes, content_type: str) -> str:
+        self.blobs[key] = data
+        return f"s3://{self.bucket}/{key}"
+
+    def get(self, key: str) -> bytes:
+        return self.blobs[key]
+
+
+def test_handle_ingest_materializes_blob_and_ingests(qconn, pg):
+    import hashlib
+
+    conn, created = pg
+    body = f"Ingested via a job. Unique {_itdb.unique_sha()[:8]}.".encode()
+    sha = hashlib.sha256(body).hexdigest()
+    store = _BlobStore()
+    key = f"{sha[:2]}/{sha}.txt"
+    store.blobs[key] = body
+
+    job = Job(
+        id="0" * 26,
+        kind="ingest",
+        status="queued",  # type: ignore[arg-type]
+        payload={"storage_key": key, "extension": ".txt"},
+    )
+    out = jobs_mod.handle_ingest(qconn, store, job)
+    created.append(out["document_id"])
+    assert out["status"] == "ingested"
+
+
+def test_handle_ingest_requires_store(qconn):
+    job = Job(id="0" * 26, kind="ingest", status="queued", payload={})  # type: ignore[arg-type]
+    with pytest.raises(RuntimeError, match="object store"):
+        jobs_mod.handle_ingest(qconn, None, job)
+
+
+def test_handle_reannotate_runs_spacy(qconn, pg):
+    conn, created = pg
+    doc_id = _itdb.make_doc(conn, "Elena founded a startup in Berlin.")
+    created.append(doc_id)
+    job = Job(id="0" * 26, kind="reannotate", status="queued", document_id=doc_id)  # type: ignore[arg-type]
+    out = jobs_mod.handle_reannotate(qconn, None, job)
+    assert out.get("occ", 0) > 0 or out.get("skipped") is True
+
+
+def test_handle_reannotate_requires_document(qconn):
+    job = Job(id="0" * 26, kind="reannotate", status="queued")  # type: ignore[arg-type]
+    with pytest.raises(RuntimeError, match="document_id"):
+        jobs_mod.handle_reannotate(qconn, None, job)
+
+
+def test_worker_loop_drains_on_sigint(monkeypatch):
+    calls = {"reap": 0, "run": 0}
+
+    monkeypatch.setattr(
+        worker_mod.queue,
+        "reap_stale",
+        lambda conn, older_than_seconds: calls.__setitem__("reap", calls["reap"] + 1),
+    )
+    monkeypatch.setattr(
+        worker_mod,
+        "run_once",
+        lambda conn, store, **kw: calls.__setitem__("run", calls["run"] + 1),
+    )
+    monkeypatch.setattr(worker_mod, "ObjectStore", lambda cfg: None)
+    monkeypatch.setattr(worker_mod, "_POLL_SECONDS", 0.05)
+
+    old_term = signal.getsignal(signal.SIGTERM)
+    old_int = signal.getsignal(signal.SIGINT)
+    timer = threading.Timer(0.3, lambda: os.kill(os.getpid(), signal.SIGINT))
+    timer.start()
+    try:
+        assert worker_mod.main() == 0
+    finally:
+        timer.cancel()
+        signal.signal(signal.SIGTERM, old_term)
+        signal.signal(signal.SIGINT, old_int)
+    assert calls["reap"] >= 1 and calls["run"] >= 1

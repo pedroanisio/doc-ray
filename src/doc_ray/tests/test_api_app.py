@@ -1,0 +1,219 @@
+"""ASGI app wiring, principal binding (security), and enqueue mutations.
+
+The mutation test runs against a session-local ``TEMP TABLE jobs`` shadow so it
+never enqueues onto the real queue another worker could claim.
+"""
+
+from __future__ import annotations
+
+import asyncio
+
+import _itdb
+import psycopg
+import pytest
+from psycopg.rows import dict_row
+
+from doc_ray.config import Config
+from doc_ray.entrypoints.api.app import create_app
+from doc_ray.entrypoints.api.context import RequestContext
+from doc_ray.entrypoints.api.loaders import Loaders
+from doc_ray.entrypoints.api.schema import build_schema
+from doc_ray.entrypoints.api.security import (
+    ANONYMOUS,
+    NoopAuthenticator,
+    Principal,
+    apply_principal,
+    reset_principal,
+)
+
+
+def _cfg() -> Config:
+    base = Config.from_env()
+    return Config(
+        database_url=_itdb.DB_URL,
+        s3_endpoint=base.s3_endpoint,
+        s3_access_key=base.s3_access_key,
+        s3_secret_key=base.s3_secret_key,
+        s3_bucket=base.s3_bucket,
+        s3_region=base.s3_region,
+    )
+
+
+def test_app_serves_health_and_graphql():
+    from fastapi.testclient import TestClient
+
+    app = create_app(_cfg())
+    with TestClient(app) as client:  # context manager runs the lifespan (pool open/close)
+        assert client.get("/health").json() == {"status": "ok"}
+        r = client.post("/graphql", json={"query": "{ documents(limit: 1) { id } }"})
+        assert r.status_code == 200
+        body = r.json()
+        assert body.get("errors") is None
+        assert isinstance(body["data"]["documents"], list)
+
+
+def test_noop_authenticator_returns_anonymous():
+    async def check():
+        principal = await NoopAuthenticator().authenticate(None)  # type: ignore[arg-type]
+        assert principal is ANONYMOUS
+
+    asyncio.run(check())
+
+
+def test_apply_and_reset_principal_switch_roles(pg):
+    conn, _ = pg
+    row = conn.execute("SELECT id FROM principals WHERE display_name='bootstrap-admin'").fetchone()
+    if row is None:
+        pytest.skip("RBAC seed principal absent")
+    principal = Principal(subject="t", principal_id=str(row["id"]), scopes=frozenset({"read"}))
+
+    async def check():
+        aconn = await psycopg.AsyncConnection.connect(
+            _itdb.DB_URL, row_factory=dict_row, autocommit=True
+        )
+        try:
+            await apply_principal(aconn, principal)
+            cur = await aconn.execute(
+                "SELECT current_user AS u, current_setting('app.principal_id') AS p"
+            )
+            got = await cur.fetchone()
+            assert got["u"] == "docray_client" and got["p"] == principal.principal_id
+            await reset_principal(aconn, principal)
+            cur = await aconn.execute("SELECT current_user AS u")
+            got = await cur.fetchone()
+            assert got["u"] != "docray_client"
+
+            # Anonymous principals must be a no-op in both directions.
+            await apply_principal(aconn, ANONYMOUS)
+            await reset_principal(aconn, ANONYMOUS)
+        finally:
+            await aconn.close()
+
+    asyncio.run(check())
+
+
+def test_mutations_enqueue_jobs_on_isolated_queue(pg):
+    conn, created = pg
+    doc_id = _itdb.make_doc(conn, "A document to reannotate.")
+    created.append(doc_id)
+    schema = build_schema()
+
+    async def check():
+        aconn = await psycopg.AsyncConnection.connect(
+            _itdb.DB_URL, row_factory=dict_row, autocommit=True
+        )
+        try:
+            # Shadow the shared queue with a session-local temp table.
+            await aconn.execute("CREATE TEMP TABLE jobs (LIKE public.jobs INCLUDING ALL)")
+            ctx = RequestContext(conn=aconn, principal=ANONYMOUS, loaders=Loaders(aconn))
+
+            r = await schema.execute(
+                'mutation($id:ID!){ reannotate(documentId:$id, lang:"en") { id kind status } }',
+                variable_values={"id": doc_id},
+                context_value=ctx,
+            )
+            assert r.errors is None, r.errors
+            job = r.data["reannotate"]
+            assert job["kind"] == "reannotate" and job["status"] == "queued"
+
+            r2 = await schema.execute(
+                "mutation($id:ID!){ deleteDocument(documentId:$id) { kind status documentId } }",
+                variable_values={"id": doc_id},
+                context_value=ctx,
+            )
+            assert r2.errors is None, r2.errors
+            assert r2.data["deleteDocument"]["kind"] == "delete"
+            assert r2.data["deleteDocument"]["documentId"] == doc_id
+
+            cur = await aconn.execute("SELECT count(*) AS n FROM jobs")
+            n = (await cur.fetchone())["n"]
+            assert n == 2  # both landed on the shadow queue only
+        finally:
+            await aconn.close()
+
+    asyncio.run(check())
+
+
+def test_document_satellites_resolve_in_listing(pg):
+    """tags/metadata/tokenCount fields batch-resolve over the listing (loaders)."""
+    conn, created = pg
+    doc_id = _itdb.make_doc(conn, "Tagged and annotated.")
+    created.append(doc_id)
+    conn.execute("INSERT INTO tags (tag) VALUES ('ittag') ON CONFLICT DO NOTHING")
+    conn.execute(
+        "INSERT INTO document_tags (document_id, tag_id) "
+        "SELECT %s, id FROM tags WHERE tag='ittag' ON CONFLICT DO NOTHING",
+        (doc_id,),
+    )
+    conn.execute(
+        "INSERT INTO document_metadata (document_id, key, value) VALUES (%s, 'itkey', 'itval') "
+        "ON CONFLICT DO NOTHING",
+        (doc_id,),
+    )
+    schema = build_schema()
+
+    async def check():
+        aconn = await psycopg.AsyncConnection.connect(
+            _itdb.DB_URL, row_factory=dict_row, autocommit=True
+        )
+        try:
+            ctx = RequestContext(conn=aconn, principal=ANONYMOUS, loaders=Loaders(aconn))
+            r = await schema.execute(
+                "{ documents(limit: 200) { id tags tokenCount metadata { key value } } }",
+                context_value=ctx,
+            )
+            assert r.errors is None, r.errors
+            mine = next(d for d in r.data["documents"] if d["id"] == doc_id)
+            assert mine["tags"] == ["ittag"]
+            assert {"key": "itkey", "value": "itval"} in mine["metadata"]
+            assert mine["tokenCount"] == 0  # no annotation run yet
+        finally:
+            await aconn.close()
+
+    asyncio.run(check())
+
+
+def test_ingest_document_upload_mutation(pg):
+    """The upload mutation stores the blob (real MinIO) and enqueues on the shadow queue."""
+    import io
+
+    from starlette.datastructures import Headers, UploadFile
+
+    try:  # skip when MinIO is not running — the blob PUT is real
+        from doc_ray.adapters.object_store import ObjectStore
+
+        ObjectStore(Config.from_env()).ensure_bucket()
+    except Exception as exc:
+        pytest.skip(f"object store unreachable: {exc}")
+
+    conn, _created = pg
+    schema = build_schema()
+    body = b"Uploaded through GraphQL."
+    upload = UploadFile(
+        io.BytesIO(body),
+        filename="upload-test.txt",
+        headers=Headers({"content-type": "text/plain"}),
+    )
+
+    async def check():
+        aconn = await psycopg.AsyncConnection.connect(
+            _itdb.DB_URL, row_factory=dict_row, autocommit=True
+        )
+        try:
+            await aconn.execute("CREATE TEMP TABLE jobs (LIKE public.jobs INCLUDING ALL)")
+            ctx = RequestContext(conn=aconn, principal=ANONYMOUS, loaders=Loaders(aconn))
+            r = await schema.execute(
+                'mutation($f: Upload!){ ingestDocument(file: $f, title: "itup") { kind status } }',
+                variable_values={"f": upload},
+                context_value=ctx,
+            )
+            assert r.errors is None, r.errors
+            assert r.data["ingestDocument"]["kind"] == "ingest"
+            assert r.data["ingestDocument"]["status"] == "queued"
+            cur = await aconn.execute("SELECT payload FROM jobs")
+            payload = (await cur.fetchone())["payload"]
+            assert payload["original_filename"] == "upload-test.txt"
+        finally:
+            await aconn.close()
+
+    asyncio.run(check())

@@ -21,7 +21,9 @@ disclaimer: |
   verifiable reference should be taken for granted.
 
 source_schema:         "db/migrations"
-source_schema_version: "0.1.0"
+# Matches the database's own SemVer (schema_version table / docray_schema_version(),
+# introduced by migration 019).
+source_schema_version: "1.0.0"
 target_engine:         "PostgreSQL 16"
 total_decisions:       16
 
@@ -313,12 +315,17 @@ decisions:
     version_introduced: "0.1.0"
     category:           "security"
     decision: |
-      The GraphQL schema enforces query depth and complexity/cost limits, caps
-      per-connection `first`, guards DocumentContent.fullText size, and paginates
-      large lists with Relay keyset cursors.
+      The GraphQL schema enforces query depth and complexity/cost limits, and every
+      list field clamps its page size to MAX_PAGE_SIZE with offset paging (limit +
+      offset, optionally document-scoped) so full result sets stay enumerable
+      without unbounded slices. Relay keyset cursors remain a possible future
+      upgrade if offset paging proves too weak at scale; they are not implemented.
     rationale: |
       The graph is deeply recursive (token.head.head..., constituent.parent...);
       without limits a single query can melt Postgres or return hundreds of MB.
+      Clamped limit+offset shipped with the DevX surface and covers enumeration;
+      cursors would only add stability under concurrent writes, which reads here
+      (append-only corpus) rarely need.
     decision_status:    "accepted"
     decision_date:      "2026-07-01"
     owner:              ["pedroanisio@faz.ai"]
