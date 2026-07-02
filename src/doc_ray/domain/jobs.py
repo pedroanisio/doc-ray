@@ -28,6 +28,7 @@ class JobStatus(str, Enum):
 KIND_INGEST = "ingest"
 KIND_REANNOTATE = "reannotate"
 KIND_DELETE = "delete"
+KIND_SEED_CANONICAL = "seed_canonical"
 
 
 @dataclass(frozen=True)

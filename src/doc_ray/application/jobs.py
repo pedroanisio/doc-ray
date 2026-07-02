@@ -19,7 +19,13 @@ from typing import TYPE_CHECKING, Any, cast
 import psycopg
 
 from doc_ray.adapters import queue_postgres as queue
-from doc_ray.domain.jobs import KIND_DELETE, KIND_INGEST, KIND_REANNOTATE, Job
+from doc_ray.domain.jobs import (
+    KIND_DELETE,
+    KIND_INGEST,
+    KIND_REANNOTATE,
+    KIND_SEED_CANONICAL,
+    Job,
+)
 from doc_ray.ports.object_store import ObjectStore
 
 if TYPE_CHECKING:
@@ -82,10 +88,30 @@ def handle_ingest(
     return {"document_id": result.document_id, "status": result.status}
 
 
+def handle_seed_canonical(
+    conn: psycopg.Connection[Any], store: ObjectStore | None, job: Job
+) -> dict[str, Any]:
+    """Seed the canonical registry from Wikidata (payload: ``qids`` and/or ``terms``)."""
+    from doc_ray.adapters.wikidata import WikidataClient
+    from doc_ray.application import canonical_seed
+
+    kb = WikidataClient()
+    try:
+        ids: list[int] = []
+        if job.payload.get("qids"):
+            ids += canonical_seed.seed_from_ids(conn, kb, list(job.payload["qids"]))
+        if job.payload.get("terms"):
+            ids += canonical_seed.seed_from_terms(conn, kb, list(job.payload["terms"]))
+    finally:
+        kb.close()
+    return {"seeded": len(ids)}
+
+
 HANDLERS: dict[str, Handler] = {
     KIND_REANNOTATE: handle_reannotate,
     KIND_DELETE: handle_delete,
     KIND_INGEST: handle_ingest,
+    KIND_SEED_CANONICAL: handle_seed_canonical,
 }
 
 
