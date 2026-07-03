@@ -74,3 +74,18 @@ class ObjectStore:
         response = self._client.get_object(Bucket=self._bucket, Key=key)
         body: bytes = response["Body"].read()
         return body
+
+    def list_objects(self, prefix: str = "") -> list[str]:
+        """Return every object key under *prefix* (all keys when empty).
+
+        Args:
+            prefix: Key prefix to filter by; empty lists the whole bucket.
+
+        Returns:
+            A sorted list of object keys.
+        """
+        keys: list[str] = []
+        paginator = self._client.get_paginator("list_objects_v2")
+        for page in paginator.paginate(Bucket=self._bucket, Prefix=prefix):
+            keys.extend(obj["Key"] for obj in page.get("Contents", []))
+        return sorted(keys)

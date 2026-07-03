@@ -1,6 +1,6 @@
 # doc-ray — Database ERD & Data Dictionary
 
-**Schema version `1.3.0`** (SemVer) · 24 migrations applied
+**Schema version `1.3.0`** (SemVer) · 28 migrations applied
 
 > Generated from the live schema by `scripts/gen_data_dictionary.py`. Do not edit by hand — re-run the generator.
 
@@ -172,6 +172,7 @@ format metadata) are decomposed to their own relations (4NF); blobs live in obje
 - **Unique:** UNIQUE (content_sha256)
 - **FK:** FOREIGN KEY (derived_from) REFERENCES documents(id) ON DELETE SET NULL
 - **Index** `documents_content_sha256_key`: public.documents USING btree (content_sha256)
+- **Index** `idx_documents_derived_from`: public.documents USING btree (derived_from)
 - **Index** `idx_documents_status`: public.documents USING btree (status)
 - **Index** `idx_documents_type_created`: public.documents USING btree (doc_type, created_at DESC)
 - **RLS:** enabled — read/write policies via *id (self)*
@@ -396,6 +397,7 @@ layer the webapp renders).
 - **FK:** FOREIGN KEY (annotation_id) REFERENCES annotations(id) ON DELETE CASCADE
 - **FK:** FOREIGN KEY (lexeme_uid) REFERENCES lexemes(uid)
 - **FK:** FOREIGN KEY (span_id) REFERENCES spans(id) ON DELETE CASCADE
+- **Index** `idx_lexeme_occurrences_span`: public.lexeme_occurrences USING btree (span_id)
 - **Index** `idx_occ_lexeme`: public.lexeme_occurrences USING btree (lexeme_uid)
 - **RLS:** enabled — read/write policies via *annotation_id → annotations*
 
@@ -425,6 +427,7 @@ decompose into child relations (no arrays, no pipe-strings).
 - **FK:** FOREIGN KEY (span_id) REFERENCES spans(id) ON DELETE CASCADE
 - **Index** `idx_tokens_annotation`: public.tokens USING btree (annotation_id, ordinal)
 - **Index** `idx_tokens_lexeme`: public.tokens USING btree (lexeme_uid)
+- **Index** `idx_tokens_sentence`: public.tokens USING btree (sentence_id)
 - **Index** `idx_tokens_span`: public.tokens USING btree (span_id)
 - **Index** `tokens_annotation_id_span_id_key`: public.tokens USING btree (annotation_id, span_id)
 - **RLS:** enabled — read/write policies via *annotation_id → annotations*
@@ -471,6 +474,7 @@ has exactly one head → a function).
 - **FK:** FOREIGN KEY (annotation_id) REFERENCES annotations(id) ON DELETE CASCADE
 - **FK:** FOREIGN KEY (span_id) REFERENCES spans(id) ON DELETE CASCADE
 - **Index** `idx_chunk_annotation`: public.chunk USING btree (annotation_id)
+- **Index** `idx_chunk_span`: public.chunk USING btree (span_id)
 - **RLS:** enabled — read/write policies via *annotation_id → annotations*
 
 #### `constituent`
@@ -489,6 +493,7 @@ has exactly one head → a function).
 - **FK:** FOREIGN KEY (span_id) REFERENCES spans(id) ON DELETE CASCADE
 - **Index** `idx_constituent_annotation`: public.constituent USING btree (annotation_id)
 - **Index** `idx_constituent_parent`: public.constituent USING btree (parent_id)
+- **Index** `idx_constituent_span`: public.constituent USING btree (span_id)
 - **RLS:** enabled — read/write policies via *annotation_id → annotations*
 
 #### `dependency`
@@ -504,6 +509,7 @@ has exactly one head → a function).
 - **FK:** FOREIGN KEY (annotation_id) REFERENCES annotations(id) ON DELETE CASCADE
 - **FK:** FOREIGN KEY (dependent_token_id) REFERENCES tokens(id) ON DELETE CASCADE
 - **FK:** FOREIGN KEY (head_token_id) REFERENCES tokens(id) ON DELETE SET NULL
+- **Index** `idx_dependency_dependent`: public.dependency USING btree (dependent_token_id)
 - **Index** `idx_dependency_head`: public.dependency USING btree (head_token_id)
 - **RLS:** enabled — read/write policies via *annotation_id → annotations*
 
@@ -524,6 +530,7 @@ Named-entity mentions, entity linking to a KB, and coreference chains.
 - **FK:** FOREIGN KEY (annotation_id) REFERENCES annotations(id) ON DELETE CASCADE
 - **FK:** FOREIGN KEY (span_id) REFERENCES spans(id) ON DELETE CASCADE
 - **Index** `idx_entity_mention_annotation`: public.entity_mention USING btree (annotation_id)
+- **Index** `idx_entity_mention_span`: public.entity_mention USING btree (span_id)
 - **RLS:** enabled — read/write policies via *annotation_id → annotations*
 
 #### `entity_link`
@@ -550,6 +557,7 @@ Named-entity mentions, entity linking to a KB, and coreference chains.
 - **Primary key:** (id)
 - **FK:** FOREIGN KEY (annotation_id) REFERENCES annotations(id) ON DELETE CASCADE
 - **FK:** FOREIGN KEY (document_id) REFERENCES documents(id) ON DELETE CASCADE
+- **Index** `idx_coref_chain_annotation`: public.coref_chain USING btree (annotation_id)
 - **Index** `idx_coref_chain_document`: public.coref_chain USING btree (document_id)
 - **RLS:** enabled — read/write policies via *document_id*
 
@@ -563,6 +571,7 @@ Named-entity mentions, entity linking to a KB, and coreference chains.
 - **Primary key:** (chain_id, span_id)
 - **FK:** FOREIGN KEY (chain_id) REFERENCES coref_chain(id) ON DELETE CASCADE
 - **FK:** FOREIGN KEY (span_id) REFERENCES spans(id) ON DELETE CASCADE
+- **Index** `idx_coref_mention_span`: public.coref_mention USING btree (span_id)
 - **RLS:** enabled — read/write policies via *span_id → spans*
 
 ### 5.8 Meaning, discourse, temporal & sentiment (layers 14–19)
@@ -582,6 +591,8 @@ TimeML (TIMEX/EVENT/TLINK), and sentiment.
 - **Primary key:** (id)
 - **FK:** FOREIGN KEY (annotation_id) REFERENCES annotations(id) ON DELETE CASCADE
 - **FK:** FOREIGN KEY (token_id) REFERENCES tokens(id) ON DELETE CASCADE
+- **Index** `idx_srl_predicate_annotation`: public.srl_predicate USING btree (annotation_id)
+- **Index** `idx_srl_predicate_token`: public.srl_predicate USING btree (token_id)
 - **RLS:** enabled — read/write policies via *annotation_id → annotations*
 
 #### `srl_argument`
@@ -595,6 +606,7 @@ TimeML (TIMEX/EVENT/TLINK), and sentiment.
 - **Primary key:** (predicate_id, span_id)
 - **FK:** FOREIGN KEY (predicate_id) REFERENCES srl_predicate(id) ON DELETE CASCADE
 - **FK:** FOREIGN KEY (span_id) REFERENCES spans(id) ON DELETE CASCADE
+- **Index** `idx_srl_argument_span`: public.srl_argument USING btree (span_id)
 - **RLS:** enabled — read/write policies via *span_id → spans*
 
 #### `word_sense`
@@ -608,6 +620,7 @@ TimeML (TIMEX/EVENT/TLINK), and sentiment.
 - **Primary key:** (token_id)
 - **FK:** FOREIGN KEY (annotation_id) REFERENCES annotations(id) ON DELETE CASCADE
 - **FK:** FOREIGN KEY (token_id) REFERENCES tokens(id) ON DELETE CASCADE
+- **Index** `idx_word_sense_annotation`: public.word_sense USING btree (annotation_id)
 - **RLS:** enabled — read/write policies via *annotation_id → annotations*
 
 #### `amr_node`
@@ -622,6 +635,8 @@ TimeML (TIMEX/EVENT/TLINK), and sentiment.
 - **Primary key:** (id)
 - **FK:** FOREIGN KEY (annotation_id) REFERENCES annotations(id) ON DELETE CASCADE
 - **FK:** FOREIGN KEY (sentence_id) REFERENCES sentences(id) ON DELETE SET NULL
+- **Index** `idx_amr_node_annotation`: public.amr_node USING btree (annotation_id)
+- **Index** `idx_amr_node_sentence`: public.amr_node USING btree (sentence_id)
 - **RLS:** enabled — read/write policies via *annotation_id → annotations*
 
 #### `amr_edge`
@@ -655,6 +670,10 @@ TimeML (TIMEX/EVENT/TLINK), and sentiment.
 - **FK:** FOREIGN KEY (arg1_span_id) REFERENCES spans(id) ON DELETE CASCADE
 - **FK:** FOREIGN KEY (arg2_span_id) REFERENCES spans(id) ON DELETE CASCADE
 - **FK:** FOREIGN KEY (connective_span_id) REFERENCES spans(id) ON DELETE CASCADE
+- **Index** `idx_discourse_relation_annotation`: public.discourse_relation USING btree (annotation_id)
+- **Index** `idx_discourse_relation_arg1_span`: public.discourse_relation USING btree (arg1_span_id)
+- **Index** `idx_discourse_relation_arg2_span`: public.discourse_relation USING btree (arg2_span_id)
+- **Index** `idx_discourse_relation_connective_span`: public.discourse_relation USING btree (connective_span_id)
 - **RLS:** enabled — read/write policies via *annotation_id → annotations*
 
 #### `timex`
@@ -670,6 +689,8 @@ TimeML (TIMEX/EVENT/TLINK), and sentiment.
 - **Primary key:** (id)
 - **FK:** FOREIGN KEY (annotation_id) REFERENCES annotations(id) ON DELETE CASCADE
 - **FK:** FOREIGN KEY (span_id) REFERENCES spans(id) ON DELETE CASCADE
+- **Index** `idx_timex_annotation`: public.timex USING btree (annotation_id)
+- **Index** `idx_timex_span`: public.timex USING btree (span_id)
 - **RLS:** enabled — read/write policies via *annotation_id → annotations*
 
 #### `event`
@@ -684,6 +705,8 @@ TimeML (TIMEX/EVENT/TLINK), and sentiment.
 - **Primary key:** (id)
 - **FK:** FOREIGN KEY (annotation_id) REFERENCES annotations(id) ON DELETE CASCADE
 - **FK:** FOREIGN KEY (token_id) REFERENCES tokens(id) ON DELETE CASCADE
+- **Index** `idx_event_annotation`: public.event USING btree (annotation_id)
+- **Index** `idx_event_token`: public.event USING btree (token_id)
 - **RLS:** enabled — read/write policies via *annotation_id → annotations*
 
 #### `tlink`
@@ -706,6 +729,7 @@ TimeML (TIMEX/EVENT/TLINK), and sentiment.
 - **FK:** FOREIGN KEY (target_timex_id) REFERENCES timex(id) ON DELETE CASCADE
 - **Check:** CHECK ((num_nonnulls(source_event_id, source_timex_id) = 1))
 - **Check:** CHECK ((num_nonnulls(target_event_id, target_timex_id) = 1))
+- **Index** `idx_tlink_annotation`: public.tlink USING btree (annotation_id)
 - **Index** `idx_tlink_source_event`: public.tlink USING btree (source_event_id)
 - **Index** `idx_tlink_source_timex`: public.tlink USING btree (source_timex_id)
 - **Index** `idx_tlink_target_event`: public.tlink USING btree (target_event_id)
@@ -727,6 +751,9 @@ TimeML (TIMEX/EVENT/TLINK), and sentiment.
 - **FK:** FOREIGN KEY (annotation_id) REFERENCES annotations(id) ON DELETE CASCADE
 - **FK:** FOREIGN KEY (span_id) REFERENCES spans(id) ON DELETE CASCADE
 - **FK:** FOREIGN KEY (target_span_id) REFERENCES spans(id) ON DELETE CASCADE
+- **Index** `idx_sentiment_annotation`: public.sentiment USING btree (annotation_id)
+- **Index** `idx_sentiment_span`: public.sentiment USING btree (span_id)
+- **Index** `idx_sentiment_target_span`: public.sentiment USING btree (target_span_id)
 - **RLS:** enabled — read/write policies via *annotation_id → annotations*
 
 ### 5.9 Distributed representations (layer 20)
@@ -831,7 +858,9 @@ by RLS keyed on these (see §Access control).
 
 ### 5.11 Meta
 
-Applied-migration ledger + the schema's SemVer.
+Applied-migration ledger, the schema's SemVer, and the corpus-backup catalogue. `backups` is
+operational: it and the `jobs` queue are excluded from every snapshot and from restore, so a restore
+never clobbers the queue or the archive index it is reading from.
 
 #### `schema_migrations`
 
@@ -853,6 +882,28 @@ Applied-migration ledger + the schema's SemVer.
 - **Primary key:** (singleton)
 - **Check:** CHECK (singleton)
 - **Check:** CHECK ((version ~ '^[0-9]+\.[0-9]+\.[0-9]+$'::text))
+
+#### `backups`
+
+| Column | Type | Null | Key | Default | Notes |
+|---|---|---|---|---|---|
+| `id` | ulid |  | PK |  |  |
+| `created_at` | timestamp with time zone |  |  | `now()` |  |
+| `status` | text |  |  | `'creating'::text` |  |
+| `object_key` | text | yes |  |  |  |
+| `schema_version` | text | yes |  |  |  |
+| `archive_bytes` | bigint | yes |  |  |  |
+| `table_rows` | bigint | yes |  |  |  |
+| `blob_count` | integer | yes |  |  |  |
+| `blob_bytes` | bigint | yes |  |  |  |
+| `doc_count` | integer | yes |  |  |  |
+| `note` | text | yes |  |  |  |
+| `error` | text | yes |  |  |  |
+| `updated_at` | timestamp with time zone |  |  | `now()` |  |
+
+- **Primary key:** (id)
+- **Check:** CHECK ((status = ANY (ARRAY['creating'::text, 'available'::text, 'restoring'::text, 'failed'::text])))
+- **Index** `idx_backups_created`: public.backups USING btree (created_at DESC)
 
 
 ## 6. Views
@@ -912,6 +963,7 @@ SELECT a.document_id,
 | `set_document_content_fts()` | `trigger` | invoker | plpgsql |
 | `set_updated_at()` | `trigger` | invoker | plpgsql |
 
+- **backups** `trg_backups_updated_at`: CREATE TRIGGER trg_backups_updated_at BEFORE UPDATE …
 - **canonical** `trg_canonical_updated_at`: CREATE TRIGGER trg_canonical_updated_at BEFORE UPDATE …
 - **document_content** `trg_content_fts`: CREATE TRIGGER trg_content_fts BEFORE INSERT OR UPDATE OF full_text …
 - **documents** `trg_documents_language_fts`: CREATE TRIGGER trg_documents_language_fts AFTER UPDATE OF language …
@@ -979,4 +1031,10 @@ the caller's RLS instead of the owner's bypass.
 | 018 | `018_rbac.sql` | document-level RBAC + row-level security on 33 tables |
 | 019 | `019_schema_version.sql` | schema SemVer — schema_version + docray_schema_version() |
 | 020 | `020_jobs.sql` | background jobs queue (text+CHECK status, FOR UPDATE SKIP LOCKED) |
+| 021 | `021_canonical.sql` | canonical entity registry (canonical + HNSW embedding index) |
+| 022 | `022_form_index.sql` | form_index — normalized surface form → canonical lookup |
+| 023 | `023_resolution.sql` | resolution_review + canonical_merge (frontier-resolver review store) |
+| 024 | `024_schema_version_1_3_0.sql` | advance the schema SemVer to 1.3.0 |
+| 025 | `025_seed_suggestion.sql` | seed_suggestion — domain-seeding curation queue |
+| 026 | `026_backups.sql` | backups — corpus-snapshot archive catalogue |
 

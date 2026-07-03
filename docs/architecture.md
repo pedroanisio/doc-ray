@@ -46,7 +46,7 @@
 | **Domain** | `doc_ray.domain` | `pdf_layout` (layout→Markdown), `sentences` (segmentation), `lexemes` (identity, tokenization, `RuleAnalyzer`, language detection), `ulid` (value object), `provenance` (events) | stdlib only |
 | **Ports** | `doc_ray.ports` | `TextExtractor`, `ObjectStore`, `Repository`, `Annotator` — `Protocol` contracts | domain |
 | **Adapters** | `doc_ray.adapters` | `extraction` (PyMuPDF + pypdf + txt/html/epub/docx), `persistence` (Postgres/psycopg), `object_store` (MinIO/boto3), `annotation` / `annotation_spacy`, `export` | domain, ports |
-| **Application** | `doc_ray.application` | `pipeline` (ingest use case), `reannotate`, `reextract` | ports, adapters, domain |
+| **Application** | `doc_ray.application` | `pipeline` (ingest use case), `reannotate`, `reextract`, `backup` (corpus snapshot & restore) | ports, adapters, domain |
 | **Entrypoints** | `doc_ray.entrypoints` | `cli` | application |
 | **Config** | `doc_ray.config` | env-driven `Config` (shared kernel) | stdlib |
 
@@ -69,6 +69,25 @@
 The ports are `runtime_checkable` `Protocol`s, so adapters conform structurally —
 no subclassing, and a substitute (e.g. a different object store or a math-aware
 extractor) drops in without touching the domain or application.
+
+## Backup & restore
+
+A corpus snapshot is **app-native**, not a `pg_dump` shell-out — the worker image
+carries no Postgres client. `application.backup` dumps every corpus table with
+binary `COPY ... TO STDOUT (FORMAT binary)` (round-tripping `tsvector`,
+`vector(768)`, `jsonb`, and array columns without a text re-encode) and bundles it
+with every object-store blob into one `.tar.gz` archive plus a JSON manifest.
+Restore replays the archive under `SET LOCAL session_replication_role = replica`,
+so foreign keys and the full-text-search trigger defer and the dumped tsvectors
+survive verbatim, then re-uploads the blobs.
+
+Both directions run as worker jobs (`backup`, `restore`) enqueued by the
+`createBackup` / `restoreBackup` GraphQL mutations — the same single write path as
+every other mutation. The archive is streamed to clients through a plain
+`GET /backups/{id}/download` route on the API, which the webapp proxies so the
+browser tier never touches the object store directly. The operational `jobs`
+queue and the `backups` catalog are excluded from every archive, so a restore
+never clobbers the live queue or the index it is reading from.
 
 ## Running
 

@@ -17,9 +17,9 @@ audit step that decides which knowledge-base entities enter the shared canonical
 registry.
 
 Reads go straight to the corpus database. Every action that *changes* anything
-(uploading a document, mining seed candidates, approving them, seeding) is sent
-to the GraphQL API, which queues a background job for the worker — the browser
-itself never writes to the store.
+(uploading a document, mining seed candidates, approving them, seeding, and
+backing up or restoring the corpus) is sent to the GraphQL API, which queues a
+background job for the worker — the browser itself never writes to the store.
 
 ---
 
@@ -129,6 +129,26 @@ Case-insensitive **substring** search over sentences, first 100 hits, grouped by
 document. This is a literal match — it will not find inflected variants of your
 query. Stemmed full-text search is available on the GraphQL API
 (`fullTextSearch`), not in the browser yet.
+
+### 2.8 Backups (`/backups`)
+
+Capture the entire corpus — every database table plus every stored blob — as one
+portable archive, or restore a previous one. The page lists catalogued archives
+with their status, row/blob/document counts, and size.
+
+- **Create backup** — optionally note why (e.g. *before re-ingest*), then submit.
+  A background job builds the archive and uploads it to the object store; follow
+  the job for progress. The row shows **available** once the archive is written.
+- **Download** — stream an available archive (`.tar.gz`) to your machine.
+- **Restore** — rewind the whole corpus to that archive. This is **destructive**
+  (a confirmation guards the button): every corpus table and blob is overwritten
+  with the snapshot's contents. The live job queue and the backup catalogue
+  itself are left untouched, and the archive must match the database's schema
+  version.
+
+Like every other write, create and restore go through the API and run in the
+worker; downloads are proxied through the API too, so the browser never needs
+object-store credentials.
 
 ---
 

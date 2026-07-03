@@ -117,8 +117,11 @@ GROUPS: list[tuple[str, str, list[str]]] = [
     ),
     (
         "Meta",
-        "Applied-migration ledger + the schema's SemVer.",
-        ["schema_migrations", "schema_version"],
+        "Applied-migration ledger, the schema's SemVer, and the corpus-backup "
+        "catalogue. `backups` is operational: it and the `jobs` queue are excluded "
+        "from every snapshot and from restore, so a restore never clobbers the "
+        "queue or the archive index it is reading from.",
+        ["schema_migrations", "schema_version", "backups"],
     ),
 ]
 
@@ -189,6 +192,12 @@ MIGRATIONS = [
     ("018_rbac", "document-level RBAC + row-level security on 33 tables"),
     ("019_schema_version", "schema SemVer — schema_version + docray_schema_version()"),
     ("020_jobs", "background jobs queue (text+CHECK status, FOR UPDATE SKIP LOCKED)"),
+    ("021_canonical", "canonical entity registry (canonical + HNSW embedding index)"),
+    ("022_form_index", "form_index — normalized surface form → canonical lookup"),
+    ("023_resolution", "resolution_review + canonical_merge (frontier-resolver review store)"),
+    ("024_schema_version_1_3_0", "advance the schema SemVer to 1.3.0"),
+    ("025_seed_suggestion", "seed_suggestion — domain-seeding curation queue"),
+    ("026_backups", "backups — corpus-snapshot archive catalogue"),
 ]
 
 # ---------------------------------------------------------------------------

@@ -33,6 +33,8 @@ KIND_SEED_CANONICAL = "seed_canonical"
 KIND_SEED_SUGGEST = "seed_suggest"
 KIND_SEED_APPROVED = "seed_approved"
 KIND_CANONICALIZE = "canonicalize"
+KIND_BACKUP = "backup"
+KIND_RESTORE = "restore"
 
 
 @dataclass(frozen=True)

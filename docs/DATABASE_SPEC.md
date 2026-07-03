@@ -129,6 +129,12 @@ relations (this is the 4NF core).
 
 ### 3.7 Meta
 - **`schema_migrations`** `(filename PK, applied_at)` — which migration files have run.
+- **`backups`** `(id PK, created_at, status, object_key, schema_version, archive_bytes,
+  table_rows, blob_count, blob_bytes, doc_count, note, error)` — catalogue of
+  full-corpus snapshot archives (a binary-`COPY` database dump plus every
+  object-store blob, bundled as one `.tar.gz`). Operational: this table and the
+  `jobs` queue are excluded from the snapshot itself and from restore, so a
+  restore never clobbers the queue or the archive index.
 - **`ulid` domain** — `char(26)` constrained to `^[0-7][0-9A-HJKMNP-TV-Z]{25}$`
   (the Crockford alphabet), enforced at the type level.
 

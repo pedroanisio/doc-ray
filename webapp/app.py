@@ -642,18 +642,36 @@ def backups_restore(backup_id):
 
 @app.route("/backups/<backup_id>/download")
 def backups_download(backup_id):
-    """Stream a backup archive back from the object store as a download."""
-    from flask import Response, abort
+    """Stream a backup archive to the browser, proxied from the API.
 
-    from doc_ray.adapters.object_store import ObjectStore
-    from doc_ray.config import Config
+    The API owns object-store access (it lives inside the store's network); the
+    webapp never reaches S3 directly, so a host-vs-container ``S3_ENDPOINT``
+    mismatch cannot break downloads. The archive is streamed chunk-by-chunk so a
+    large corpus never has to be buffered whole in the webapp. A 404 from the API
+    (unknown or not-yet-available backup) propagates unchanged.
+    """
+    import httpx
+    from flask import Response, abort, stream_with_context
 
-    row = q1("SELECT object_key FROM backups WHERE id = %s AND status = 'available'", (backup_id,))
-    if row is None or not row["object_key"]:
+    base = API_URL.rsplit("/graphql", 1)[0]
+    url = f"{base}/backups/{backup_id}/download"
+    client = httpx.Client(timeout=None)
+    upstream = client.send(client.build_request("GET", url), stream=True)
+    if upstream.status_code == 404:
+        upstream.close()
+        client.close()
         abort(404)
-    data = ObjectStore(Config.from_env()).get(row["object_key"])
+    upstream.raise_for_status()
+
+    def _pump():
+        try:
+            yield from upstream.iter_bytes(chunk_size=1 << 20)
+        finally:
+            upstream.close()
+            client.close()
+
     return Response(
-        data,
+        stream_with_context(_pump()),
         mimetype="application/gzip",
         headers={"Content-Disposition": f'attachment; filename="{backup_id}.tar.gz"'},
     )

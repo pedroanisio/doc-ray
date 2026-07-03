@@ -19,6 +19,37 @@ doc-ray carries **one global version** covering both the application package
 (`docray_schema_version()`). They are kept in lockstep by
 `scripts/check_version_consistency.py`, which fails the build on any drift.
 
+## [Unreleased]
+
+Delivered on this branch, not yet released. Cutting the release (and choosing the
+SemVer bump) is an operator decision: `backups` is an operational table and does
+not change `docray_schema_version()`, so existing `1.3.0` archives stay restorable.
+
+### Added
+- **Backup & restore** — full-corpus snapshot and point-in-time restore, driven
+  from the webapp (`/backups`) and the GraphQL API. A backup bundles a logical
+  database dump (every corpus table via binary `COPY`, preserving `tsvector`,
+  `vector(768)`, `jsonb`, and array columns exactly) together with every stored
+  object-store blob into a single portable `.tar.gz` archive.
+  - `db/migrations/026_backups.sql`: the `backups` catalog table — status
+    lifecycle `creating → available | failed | restoring`, archive/table/blob/doc
+    counts, and the `schema_version` captured at backup time.
+  - GraphQL mutations `createBackup(note)` and `restoreBackup(backupId)`, each
+    enqueuing background work through the single write path.
+  - Worker job kinds `backup` and `restore`. The engine (`application/backup.py`)
+    dumps under `REPEATABLE READ` and restores under
+    `session_replication_role = replica`, so foreign keys and the FTS trigger
+    defer and the dumped tsvectors are preserved verbatim. The live `jobs` queue
+    and the `backups` catalog are excluded from both dump and restore, so a
+    restore never clobbers the queue or the index it is reading from.
+  - `ObjectStore.list_objects(prefix)` on the `ObjectStore` port and its MinIO/S3
+    adapter, letting the engine enumerate blobs to bundle.
+  - Webapp `/backups` screen: list archives, create (optional note), download, and
+    restore (guarded by a destructive-action confirmation).
+  - Archive downloads are served by the API (`GET /backups/{id}/download`) and
+    proxied by the webapp, so the browser tier never needs direct object-store
+    access — a host-vs-container `S3_ENDPOINT` mismatch cannot break downloads.
+
 ## [1.3.0] - 2026-07-02
 
 Adoption of a single, enforced SemVer line. This release reconciles the packaging

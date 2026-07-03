@@ -44,3 +44,7 @@ class ObjectStore(Protocol):
             The raw object bytes.
         """
         ...
+
+    def list_objects(self, prefix: str = "") -> list[str]:
+        """Return every object key under *prefix* (all keys when empty)."""
+        ...

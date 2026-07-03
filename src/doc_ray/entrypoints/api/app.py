@@ -132,6 +132,34 @@ def create_app(cfg: Config | None = None, authenticator: Authenticator | None = 
             response.status_code = 503
         return report
 
+    @app.get("/backups/{backup_id}/download")
+    async def download_backup(backup_id: str, request: Request) -> Response:
+        """Stream a catalogued backup archive from the object store.
+
+        The object store sits inside the API's network/trust boundary, so the
+        browser-facing webapp proxies downloads through here rather than reaching
+        the store directly — a host-side ``S3_ENDPOINT`` mismatch can never break
+        the download. Only ``available`` archives are served; anything else is a
+        404. The blocking ``get`` runs off the event loop.
+        """
+        pool: AsyncConnectionPool = request.app.state.pool
+        store: ObjectStore = request.app.state.object_store
+        async with pool.connection() as raw_conn:
+            conn = cast(psycopg.AsyncConnection[dict[str, Any]], raw_conn)
+            cur = await conn.execute(
+                "SELECT object_key FROM backups WHERE id = %s AND status = 'available'",
+                (backup_id,),
+            )
+            row = await cur.fetchone()
+        if row is None or not row["object_key"]:
+            return Response(status_code=404)
+        data = await anyio.to_thread.run_sync(store.get, str(row["object_key"]))
+        return Response(
+            content=data,
+            media_type="application/gzip",
+            headers={"Content-Disposition": f'attachment; filename="{backup_id}.tar.gz"'},
+        )
+
     return app
 
 

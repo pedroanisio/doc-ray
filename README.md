@@ -3,6 +3,11 @@
 Document store built on **PostgreSQL** (metadata + full text) and **MinIO / S3**
 (original bytes), with a Python ingestion pipeline.
 
+## Disclaimer
+
+This work is subject to the methodological caveats and commitments described in [@DISCLAIMER.md](./DISCLAIMER.md).
+> No statement or premise not backed by a real logical definition or verifiable reference should be taken for granted.
+
 ## Architecture
 
 ```
@@ -75,6 +80,28 @@ docker compose exec postgres psql -U docray -d docray -c \
 
 MinIO console: http://localhost:9001 (login from `.env`).
 
+## Backup & restore
+
+The whole corpus — every Postgres table plus every stored blob — can be captured
+as a single portable `.tar.gz` archive and restored later. Backups run as
+background jobs and are catalogued in the `backups` table.
+
+From the webapp, open **Backups** (`/backups`) to create, download, or restore an
+archive. From the GraphQL API:
+
+```graphql
+mutation { createBackup(note: "before re-ingest") { id status } }
+mutation { restoreBackup(backupId: "01JADR…") { id status } }
+```
+
+Both enqueue a worker job — poll `job(id)` for completion. The dump uses binary
+`COPY` (preserving `tsvector`, `vector`, `jsonb`, and array columns exactly) and
+restore runs under `session_replication_role = replica` so triggers and foreign
+keys defer. Restore is **destructive**: it rewinds the entire corpus to the
+snapshot (the live job queue and the backup catalog are excluded, so in-flight
+work and the archive index survive), and it requires the archive's
+`schema_version` to match the target database.
+
 ## Running the ingester on the host (no docker for Python)
 
 ```bash
@@ -93,7 +120,7 @@ python -m doc_ray.entrypoints.cli orwell1984.pdf
 | `src/doc_ray/domain/`      | Pure logic & value objects: `pdf_layout`, `sentences`, `lexemes`, `ulid`, `provenance` |
 | `src/doc_ray/ports/`       | Boundary contracts: `TextExtractor`, `ObjectStore`, `Repository`, `Annotator` |
 | `src/doc_ray/adapters/`    | Driven adapters: `extraction` (PyMuPDF/pypdf/…), `persistence` (Postgres), `object_store` (MinIO), `annotation`/`annotation_spacy` |
-| `src/doc_ray/application/` | Use cases: `pipeline`, `reannotate`, `reextract`   |
+| `src/doc_ray/application/` | Use cases: `pipeline`, `reannotate`, `reextract`, `backup` (corpus snapshot/restore) |
 | `src/doc_ray/entrypoints/` | Driving adapters (`python -m doc_ray.entrypoints.<name>`): `cli`, `api` (GraphQL), `worker`, `migrate`, `export`, `annotate`, `annotate_spacy`, `reannotate`, `reextract` |
 | `src/doc_ray/config.py`    | Env-driven configuration                           |
 | `webapp/`                  | Flask browser over the annotated corpus (frontend, kept **outside** `src/`) |

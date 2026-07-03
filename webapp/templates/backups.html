@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+{% block title %}backups · doc·ray{% endblock %}
+{% block body %}
+<style>
+  .field { margin:1rem 0; display:flex; gap:.7rem; align-items:center; flex-wrap:wrap; }
+  .field input[type=text] { flex:1; min-width:220px; padding:.55rem .7rem; font-size:.95rem;
+    background:var(--panel); color:var(--ink); border:1px solid var(--line); border-radius:4px; }
+  .hint { font-size:.82rem; color:var(--ink-faint); margin-top:.2rem; }
+  .errbox { font-family:var(--mono); font-size:.72rem; padding:.5rem .8rem;
+    border:1px solid var(--accent); border-radius:4px; color:var(--accent); margin:.8rem 0; }
+  .st { font-family:var(--mono); font-size:.68rem; letter-spacing:.06em; text-transform:uppercase;
+    padding:.08rem .5rem; border-radius:3px; border:1px solid var(--line); }
+  .st.available { color:var(--pos-num); border-color:color-mix(in srgb,var(--pos-num) 45%,var(--line)); }
+  .st.creating, .st.restoring { color:var(--pos-adj); border-color:color-mix(in srgb,var(--pos-adj) 45%,var(--line)); }
+  .st.failed { color:var(--accent); border-color:var(--accent); }
+  .rowacts { display:flex; gap:.5rem; }
+  .rowacts a, .rowacts button { font-family:var(--mono); font-size:.66rem; letter-spacing:.06em;
+    text-transform:uppercase; padding:.35rem .7rem; border-radius:3px; }
+  .rowacts a { border:1px solid var(--line); color:var(--ink-soft); }
+  .rowacts a:hover { border-color:var(--accent); color:var(--accent); text-decoration:none; }
+  .danger { background:transparent; color:var(--accent); border:1px solid var(--accent); }
+  .muted { color:var(--ink-faint); font-size:.85rem; }
+</style>
+
+<h1>Backups</h1>
+<p class="lede">A backup is a single portable archive of the whole corpus — a logical
+database snapshot plus every stored blob. Restore rewinds the entire corpus to a
+snapshot; it is <strong>destructive</strong>.</p>
+
+{% if error %}<div class="errbox">{{ error }}</div>{% endif %}
+
+<div class="card">
+  <form method="post" action="{{ url_for('backups_create') }}">
+    <div class="field">
+      <input type="text" name="note" placeholder="note (optional) — e.g. before re-ingest">
+      <button>Create backup</button>
+    </div>
+    <div class="hint">Runs in the background worker; follow the job for progress.</div>
+  </form>
+</div>
+
+<h2>Archives</h2>
+{% if rows %}
+<table>
+  <thead>
+    <tr><th>Created</th><th>Status</th><th class="num">Rows</th><th class="num">Blobs</th>
+      <th class="num">Docs</th><th class="num">Size</th><th>Note</th><th></th></tr>
+  </thead>
+  <tbody>
+    {% for r in rows %}
+    <tr>
+      <td class="mono" style="font-size:.82rem">{{ r.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
+      <td><span class="st {{ r.status }}">{{ r.status }}</span></td>
+      <td class="num">{{ '{:,}'.format(r.table_rows or 0) }}</td>
+      <td class="num">{{ r.blob_count or 0 }}</td>
+      <td class="num">{{ r.doc_count or 0 }}</td>
+      <td class="num">{{ ((r.archive_bytes or 0) / 1048576) | round(1) }} MB</td>
+      <td class="muted">{{ r.note or '' }}{% if r.error %}<span style="color:var(--accent)">{{ r.error }}</span>{% endif %}</td>
+      <td class="rowacts">
+        {% if r.status == 'available' %}
+          <a href="{{ url_for('backups_download', backup_id=r.id) }}">Download</a>
+          <form method="post" action="{{ url_for('backups_restore', backup_id=r.id) }}"
+                onsubmit="return confirm('Restore the ENTIRE corpus to this snapshot? This overwrites all current data. Continue?');"
+                style="margin:0">
+            <button class="danger" type="submit">Restore</button>
+          </form>
+        {% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p class="muted">No backups yet. Create one above.</p>
+{% endif %}
+{% endblock %}

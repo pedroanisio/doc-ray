@@ -21,10 +21,12 @@ import psycopg
 from doc_ray.adapters import queue_postgres as queue
 from doc_ray.domain.jobs import (
     KIND_ANNOTATE,
+    KIND_BACKUP,
     KIND_CANONICALIZE,
     KIND_DELETE,
     KIND_INGEST,
     KIND_REANNOTATE,
+    KIND_RESTORE,
     KIND_SEED_APPROVED,
     KIND_SEED_CANONICAL,
     KIND_SEED_SUGGEST,
@@ -246,6 +248,34 @@ def handle_canonicalize(
     return out
 
 
+def handle_backup(
+    conn: psycopg.Connection[Any], store: ObjectStore | None, job: Job
+) -> dict[str, Any]:
+    """Create a full backup archive (DB dump + object-store blobs)."""
+    from doc_ray.application import backup as bk
+
+    if store is None:
+        raise RuntimeError("backup requires an object store")
+    summary = bk.create_backup(conn, store, note=job.payload.get("note"))
+    # Keep the recorded result compact; the per-table breakdown lives in the archive.
+    return {
+        k: summary[k]
+        for k in ("id", "object_key", "archive_bytes", "table_rows", "blob_count", "doc_count")
+    }
+
+
+def handle_restore(
+    conn: psycopg.Connection[Any], store: ObjectStore | None, job: Job
+) -> dict[str, Any]:
+    """Restore the corpus (DB data + blobs) from a catalogued backup archive."""
+    from doc_ray.application import backup as bk
+
+    if store is None:
+        raise RuntimeError("restore requires an object store")
+    backup_id = job.payload.get("backup_id")
+    if not backup_id:
+        raise RuntimeError("restore requires a backup_id")
+    return bk.restore_backup(conn, store, str(backup_id))
 
 
 HANDLERS: dict[str, Handler] = {
@@ -257,6 +287,8 @@ HANDLERS: dict[str, Handler] = {
     KIND_SEED_SUGGEST: handle_seed_suggest,
     KIND_SEED_APPROVED: handle_seed_approved,
     KIND_CANONICALIZE: handle_canonicalize,
+    KIND_BACKUP: handle_backup,
+    KIND_RESTORE: handle_restore,
 }
 
 

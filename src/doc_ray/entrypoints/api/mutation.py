@@ -20,10 +20,12 @@ from doc_ray.adapters import queue_postgres as queue
 from doc_ray.adapters import seed_suggestion_store as seeds
 from doc_ray.domain.jobs import (
     KIND_ANNOTATE,
+    KIND_BACKUP,
     KIND_CANONICALIZE,
     KIND_DELETE,
     KIND_INGEST,
     KIND_REANNOTATE,
+    KIND_RESTORE,
     KIND_SEED_APPROVED,
     KIND_SEED_SUGGEST,
 )
@@ -129,6 +131,31 @@ class Mutation:
         ctx = info.context
         job_id = await queue.enqueue_async(
             ctx.conn, KIND_SEED_APPROVED, {}, document_id=str(document_id)
+        )
+        return await _job_status(ctx, job_id)
+
+    @strawberry.mutation
+    async def create_backup(self, info: Info, note: str | None = None) -> Job:
+        """Enqueue a full backup (DB dump + object-store blobs); returns the job.
+
+        The worker writes a ``.tar.gz`` archive to the object store and indexes it
+        in the ``backups`` table. Poll ``job(id)`` for completion.
+        """
+        ctx = info.context
+        payload = {"note": note} if note else {}
+        job_id = await queue.enqueue_async(ctx.conn, KIND_BACKUP, payload, document_id=None)
+        return await _job_status(ctx, job_id)
+
+    @strawberry.mutation
+    async def restore_backup(self, info: Info, backup_id: strawberry.ID) -> Job:
+        """Enqueue a restore of the whole corpus from a catalogued backup.
+
+        DESTRUCTIVE: the worker rewrites every corpus table and re-uploads blobs
+        from the archive. The target must be at the archive's schema version.
+        """
+        ctx = info.context
+        job_id = await queue.enqueue_async(
+            ctx.conn, KIND_RESTORE, {"backup_id": str(backup_id)}, document_id=None
         )
         return await _job_status(ctx, job_id)
 
