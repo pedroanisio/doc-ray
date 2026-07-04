@@ -10,3 +10,4 @@ docs/reports/
 *egg-info*
 books/
 static/fixtures/
+.mcp.json

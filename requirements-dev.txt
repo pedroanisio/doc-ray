@@ -12,3 +12,6 @@ pre-commit==4.*
 pyshacl==0.31.*
 rdflib==7.*
 PyYAML==6.*
+
+# docs/backlog.yml schema-conformance regression test (test_backlog.py).
+jsonschema==4.*

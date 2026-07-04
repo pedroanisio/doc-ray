@@ -3,10 +3,11 @@
 #
 # System of record for deferred features, tech-debt, and known bugs.
 # Structure defined by docs/schema/backlog.schema.json (v1.0.0). Validate with:
-#   pip install jsonschema pyyaml
+#   pip install jsonschema pyyaml   # or: pip install -r requirements-dev.txt
 #   python -c "import json,yaml,jsonschema; \
 #     jsonschema.validate(yaml.safe_load(open('docs/backlog.yml')), \
 #     json.load(open('docs/schema/backlog.schema.json')))"
+# or run the regression suite: pytest src/doc_ray/tests/test_backlog.py
 #
 # Rules honoured (CLAUDE.md): no time estimates (effort = complexity XS..XL);
 # every item traces to a real source (doc / ADR id / code path / session finding);
@@ -15,6 +16,12 @@
 # ARCHITECTURAL REQUIREMENT (PALS's LAW): LLMs will always produce some form of error.
 # Absence of output verification is a design defect, not a runtime bug. Any item that
 # introduces an ML/LLM annotator (BL-002, BL-006) carries a verification obligation.
+#
+# 2026-07-04: merged with docs/doc_ray_improvement_proposal.md — its 10
+# backlog-shaped candidates were added as BL-016..BL-025 (see that document for
+# the narrative gap analysis behind them); BL-009/010/011/014 statuses were
+# reconciled against the live tree (see src/doc_ray/tests/test_backlog.py for
+# the regression guard that keeps this from drifting again).
 # =====================================================================
 
 disclaimer: |
@@ -24,10 +31,10 @@ disclaimer: |
 
 metadata:
   schema_version:   "1.0.0"
-  generated_by:     "Claude Opus 4.8 via Claude Code"
-  generated_on:     "2026-07-01"
+  generated_by:     "Claude Sonnet 5 via Claude Code (merge of Claude Opus 4.8 backlog + OpenAI Codex improvement-proposal candidates)"
+  generated_on:     "2026-07-04"
   system_of_record: "docs/backlog.yml"
-  total_items:      15
+  total_items:      25
 
 items:
 
@@ -207,7 +214,9 @@ items:
       layer is a first-class architectural requirement, not post-processing. Build
       a shared validation stage — schema conformance, span-alignment, and
       confidence/consistency checks — that every ML/LLM annotator output passes
-      before it is written.
+      before it is written. Still unbuilt as of 2026-07-04: no `verif*` symbol
+      exists anywhere under `application/` or `domain/`, and BL-019 (annotation
+      output validation) now depends on this item too.
     category:     "nlp"
     type:         "infra"
     status:       "parked"
@@ -222,7 +231,7 @@ items:
       - "CLAUDE.md — LLM Output Verification (PALS's Law)"
       - "src/doc_ray/ports/annotator.py"
     owner:        "shared"
-    source:       "CLAUDE.md architectural requirement (PALS's Law); enabling dependency for BL-002/BL-006."
+    source:       "CLAUDE.md architectural requirement (PALS's Law); enabling dependency for BL-002/BL-006/BL-019."
     tags:         ["pals-law", "verification", "architecture"]
 
   # ============================ API (GraphQL) ===========================
@@ -258,12 +267,17 @@ items:
     summary:      "Enforce query depth/complexity caps and keyset pagination on the GraphQL surface."
     description: |
       D-008 commits to query depth + complexity limits and keyset pagination to
-      protect the GraphQL API from abusive queries. Implement alongside/after the
-      resolver build-out (BL-008); the claim is currently 'populated' in the ADR
-      but must be enforced on the live surface.
+      protect the GraphQL API from abusive queries. The depth/complexity half
+      shipped: `build_schema()` (entrypoints/api/schema.py) wires Strawberry's
+      `QueryDepthLimiter` (default 12, override via `API_MAX_DEPTH`) and
+      `MaxTokensLimiter` (default 2000, override via `API_MAX_TOKENS`) — both
+      grep-verified present as of 2026-07-04. The pagination half has not: every
+      list resolver in entrypoints/api/query.py (documents, sentences, lexemes,
+      entity_frequency, jobs) still takes `limit`/`offset`, not a cursor. Keyset
+      pagination, plus BL-017's new nested list fields, remain open.
     category:     "security"
     type:         "feature"
-    status:       "parked"
+    status:       "in-progress"
     complexity:   "M"
     priority:     "high"
     rationale:    "An unbounded GraphQL surface is a denial-of-service and data-exfiltration risk."
@@ -274,8 +288,10 @@ items:
     related_decisions: ["D-008"]
     references:
       - "engineering_decisions.yml — D-008"
+      - "src/doc_ray/entrypoints/api/schema.py"
+      - "src/doc_ray/entrypoints/api/query.py"
     owner:        "concurrent"
-    source:       "engineering_decisions.yml D-008 (GraphQL safety) — accepted decision."
+    source:       "engineering_decisions.yml D-008.k1 (grep-verified: QueryDepthLimiter + MaxTokensLimiter present in schema.py; offset-based params confirmed in query.py, 2026-07-04)."
     tags:         ["graphql", "security", "pagination"]
 
   # =============================== OPS ==================================
@@ -284,13 +300,16 @@ items:
     title:        "Background jobs via a Postgres queue (FOR UPDATE SKIP LOCKED)"
     summary:      "Introduce a Postgres-backed job queue using FOR UPDATE SKIP LOCKED for concurrent claiming."
     description: |
-      D-004 commits to background jobs on a Postgres queue with FOR UPDATE SKIP
-      LOCKED for safe concurrent claiming; the ADR claim is 'pending' (not yet
-      built). Requires the jobs table (D-007, also pending — migration 019 is
-      currently schema_version, not jobs).
+      D-004 committed to background jobs on a Postgres queue with FOR UPDATE SKIP
+      LOCKED for safe concurrent claiming. Implemented: `adapters/queue_postgres.py`
+      claims jobs with `FOR UPDATE SKIP LOCKED` (grep-verified 2026-07-04), and
+      `application/jobs.py` / `entrypoints/worker.py` dispatch job kinds
+      including `annotate`, `seed_suggest`, `seed_approved`, `canonicalize`,
+      `backup`, and `restore` — the last two landed with the 1.4.0 backup/restore
+      release.
     category:     "ops"
     type:         "feature"
-    status:       "parked"
+    status:       "done"
     complexity:   "L"
     priority:     "medium"
     rationale:    "Ingestion/annotation are long-running; a durable queue is the committed execution model."
@@ -300,34 +319,39 @@ items:
     dependencies: ["BL-011"]
     related_decisions: ["D-004", "D-007"]
     references:
-      - "engineering_decisions.yml — D-004 (status: pending), D-007"
+      - "src/doc_ray/adapters/queue_postgres.py"
+      - "src/doc_ray/application/jobs.py"
+      - "src/doc_ray/entrypoints/worker.py"
     owner:        "concurrent"
-    source:       "engineering_decisions.yml D-004 claim D-004.k1 status: pending."
+    source:       "engineering_decisions.yml D-004.k1 (grep-verified: 'FOR UPDATE SKIP LOCKED' present in queue_postgres.py, 2026-07-04)."
     tags:         ["jobs", "queue", "postgres", "concurrency"]
 
   - id:          "BL-011"
     title:        "jobs table + sync worker runtime"
     summary:      "Add the jobs table (text+CHECK status, open text kind) and a sync worker; async only for API reads."
     description: |
-      D-007 commits to a jobs table (text + CHECK status, open text kind), and
-      D-005 to a synchronous worker for blocking work with async reserved for API
-      reads. Both ADR claims are 'pending'. The jobs table migration is not yet
-      present (019 is schema_version).
+      D-007 committed to a jobs table (text + CHECK status, open text kind), and
+      D-005 to a synchronous worker for blocking work with async reserved for
+      API reads. Both implemented: `db/migrations/020_jobs.sql` defines
+      `CHECK (status IN (...))` (grep-verified 2026-07-04), and
+      `entrypoints/worker.py` runs a blocking dispatch loop; `entrypoints/api/`
+      contains no `application.pipeline` reference, so the API tier stays
+      async-reads-only.
     category:     "persistence"
     type:         "feature"
-    status:       "parked"
+    status:       "done"
     complexity:   "M"
     priority:     "medium"
-    rationale:    "The queue (BL-010) needs its table and a defined worker execution model; both are committed but unbuilt."
+    rationale:    "The queue (BL-010) needed its table and a defined worker execution model; both now exist and are grep-verified."
     acceptance_criteria:
       - "A jobs migration exists with text+CHECK status and an open text kind column."
       - "A sync worker processes blocking jobs; async is confined to API reads."
     related_decisions: ["D-005", "D-007"]
     references:
-      - "engineering_decisions.yml — D-005 (pending), D-007 (pending)"
-      - "db/migrations/"
+      - "db/migrations/020_jobs.sql"
+      - "src/doc_ray/entrypoints/worker.py"
     owner:        "concurrent"
-    source:       "engineering_decisions.yml D-005.k1 / D-007.k1 status: pending."
+    source:       "engineering_decisions.yml D-005.k1 / D-007.k1 (grep-verified 2026-07-04)."
     tags:         ["jobs", "worker", "migration"]
 
   # ============================= SECURITY ===============================
@@ -344,7 +368,9 @@ items:
       per-principal LOGIN roles (or an equivalent DB-enforced identity), so the
       principal is authenticated by the database rather than asserted by the client.
       (docray superuser intentionally bypasses RLS as the trusted batch writer and
-      must NOT be switched to docray_client.)
+      must NOT be switched to docray_client.) Still open as of 2026-07-04:
+      migration 018_rbac.sql creates only a single shared `docray_client NOLOGIN`
+      role; the per-principal LOGIN-role note there is a comment, not code.
     category:     "security"
     type:         "feature"
     status:       "parked"
@@ -377,9 +403,25 @@ items:
       persistence partial), and ports/ (Protocols show 0% but are pure interface
       bodies — exclude via coverage `exclude_also` for `...`/Protocol, or add a
       smoke-import test). Most non-domain modules need DB+spaCy integration tests.
+      A 2026-07-04 re-check attempt could not confirm the current percentage: a
+      full `pytest --cov=doc_ray` run against the shared checkout timed out
+      (DB-dependent tests appear to block waiting on a database connection) —
+      the 57% figure is not re-verified and may be stale in either direction.
+
+      RESOLVED 2026-07-04 (commit 1bd4e69): a fresh, worker-stopped, clean-cache
+      run measured 87.2% (not 57% — the earlier figure was stale). Closed with
+      ~54 new tests, no production-code changes: guard clauses and branch pairs
+      in the job dispatcher (application/jobs.py, previously 70%), the
+      createBackup/restoreBackup/suggestSeeds/decideSeeds GraphQL mutations and
+      the jobs()/fullTextSearch queries, the backup engine's failure path and
+      private-helper edge cases (85% -> 97%), and the frontier resolver's
+      SELECT-at-threshold commit path, which had zero direct coverage (89% ->
+      97%). Verified stable at 91.09% across repeated clean-cache reruns; 575
+      passed, 0 failed, 1 skipped (PyMuPDF not installed). `ports/` Protocols
+      were not specially excluded — normal test writing reached them.
     category:     "testing"
     type:         "tech-debt"
-    status:       "ready"
+    status:       "done"
     complexity:   "L"
     priority:     "high"
     rationale:    "The coverage gate (D-013) is enforced (fail_under=90) and currently fails, so CI cannot go green."
@@ -394,31 +436,29 @@ items:
       - "src/doc_ray/entrypoints/"
       - "src/doc_ray/ports/"
     owner:        "shared"
-    source:       "Session refine pass — per-module coverage breakdown (2026-07-01)."
+    source:       "Session refine pass — per-module coverage breakdown (2026-07-01); re-check attempted 2026-07-04, inconclusive (DB-dependent suite timed out); resolved 2026-07-04, commit 1bd4e69."
     tags:         ["coverage", "tests", "quality-gate"]
 
   - id:          "BL-014"
     title:        "Fix 14 E501 line-length errors in gen_data_dictionary.py"
     summary:      "ruff reports 14 E501 (101–177 chars) in the untracked data-dictionary generator; wrap or restructure."
     description: |
-      `ruff check` is clean across the tracked package but reports 14 E501 errors
-      in scripts/gen_data_dictionary.py (untracked, concurrent-session file). The
-      offenders are long SQL/Markdown string literals (lines 88–156, 323, 351,
-      395, 402). Cosmetic, no correctness impact; wrap the strings or add targeted
-      noqa. Left to the file's owner to avoid folding edits into their in-flight work.
+      `ruff check scripts/gen_data_dictionary.py` reported 14 E501 errors as of
+      2026-07-01. As of 2026-07-04 the same command is clean — the file's owner
+      wrapped the offending SQL/Markdown string literals.
     category:     "tooling"
     type:         "tech-debt"
-    status:       "ready"
+    status:       "done"
     complexity:   "XS"
     priority:     "low"
-    rationale:    "The E501s keep the lint gate (D-011) red on a full-tree run."
+    rationale:    "The E501s kept the lint gate (D-011) red on a full-tree run."
     acceptance_criteria:
       - "`ruff check scripts/gen_data_dictionary.py` passes."
     related_decisions: ["D-011"]
     references:
       - "scripts/gen_data_dictionary.py"
     owner:        "concurrent"
-    source:       "Session refine pass — ruff reported 14 E501 in the untracked file (2026-07-01)."
+    source:       "Verified 2026-07-04: `ruff check scripts/gen_data_dictionary.py` reports no errors."
     tags:         ["ruff", "lint", "e501"]
 
   - id:          "BL-015"
@@ -447,3 +487,328 @@ items:
     owner:        "concurrent"
     source:       "Session refine pass — pytest failure + KeyError in applied_filenames (2026-07-01)."
     tags:         ["migrations", "bug", "row-factory"]
+
+  # ============ NLP PLATFORM COMPLETENESS (from docs/doc_ray_improvement_proposal.md, 2026-07-04) ============
+  # The GraphQL/browser surface exposes only documents, sentences, lexemes,
+  # entity mentions/frequencies, jobs, and seed suggestions, while the schema
+  # and pipeline can persist tokens, morphology, chunks, dependencies, entity
+  # mentions, shallow coreference, canonical links, lexemes, and embeddings.
+  # BL-016..BL-025 close that gap; their `dependencies` fields encode the
+  # phased order the proposal recommended (matrix/drift-guard first,
+  # provenance/validation second, layer-aware GraphQL third, canonicalization
+  # and operator surfaces fourth, evaluation/drift last).
+
+  - id:          "BL-016"
+    title:        "NLP capability matrix and drift guard"
+    summary:      "Map each NLP layer to schema, writer, provenance, read adapter, GraphQL field, browser view, health signal, and tests."
+    description: |
+      Documentation and schema breadth can imply production-ready support that
+      is not exposed or populated everywhere (DATABASE_SPEC.md describes a
+      normalized NLP annotation platform; query.py/types.py expose only the
+      document/sentence/lexeme/entity/job/seed-suggestion subset). Create
+      docs/nlp_capability_matrix.md and a field/path existence check. The
+      matrix must distinguish schema-only support from writer-backed,
+      API-exposed, UI-exposed, health-checked, and tested support, plus a
+      lightweight CI guard checking declared API-exposed/writer-backed rows
+      against live paths. Implemented as `docs/nlp_capability_matrix.md` plus
+      `src/doc_ray/tests/test_nlp_capability_matrix.py`.
+    category:     "docs"
+    type:         "infra"
+    status:       "done"
+    complexity:   "S"
+    priority:     "high"
+    rationale:    "Documentation and schema breadth can imply production-ready support that is not exposed or populated everywhere."
+    acceptance_criteria:
+      - "Every documented NLP layer has a row with status and evidence."
+      - "Rows marked API-exposed resolve to live GraphQL fields."
+      - "Rows marked writer-backed cite a production code path and a test."
+    related_decisions: ["D-001", "D-002"]
+    references:
+      - "docs/DATABASE_SPEC.md"
+      - "docs/nlp_composition_mastery.md"
+      - "docs/nlp_capability_matrix.md"
+      - "src/doc_ray/entrypoints/api/query.py"
+      - "src/doc_ray/adapters/annotation_spacy.py"
+      - "src/doc_ray/tests/test_nlp_capability_matrix.py"
+    owner:        "shared"
+    source:       "docs/doc_ray_improvement_proposal.md BL-016 — implemented 2026-07-04 with matrix + static drift guard."
+    tags:         ["docs", "drift", "graphql", "nlp"]
+
+  - id:          "BL-017"
+    title:        "Layer-aware GraphQL read model"
+    summary:      "Expose annotation runs, tokens, morphology, syntax, coreference, canonical links, and later embeddings through bounded GraphQL fields."
+    description: |
+      types.py lacks token, token-feature, dependency, chunk, coreference,
+      entity-link, canonical-form, and embedding GraphQL types even though the
+      schema/writer paths persist several of those layers, forcing direct SQL
+      or undocumented assumptions. Extend the Strawberry schema through
+      read-adapter functions: annotationRuns, tokens, syntax, corefChains,
+      entityLinks, canonical, canonicalForms — embedding/similarity fields
+      postponed until baseline layer reads are stable.
+    category:     "api"
+    type:         "feature"
+    status:       "parked"
+    complexity:   "L"
+    priority:     "high"
+    rationale:    "The GraphQL API currently exposes a narrow document/sentence/lexeme/entity slice of a richer relational NLP graph."
+    acceptance_criteria:
+      - "New list fields are bounded and covered by GraphQL tests."
+      - "Resolvers contain no inline SQL."
+      - "Query complexity/depth limits cover the new nested fields."
+    dependencies: ["BL-016", "BL-009"]
+    related_decisions: ["D-001", "D-002", "D-008"]
+    references:
+      - "src/doc_ray/entrypoints/api/query.py"
+      - "src/doc_ray/entrypoints/api/types.py"
+      - "src/doc_ray/adapters/persistence_read.py"
+    owner:        "concurrent"
+    source:       "docs/doc_ray_improvement_proposal.md BL-017 — API surface does not expose persisted NLP layers, 2026-07-04."
+    tags:         ["graphql", "api", "nlp", "read-model"]
+
+  - id:          "BL-018"
+    title:        "spaCy annotation provenance"
+    summary:      "Record provenance events for spaCy multi-layer annotation runs."
+    description: |
+      `SpacyAnnotator._write` (adapters/annotation_spacy.py) persists tokens,
+      features, dependencies, entities, chunks, coreference, and lexeme
+      projections, but the file contains no `document_provenance` write for the
+      annotation run (grep-confirmed 2026-07-04: no `document_provenance`
+      symbol anywhere in the module). Insert an `annotated` provenance event in
+      the same transaction that writes those layers, including tool, version,
+      language, per-layer counts, and replacement semantics.
+    category:     "nlp"
+    type:         "infra"
+    status:       "ready"
+    complexity:   "M"
+    priority:     "high"
+    rationale:    "Annotation rows are high-value derived facts; without an audit event, the run is not fully reproducible."
+    acceptance_criteria:
+      - "A successful annotation run creates a provenance event."
+      - "The event records language, tool/version, and per-layer counts."
+      - "The run is never visible without its provenance event."
+    references:
+      - "docs/DATABASE_SPEC.md"
+      - "src/doc_ray/adapters/annotation_spacy.py"
+      - "src/doc_ray/entrypoints/api/types.py"
+    owner:        "shared"
+    source:       "docs/doc_ray_improvement_proposal.md BL-018; grep-verified absent 2026-07-04."
+    tags:         ["provenance", "spacy", "nlp", "reproducibility"]
+
+  - id:          "BL-019"
+    title:        "Annotation output validation"
+    summary:      "Validate structural NLP outputs before marking annotation healthy."
+    description: |
+      PALS-style validation exists around the Claude canonical resolver, but
+      the spaCy annotation path has no equivalent pure validation layer for
+      deterministic NLP artifacts. Add pure validators for span bounds, token
+      ordinals, sentence references, dependency heads, entity/chunk/coref
+      spans, lexeme projections, and language/model support. Record
+      validation status in job output and provenance.
+    category:     "nlp"
+    type:         "infra"
+    status:       "ready"
+    complexity:   "M"
+    priority:     "high"
+    rationale:    "NLP outputs are hypotheses; invalid spans, dependencies, or projections should not silently enter the corpus."
+    acceptance_criteria:
+      - "Invalid spans or cross-run dependency heads fail validation."
+      - "Validation failures are visible in job/provenance output."
+      - "Pure validator tests and at least one integration failure test exist."
+    dependencies: ["BL-007", "BL-018"]
+    references:
+      - "CLAUDE.md"
+      - "docs/BACKLOG.md"
+      - "src/doc_ray/adapters/resolver_claude.py"
+      - "src/doc_ray/adapters/annotation_spacy.py"
+    owner:        "shared"
+    source:       "docs/doc_ray_improvement_proposal.md BL-019 — PALS requirement extended to deterministic annotators, 2026-07-04."
+    tags:         ["pals-law", "validation", "nlp", "quality-gate"]
+
+  - id:          "BL-020"
+    title:        "Shared read surface or parity tests"
+    summary:      "Eliminate or detect SQL drift between GraphQL, browser, and export reads."
+    description: |
+      `persistence_read.py` is documented as the shared read source, but
+      `webapp/app.py` still contains inline SQL for overlapping document,
+      lexeme, KWIC, and search flows (34 SELECT/execute occurrences,
+      grep-confirmed 2026-07-04, no import of persistence_read); `ReadRepository`
+      also lags implemented adapter signatures. Either extract shared SQL
+      builders/sync+async read wrappers or add parity tests comparing browser
+      SQL against persistence_read.
+    category:     "api"
+    type:         "tech-debt"
+    status:       "ready"
+    complexity:   "M"
+    priority:     "high"
+    rationale:    "persistence_read.py claims to be the read source of truth, but the Flask browser still carries direct SQL for overlapping views."
+    acceptance_criteria:
+      - "Document, lexeme, KWIC, and search read shapes have parity tests or shared code."
+      - "ReadRepository matches implemented adapter signatures."
+      - "No new GraphQL resolver embeds SQL."
+    related_decisions: ["D-002"]
+    references:
+      - "src/doc_ray/adapters/persistence_read.py"
+      - "src/doc_ray/ports/repository.py"
+      - "webapp/app.py"
+      - "engineering_decisions.yml"
+    owner:        "shared"
+    source:       "docs/doc_ray_improvement_proposal.md BL-020; grep-verified 2026-07-04."
+    tags:         ["read-model", "sql-drift", "webapp", "graphql"]
+
+  - id:          "BL-021"
+    title:        "Canonicalization and review API surfaces"
+    summary:      "Expose canonical registry, form index, entity links, unresolved mentions, and review residue through supported API/browser surfaces."
+    description: |
+      jobs.py, canonical_store.py, and docs/canonicalization_pipeline.md define
+      constrained canonicalization, but clients must inspect job JSON or direct
+      SQL to understand unresolved residue and review state. Add GraphQL fields
+      for canonical, canonicalSearch, canonicalForms, entityLinks,
+      unresolvedMentions, and resolutionReview; add browser review/canonical
+      pages only after the API contract is stable.
+
+      PARTIALLY ADJACENT, NOT THIS ITEM (2026-07-04, commit c2fbf54): a
+      *narrower* review surface shipped for the seed-suggestion queue
+      specifically — `seedSuggestions(documentId, status)` query,
+      `suggestSeeds`/`decideSeeds`/`seedApproved` mutations, and the webapp's
+      `/doc/<id>/seeding` screen. That covers Stage-0 seeding curation only;
+      the canonical/form-index/entityLinks/unresolvedMentions/resolutionReview
+      surfaces this item asks for (Stage 3/5 review of already-linked and
+      abstained mentions) are still unbuilt — status remains accurate as-is.
+    category:     "api"
+    type:         "feature"
+    status:       "parked"
+    complexity:   "M"
+    priority:     "high"
+    rationale:    "Canonicalization has constrained internal logic, but clients cannot fully inspect the registry/review state without direct SQL or job JSON."
+    acceptance_criteria:
+      - "Canonical forms and mention links are queryable through GraphQL."
+      - "Unresolved mentions and review rows are visible without inspecting job JSON."
+      - "Review lifecycle tests cover approve/reject or explicitly scoped first actions."
+    dependencies: ["BL-017"]
+    related_decisions: ["D-001", "D-002"]
+    references:
+      - "docs/canonicalization_pipeline.md"
+      - "src/doc_ray/adapters/canonical_store.py"
+      - "src/doc_ray/application/jobs.py"
+      - "webapp/app.py"
+    owner:        "concurrent"
+    source:       "docs/doc_ray_improvement_proposal.md BL-021 — canonicalization workflow lacks first-class read surfaces, 2026-07-04."
+    tags:         ["canonicalization", "review", "graphql", "human-in-the-loop"]
+
+  - id:          "BL-022"
+    title:        "Annotation language and model capability registry"
+    summary:      "Replace silent unknown-language fallback with explicit capability and fallback policy."
+    description: |
+      `_MODELS = {"en": "en_core_web_sm", "pt": "pt_core_news_sm"}`
+      (adapters/annotation_spacy.py) falls back to English for any unmapped
+      language (grep-confirmed 2026-07-04), which can produce plausible but
+      low-quality annotations with no operator-visible signal. Add a registry
+      of language, model package, installed status, supported layers, and
+      fallback policy; unsupported languages should fail clearly,
+      warn-and-fallback with provenance, or use a configured generic tokenizer.
+    category:     "nlp"
+    type:         "infra"
+    status:       "ready"
+    complexity:   "S"
+    priority:     "medium"
+    rationale:    "Unknown-language fallback to English can create plausible but low-quality annotations without an operator-visible signal."
+    acceptance_criteria:
+      - "Supported and unsupported languages are tested."
+      - "Fallback behavior is configurable and recorded."
+      - "Capability data feeds the capability matrix or GraphQL capability query."
+    dependencies: ["BL-016", "BL-018"]
+    references:
+      - "src/doc_ray/adapters/annotation_spacy.py"
+      - "src/doc_ray/application/corpus_health.py"
+    owner:        "shared"
+    source:       "docs/doc_ray_improvement_proposal.md BL-022; grep-verified 2026-07-04 (_MODELS maps only en/pt)."
+    tags:         ["language", "spacy", "capability", "provenance"]
+
+  - id:          "BL-023"
+    title:        "Operator health surfaces"
+    summary:      "Standardize corpus/database health output and expose admin-safe operator views."
+    description: |
+      corpus_health.py, db_health.py, and application/db_analyzer/ (all shipped
+      since the original backlog was written) contain real health logic, but
+      there is no coherent admin-safe operator workflow tying them together.
+      Standardize health JSON schemas, expose corpus health and selected
+      database health through GraphQL/admin endpoints or a browser operator
+      page, and wire core checks into smoke/CI.
+    category:     "ops"
+    type:         "feature"
+    status:       "parked"
+    complexity:   "M"
+    priority:     "medium"
+    rationale:    "Health checks exist, but their outputs are not yet a coherent operator workflow."
+    acceptance_criteria:
+      - "Corpus health has a stable JSON schema and snapshot tests."
+      - "Failed jobs, stalled jobs, missing annotations, and missing embeddings are visible."
+      - "Database-health details are admin-gated or explicitly kept CLI-only."
+    dependencies: ["BL-016"]
+    references:
+      - "src/doc_ray/application/corpus_health.py"
+      - "src/doc_ray/application/db_health.py"
+      - "src/doc_ray/application/db_analyzer/"
+    owner:        "shared"
+    source:       "docs/doc_ray_improvement_proposal.md BL-023 — corpus health, db health, and db analyzer modules present but uncoordinated, 2026-07-04."
+    tags:         ["ops", "health", "observability", "admin"]
+
+  - id:          "BL-024"
+    title:        "Evaluation and drift artifacts"
+    summary:      "Store evaluation runs and corpus snapshots so NLP quality can be compared over time."
+    description: |
+      Doc-ray has structural health checks (corpus_health.py reports counts and
+      missing-work conditions) but no first-class way to compare NLP quality or
+      corpus drift across time, model versions, or datasets (no
+      `evaluation_run`/`corpus_snapshot` schema exists, grep-confirmed
+      2026-07-04). Define minimal 4NF relations or artifacts for
+      evaluation_run, evaluation_metric, gold_sample, and corpus_snapshot,
+      starting with lexical/entity distributions, extraction empty/error
+      rates, annotation coverage, and review acceptance/rejection rates.
+    category:     "nlp"
+    type:         "research"
+    status:       "parked"
+    complexity:   "L"
+    priority:     "medium"
+    rationale:    "The NLP source treats evaluation and maintenance as part of composition, but Doc-Ray currently tracks structural health more than model or corpus quality drift."
+    acceptance_criteria:
+      - "Fixture corpus snapshots can be compared deterministically."
+      - "At least lexical/entity distribution drift is reported."
+      - "Metrics cite the stored facts and pipeline/tool versions behind them."
+    dependencies: ["BL-018", "BL-019"]
+    references:
+      - "docs/nlp_composition_mastery.md"
+      - "src/doc_ray/application/corpus_health.py"
+      - "docs/DATABASE_SPEC.md"
+    owner:        "shared"
+    source:       "docs/doc_ray_improvement_proposal.md BL-024; grep-verified absent 2026-07-04."
+    tags:         ["evaluation", "drift", "metrics", "nlp"]
+
+  - id:          "BL-025"
+    title:        "Lexeme/token projection invariant"
+    summary:      "Define whether lexeme_occurrences is a materialized projection over tokens or an independent primary fact, then enforce parity."
+    description: |
+      The spaCy writer stores token-level lexeme links (`tokens.lexeme_uid`)
+      and also writes `lexeme_occurrences` via a separate COPY
+      (adapters/annotation_spacy.py, grep-confirmed 2026-07-04); no parity test
+      exists between them, so lexical counts can drift. Either keep
+      lexeme_occurrences as a materialized projection and add parity tests
+      against tokens.lexeme_uid, or migrate it to a view once browser/API
+      compatibility allows.
+    category:     "persistence"
+    type:         "tech-debt"
+    status:       "ready"
+    complexity:   "M"
+    priority:     "medium"
+    rationale:    "The spaCy writer stores token-level lexeme links and also writes lexeme_occurrences; without an invariant, lexical counts can drift."
+    acceptance_criteria:
+      - "Token lexeme counts and lexeme_occurrences counts are parity-tested."
+      - "GraphQL/browser docs state whether occurrences are projections."
+      - "Any migration preserves browser lexeme/KWIC behavior."
+    references:
+      - "src/doc_ray/adapters/annotation_spacy.py"
+      - "webapp/app.py"
+      - "docs/DATABASE_SPEC.md"
+    owner:        "shared"
+    source:       "docs/doc_ray_improvement_proposal.md BL-025; grep-verified 2026-07-04 (both writers present, no parity test found)."
+    tags:         ["lexemes", "tokens", "projection", "persistence"]
