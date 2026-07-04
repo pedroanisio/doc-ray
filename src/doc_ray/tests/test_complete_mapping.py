@@ -137,3 +137,59 @@ def test_reannotation_is_idempotent(mapped):
         ).fetchall()
     }
     assert counts.get("spacy") == 1 and counts.get("lexeme") == 1, counts
+
+
+def test_spacy_annotation_records_provenance_event(mapped):
+    conn, doc_id, r = mapped
+    tool, version = r["tool"].split("@", 1)
+    event = conn.execute(
+        """
+        SELECT id, tool, tool_version, actor, note
+        FROM document_provenance
+        WHERE document_id=%s AND kind='annotated' AND tool=%s
+        """,
+        (doc_id, tool),
+    ).fetchone()
+    assert event is not None
+    assert event["tool_version"] == version
+    assert event["actor"] == "doc_ray.adapters.annotation_spacy.SpacyAnnotator"
+    assert "spaCy multi-layer annotation" in event["note"]
+
+    params = {
+        row["key"]: row["value"]
+        for row in conn.execute(
+            "SELECT key, value FROM provenance_params WHERE event_id=%s",
+            (event["id"],),
+        ).fetchall()
+    }
+    assert params["language"] == r["lang"]
+    assert params["replacement"] == "replace document spacy and lexeme layers for this tool"
+    assert params["tokens"] == str(r["tokens"])
+    assert params["entities"] == str(r["entities"])
+    assert params["chunks"] == str(r["chunks"])
+    assert params["coref_chains"] == str(r["coref_chains"])
+    assert params["lexeme_occurrences"] == str(r["occurrences"])
+
+
+def test_spacy_annotation_failure_leaves_no_visible_run(monkeypatch, pg):
+    conn, created = pg
+    doc_id = _itdb.make_doc(conn, TEXT)
+    created.append(doc_id)
+
+    def fail_copy(*args, **kwargs):
+        raise RuntimeError("copy failed before provenance")
+
+    monkeypatch.setattr(SpacyAnnotator, "_copy_layers", fail_copy)
+    with pytest.raises(RuntimeError, match="copy failed"):
+        SpacyAnnotator().annotate(conn, doc_id)
+
+    rows = conn.execute(
+        "SELECT layer FROM annotations WHERE document_id=%s AND layer IN ('spacy', 'lexeme')",
+        (doc_id,),
+    ).fetchall()
+    events = conn.execute(
+        "SELECT id FROM document_provenance WHERE document_id=%s AND kind='annotated'",
+        (doc_id,),
+    ).fetchall()
+    assert rows == []
+    assert events == []

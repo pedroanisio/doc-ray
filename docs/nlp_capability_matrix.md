@@ -28,6 +28,14 @@ Status values:
 - `schema-only`: schema and integration tests exist, but no production writer or API.
 - `planned-only`: documented target only.
 
+Provenance note: as of `BL-018`, the spaCy-backed production layers
+(tokenization, lemmatization/POS, morphology, chunks, dependencies, NER, and
+coreference) share one transactionally written `annotated` provenance event in
+`document_provenance`, with normalized `provenance_params` for language, tool
+version, annotation ids, per-layer counts, lexeme-occurrence counts, and
+replacement semantics. `src/doc_ray/tests/test_complete_mapping.py` guards both
+the success event and rollback behavior.
+
 ## Capability Matrix
 
 | Layer | Capability | Schema | Writer | Read adapter | GraphQL | Browser | Health | Tests | Status |

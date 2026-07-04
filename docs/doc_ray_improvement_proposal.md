@@ -160,14 +160,13 @@ Layers such as subword, constituent, SRL, WSD, AMR, discourse, temporal,
 sentiment, and embeddings appear as schema capacity or health counters, not as a
 complete production pipeline.
 
-Provenance is uneven. Ingest and some annotation paths record provenance, and
-the database spec requires append-only provenance for each processing step
-([docs/DATABASE_SPEC.md:123](DATABASE_SPEC.md:123)). The spaCy multi-layer writer
-persists annotation rows and the lexeme projection but does not insert a
-`document_provenance` event for the run
-([src/doc_ray/adapters/annotation_spacy.py:267](/home/admin/codebases/doc-ray/src/doc_ray/adapters/annotation_spacy.py:267)).
-That weakens reproducibility for one of the highest-value transformations in the
-system.
+Provenance was uneven when this proposal was written: ingest and some annotation
+paths recorded provenance, while the spaCy multi-layer writer persisted
+annotation rows and the lexeme projection without a `document_provenance` event
+for the run. `BL-018` has since closed that gap by writing a transactional
+`annotated` event with normalized per-layer counts and replacement semantics;
+the remaining trust gap is structural validation of the annotation output
+itself (`BL-019`).
 
 The read abstraction is incomplete. `persistence_read.py` says it is the single
 source of truth for GraphQL, the Flask browser, and export reads
@@ -329,7 +328,7 @@ backlog here; the next implementation step would be to add accepted items to
   GraphQL field, browser view, health signal, and tests.
 - **category:** `docs`
 - **type:** `infra`
-- **status:** `ready`
+- **status:** `done`
 - **complexity:** `S`
 - **priority:** `high`
 - **owner:** `shared`
@@ -444,10 +443,10 @@ backlog here; the next implementation step would be to add accepted items to
 - **owner:** `shared`
 - **rationale:** Annotation rows are high-value derived facts; without an audit
   event, the run is not fully reproducible.
-- **description:** Insert an `annotated` provenance event in the same transaction
-  that writes spaCy tokens, features, dependencies, entities, chunks, coref, and
-  lexeme projections. Include tool, version, language, counts, and replacement
-  semantics.
+- **description:** Inserted an `annotated` provenance event in the same
+  transaction that writes spaCy tokens, features, dependencies, entities,
+  chunks, coref, and lexeme projections. The event includes tool, version,
+  language, counts, annotation ids, and replacement semantics.
 - **acceptance_criteria:**
   - "A successful annotation run creates a provenance event."
   - "The event records language, tool/version, and per-layer counts."
@@ -455,32 +454,34 @@ backlog here; the next implementation step would be to add accepted items to
 - **references:** `docs/DATABASE_SPEC.md`,
   `src/doc_ray/adapters/annotation_spacy.py`,
   `src/doc_ray/entrypoints/api/types.py`
-- **source:** Session finding: `SpacyAnnotator._write` persists layers without
-  `document_provenance`.
+- **source:** Session finding implemented 2026-07-04: `SpacyAnnotator._write`
+  now persists layers and `document_provenance` together.
 - **tags:** `provenance`, `spacy`, `nlp`, `reproducibility`
 
 **Proposal analysis:**
 
 - **standards_alignment:** Enforces provenance/reproducibility and transaction integrity.
-- **problem:** Derived annotation facts can be stored without a durable audit
-  event that identifies the annotator, model, language, counts, and replacement
-  semantics.
+- **problem:** Closed by `BL-018`: derived annotation facts now store a durable
+  audit event that identifies the annotator, model, language, counts, and
+  replacement semantics.
 - **codebase_evidence:** `SpacyAnnotator._write` persists tokens, features,
-  dependencies, entities, chunks, coreference, and lexeme projections, but the
-  inspected path did not write `document_provenance` for the annotation run.
+  dependencies, entities, chunks, coreference, lexeme projections, and a
+  `document_provenance` event in one transaction; `test_complete_mapping.py`
+  verifies success and rollback behavior.
 - **supporting_graphql_knowledge:** The source corpus treats preprocessing and
   representation as model-dependent transformations, so downstream use needs to
   know which tool/version produced the facts.
-- **proposed_change:** Insert an annotation provenance event in the same
-  transaction as layer writes and include per-layer counts plus model metadata.
-- **expected_benefit:** Makes annotation output reproducible, auditable, and
+- **proposed_change:** Implemented: annotation provenance is inserted in the
+  same transaction as layer writes and includes per-layer counts plus model
+  metadata.
+- **expected_benefit:** Annotation output is now reproducible, auditable, and
   safer to compare across reruns or model upgrades.
 - **implementation_complexity:** `M`
 - **risks_or_tradeoffs:** Reruns need clear replacement semantics to avoid
   duplicate or misleading provenance events.
-- **suggested_validation:** Add an integration test where annotation success
-  creates exactly one matching provenance event and failure leaves no partial
-  visible run.
+- **suggested_validation:** Implemented in `src/doc_ray/tests/test_complete_mapping.py`:
+  annotation success creates a matching provenance event and failure leaves no
+  partial visible run.
 
 #### BL-019: Annotation Output Validation
 
