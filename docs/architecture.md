@@ -148,6 +148,21 @@ and profiles data, then renders Markdown + JSON. Its `Engine` port
 backend is one module plus one registry line — the same ports-&-adapters shape as
 the rest of the hexagon, scoped locally to the analyzer.
 
+## NLP capability matrix & drift guard
+
+Schema breadth is not the same claim as production support: a migration can
+define a table years before any writer, read adapter, or GraphQL field touches
+it. [`docs/nlp_capability_matrix.md`](nlp_capability_matrix.md) makes
+that distinction explicit for all 20 documented NLP layers — schema, writer,
+read adapter, GraphQL, browser, health, and tests are tracked as separate
+columns, collapsing to one status (`api-exposed` → … → `planned-only`) per
+layer. `src/doc_ray/tests/test_nlp_capability_matrix.py` is a static drift
+guard over that table: it fails if a documented layer goes missing, if a row
+claims GraphQL exposure that doesn't resolve to a live Strawberry field, or if
+a row claims a writer without a citable production path and test. It proves
+the matrix hasn't drifted from the code; it does not evaluate annotation
+quality.
+
 ## Running
 
 ```bash

@@ -11,6 +11,12 @@ heading/paragraph → sentence → phrase → word) sit at the base; everything 
 > (UPOS vs. language‑specific XPOS, PropBank vs. FrameNet) differ across corpora.
 > Treat the shapes as canonical and the exact strings as tool‑dependent.
 
+This document defines the **target**: the complete 20-layer set doc-ray aims
+to support. For what is actually schema-backed, writer-backed, API-exposed,
+browser-exposed, health-checked, and tested *today*, see the companion
+[`docs/nlp_capability_matrix.md`](nlp_capability_matrix.md) — a documented
+layer here does not imply production support there.
+
 ---
 
 ## 1. The complete set

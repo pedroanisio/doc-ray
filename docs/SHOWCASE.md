@@ -54,6 +54,11 @@ docker compose exec -T postgres psql -U docray -d docray -f - < scripts/showcase
 
 ## Layer coverage
 
+This table tracks whether a layer is populated by a real annotator (writer
+provenance). For the fuller picture — schema, read adapter, GraphQL,
+browser, and health exposure per layer, plus a drift guard that keeps the
+claims honest — see [`docs/nlp_capability_matrix.md`](nlp_capability_matrix.md).
+
 | Provenance | NLP layer | Tool | Kind |
 |---|---|---|---|
 | ✅ | 1 physical structure | base ingest | real |
