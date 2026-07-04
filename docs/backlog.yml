@@ -34,7 +34,7 @@ metadata:
   generated_by:     "Claude Sonnet 5 via Claude Code (merge of Claude Opus 4.8 backlog + OpenAI Codex improvement-proposal candidates)"
   generated_on:     "2026-07-04"
   system_of_record: "docs/backlog.yml"
-  total_items:      25
+  total_items:      36
 
 items:
 
@@ -812,3 +812,284 @@ items:
     owner:        "shared"
     source:       "docs/doc_ray_improvement_proposal.md BL-025; grep-verified 2026-07-04 (both writers present, no parity test found)."
     tags:         ["lexemes", "tokens", "projection", "persistence"]
+
+  # =============== WEB APP - UX/UI AUDIT (2026-07-04) ================
+
+  - id:          "BL-026"
+    title:        "Surface a product value proposition in the webapp"
+    summary:      "The UI never states what doc-ray is, who it is for, or its value; a newcomer must infer purpose from feature pages."
+    description: |
+      The wordmark carries no tagline (base.html:152) and the corpus landing
+      opens on a poetic kicker — "An annotated reading room" (documents.html:4)
+      — rather than a plain statement of purpose. Nowhere does the UI answer
+      what the product does, who it is for, or the value it provides. Add a
+      one-line value proposition under the wordmark or as a landing sub-head,
+      and consider a dismissible first-run intro card.
+    category:     "webapp"
+    type:         "feature"
+    status:       "parked"
+    complexity:   "S"
+    priority:     "high"
+    rationale:    "A new user cannot answer 'what does this do / who is it for / what value' from the UI alone — the highest-leverage orientation gap."
+    acceptance_criteria:
+      - "A first-time user can read a one-line statement of what doc-ray does without leaving the landing page."
+      - "The value proposition is copy, not decoration, and names the ingest -> annotate -> curate flow."
+    references:
+      - "webapp/templates/documents.html"
+      - "webapp/templates/base.html"
+      - "docs/webapp_user_manual.md"
+    owner:        "shared"
+    source:       "Session finding 2026-07-04: webapp UX/UI audit (finding H1)."
+    tags:         ["onboarding", "microcopy", "ux", "clarity"]
+
+  - id:          "BL-027"
+    title:        "Add an in-app help / documentation / onboarding surface"
+    summary:      "No Help/Guide/About link exists anywhere; the written user manual is never linked from the app."
+    description: |
+      The masthead nav is Corpus/Lexicon/Search/Upload/Backups
+      (base.html:154-158) with no help entry, and the complex screens (seeding,
+      backups, job status) carry no contextual help. docs/webapp_user_manual.md
+      exists but is unreachable from the UI. Add a persistent Help/Guide nav item
+      (link or in-app render) plus contextual '?' links on the technical screens.
+    category:     "webapp"
+    type:         "feature"
+    status:       "parked"
+    complexity:   "S"
+    priority:     "high"
+    rationale:    "Users cannot self-serve on undocumented jargon; every stuck user becomes a support request."
+    acceptance_criteria:
+      - "A Help/Guide entry is reachable from every page."
+      - "Seeding, backups, and job-status screens link to their relevant documentation section."
+    references:
+      - "webapp/templates/base.html"
+      - "docs/webapp_user_manual.md"
+    owner:        "shared"
+    source:       "Session finding 2026-07-04: webapp UX/UI audit (finding H2)."
+    tags:         ["help", "docs", "onboarding", "ux"]
+
+  - id:          "BL-028"
+    title:        "Corpus landing: dynamic lede + empty state"
+    summary:      "The landing lede is a hardcoded 'Five documents' while the real count is fetched, and the document list has no empty state."
+    description: |
+      documents.html:6 states 'Five documents...' statically even though
+      totals.docs is fetched and shown one line below (documents.html:10) —
+      currently wrong (41+ docs). The document loop (documents.html:24-35) has no
+      empty branch, so a fresh corpus renders an unexplained empty table with no
+      call-to-action — unlike lexemes.html and search.html, which do have empty
+      states. Make the lede dynamic and add an empty state that points to Upload.
+    category:     "webapp"
+    type:         "bug"
+    status:       "parked"
+    complexity:   "XS"
+    priority:     "high"
+    rationale:    "A visibly-wrong count damages credibility, and a brand-new user is shown an empty table with no first action (no activation path)."
+    acceptance_criteria:
+      - "The landing lede reflects the real document count."
+      - "An empty corpus shows a message and a link to upload the first document."
+    references:
+      - "webapp/templates/documents.html"
+      - "webapp/templates/lexemes.html"
+      - "webapp/templates/search.html"
+    owner:        "shared"
+    source:       "Session finding 2026-07-04: webapp UX/UI audit (finding H3)."
+    tags:         ["landing", "empty-state", "microcopy", "bug"]
+
+  - id:          "BL-029"
+    title:        "Define domain jargon across the webapp"
+    summary:      "Core terms — domain seeding, canonicalize, annotate, lexeme, occurrence, job kinds, POS codes — are never defined in the UI."
+    description: |
+      'Domain seeding' appears as a metadata pill (document.html:66) and an H1
+      (seeding.html:31) with no definition; 'canonicalize' (upload.html:40),
+      'lexeme'/'occurrence' (landing stats), raw job kinds (job.html:37), and POS
+      abbreviations (PROPN/ADP/...) are likewise undefined. Add one-line
+      descriptions under feature headings, title/tooltip on POS chips and status
+      pills, and a short glossary in the help surface.
+    category:     "webapp"
+    type:         "feature"
+    status:       "parked"
+    complexity:   "M"
+    priority:     "medium"
+    rationale:    "Undefined domain vocabulary makes the tool usable only by those who already know the pipeline; a new team member cannot self-onboard."
+    acceptance_criteria:
+      - "Each major feature page carries a one-line description of what it does."
+      - "POS codes and status pills expose a human-readable definition on hover or in a glossary."
+    references:
+      - "webapp/templates/document.html"
+      - "webapp/templates/seeding.html"
+      - "webapp/templates/upload.html"
+      - "webapp/templates/job.html"
+    owner:        "shared"
+    source:       "Session finding 2026-07-04: webapp UX/UI audit (finding M1)."
+    tags:         ["microcopy", "glossary", "tooltips", "clarity"]
+
+  - id:          "BL-030"
+    title:        "Seeding screen: workflow signposting and Seed confirmation guardrail"
+    summary:      "The four seeding actions give no hint of their required order, and the irreversible 'Seed' action has no confirmation."
+    description: |
+      seeding.html:42-46 exposes Mine/Approve/Reject/Seed with no indication of
+      the mine -> audit -> approve -> seed sequence, and 'Seed N approved' is final
+      (seeded rows cannot be re-decided, per the user manual) yet carries no
+      confirmation — unlike the deliberate destructive-confirm on Backups restore
+      (backups.html:63). Add a one-line 'how this works' intro, sequence the
+      actions, and a confirmation on Seed that names its permanence.
+    category:     "webapp"
+    type:         "feature"
+    status:       "parked"
+    complexity:   "S"
+    priority:     "medium"
+    rationale:    "The screen's own copy warns 'one wrong seed pollutes the registry for every document', yet the irreversible action has no guardrail and the workflow order is unsignposted."
+    acceptance_criteria:
+      - "The seeding workflow order is visible before the first action."
+      - "Seeding approved rows requires an explicit confirmation naming its permanence."
+    references:
+      - "webapp/templates/seeding.html"
+      - "webapp/templates/backups.html"
+      - "docs/webapp_user_manual.md"
+    owner:        "shared"
+    source:       "Session finding 2026-07-04: webapp UX/UI audit (finding M2)."
+    tags:         ["seeding", "error-prevention", "ux", "microcopy"]
+
+  - id:          "BL-031"
+    title:        "Disclose that corpus search is a literal substring match"
+    summary:      "Search invites a 'phrase' but silently does substring matching; inflected forms do not match and nothing says so."
+    description: |
+      The search box invites 'find a phrase across every document...'
+      (search.html:8) but performs a case-insensitive substring match — 'run'
+      misses 'running'/'ran' — with no disclosure, and the empty result 'No
+      sentences match.' (search.html:26) offers no recovery. Add a hint under the
+      box and enrich the empty state with the caveat and a pointer to stemmed
+      full-text search (the fullTextSearch API).
+    category:     "webapp"
+    type:         "feature"
+    status:       "parked"
+    complexity:   "XS"
+    priority:     "medium"
+    rationale:    "Undisclosed substring semantics read as 'search is broken' when inflected forms silently fail to match."
+    acceptance_criteria:
+      - "The search UI states it is a literal substring match."
+      - "A zero-result search explains why and suggests an alternative."
+    references:
+      - "webapp/templates/search.html"
+      - "docs/webapp_user_manual.md"
+    owner:        "shared"
+    source:       "Session finding 2026-07-04: webapp UX/UI audit (finding M3)."
+    tags:         ["search", "microcopy", "expectations", "empty-state"]
+
+  - id:          "BL-032"
+    title:        "Humanize pipeline/job status outcomes and failures"
+    summary:      "Job status renders raw result dicts, raw exception reprs, and raw job kinds, with no human failure message or recovery path."
+    description: |
+      job.html:39 renders raw `j.error or j.result` — a Python dict on success and
+      a raw exception repr on failure — alongside raw job kinds (job.html:37).
+      There is no plain-language success summary, no human failure message, and no
+      recovery action. Map kinds to friendly labels, summarize success, and on
+      failure show a plain message plus a retry/re-upload action. The auto-refresh
+      and 'pipeline finished -> open X' guidance (job.html:44-47) are good; keep them.
+    category:     "webapp"
+    type:         "tech-debt"
+    status:       "parked"
+    complexity:   "M"
+    priority:     "medium"
+    rationale:    "The post-upload moment is peak user anxiety; raw dicts and exception reprs make success look uncertain and failure cryptic."
+    acceptance_criteria:
+      - "Job kinds and outcomes are shown as human-readable labels, not raw internals."
+      - "A failed job shows a plain-language cause and a next action."
+    references:
+      - "webapp/templates/job.html"
+    owner:        "shared"
+    source:       "Session finding 2026-07-04: webapp UX/UI audit (finding M4)."
+    tags:         ["job-status", "error-states", "microcopy", "ux"]
+
+  - id:          "BL-033"
+    title:        "Reader: 'not yet annotated' empty state"
+    summary:      "An ingested-but-unannotated document shows plain text and an empty POS rail with no explanation."
+    description: |
+      A document that is ingested but not annotated renders plain text with an
+      empty parts-of-speech rail (document.html:90-113) and no explanation of why
+      the overlay is blank or what to do. Detect the zero-annotation case and show
+      a 'not annotated yet' state (queued/absent), optionally linking to how
+      annotation runs.
+    category:     "webapp"
+    type:         "feature"
+    status:       "parked"
+    complexity:   "S"
+    priority:     "low"
+    rationale:    "A blank annotation overlay looks broken; the manual explains this but the screen does not."
+    acceptance_criteria:
+      - "An unannotated document reader states that annotation has not run."
+      - "The state distinguishes 'queued' from 'absent' where that information is available."
+    references:
+      - "webapp/templates/document.html"
+    owner:        "shared"
+    source:       "Session finding 2026-07-04: webapp UX/UI audit (finding L1)."
+    tags:         ["reader", "empty-state", "annotation", "ux"]
+
+  - id:          "BL-034"
+    title:        "Group admin/destructive nav items away from reading"
+    summary:      "Backups (admin, destructive restore) sits in the flat nav beside reading features with no grouping."
+    description: |
+      The masthead nav lists Corpus/Lexicon/Search/Upload/Backups as one flat row
+      (base.html:154-158); Backups carries a destructive restore and admin
+      semantics but is not visually separated from the reading surfaces. Group or
+      right-align admin items, or add a divider, so destructive/admin actions are
+      not adjacent to everyday reading.
+    category:     "webapp"
+    type:         "tech-debt"
+    status:       "parked"
+    complexity:   "XS"
+    priority:     "low"
+    rationale:    "Flat IA places a destructive admin surface one mis-click from reading features."
+    acceptance_criteria:
+      - "Admin/destructive nav items are visually distinguished from reading navigation."
+    references:
+      - "webapp/templates/base.html"
+    owner:        "shared"
+    source:       "Session finding 2026-07-04: webapp UX/UI audit (finding L2)."
+    tags:         ["navigation", "information-architecture", "ux"]
+
+  - id:          "BL-035"
+    title:        "De-emphasize raw ULIDs in user-facing tables"
+    summary:      "The Lexicon 'Identity' column and job/backups views print raw ULIDs that carry no meaning for users."
+    description: |
+      lexemes.html:32 prints a raw ULID in the 'Identity' column, and job/backups
+      surfaces show ULIDs prominently. These opaque identifiers are noise to a
+      reader. De-emphasize, truncate, or drop them where no human identity exists,
+      and prefer a meaningful label where one does.
+    category:     "webapp"
+    type:         "tech-debt"
+    status:       "parked"
+    complexity:   "XS"
+    priority:     "low"
+    rationale:    "Raw opaque identifiers add visual noise and reduce scannability of the tables that carry them."
+    acceptance_criteria:
+      - "User-facing tables do not foreground raw ULIDs where no human meaning is conveyed."
+    references:
+      - "webapp/templates/lexemes.html"
+      - "webapp/templates/job.html"
+    owner:        "shared"
+    source:       "Session finding 2026-07-04: webapp UX/UI audit (finding L3)."
+    tags:         ["tables", "readability", "ux"]
+
+  - id:          "BL-036"
+    title:        "Extend the reader's tooltip pattern to POS chips and status pills"
+    summary:      "The word-hover-lemma tooltip is used only in the reader; POS chips, status pills, and controls have no equivalent affordance."
+    description: |
+      The reader's hover-for-lemma tooltip (document.html:44-47) is an excellent,
+      discoverable explanation pattern, but it is not reused: POS legend chips,
+      status pills, and the upload pipeline checkbox expose no on-hover
+      definition. Extend the same tooltip affordance to those elements for
+      consistent, discoverable explanations.
+    category:     "webapp"
+    type:         "feature"
+    status:       "parked"
+    complexity:   "S"
+    priority:     "low"
+    rationale:    "A good explanation pattern exists but is applied in exactly one place; extending it improves discoverability consistently."
+    acceptance_criteria:
+      - "POS chips and status pills expose a definition on hover, reusing the reader's tooltip pattern."
+    references:
+      - "webapp/templates/document.html"
+      - "webapp/templates/base.html"
+    owner:        "shared"
+    source:       "Session finding 2026-07-04: webapp UX/UI audit (finding L4)."
+    tags:         ["tooltips", "consistency", "ux"]

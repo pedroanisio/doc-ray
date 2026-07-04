@@ -46,6 +46,8 @@ document for the narrative gap analysis behind them. `BL-009`/`BL-010`/
 `BL-011`/`BL-014` statuses were also reconciled against the live tree: they
 had shipped but were still marked `parked`/`ready`.
 
+**2026-07-04 UX audit:** added `BL-026`-`BL-036` from a webapp UX/UI audit (all `webapp` category; findings H1-H3, M1-M4, L1-L4).
+
 ## Items
 
 | ID | Item | Category | Type | Status | Cx | Priority | Owner |
@@ -75,6 +77,17 @@ had shipped but were still marked `parked`/`ready`.
 | BL-023 | Operator health surfaces | ops | feature | parked | M | medium | shared |
 | BL-024 | Evaluation and drift artifacts | nlp | research | parked | L | medium | shared |
 | BL-025 | Lexeme/token projection invariant | persistence | tech-debt | ready | M | medium | shared |
+| BL-026 | Surface a product value proposition in the webapp | webapp | feature | parked | S | high | shared |
+| BL-027 | Add an in-app help / documentation / onboarding surface | webapp | feature | parked | S | high | shared |
+| BL-028 | Corpus landing: dynamic lede + empty state | webapp | bug | parked | XS | high | shared |
+| BL-029 | Define domain jargon across the webapp | webapp | feature | parked | M | medium | shared |
+| BL-030 | Seeding screen: workflow signposting and Seed confirmation guardrail | webapp | feature | parked | S | medium | shared |
+| BL-031 | Disclose that corpus search is a literal substring match | webapp | feature | parked | XS | medium | shared |
+| BL-032 | Humanize pipeline/job status outcomes and failures | webapp | tech-debt | parked | M | medium | shared |
+| BL-033 | Reader: 'not yet annotated' empty state | webapp | feature | parked | S | low | shared |
+| BL-034 | Group admin/destructive nav items away from reading | webapp | tech-debt | parked | XS | low | shared |
+| BL-035 | De-emphasize raw ULIDs in user-facing tables | webapp | tech-debt | parked | XS | low | shared |
+| BL-036 | Extend the reader's tooltip pattern to POS chips and status pills | webapp | feature | parked | S | low | shared |
 
 See [`backlog.yml`](backlog.yml) for each item's full description, rationale,
 acceptance criteria, dependencies, related decisions (`D-###`), and references.
