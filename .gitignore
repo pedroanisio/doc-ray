@@ -7,3 +7,6 @@
 .coverage
 docs/reports/
 .env
+*egg-info*
+books/
+static/fixtures/
