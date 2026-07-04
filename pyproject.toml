@@ -32,15 +32,14 @@ testpaths = ["tests", "src/doc_ray/tests"]
 addopts = "-ra --import-mode=importlib"
 
 # --------------------------------------------------------------------------
-# Quality gates (engineering decisions D-011..D-013). proto/ (prototype),
-# .repo/ (vendored skills), and engineering/schema/ (vendored bundle) are
-# deliberately out of scope.
+# Quality gates (engineering decisions D-011..D-013). .repo/ (vendored skills)
+# and engineering/schema/ (vendored bundle) are deliberately out of scope.
 # --------------------------------------------------------------------------
 
 [tool.ruff]
 line-length = 100
 target-version = "py310"
-extend-exclude = ["proto", ".repo", "engineering/schema", ".venv", ".venv-proto"]
+extend-exclude = [".repo", "engineering/schema", ".venv"]
 
 [tool.ruff.lint]
 # D = pydocstyle (full docstrings, D-011); ANN = type annotations; C90 = mccabe.
@@ -79,8 +78,8 @@ strict = true
 python_version = "3.12"
 files = ["src/doc_ray"]
 # Strict typing targets the package surface; the test suite is excluded (standard
-# practice) and vendored/prototype trees are out of scope.
-exclude = "(^|/)(proto|\\.repo|engineering/schema|\\.venv|tests)/"
+# practice) and vendored trees are out of scope.
+exclude = "(^|/)(\\.repo|engineering/schema|\\.venv|tests)/"
 
 [[tool.mypy.overrides]]
 # Third-party libraries without bundled type stubs (incl. optional python-docx).
