@@ -138,6 +138,87 @@ def test_mutations_enqueue_jobs_on_isolated_queue(pg):
     asyncio.run(check())
 
 
+def test_seeding_and_backup_mutations_enqueue_on_isolated_queue(pg):
+    # Covers the remaining mutation resolvers a shadow-queue round trip hadn't
+    # exercised yet: suggestSeeds, both branches of decideSeeds individually,
+    # createBackup, and restoreBackup.
+    conn, created = pg
+    from doc_ray.domain.ulid import new_ulid_str
+
+    doc_id = _itdb.make_doc(conn, "A document to seed.")
+    created.append(doc_id)
+    sid_a = new_ulid_str()
+    sid_r = new_ulid_str()
+    conn.execute(
+        "INSERT INTO seed_suggestion (id, document_id, term, occurrences, qid, status) "
+        "VALUES (%s,%s,'approve-me',1,'Q1','pending'), (%s,%s,'reject-me',1,'Q2','pending')",
+        (sid_a, doc_id, sid_r, doc_id),
+    )
+    schema = build_schema()
+
+    async def check():
+        aconn = await psycopg.AsyncConnection.connect(
+            _itdb.DB_URL, row_factory=dict_row, autocommit=True
+        )
+        try:
+            await aconn.execute("CREATE TEMP TABLE jobs (LIKE public.jobs INCLUDING ALL)")
+            ctx = RequestContext(conn=aconn, principal=ANONYMOUS, loaders=Loaders(aconn))
+
+            r = await schema.execute(
+                "mutation($d:ID!){ suggestSeeds(documentId:$d){ kind status } }",
+                variable_values={"d": doc_id},
+                context_value=ctx,
+            )
+            assert r.errors is None, r.errors
+            assert r.data["suggestSeeds"]["kind"] == "seed_suggest"
+
+            # decideSeeds: approveIds-only and rejectIds-only each exercise the
+            # OTHER argument's False branch.
+            r2 = await schema.execute(
+                "mutation($a:[ID!]){ decideSeeds(approveIds:$a) }",
+                variable_values={"a": [sid_a]},
+                context_value=ctx,
+            )
+            assert r2.errors is None, r2.errors
+            assert r2.data["decideSeeds"] == 1
+
+            r3 = await schema.execute(
+                "mutation($r:[ID!]){ decideSeeds(rejectIds:$r) }",
+                variable_values={"r": [sid_r]},
+                context_value=ctx,
+            )
+            assert r3.errors is None, r3.errors
+            assert r3.data["decideSeeds"] == 1
+
+            r4 = await schema.execute(
+                'mutation{ createBackup(note:"nightly"){ kind status } }',
+                context_value=ctx,
+            )
+            assert r4.errors is None, r4.errors
+            assert r4.data["createBackup"]["kind"] == "backup"
+
+            r5 = await schema.execute(
+                'mutation{ restoreBackup(backupId:"b1"){ kind status } }',
+                context_value=ctx,
+            )
+            assert r5.errors is None, r5.errors
+            assert r5.data["restoreBackup"]["kind"] == "restore"
+
+            cur = await aconn.execute("SELECT count(*) AS n FROM jobs")
+            n = (await cur.fetchone())["n"]
+            assert n == 3  # suggest_seeds + backup + restore landed on the shadow queue
+        finally:
+            await aconn.close()
+
+    asyncio.run(check())
+
+    rows = conn.execute(
+        "SELECT id, status FROM seed_suggestion WHERE id = ANY(%s)", ([sid_a, sid_r],)
+    ).fetchall()
+    by_id = {str(r["id"]): r["status"] for r in rows}
+    assert by_id[sid_a] == "approved" and by_id[sid_r] == "rejected"
+
+
 def test_document_satellites_resolve_in_listing(pg):
     """tags/metadata/tokenCount fields batch-resolve over the listing (loaders)."""
     conn, created = pg
@@ -270,6 +351,51 @@ def test_ingest_document_upload_mutation(pg):
             cur = await aconn.execute("SELECT payload FROM jobs")
             payload = (await cur.fetchone())["payload"]
             assert payload["original_filename"] == "upload-test.txt"
+            assert payload["chain"] == ["annotate", "canonicalize"]  # default pipeline:true
+        finally:
+            await aconn.close()
+
+    asyncio.run(check())
+
+
+def test_ingest_document_upload_mutation_pipeline_false_skips_chain(pg):
+    """``pipeline: false`` must ingest-only — no chain in the enqueued payload."""
+    import io
+
+    from starlette.datastructures import Headers, UploadFile
+
+    try:  # skip when MinIO is not running — the blob PUT is real
+        from doc_ray.adapters.object_store import ObjectStore
+
+        ObjectStore(Config.from_env()).ensure_bucket()
+    except Exception as exc:
+        pytest.skip(f"object store unreachable: {exc}")
+
+    conn, _created = pg
+    schema = build_schema()
+    body = b"Ingest-only through GraphQL."
+    upload = UploadFile(
+        io.BytesIO(body),
+        filename="ingest-only.txt",
+        headers=Headers({"content-type": "text/plain"}),
+    )
+
+    async def check():
+        aconn = await psycopg.AsyncConnection.connect(
+            _itdb.DB_URL, row_factory=dict_row, autocommit=True
+        )
+        try:
+            await aconn.execute("CREATE TEMP TABLE jobs (LIKE public.jobs INCLUDING ALL)")
+            ctx = RequestContext(conn=aconn, principal=ANONYMOUS, loaders=Loaders(aconn))
+            r = await schema.execute(
+                "mutation($f: Upload!){ ingestDocument(file: $f, pipeline: false) { kind } }",
+                variable_values={"f": upload},
+                context_value=ctx,
+            )
+            assert r.errors is None, r.errors
+            cur = await aconn.execute("SELECT payload FROM jobs")
+            payload = (await cur.fetchone())["payload"]
+            assert "chain" not in payload
         finally:
             await aconn.close()
 

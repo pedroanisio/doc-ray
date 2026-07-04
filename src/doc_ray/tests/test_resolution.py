@@ -206,6 +206,50 @@ def test_non_referential_types_never_reach_the_frontier():
         conn.close()
 
 
+def test_select_at_threshold_commits_and_writes_back_the_surface_alias():
+    # The SELECT commit path (resolution.py's `elif` companion to NEW) had no
+    # direct test: an existing, low-confidence-seeded canonical is selected at
+    # a confidence that clears the threshold -> the mention links immediately
+    # and the flywheel closes at the new, higher confidence.
+    conn = _connect_or_skip()
+    docs: list[str] = []
+    canon: list[int] = []
+    try:
+        cid = store.create_canonical(
+            conn, preferred="Berlin", entity_type="PLACE", wikidata_id="Q-res-berlin-2"
+        )
+        canon.append(cid)
+        store.upsert_form(
+            conn,
+            form_norm=form_norm("Berlin"),
+            form_surface="Berlin",
+            canonical_id=cid,
+            form_type="name",
+            confidence=0.5,  # below AUTO_LINK_THRESHOLD -> residue with candidates
+        )
+        doc_id, _elena_m, berlin_m = _seed_doc_with_mentions(conn)
+        docs.append(doc_id)
+
+        result = autolink_document(conn, doc_id)
+        berlin_res = next(r for r in result.residue if r.surface == "Berlin")
+
+        stub = _StubResolver(
+            {"Berlin": Resolution(kind=ResolutionKind.SELECT, canonical_id=cid, confidence=0.95)}
+        )
+        outcome = resolve_residue(conn, stub, doc_id, [berlin_res])
+        assert (outcome.linked, outcome.created, outcome.review) == (1, 0, 0)
+        assert store.canonical_for_mention(conn, berlin_m) == cid  # committed
+
+        blocking = candidates_for_form(conn, "Berlin")
+        assert blocking.auto_link_id == cid
+    finally:
+        for d in docs:
+            conn.execute("DELETE FROM documents WHERE id = %s", (d,))
+        for c in canon:
+            conn.execute("DELETE FROM canonical WHERE id = %s", (c,))
+        conn.close()
+
+
 def test_low_confidence_select_goes_to_review_not_link():
     conn = _connect_or_skip()
     docs: list[str] = []

@@ -24,7 +24,7 @@ def api_env():
     import _itdb
 
     conn = _connect_or_skip()
-    doc_id = _itdb.make_doc(conn, "Pipeline surface test. Second sentence.")
+    doc_id = _itdb.make_doc(conn, "Pipeline zqorvithex test. Second sentence.")
     try:
         yield conn, doc_id
     finally:
@@ -78,3 +78,32 @@ def test_mutations_enqueue_and_jobs_query_lists_them(api_env):
         assert all(j["status"] == "queued" for j in listed if j["id"] in job_ids)
     for jid in job_ids:
         conn.execute("DELETE FROM jobs WHERE id = %s", (jid,))
+
+
+def test_jobs_query_without_document_id_returns_recent_jobs(api_env):
+    # Branch coverage: document_id is optional (the unscoped "recent jobs" view).
+    with _client() as client:
+        data = _gql(client, "{ jobs(limit: 1) { id kind } }")
+        assert isinstance(data["jobs"], list)
+
+
+def test_jobs_query_with_invalid_document_id_returns_empty_not_an_error(api_env):
+    # A non-UUID documentId must not hit the uuid-cast DB error path — it is a
+    # clean, empty result (verified live incident: previously 500'd).
+    with _client() as client:
+        data = _gql(client, '{ jobs(documentId: "not-a-uuid") { id } }')
+        assert data["jobs"] == []
+
+
+def test_full_text_search_query_finds_the_fixture_document(api_env):
+    # Uses an invented word — a real one could rank outside the default result
+    # page as the shared corpus grows (the exact bug fixed in
+    # test_persistence_read.py's ts-config regression test).
+    conn, doc_id = api_env
+    with _client() as client:
+        data = _gql(
+            client,
+            "query($q: String!) { fullTextSearch(query: $q) { documentId title } }",
+            {"q": "zqorvithex"},
+        )
+        assert any(h["documentId"] == doc_id for h in data["fullTextSearch"])

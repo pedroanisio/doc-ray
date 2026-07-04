@@ -144,3 +144,105 @@ def test_restore_rejects_schema_mismatch(isolated):
         tar.addfile(info, io.BytesIO(payload))
     with pytest.raises(ValueError, match="schema mismatch"):
         bk.restore_from_archive(conn, store, buf.getvalue())
+
+
+def test_restore_backup_rejects_unknown_id(isolated):
+    conn, store = isolated
+    with pytest.raises(ValueError, match="unknown backup"):
+        bk.restore_backup(conn, store, "no-such-backup-id")
+
+
+def test_restore_backup_rejects_a_row_with_no_archive(isolated):
+    conn, store = isolated
+    from doc_ray.domain.ulid import new_ulid_str
+
+    backup_id = new_ulid_str()
+    conn.execute("INSERT INTO backups (id, status) VALUES (%s, 'creating')", (backup_id,))
+    try:
+        with pytest.raises(ValueError, match="has no archive"):
+            bk.restore_backup(conn, store, backup_id)
+    finally:
+        conn.execute("DELETE FROM backups WHERE id = %s", (backup_id,))
+
+
+def test_restore_backup_delegates_through_the_catalog(isolated):
+    # The public wrapper (looked up by id, fetched from the store) must produce
+    # the same outcome as calling restore_from_archive directly.
+    conn, store = isolated
+    _seed_doc(conn, store, "Restore-by-id probe.")
+    summary = bk.create_backup(conn, store, note="by-id")
+    result = bk.restore_backup(conn, store, summary["id"])
+    assert result["schema_version"] == summary["schema_version"]
+
+
+def test_create_backup_marks_failed_and_reraises_on_error(isolated, monkeypatch):
+    conn, store = isolated
+
+    def boom(_conn, _store, _backup_id):
+        raise RuntimeError("simulated dump failure")
+
+    monkeypatch.setattr(bk, "_build_and_upload", boom)
+    with pytest.raises(RuntimeError, match="simulated dump failure"):
+        bk.create_backup(conn, store, note="will-fail")
+    row = conn.execute(
+        "SELECT status, error FROM backups WHERE note = 'will-fail' "
+        "ORDER BY created_at DESC LIMIT 1"
+    ).fetchone()
+    assert row["status"] == "failed"
+    assert "simulated dump failure" in row["error"]
+
+
+def test_read_member_returns_empty_bytes_when_absent():
+    # Private helper, unit-tested directly (no DB needed): a malformed/partial
+    # archive's missing member must degrade to b"" rather than raising.
+    buf = io.BytesIO()
+    with tarfile.open(fileobj=buf, mode="w:gz"):
+        pass  # an empty archive — every lookup is a miss
+    with tarfile.open(fileobj=io.BytesIO(buf.getvalue()), mode="r:gz") as tar:
+        assert bk._read_member(tar, "nothing/here.bin") == b""
+
+
+def test_restore_blobs_skips_unreadable_members():
+    # A directory-only tarinfo entry under blobs/ has isfile()==False and is
+    # skipped entirely; a real member is still restored — exercises both the
+    # loop's filter and the ordinary count path in one pass.
+    class _CountingStore:
+        def __init__(self):
+            self.puts = []
+
+        def put(self, key, data, content_type):
+            self.puts.append(key)
+
+    buf = io.BytesIO()
+    with tarfile.open(fileobj=buf, mode="w:gz") as tar:
+        d = tarfile.TarInfo("blobs/subdir")
+        d.type = tarfile.DIRTYPE
+        tar.addfile(d)
+        payload = b"blob bytes"
+        f = tarfile.TarInfo("blobs/real.bin")
+        f.size = len(payload)
+        tar.addfile(f, io.BytesIO(payload))
+
+    store = _CountingStore()
+    with tarfile.open(fileobj=io.BytesIO(buf.getvalue()), mode="r:gz") as tar:
+        n = bk._restore_blobs(tar, store)
+    assert n == 1
+    assert store.puts == ["real.bin"]
+
+
+def test_schema_version_returns_none_on_db_error():
+    class _BoomCursor:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_exc):
+            return False
+
+        def execute(self, *_a, **_kw):
+            raise psycopg.errors.UndefinedFunction("docray_schema_version() does not exist")
+
+    class _BoomConn:
+        def cursor(self, **_kw):
+            return _BoomCursor()
+
+    assert bk._schema_version(_BoomConn()) is None
