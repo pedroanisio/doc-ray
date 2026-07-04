@@ -66,6 +66,10 @@ max-complexity = 12
 # obscure.
 "docs/reports/**" = ["D", "ANN", "C901", "E501", "SIM115"]
 "webapp/**" = ["ANN"]
+# The Engine ABC's `conn` is deliberately opaque: each backend (Postgres today,
+# others later) has its own connection type, and Any is the correct contract
+# for a parameter no shared code ever calls methods on directly.
+"src/doc_ray/application/db_analyzer/engines/base.py" = ["ANN401"]
 
 [tool.mypy]
 strict = true
