@@ -22,6 +22,13 @@ doc-ray carries **one global version** covering both the application package
 ## [Unreleased]
 
 ### Added
+- **spaCy annotation provenance** (OpenAI GPT-5 via Codex) —
+  `SpacyAnnotator` now writes an `annotated` provenance event in the same
+  transaction as its spaCy and lexeme annotation rows. The event records
+  tool/version, language, per-layer counts, lexeme-occurrence counts, annotation
+  ids, and replacement semantics; integration tests now prove success creates
+  the event and write failures leave no visible annotation run, closing
+  `BL-018`.
 - **NLP capability matrix and drift guard** (OpenAI GPT-5 via Codex) —
   `docs/nlp_capability_matrix.md` now maps each of the 20 documented NLP layers
   across schema, writer, read adapter, GraphQL, browser, health, and test

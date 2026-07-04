@@ -67,7 +67,7 @@ had shipped but were still marked `parked`/`ready`.
 | BL-015 | Fix test_migrate row_factory KeyError against the live DB | persistence | bug | done | S | high | concurrent |
 | BL-016 | NLP capability matrix and drift guard | docs | infra | done | S | high | shared |
 | BL-017 | Layer-aware GraphQL read model | api | feature | parked | L | high | concurrent |
-| BL-018 | spaCy annotation provenance | nlp | infra | ready | M | high | shared |
+| BL-018 | spaCy annotation provenance | nlp | infra | done | M | high | shared |
 | BL-019 | Annotation output validation | nlp | infra | ready | M | high | shared |
 | BL-020 | Shared read surface or parity tests | api | tech-debt | ready | M | high | shared |
 | BL-021 | Canonicalization and review API surfaces | api | feature | parked | M | high | concurrent |

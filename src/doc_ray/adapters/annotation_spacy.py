@@ -49,6 +49,14 @@ TokenRow = tuple[str, str, str | None, int, str | None, str, str]
 DepRow = tuple[str, str | None, str]
 
 
+def _split_tool_tag(tool: str) -> tuple[str, str | None]:
+    """Split ``spacy/<model>@<version>`` into provenance columns."""
+    if "@" not in tool:
+        return tool, None
+    name, version = tool.rsplit("@", 1)
+    return name, version
+
+
 class SpacyAnnotator:
     """Runs a spaCy pipeline and persists its multi-layer annotation output."""
 
@@ -178,13 +186,13 @@ class SpacyAnnotator:
         for _tid, span, _sent, _ordi, luid, _upos, _xpos in token_rows:
             if luid is not None:
                 lex_occ[span] = luid
-        lex_tool = tool.split("@")[0]
-        lex_version = tool.split("@")[1] if "@" in tool else None
+        lex_tool, lex_version = _split_tool_tag(tool)
 
         self._write(
             conn,
             doc_id,
             tool,
+            lang,
             token_rows,
             feat_rows,
             dep_rows,
@@ -269,6 +277,7 @@ class SpacyAnnotator:
         conn: DictConnection,
         doc_id: str,
         tool: str,
+        lang: str,
         tokens: list[TokenRow],
         feats: list[tuple[str, str, str]],
         deps: list[DepRow],
@@ -322,6 +331,42 @@ class SpacyAnnotator:
                 ) as cp:
                     for span, luid in lex_occ:
                         cp.write_row((lex_ann, span, luid))
+
+            provenance_id = new_ulid_str()
+            provenance_tool, provenance_version = _split_tool_tag(tool)
+            conn.execute(
+                """
+                INSERT INTO document_provenance
+                    (id, document_id, kind, tool, tool_version, actor, note)
+                VALUES (%s, %s, 'annotated', %s, %s, %s, %s)
+                """,
+                (
+                    provenance_id,
+                    doc_id,
+                    provenance_tool,
+                    provenance_version,
+                    "doc_ray.adapters.annotation_spacy.SpacyAnnotator",
+                    "spaCy multi-layer annotation run committed with replacement semantics.",
+                ),
+            )
+            provenance_params = {
+                "annotation_id": ann,
+                "lexeme_annotation_id": lex_ann,
+                "language": lang,
+                "replacement": "replace document spacy and lexeme layers for this tool",
+                "tokens": len(tokens),
+                "token_features": len(feats),
+                "dependencies": len(deps),
+                "entities": len(ents),
+                "chunks": len(chunks),
+                "coref_chains": len(coref),
+                "lexeme_occurrences": len(lex_occ or []),
+            }
+            with conn.cursor() as cur:
+                cur.executemany(
+                    "INSERT INTO provenance_params (event_id, key, value) VALUES (%s, %s, %s)",
+                    [(provenance_id, key, str(value)) for key, value in provenance_params.items()],
+                )
 
 
 def _target_ids(conn: DictConnection, args: argparse.Namespace) -> list[str]:

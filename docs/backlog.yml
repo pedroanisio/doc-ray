@@ -569,16 +569,15 @@ items:
     title:        "spaCy annotation provenance"
     summary:      "Record provenance events for spaCy multi-layer annotation runs."
     description: |
-      `SpacyAnnotator._write` (adapters/annotation_spacy.py) persists tokens,
-      features, dependencies, entities, chunks, coreference, and lexeme
-      projections, but the file contains no `document_provenance` write for the
-      annotation run (grep-confirmed 2026-07-04: no `document_provenance`
-      symbol anywhere in the module). Insert an `annotated` provenance event in
-      the same transaction that writes those layers, including tool, version,
-      language, per-layer counts, and replacement semantics.
+      `SpacyAnnotator._write` (adapters/annotation_spacy.py) now persists
+      tokens, features, dependencies, entities, chunks, coreference, lexeme
+      projections, and a matching `document_provenance` event in one
+      transaction. The `annotated` provenance event records tool, version,
+      language, per-layer counts, annotation ids, lexeme-occurrence counts, and
+      replacement semantics.
     category:     "nlp"
     type:         "infra"
-    status:       "ready"
+    status:       "done"
     complexity:   "M"
     priority:     "high"
     rationale:    "Annotation rows are high-value derived facts; without an audit event, the run is not fully reproducible."
@@ -589,9 +588,10 @@ items:
     references:
       - "docs/DATABASE_SPEC.md"
       - "src/doc_ray/adapters/annotation_spacy.py"
+      - "src/doc_ray/tests/test_complete_mapping.py"
       - "src/doc_ray/entrypoints/api/types.py"
     owner:        "shared"
-    source:       "docs/doc_ray_improvement_proposal.md BL-018; grep-verified absent 2026-07-04."
+    source:       "docs/doc_ray_improvement_proposal.md BL-018 — implemented 2026-07-04 with transactional provenance event + integration guard."
     tags:         ["provenance", "spacy", "nlp", "reproducibility"]
 
   - id:          "BL-019"
