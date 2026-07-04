@@ -81,10 +81,11 @@ later re-runs and seeding jobs appear here too.
 
 ### 2.2 Documents (`/`)
 
-The landing page lists every document in the corpus — title, type, language,
-size, sentence count, and which annotation tools have run — plus corpus-wide
-totals (documents, sentences, lexemes, occurrences). Click a title to open the
-reader.
+The landing page states the current document count, lists every document in the
+corpus — title, type, language, size, sentence count, and which annotation tools
+have run — plus corpus-wide totals (documents, sentences, lexemes,
+occurrences). Click a title to open the reader. If the corpus is empty, the page
+shows an upload call-to-action instead of an unexplained empty table.
 
 ### 2.3 Document reader (`/doc/<id>`)
 

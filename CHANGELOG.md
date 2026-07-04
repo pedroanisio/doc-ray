@@ -78,6 +78,10 @@ doc-ray carries **one global version** covering both the application package
   through the wrong row access mode.
 
 ### Fixed
+- **Corpus landing count and empty state** (OpenAI GPT-5 via Codex) —
+  the webapp landing lede now reflects the live document count instead of
+  hardcoding "Five documents", and an empty corpus shows an upload call-to-action,
+  closing `BL-028`.
 - `fullTextSearch` used a hardcoded `'english'` tsquery configuration
   regardless of a document's detected language, silently degrading search
   quality for unannotated (`language IS NULL`, `'simple'`-config `fts`) and

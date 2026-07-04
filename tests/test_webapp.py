@@ -97,6 +97,41 @@ def test_home_lists_documents_and_totals(client):
     assert "283,809" in html          # occurrence total, comma-formatted
 
 
+def test_home_lede_uses_live_document_count(client, monkeypatch):
+    def totals_41(sql, params=()):
+        if "FROM documents) docs" in _norm(sql):
+            return {"docs": 41, "sents": 15200, "lexemes": 30013, "occ": 283809}
+        return fake_q1(sql, params)
+
+    monkeypatch.setattr(webapp, "q1", totals_41)
+
+    html = client.get("/").get_data(as_text=True)
+
+    assert "41 documents, decomposed" in _norm(html)
+    assert "Five documents" not in html
+
+
+def test_home_empty_corpus_shows_upload_call_to_action(client, monkeypatch):
+    def empty_docs(sql, params=()):
+        if "FROM documents d" in _norm(sql) and "ORDER BY d.char_count" in _norm(sql):
+            return []
+        return fake_q(sql, params)
+
+    def empty_totals(sql, params=()):
+        if "FROM documents) docs" in _norm(sql):
+            return {"docs": 0, "sents": 0, "lexemes": 0, "occ": 0}
+        return fake_q1(sql, params)
+
+    monkeypatch.setattr(webapp, "q", empty_docs)
+    monkeypatch.setattr(webapp, "q1", empty_totals)
+
+    html = client.get("/").get_data(as_text=True)
+
+    assert "No documents yet." in html
+    assert "Upload the first document" in html
+    assert 'href="/upload"' in html
+
+
 # --- document page ---------------------------------------------------------
 
 def test_document_page_shows_pos_and_verbs(client):

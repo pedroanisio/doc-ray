@@ -3,8 +3,13 @@
 {% block body %}
 <p class="kicker">An annotated reading room</p>
 <h1>The <span class="accent">Corpus</span></h1>
-<p class="lede" style="max-width:34rem">Five documents, decomposed to sentences and lexemes and
-tagged for part of speech. Open one to read it with its annotation layer.</p>
+{% set doc_count = totals.docs or 0 %}
+{% set doc_label = "document" if doc_count == 1 else "documents" %}
+<p class="lede" style="max-width:34rem">
+  {{ "{:,}".format(doc_count) }} {{ doc_label }}, decomposed to sentences and
+  lexemes and tagged for part of speech. Open one to read it with its annotation
+  layer.
+</p>
 
 <div class="card" style="margin-top:1.6rem; display:flex; flex-wrap:wrap; gap:.5rem 0">
   <div class="stat"><b>{{ "{:,}".format(totals.docs) }}</b><span>documents</span></div>
@@ -31,6 +36,14 @@ tagged for part of speech. Open one to read it with its annotation layer.</p>
         <td class="num">{{ d.page_count or "—" }}</td>
         <td class="num">{{ "{:,}".format(d.n_sentences) }}</td>
         <td class="mono" style="color:var(--ink-faint); font-size:.72rem">{{ d.tools or "—" }}</td>
+      </tr>
+    {% else %}
+      <tr>
+        <td colspan="7" style="padding:1.4rem; text-align:center">
+          <strong>No documents yet.</strong>
+          <span style="color:var(--ink-muted)">Start by adding a file to the corpus.</span>
+          <a href="{{ url_for('upload_form') }}">Upload the first document</a>
+        </td>
       </tr>
     {% endfor %}
     </tbody>

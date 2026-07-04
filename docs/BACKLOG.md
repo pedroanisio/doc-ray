@@ -81,7 +81,7 @@ had shipped but were still marked `parked`/`ready`.
 | BL-025 | Lexeme/token projection invariant | persistence | tech-debt | done | M | medium | shared |
 | BL-026 | Surface a product value proposition in the webapp | webapp | feature | parked | S | high | shared |
 | BL-027 | Add an in-app help / documentation / onboarding surface | webapp | feature | parked | S | high | shared |
-| BL-028 | Corpus landing: dynamic lede + empty state | webapp | bug | ready | XS | high | shared |
+| BL-028 | Corpus landing: dynamic lede + empty state | webapp | bug | done | XS | high | shared |
 | BL-029 | Define domain jargon across the webapp | webapp | feature | parked | M | medium | shared |
 | BL-030 | Seeding screen: workflow signposting and Seed confirmation guardrail | webapp | feature | parked | S | medium | shared |
 | BL-031 | Disclose that corpus search is a literal substring match | webapp | feature | ready | XS | medium | shared |

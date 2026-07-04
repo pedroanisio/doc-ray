@@ -879,7 +879,7 @@ items:
       states. Make the lede dynamic and add an empty state that points to Upload.
     category:     "webapp"
     type:         "bug"
-    status:       "ready"
+    status:       "done"
     complexity:   "XS"
     priority:     "high"
     rationale:    "A visibly-wrong count damages credibility, and a brand-new user is shown an empty table with no first action (no activation path)."
@@ -891,7 +891,7 @@ items:
       - "webapp/templates/lexemes.html"
       - "webapp/templates/search.html"
     owner:        "shared"
-    source:       "Session finding 2026-07-04: webapp UX/UI audit (finding H3)."
+    source:       "Session finding 2026-07-04: webapp UX/UI audit (finding H3); completed with dynamic corpus lede and empty upload CTA."
     tags:         ["landing", "empty-state", "microcopy", "bug"]
 
   - id:          "BL-029"
