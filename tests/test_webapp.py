@@ -221,6 +221,29 @@ def test_search_highlights_the_term(client):
     assert "Big Brother" in html
 
 
+def test_search_discloses_literal_substring_semantics(client):
+    html = client.get("/search").get_data(as_text=True)
+    normalized = _norm(html)
+    assert "literal substring match" in normalized
+    assert "will not match inflected variants" in normalized
+
+
+def test_search_empty_state_explains_literal_match_and_alternative(client, monkeypatch):
+    def empty_search(sql, params=()):
+        if "FROM sentences s" in _norm(sql) and "ILIKE" in _norm(sql):
+            return []
+        return fake_q(sql, params)
+
+    monkeypatch.setattr(webapp, "q", empty_search)
+
+    html = client.get("/search?q=run").get_data(as_text=True)
+
+    assert "No sentences match." in html
+    assert "literal substring search" in html
+    assert "running" in html and "ran" in html
+    assert "fullTextSearch" in html
+
+
 def test_search_without_query_shows_no_results_table(client):
     html = client.get("/search").get_data(as_text=True)
     # The results table (and its header) render only once a term is given.

@@ -963,7 +963,7 @@ items:
       full-text search (the fullTextSearch API).
     category:     "webapp"
     type:         "feature"
-    status:       "ready"
+    status:       "done"
     complexity:   "XS"
     priority:     "medium"
     rationale:    "Undisclosed substring semantics read as 'search is broken' when inflected forms silently fail to match."
@@ -974,7 +974,7 @@ items:
       - "webapp/templates/search.html"
       - "docs/webapp_user_manual.md"
     owner:        "shared"
-    source:       "Session finding 2026-07-04: webapp UX/UI audit (finding M3)."
+    source:       "Session finding 2026-07-04: webapp UX/UI audit (finding M3); completed with visible substring-search hint and zero-result recovery copy."
     tags:         ["search", "microcopy", "expectations", "empty-state"]
 
   - id:          "BL-032"

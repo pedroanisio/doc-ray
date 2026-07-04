@@ -127,8 +127,9 @@ occurrences (up to 80), each linking back to the source document.
 ### 2.7 Search (`/search?q=…`)
 
 Case-insensitive **substring** search over sentences, first 100 hits, grouped by
-document. This is a literal match — it will not find inflected variants of your
-query. Stemmed full-text search is available on the GraphQL API
+document. The browser states this beside the search box and repeats the caveat
+in the zero-result state. This is a literal match — it will not find inflected
+variants of your query. Stemmed full-text search is available on the GraphQL API
 (`fullTextSearch`), not in the browser yet.
 
 ### 2.8 Backups (`/backups`)

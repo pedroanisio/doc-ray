@@ -22,6 +22,10 @@ doc-ray carries **one global version** covering both the application package
 ## [Unreleased]
 
 ### Added
+- **Corpus search semantics disclosure** (OpenAI GPT-5 via Codex) —
+  the browser search page now states that it performs literal substring
+  matching, and its zero-result state explains inflection misses while pointing
+  to the GraphQL `fullTextSearch` alternative, closing `BL-031`.
 - **Lexeme/token projection invariant** (OpenAI GPT-5 via Codex) —
   `SpacyAnnotator` now builds `lexeme_occurrences` through a named projection
   over non-null `tokens.lexeme_uid` rows, with a pure projection test and a live

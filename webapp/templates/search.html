@@ -8,6 +8,11 @@
          placeholder="find a phrase across every document…" autofocus>
   <button type="submit">Search</button>
 </form>
+<p class="lede" style="max-width:42rem">
+  This is a literal substring match over sentence text; it will not match
+  inflected variants such as <span class="mono">running</span> or
+  <span class="mono">ran</span> when you search for <span class="mono">run</span>.
+</p>
 
 {% if term %}
   <p class="lede">{{ rows|length }} match{{ '' if rows|length == 1 else 'es' }}{% if rows|length == 100 %} (first 100){% endif %}
@@ -23,7 +28,15 @@
           <td style="font-size:1.05rem; line-height:1.7">{{ r.pre }}{% if r.hit %}<mark>{{ r.hit }}</mark>{% endif %}{{ r.post }}</td>
         </tr>
       {% else %}
-        <tr><td colspan="3" class="lede">No sentences match.</td></tr>
+        <tr>
+          <td colspan="3" class="lede">
+            No sentences match. This browser search is a literal substring search,
+            so inflected forms such as <span class="mono">running</span> or
+            <span class="mono">ran</span> will not match unless you search for
+            those exact characters. Use the GraphQL <span class="mono">fullTextSearch</span>
+            field for stemmed full-text search.
+          </td>
+        </tr>
       {% endfor %}
       </tbody>
     </table>
