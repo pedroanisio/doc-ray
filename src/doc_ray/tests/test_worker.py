@@ -193,6 +193,36 @@ def test_annotate_job_sets_document_language(qconn):
         conn.execute("DELETE FROM documents WHERE id = %s", (doc_id,))
 
 
+def test_annotate_job_surfaces_annotation_validation_failure(qconn, monkeypatch):
+    import _itdb
+
+    from doc_ray.adapters.annotation_spacy import SpacyAnnotator
+    from doc_ray.application.jobs import HANDLERS
+
+    conn, created = qconn
+    doc_id = _itdb.make_doc(conn, "Elena founded a startup in Berlin. It grew fast.")
+    job_id = q.enqueue(conn, "annotate", {}, priority=0, max_attempts=1, document_id=doc_id)
+    created.append(job_id)
+
+    def corrupt_entities(self, doc, span_map):
+        return [("entity-from-elsewhere", "foreign-span-id", "PERSON")], {}
+
+    monkeypatch.setattr(SpacyAnnotator, "_build_entities", corrupt_entities)
+    try:
+        done = run_once(conn, None, worker_id="w1", handlers=HANDLERS)
+        assert done is not None and done.id == job_id
+        row = conn.execute(
+            "SELECT status, error, result FROM jobs WHERE id = %s",
+            (job_id,),
+        ).fetchone()
+        assert row["status"] == "failed"
+        assert row["result"] is None
+        assert "AnnotationValidationError" in row["error"]
+        assert "unknown entity span" in row["error"]
+    finally:
+        conn.execute("DELETE FROM documents WHERE id = %s", (doc_id,))
+
+
 def test_handle_annotate_requires_document_id():
     from doc_ray.application.jobs import handle_annotate
     from doc_ray.domain.jobs import Job, JobStatus

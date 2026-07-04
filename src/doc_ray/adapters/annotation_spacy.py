@@ -35,6 +35,7 @@ from doc_ray.adapters.annotation_capabilities import (
     normalize_language,
     spacy_capabilities,
 )
+from doc_ray.adapters.annotation_validation import validate_spacy_annotation_output
 from doc_ray.adapters.persistence import DictConnection
 from doc_ray.config import Config
 from doc_ray.domain import lexemes as lex
@@ -269,6 +270,20 @@ class SpacyAnnotator:
         # produced and committed together.
         lex_occ = lexeme_projection_from_tokens(token_rows)
         lex_tool, lex_version = _split_tool_tag(tool)
+        validation_summary = validate_spacy_annotation_output(
+            text_length=len(text),
+            span_map=span_map,
+            sentence_ids={str(r["id"]) for r in sent_spans},
+            lang=lang,
+            tokens=token_rows,
+            feats=feat_rows,
+            deps=dep_rows,
+            ents=ent_rows,
+            chunks=chunk_rows,
+            coref=coref,
+            lex_occ=lex_occ,
+            language_resolution=language_resolution,
+        )
 
         self._write(
             conn,
@@ -285,6 +300,7 @@ class SpacyAnnotator:
             lex_tool=lex_tool,
             lex_version=lex_version,
             language_resolution=language_resolution,
+            validation_summary=validation_summary,
         )
         return {
             "tokens": len(token_rows),
@@ -298,6 +314,7 @@ class SpacyAnnotator:
             "fallback_policy": language_resolution.fallback_policy,
             "fallback_used": language_resolution.fallback_used,
             "tool": tool,
+            **validation_summary,
         }
 
     def _build_entities(
@@ -375,6 +392,7 @@ class SpacyAnnotator:
         lex_tool: str | None = None,
         lex_version: str | None = None,
         language_resolution: AnnotationLanguageResolution | None = None,
+        validation_summary: dict[str, str | int] | None = None,
     ) -> None:
         """Persist all spaCy layers (and the lexeme projection) in one txn."""
         with conn.transaction():
@@ -450,6 +468,7 @@ class SpacyAnnotator:
                 "chunks": len(chunks),
                 "coref_chains": len(coref),
                 "lexeme_occurrences": len(lex_occ or []),
+                **(validation_summary or {}),
             }
             with conn.cursor() as cur:
                 cur.executemany(

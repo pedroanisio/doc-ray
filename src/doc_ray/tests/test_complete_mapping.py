@@ -18,6 +18,7 @@ from doc_ray.adapters.annotation_spacy import (
     lexeme_projection_from_tokens,
     spacy_capabilities,
 )
+from doc_ray.adapters.annotation_validation import AnnotationValidationError
 
 # Rich enough for verbs, nouns, named entities, and a dependency root.
 TEXT = (
@@ -239,6 +240,7 @@ def test_reannotation_is_idempotent(mapped):
 
 def test_spacy_annotation_records_provenance_event(mapped):
     conn, doc_id, r = mapped
+    assert r["validation_status"] == "passed"
     tool, version = r["tool"].split("@", 1)
     event = conn.execute(
         """
@@ -272,6 +274,32 @@ def test_spacy_annotation_records_provenance_event(mapped):
     assert params["chunks"] == str(r["chunks"])
     assert params["coref_chains"] == str(r["coref_chains"])
     assert params["lexeme_occurrences"] == str(r["occurrences"])
+    assert params["validation_status"] == "passed"
+    assert params["validation_errors"] == "0"
+
+
+def test_spacy_annotation_validation_failure_leaves_no_visible_run(monkeypatch, pg):
+    conn, created = pg
+    doc_id = _itdb.make_doc(conn, TEXT)
+    created.append(doc_id)
+
+    def corrupt_entities(self, doc, span_map):
+        return [("entity-from-elsewhere", "foreign-span-id", "PERSON")], {}
+
+    monkeypatch.setattr(SpacyAnnotator, "_build_entities", corrupt_entities)
+    with pytest.raises(AnnotationValidationError, match="unknown entity span"):
+        SpacyAnnotator().annotate(conn, doc_id)
+
+    rows = conn.execute(
+        "SELECT layer FROM annotations WHERE document_id=%s AND layer IN ('spacy', 'lexeme')",
+        (doc_id,),
+    ).fetchall()
+    events = conn.execute(
+        "SELECT id FROM document_provenance WHERE document_id=%s AND kind='annotated'",
+        (doc_id,),
+    ).fetchall()
+    assert rows == []
+    assert events == []
 
 
 def test_spacy_annotation_failure_leaves_no_visible_run(monkeypatch, pg):

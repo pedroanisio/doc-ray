@@ -22,6 +22,12 @@ doc-ray carries **one global version** covering both the application package
 ## [Unreleased]
 
 ### Added
+- **Annotation output validation** (OpenAI GPT-5 via Codex) —
+  `SpacyAnnotator` now validates span bounds, token ordinals, sentence
+  references, dependency heads, entity/chunk/coreference spans, lexeme
+  projections, and language/model support before persistence. Successful runs
+  record validation status in job and provenance output, and invalid annotation
+  graphs fail visibly before any run is committed, closing `BL-019`.
 - **Corpus search semantics disclosure** (OpenAI GPT-5 via Codex) —
   the browser search page now states that it performs literal substring
   matching, and its zero-result state explains inflection misses while pointing

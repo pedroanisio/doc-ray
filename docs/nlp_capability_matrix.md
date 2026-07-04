@@ -45,6 +45,14 @@ fallback with `DOCRAY_SPACY_FALLBACK_POLICY=fallback`, and the resulting
 detected language, annotation language, model, and fallback decision are recorded
 in provenance params.
 
+Validation note: as of `BL-019`, spaCy-backed annotation rows pass a pure
+structural validation gate before persistence. The validator checks span bounds,
+token ordinals, sentence references, dependency heads, entity/chunk/coreference
+spans, lexeme projection parity, and language/model support. Successful runs
+record `validation_status=passed` and `validation_errors=0` in job and
+provenance output; invalid graphs fail before the annotation/provenance rows
+become visible.
+
 ## Capability Matrix
 
 | Layer | Capability | Schema | Writer | Read adapter | GraphQL | Browser | Health | Tests | Status |

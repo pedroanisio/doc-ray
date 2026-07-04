@@ -606,7 +606,7 @@ items:
       validation status in job output and provenance.
     category:     "nlp"
     type:         "infra"
-    status:       "ready"
+    status:       "done"
     complexity:   "M"
     priority:     "high"
     rationale:    "NLP outputs are hypotheses; invalid spans, dependencies, or projections should not silently enter the corpus."
@@ -621,7 +621,7 @@ items:
       - "src/doc_ray/adapters/resolver_claude.py"
       - "src/doc_ray/adapters/annotation_spacy.py"
     owner:        "shared"
-    source:       "docs/doc_ray_improvement_proposal.md BL-019 — PALS requirement extended to deterministic annotators, 2026-07-04."
+    source:       "docs/doc_ray_improvement_proposal.md BL-019 — completed 2026-07-04 with pure spaCy row validators, job/provenance validation status, and integration failure coverage."
     tags:         ["pals-law", "validation", "nlp", "quality-gate"]
 
   - id:          "BL-020"
