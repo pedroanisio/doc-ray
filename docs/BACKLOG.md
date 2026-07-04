@@ -4,8 +4,8 @@ disclaimer:
     No information within this document should be taken for granted.
     Any statement or premise not backed by a real logical definition
     or verifiable reference may be invalid, erroneous, or a hallucination.
-  generated_by: "Claude Opus 4.8 via Claude Code"
-  date: "2026-07-01"
+  generated_by: "Claude Sonnet 5 via Claude Code (merge of Claude Opus 4.8 backlog + OpenAI Codex improvement-proposal candidates)"
+  date: "2026-07-04"
 ---
 
 # Backlog
@@ -27,11 +27,24 @@ boundary so concurrent-session work stays attributable.
 Validate the backlog against its schema:
 
 ```bash
-pip install jsonschema pyyaml
+pip install jsonschema pyyaml   # or: pip install -r requirements-dev.txt
 python -c "import json,yaml,jsonschema; \
   jsonschema.validate(yaml.safe_load(open('docs/backlog.yml')), \
   json.load(open('docs/schema/backlog.schema.json')))"
 ```
+
+or run the regression suite that keeps this document, `backlog.yml`, and
+`engineering_decisions.yml` from drifting apart:
+
+```bash
+pytest src/doc_ray/tests/test_backlog.py
+```
+
+**2026-07-04 merge:** this backlog absorbed the 10 backlog-shaped candidates
+(`BL-016`–`BL-025`) from `docs/doc_ray_improvement_proposal.md` — see that
+document for the narrative gap analysis behind them. `BL-009`/`BL-010`/
+`BL-011`/`BL-014` statuses were also reconciled against the live tree: they
+had shipped but were still marked `parked`/`ready`.
 
 ## Items
 
@@ -45,13 +58,23 @@ python -c "import json,yaml,jsonschema; \
 | BL-006 | Materialize the remaining NLP annotation layers | nlp | feature | parked | XL | medium | concurrent |
 | BL-007 | Verification layer for ML/LLM annotator output (PALS's Law) | nlp | infra | parked | M | high | shared |
 | BL-008 | Complete the GraphQL (Strawberry) driving adapter | api | feature | parked | L | medium | concurrent |
-| BL-009 | GraphQL safety: depth/complexity limits + keyset pagination | security | feature | parked | M | high | concurrent |
-| BL-010 | Background jobs via a Postgres queue (FOR UPDATE SKIP LOCKED) | ops | feature | parked | L | medium | concurrent |
-| BL-011 | jobs table + sync worker runtime | persistence | feature | parked | M | medium | concurrent |
+| BL-009 | GraphQL safety: depth/complexity limits + keyset pagination | security | feature | in-progress | M | high | concurrent |
+| BL-010 | Background jobs via a Postgres queue (FOR UPDATE SKIP LOCKED) | ops | feature | done | L | medium | concurrent |
+| BL-011 | jobs table + sync worker runtime | persistence | feature | done | M | medium | concurrent |
 | BL-012 | Per-principal LOGIN roles for hostile-direct-SQL isolation | security | feature | parked | L | medium | shared |
 | BL-013 | Raise package coverage from 57% to the 90% gate | testing | tech-debt | done | L | high | shared |
-| BL-014 | Fix 14 E501 line-length errors in gen_data_dictionary.py | tooling | tech-debt | ready | XS | low | concurrent |
+| BL-014 | Fix 14 E501 line-length errors in gen_data_dictionary.py | tooling | tech-debt | done | XS | low | concurrent |
 | BL-015 | Fix test_migrate row_factory KeyError against the live DB | persistence | bug | done | S | high | concurrent |
+| BL-016 | NLP capability matrix and drift guard | docs | infra | done | S | high | shared |
+| BL-017 | Layer-aware GraphQL read model | api | feature | parked | L | high | concurrent |
+| BL-018 | spaCy annotation provenance | nlp | infra | ready | M | high | shared |
+| BL-019 | Annotation output validation | nlp | infra | ready | M | high | shared |
+| BL-020 | Shared read surface or parity tests | api | tech-debt | ready | M | high | shared |
+| BL-021 | Canonicalization and review API surfaces | api | feature | parked | M | high | concurrent |
+| BL-022 | Annotation language and model capability registry | nlp | infra | ready | S | medium | shared |
+| BL-023 | Operator health surfaces | ops | feature | parked | M | medium | shared |
+| BL-024 | Evaluation and drift artifacts | nlp | research | parked | L | medium | shared |
+| BL-025 | Lexeme/token projection invariant | persistence | tech-debt | ready | M | medium | shared |
 
 See [`backlog.yml`](backlog.yml) for each item's full description, rationale,
 acceptance criteria, dependencies, related decisions (`D-###`), and references.
