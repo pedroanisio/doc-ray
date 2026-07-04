@@ -1037,5 +1037,7 @@ the caller's RLS instead of the owner's bypass.
 | 024 | `024_schema_version_1_3_0.sql` | advance the schema SemVer to 1.3.0 |
 | 025 | `025_seed_suggestion.sql` | seed_suggestion — domain-seeding curation queue |
 | 026 | `026_backups.sql` | backups — corpus-snapshot archive catalogue |
-| 027 | `029_schema_version_1_4_0.sql` | advance the schema SemVer to 1.4.0 |
+| 027 | `027_fk_cascade_indexes.sql` | index the annotations delete-cascade FK paths |
+| 028 | `028_document_delete_cascade_indexes.sql` | index the document delete-cascade FK paths |
+| 029 | `029_schema_version_1_4_0.sql` | advance the schema SemVer to 1.4.0 |
 

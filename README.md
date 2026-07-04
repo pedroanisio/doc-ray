@@ -80,6 +80,45 @@ docker compose exec postgres psql -U docray -d docray -c \
 
 MinIO console: http://localhost:9001 (login from `.env`).
 
+## GraphQL API & webapp
+
+Beyond the batch `ingester` CLI, the stack ships a GraphQL API (Strawberry)
+and a Flask browser over the corpus:
+
+```bash
+docker compose up -d postgres minio createbucket api worker
+```
+
+`api` serves GraphQL at `http://localhost:8000/graphql`; `worker` is the
+background job processor everything below enqueues onto (`FOR UPDATE SKIP
+LOCKED`, retried with backoff). Uploading through the API is the primary,
+webapp-driven ingestion path — the pipeline runs unattended from there:
+
+```graphql
+mutation($f: Upload!) {
+  ingestDocument(file: $f, pipeline: true) { id status }   # pipeline: true is the default
+}
+# on success, enqueues annotate -> canonicalize as a job-payload chain;
+# poll pipeline progress with: { jobs(documentId: "...") { kind status } }
+```
+
+Other query/mutation surface: `documents` / `document` / `searchSentences` /
+`fullTextSearch` / `lexeme(s)` / `entities` / `entityFrequency` (reads);
+`reannotate` / `deleteDocument` / `annotateDocument` /
+`canonicalizeDocument(resolve:)` (writes — every mutation enqueues a worker
+job and returns it; poll `job(id)` for completion, never a synchronous
+result).
+
+The webapp (`python -m webapp.app`, or `flask --app webapp.app run --port
+5001`) is a read-only Postgres browser plus a thin GraphQL write path: upload
+a document, watch its pipeline status, read it with POS/entity overlays, and
+curate **domain seeding** — mining a document's vocabulary, resolving each
+term to an exact Wikidata identity, and auditing the resolved description
+before anything reaches the shared canonical registry (the fuzzy-search
+alternative silently drifts, e.g. resolving "versal" to the Wikidata item
+for *Versailles*). Full walkthrough: [`docs/webapp_user_manual.md`](docs/webapp_user_manual.md).
+Entity canonicalization design: [`docs/canonicalization_pipeline.md`](docs/canonicalization_pipeline.md).
+
 ## Backup & restore
 
 The whole corpus — every Postgres table plus every stored blob — can be captured
@@ -139,8 +178,8 @@ python -m doc_ray.entrypoints.cli orwell1984.pdf
 | `src/doc_ray/`             | The core package — **hexagonal / DDD** layout (below) |
 | `src/doc_ray/domain/`      | Pure logic & value objects: `pdf_layout`, `sentences`, `lexemes`, `ulid`, `provenance` |
 | `src/doc_ray/ports/`       | Boundary contracts: `TextExtractor`, `ObjectStore`, `Repository`, `Annotator` |
-| `src/doc_ray/adapters/`    | Driven adapters: `extraction` (PyMuPDF/pypdf/…), `persistence` (Postgres), `object_store` (MinIO), `annotation`/`annotation_spacy` |
-| `src/doc_ray/application/` | Use cases: `pipeline`, `reannotate`, `reextract`, `backup` (corpus snapshot/restore), `db_health` (instance health), `db_analyzer` (multi-engine structure + data profiling) |
+| `src/doc_ray/adapters/`    | Driven adapters: `extraction` (PyMuPDF/pypdf/…), `persistence` (Postgres), `object_store` (MinIO), `annotation`/`annotation_spacy`, `wikidata`/`wikipedia` (KB resolution), `queue_postgres` (job queue) |
+| `src/doc_ray/application/` | Use cases: `pipeline`, `reannotate`, `reextract`, `jobs` (dispatch + pipeline chaining), `term_scan`/`canonicalize`/`resolution`/`seed_suggest`/`canonical_seed` (entity canonicalization), `backup` (corpus snapshot/restore), `corpus_health`, `db_health` (instance health), `db_analyzer` (multi-engine structure + data profiling) |
 | `src/doc_ray/entrypoints/` | Driving adapters (`python -m doc_ray.entrypoints.<name>`): `cli`, `api` (GraphQL), `worker`, `migrate`, `export`, `annotate`, `annotate_spacy`, `reannotate`, `reextract`, `db_health`, `db_analyze` |
 | `src/doc_ray/config.py`    | Env-driven configuration                           |
 | `webapp/`                  | Flask browser over the annotated corpus (frontend, kept **outside** `src/`) |

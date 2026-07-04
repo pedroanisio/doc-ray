@@ -1,3 +1,13 @@
+---
+disclaimer:
+  notice: >-
+    No information within this document should be taken for granted.
+    Any statement or premise not backed by a real logical definition
+    or verifiable reference may be invalid, erroneous, or a hallucination.
+  generated_by: "Claude Fable 5 via Claude Code"
+  date: "2026-07-04"
+---
+
 # Canonicalization Pipeline
 ### Frontier model as resolver, and the remissive index that maps every form to its canonical
 
@@ -172,3 +182,51 @@ The index fills fastest on the entities that appear most, so the frontier model'
 volume drops sharply after the first pass — you pay for judgment once and collect canonical
 lookups forever. That is the corpus draining from a swamp of divergent mentions into a single
 stable spine, and the remissive index is both the map of it and the engine that builds it.
+
+---
+
+## What actually shipped, and where it diverged
+
+The build order above (seed → index-first lookup → constrained frontier resolver
+→ write-back) landed as designed (`canonical_seed`, `candidate_generation`,
+`resolver_claude` + `resolution`). Two things emerged during live-fire use that
+the original design didn't anticipate, and both are now part of the pipeline:
+
+**Stage 1.5 — registry-driven term scan.** The corpus isn't only character-
+driven fiction; a technical document's real vocabulary is lowercase common
+nouns ("uncial", "parchment", "versal"), and NER (Stage 1) only tags
+proper-noun-shaped spans. No amount of seeding `canonical` helped, because
+those terms never became `entity_mention` rows to resolve in the first place.
+`application/term_scan.py` closes the gap deterministically: it scans a
+document's text for surfaces `form_index` already knows and emits mentions
+under a dedicated `layer='term'` annotation, which Stage 2 then links through
+the ordinary pathway — it only *emits*, never links directly, so ambiguous
+registry hits still become residue for the frontier/review rather than being
+force-linked. Guards (word boundaries, longest-match-wins, a length/stopword
+floor for single-token forms, case-exact acronyms, and a nominal-POS filter
+using the document's own token layer) keep polysemous KB aliases from
+matching verb usage — the live catcher was "a loose end hanging from…"
+false-linking to *tapestry* before the POS filter was added. Runs as part of
+the `canonicalize` worker job, immediately before Stage-2 auto-link.
+
+**Seeding needed a human gate the design didn't call out explicitly.**
+Automating Stage 0 end-to-end turned out to be actively unsafe: fuzzy
+Wikidata search repeatedly drifted to the wrong entity from live-fire seed
+runs — a lettering term "versal" resolved to the Wikidata item for
+*Versailles*; a bare surname "Albertus" resolved to *Albertus Magnus*, the
+13th-century friar, instead of the typeface. Both are exactly the kind of
+plausible-but-wrong identity PALS's Law (`CLAUDE.md`) warns about, except the
+untrusted output here is a *search index's* ranking, not an LLM's — the same
+discipline applies. The fix is a staging table, not a smarter search: a
+`seed_suggest` worker job mines candidates and resolves each one through its
+**Wikipedia article title** via `adapters/wikipedia.py` (pageprops; exact
+identity, and it refuses disambiguation pages outright — the mechanism that
+would have caught the "Albertus" case) rather than the fuzzy `wbsearchentities`
+call `canonical_seed` uses for direct QID/term seeding. Every candidate lands
+in `seed_suggestion` (migration 025) as `pending`, with the resolved
+description shown as the audit surface, so a human approves or rejects before
+anything reaches `canonical` — `seed_approved` then seeds only what was
+approved through the same `canonical_seed` path this design specified. The
+webapp's `/doc/<id>/seeding` screen is this workflow's interface; see
+[`webapp_user_manual.md`](webapp_user_manual.md) §3 for the curator's-eye view
+and worked examples of what the audit step actually catches.

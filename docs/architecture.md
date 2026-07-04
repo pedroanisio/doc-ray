@@ -1,3 +1,13 @@
+---
+disclaimer:
+  notice: >-
+    No information within this document should be taken for granted.
+    Any statement or premise not backed by a real logical definition
+    or verifiable reference may be invalid, erroneous, or a hallucination.
+  generated_by: "Claude Fable 5 via Claude Code"
+  date: "2026-07-04"
+---
+
 # Architecture
 
 `doc-ray` is organized as a **hexagonal (ports & adapters)** application with
@@ -45,17 +55,53 @@
 |---|---|---|---|
 | **Domain** | `doc_ray.domain` | `pdf_layout` (layout→Markdown), `sentences` (segmentation), `lexemes` (identity, tokenization, `RuleAnalyzer`, language detection), `ulid` (value object), `provenance` (events) | stdlib only |
 | **Ports** | `doc_ray.ports` | `TextExtractor`, `ObjectStore`, `Repository`, `Annotator` — `Protocol` contracts | domain |
-| **Adapters** | `doc_ray.adapters` | `extraction` (PyMuPDF + pypdf + txt/html/epub/docx), `persistence` (Postgres/psycopg), `object_store` (MinIO/boto3), `annotation` / `annotation_spacy`, `export` | domain, ports |
-| **Application** | `doc_ray.application` | `pipeline` (ingest use case), `reannotate`, `reextract`, `backup` (corpus snapshot & restore), `db_health` (instance health), `db_analyzer` (multi-engine structure + data profiling) | ports, adapters, domain |
-| **Entrypoints** | `doc_ray.entrypoints` | `cli`, and the diagnostics CLIs `db_health` / `db_analyze` | application |
+| **Adapters** | `doc_ray.adapters` | `extraction` (PyMuPDF + pypdf + txt/html/epub/docx), `persistence` (Postgres/psycopg), `object_store` (MinIO/boto3), `annotation` / `annotation_spacy`, `export`, `wikidata` / `wikipedia` (canonical-entity KB resolution), `queue_postgres` (`FOR UPDATE SKIP LOCKED` job queue) | domain, ports |
+| **Application** | `doc_ray.application` | `pipeline` (ingest use case), `reannotate`, `reextract`, `jobs` (worker dispatch + payload-carried pipeline-chain automation), `term_scan` / `canonicalize` / `resolution` / `seed_suggest` / `canonical_seed` (entity canonicalization — see below), `backup` (corpus snapshot & restore), `corpus_health`, `db_health` (instance health), `db_analyzer` (multi-engine structure + data profiling) | ports, adapters, domain |
+| **Entrypoints** | `doc_ray.entrypoints` | `cli`; `api` (GraphQL, Strawberry) and `worker` — the async-read / sync-write split every mutation runs through (see below); `migrate`, `export`, `annotate(_spacy)`, `reannotate`, `reextract`; the diagnostics CLIs `corpus_health` / `db_health` / `db_analyze` | application |
 | **Config** | `doc_ray.config` | env-driven `Config` (shared kernel) | stdlib |
 
 ## Outside the hexagon
 
 - **`webapp/`** — the Flask frontend. Reads Postgres directly; imports **nothing**
-  from `doc_ray`. Intentionally kept outside `src/`.
+  from `doc_ray`. Every write (upload, domain-seeding decisions, backups) goes
+  through the GraphQL API instead — one write path, never a direct queue/DB
+  write from the browser tier. Intentionally kept outside `src/`.
 - **`scripts/`** — standalone CLI tools (`extract_phrases`, `docmodel`, …),
   independent of the pipeline.
+
+## API, worker, and the job queue
+
+`entrypoints.api` is a Strawberry GraphQL app: reads resolve directly against
+an async read adapter; every write **enqueues a job** onto a Postgres-backed
+queue (`adapters.queue_postgres`, `FOR UPDATE SKIP LOCKED`, heartbeat +
+exponential-backoff retry) and returns that job's status — never a
+synchronous result. `entrypoints.worker` is the sync process that claims and
+dispatches jobs (`application.jobs.run_once`, kind → handler); it runs
+blocking work (spaCy, KB network calls, the Anthropic frontier resolver, the
+backup/restore engine) off the API's event loop.
+
+A job's payload can carry a `chain`: on success, `run_once` enqueues the next
+kind for the same document with the remaining chain before returning —
+deterministic and auditable in the `jobs` table, and the mechanism behind
+`ingestDocument(pipeline: true)` reaching a fully annotated, canonicalized
+document with no further calls.
+
+## Entity canonicalization
+
+A shared **canonical registry** (`canonical` + the `form_index` remissive
+index) turns divergent mention surfaces into one canonical spine. The stages
+that populate it: **Stage 0** seeds canonicals from Wikidata
+(`canonical_seed`, or the curated `seed_suggest` webapp workflow — mining a
+document's vocabulary and resolving each candidate to an exact identity via
+its Wikipedia article title, never fuzzy search); **Stage 1.5** (`term_scan`)
+deterministically finds registry-known vocabulary that NER never tags
+(technical-literature nouns); **Stage 2** (`canonicalize`) auto-links
+mentions the index already resolves confidently; **Stage 3** (`resolution`,
+opt-in) sends only the remaining residue to a constrained-choice frontier
+resolver (Claude), whose adapter validates every verdict against the offered
+candidate set (PALS — see `CLAUDE.md`) before anything commits; ambiguous or
+low-confidence verdicts land in `resolution_review` for a human. Full design:
+[`canonicalization_pipeline.md`](canonicalization_pipeline.md).
 
 ## Ports & their adapters
 

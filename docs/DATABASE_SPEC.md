@@ -1,9 +1,28 @@
+---
+disclaimer:
+  notice: >-
+    No information within this document should be taken for granted.
+    Any statement or premise not backed by a real logical definition
+    or verifiable reference may be invalid, erroneous, or a hallucination.
+  generated_by: "Claude Fable 5 via Claude Code"
+  date: "2026-07-04"
+---
+
 # doc-ray — Database Specification
 
-**Status:** migrations 001–012 applied (§7). Engine: PostgreSQL 16 + pgvector
-(`pgvector/pgvector:pg16`). Every layer is covered by TDD integration tests.
-**Scope:** this document specifies the *final state* of the database — its purpose,
-its schema, the invariants it upholds, and how it is designed to grow.
+**Status:** documents the foundational migrations 001–012 (§7) — the core
+document/NLP-annotation model this spec's invariants and design principles
+were derived from. The schema has since grown well past 012 (canonical-entity
+registry, job queue, RBAC, backups, and more); **the complete, current
+migration set and generated ERD/data dictionary live in
+[`DATABASE.md`](DATABASE.md)**, re-derived from the live schema on every run
+— treat that document as the source of truth for "what migrations exist
+today." Engine: PostgreSQL 16 + pgvector (`pgvector/pgvector:pg16`). Every
+layer is covered by TDD integration tests.
+**Scope:** this document specifies the *foundational* design of the database
+— its purpose, its schema, the invariants it upholds, and how it was designed
+to grow (a design that has since held: every addition past 012 is a purely
+additive migration under these same principles, not a revision of them).
 
 ---
 
@@ -137,6 +156,43 @@ relations (this is the 4NF core).
   restore never clobbers the queue or the archive index.
 - **`ulid` domain** — `char(26)` constrained to `^[0-7][0-9A-HJKMNP-TV-Z]{25}$`
   (the Crockford alphabet), enforced at the type level.
+
+### 3.8 Entity canonicalization (post-foundational addition; migrations 021–023, 025)
+
+A shared registry (design: [`canonicalization_pipeline.md`](canonicalization_pipeline.md))
+turning divergent mention surfaces into one canonical spine, layered on top of
+the `entity_mention`/`entity_link` stand-off model from §3 without changing it.
+
+- **`canonical`** `(id bigserial PK, wikidata_id UNIQUE NULL, preferred, entity_type,
+  description, lang_primary, embedding vector(768) NULL, created_at, updated_at)`
+  — one row per real-world entity or concept. `bigserial`, not `ulid`/`uuid`: a
+  registry (grows by seeding/resolution events, not document ingestion), the one
+  deliberate identity-scheme departure in the schema, documented here rather than
+  silently inconsistent. `wikidata_id` is `UNIQUE` but nullable — a registry-local
+  concept with no KB counterpart is legitimate. HNSW index on `embedding` (unused
+  until an embedding backend is ported — see `SHOWCASE.md`).
+- **`form_index`** — the remissive index: `(form_norm, form_surface, canonical_id
+  → canonical, lang, form_type, confidence, occurrences, source_types text[],
+  first_seen)`, PK `(form_norm, canonical_id, lang)`. `form_norm` is an
+  NFC+casefold+transliterated normalization (`domain/canonical_norm.py`) so
+  "Zelensky"/"Zelenskyy"/"Зеленський" can share one lookup key. A form is
+  reinforced (occurrence count +=, confidence takes the max), never duplicated,
+  on repeat sightings — the flywheel that makes resolution cheaper as the corpus
+  grows.
+- **`resolution_review`** `(id ulid PK, mention_id → entity_mention, candidates
+  jsonb, proposed_canonical_id NULL, confidence, status CHECK (pending|approved|
+  rejected|merged), reason, reviewer NULL, created_at, decided_at NULL)` — the
+  human-in-the-loop queue for ambiguous or low-confidence frontier-resolver
+  verdicts (PALS: nothing auto-commits below the confidence threshold).
+- **`canonical_merge`** `(from_id, into_id, actor, reason, merged_at)` — audit
+  trail for reconciling two canonicals discovered to be the same entity.
+- **`seed_suggestion`** `(id ulid PK, document_id → documents, term, occurrences,
+  source CHECK (mention|lexeme), qid NULL, label NULL, description NULL,
+  entity_type NULL, status CHECK (pending|approved|rejected|seeded), created_at,
+  decided_at NULL)`, `UNIQUE (document_id, term)` — the curatable staging area for
+  domain seeding (migration 025): a worker job mines and KB-resolves candidate
+  terms into this table; nothing reaches `canonical` until a human approves.
+  `seeded` is a final state (a decided row is never silently re-mined).
 
 ---
 
