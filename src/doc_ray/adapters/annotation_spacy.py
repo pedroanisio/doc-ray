@@ -40,7 +40,12 @@ from doc_ray.config import Config
 from doc_ray.domain import lexemes as lex
 from doc_ray.domain.ulid import ULIDFactory, new_ulid_str
 
-__all__ = ["SpacyAnnotator", "UnsupportedAnnotationLanguage", "spacy_capabilities"]
+__all__ = [
+    "SpacyAnnotator",
+    "UnsupportedAnnotationLanguage",
+    "lexeme_projection_from_tokens",
+    "spacy_capabilities",
+]
 
 _MODELS = CAPABILITY_MODELS
 
@@ -57,6 +62,13 @@ SentenceLookup = Callable[[int], str | None]
 TokenRow = tuple[str, str, str | None, int, str | None, str, str]
 #: A dependency row: (dependent_token_id, head_token_id, deprel).
 DepRow = tuple[str, str | None, str]
+
+
+def lexeme_projection_from_tokens(tokens: list[TokenRow]) -> list[tuple[str, str]]:
+    """Project token lexeme links into ``lexeme_occurrences`` rows."""
+    return [
+        (span, luid) for _tid, span, _sent, _ordi, luid, _upos, _xpos in tokens if luid is not None
+    ]
 
 
 def _split_tool_tag(tool: str) -> tuple[str, str | None]:
@@ -255,10 +267,7 @@ class SpacyAnnotator:
         # Lexeme layer (real POS) — the projection the webapp reads. One pass,
         # so the whole mapping (spaCy tokens/deps/NER/chunks + lexeme POS) is
         # produced and committed together.
-        lex_occ: dict[str, str] = {}
-        for _tid, span, _sent, _ordi, luid, _upos, _xpos in token_rows:
-            if luid is not None:
-                lex_occ[span] = luid
+        lex_occ = lexeme_projection_from_tokens(token_rows)
         lex_tool, lex_version = _split_tool_tag(tool)
 
         self._write(
@@ -272,7 +281,7 @@ class SpacyAnnotator:
             ent_rows,
             chunk_rows,
             coref,
-            lex_occ=list(lex_occ.items()),
+            lex_occ=lex_occ,
             lex_tool=lex_tool,
             lex_version=lex_version,
             language_resolution=language_resolution,

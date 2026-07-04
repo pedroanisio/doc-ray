@@ -60,7 +60,8 @@ GROUPS: list[tuple[str, str, list[str]]] = [
         "Lexeme & annotation backbone",
         "`lexemes` is analyzer-independent type identity; `annotations` is one "
         "analyzer run over a document scoped by `(layer, tool)`; `lexeme_occurrences` "
-        "binds a span to a lexeme within a run (the token layer the webapp renders).",
+        "is the materialized projection of token-level lexeme links that the "
+        "webapp/API render for lexeme and KWIC reads.",
         ["lexemes", "annotations", "lexeme_occurrences"],
     ),
     (

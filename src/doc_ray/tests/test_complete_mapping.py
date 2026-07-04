@@ -13,7 +13,9 @@ import pytest
 
 from doc_ray.adapters.annotation_spacy import (
     SpacyAnnotator,
+    TokenRow,
     UnsupportedAnnotationLanguage,
+    lexeme_projection_from_tokens,
     spacy_capabilities,
 )
 
@@ -72,6 +74,19 @@ def test_spacy_annotator_fallback_policy_is_explicit_and_provenance_ready():
     }
 
 
+def test_lexeme_projection_from_tokens_uses_non_null_token_lexemes():
+    token_rows: list[TokenRow] = [
+        ("tok-1", "span-1", None, 0, "lx-en-n-physics", "NOUN", "NN"),
+        ("tok-2", "span-2", None, 1, None, "PUNCT", "."),
+        ("tok-3", "span-3", "sent-1", 2, "lx-en-v-publish", "VERB", "VBD"),
+    ]
+
+    assert lexeme_projection_from_tokens(token_rows) == [
+        ("span-1", "lx-en-n-physics"),
+        ("span-3", "lx-en-v-publish"),
+    ]
+
+
 @pytest.fixture
 def mapped(pg):
     conn, reg = pg
@@ -98,6 +113,41 @@ def test_lexeme_layer_has_real_pos(mapped):
     assert pos.get("VERB", 0) > 0, pos  # real verbs
     assert pos.get("NOUN", 0) > 0, pos  # real nouns
     assert "X" not in pos  # NOT the fake rule-analyzer POS
+
+
+def test_lexeme_occurrences_match_token_lexeme_projection(mapped):
+    """The browser/API occurrence table is a materialized projection over tokens."""
+    conn, doc_id, r = mapped
+    token_counts = {
+        (str(row["span_id"]), row["lexeme_uid"]): row["n"]
+        for row in conn.execute(
+            """
+            SELECT t.span_id, t.lexeme_uid, count(*) AS n
+            FROM tokens t
+            JOIN annotations a ON a.id=t.annotation_id
+            WHERE a.document_id=%s AND a.layer='spacy' AND t.lexeme_uid IS NOT NULL
+            GROUP BY t.span_id, t.lexeme_uid
+            """,
+            (doc_id,),
+        ).fetchall()
+    }
+    occurrence_counts = {
+        (str(row["span_id"]), row["lexeme_uid"]): row["n"]
+        for row in conn.execute(
+            """
+            SELECT o.span_id, o.lexeme_uid, count(*) AS n
+            FROM lexeme_occurrences o
+            JOIN annotations a ON a.id=o.annotation_id
+            WHERE a.document_id=%s AND a.layer='lexeme'
+            GROUP BY o.span_id, o.lexeme_uid
+            """,
+            (doc_id,),
+        ).fetchall()
+    }
+
+    assert token_counts
+    assert occurrence_counts == token_counts
+    assert sum(occurrence_counts.values()) == r["occurrences"]
 
 
 def test_tokens_and_morphology(mapped):

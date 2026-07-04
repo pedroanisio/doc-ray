@@ -132,9 +132,12 @@ relations (this is the 4NF core).
 - **`lexemes`** — global, analyzer-independent type identity:
   `uid text PK` (e.g. `lx_en.v_3f9a21c0`), `lang`, `pos`, `lemma` (NFC+casefold),
   `UNIQUE(lang, pos, lemma)`. The same lexeme is shared across the whole corpus.
-- **`lexeme_occurrences`** — the token layer: `(annotation_id, span_id)` PK,
-  `lexeme_uid → lexemes`. A word span **is** a lexeme, within a run. Nothing
-  derivable (surface, lemma, pos, lang) is stored here.
+- **`lexeme_occurrences`** — the lexeme-layer occurrence table:
+  `(annotation_id, span_id)` PK, `lexeme_uid → lexemes`. For spaCy runs this is
+  a materialized projection of non-null `tokens.lexeme_uid` rows from the same
+  annotation pass, retained as a table so existing GraphQL and browser KWIC
+  reads keep their stable contract. Nothing derivable (surface, lemma, pos,
+  lang) is stored here.
 - **Views:** `lexeme_occurrence_detail` (occurrence + derived surface + lexeme
   attributes), `lexeme_forms` (distinct surfaces per lexeme), `lexeme_keys`
   (canonical `lang:pos:lemma`).
@@ -302,7 +305,10 @@ CREATE TABLE subword (                              -- BPE/WordPiece pieces, ord
 );
 ```
 *Note:* `tokens` generalizes `lexeme_occurrences`; the latter remains the
-lexeme-layer projection (a future consolidation may make it a view over `tokens`).
+materialized lexeme-layer projection over token lexeme links. Browser and
+GraphQL lexeme/KWIC reads use this projection table today; a future
+consolidation may make it a view over `tokens` only if those read contracts stay
+equivalent.
 
 #### 009 · `syntax` — chunking, constituency, dependencies (layers 8, 9, 10)
 ```sql
@@ -416,5 +422,7 @@ shared span, every run attributed to a tool and version.
 - **Roundtrip** (`scripts/roundtrip.py`) — verifies stored data reproduces the source.
 - **GraphQL API** (`doc_ray.entrypoints.api`) — async read-only surface over the same
   store; write mutations enqueue background jobs run by `doc_ray.entrypoints.worker`.
+  Lexeme and KWIC reads consume `lexeme_occurrences` as the materialized
+  projection of token-level lexeme links, not as an independent lexical fact.
 
 All are `DATABASE_URL`-driven and run identically on host or in the container.

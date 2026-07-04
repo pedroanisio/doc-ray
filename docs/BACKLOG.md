@@ -76,7 +76,7 @@ had shipped but were still marked `parked`/`ready`.
 | BL-022 | Annotation language and model capability registry | nlp | infra | done | S | medium | shared |
 | BL-023 | Operator health surfaces | ops | feature | parked | M | medium | shared |
 | BL-024 | Evaluation and drift artifacts | nlp | research | parked | L | medium | shared |
-| BL-025 | Lexeme/token projection invariant | persistence | tech-debt | ready | M | medium | shared |
+| BL-025 | Lexeme/token projection invariant | persistence | tech-debt | done | M | medium | shared |
 | BL-026 | Surface a product value proposition in the webapp | webapp | feature | parked | S | high | shared |
 | BL-027 | Add an in-app help / documentation / onboarding surface | webapp | feature | parked | S | high | shared |
 | BL-028 | Corpus landing: dynamic lede + empty state | webapp | bug | parked | XS | high | shared |

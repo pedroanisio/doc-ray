@@ -797,7 +797,7 @@ items:
       compatibility allows.
     category:     "persistence"
     type:         "tech-debt"
-    status:       "ready"
+    status:       "done"
     complexity:   "M"
     priority:     "medium"
     rationale:    "The spaCy writer stores token-level lexeme links and also writes lexeme_occurrences; without an invariant, lexical counts can drift."
@@ -810,7 +810,7 @@ items:
       - "webapp/app.py"
       - "docs/DATABASE_SPEC.md"
     owner:        "shared"
-    source:       "docs/doc_ray_improvement_proposal.md BL-025; grep-verified 2026-07-04 (both writers present, no parity test found)."
+    source:       "docs/doc_ray_improvement_proposal.md BL-025; completed 2026-07-04 with a named spaCy token-to-lexeme projection helper, pure projection test, and live token/occurrence parity guard."
     tags:         ["lexemes", "tokens", "projection", "persistence"]
 
   # =============== WEB APP - UX/UI AUDIT (2026-07-04) ================

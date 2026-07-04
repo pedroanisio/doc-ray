@@ -22,6 +22,11 @@ doc-ray carries **one global version** covering both the application package
 ## [Unreleased]
 
 ### Added
+- **Lexeme/token projection invariant** (OpenAI GPT-5 via Codex) —
+  `SpacyAnnotator` now builds `lexeme_occurrences` through a named projection
+  over non-null `tokens.lexeme_uid` rows, with a pure projection test and a live
+  Postgres parity test proving browser/API lexeme counts stay aligned with the
+  token layer, closing `BL-025`.
 - **spaCy annotation capability registry** (OpenAI GPT-5 via Codex) —
   `SpacyAnnotator` now exposes a language/model registry with install status,
   supported layers, and explicit fallback policy. Unsupported languages fail
