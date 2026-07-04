@@ -50,6 +50,8 @@ had shipped but were still marked `parked`/`ready`.
 
 **2026-07-04 refine pass (frontend):** promoted `BL-028`/`BL-031` to `ready`; de-duplicated `BL-029`/`BL-036` (definitions vs. the tooltip affordance) and cross-linked them; added `BL-037` (POS color-only accessibility gap, WCAG 1.4.1).
 
+**2026-07-04 ops:** added `BL-038` (webapp operator page for `corpus_health`/`db_health`), narrowing `BL-023`'s browser-page option to the webapp UI surface specifically.
+
 ## Items
 
 | ID | Item | Category | Type | Status | Cx | Priority | Owner |
@@ -91,6 +93,7 @@ had shipped but were still marked `parked`/`ready`.
 | BL-035 | De-emphasize raw ULIDs in user-facing tables | webapp | tech-debt | parked | XS | low | shared |
 | BL-036 | Extend the reader's tooltip pattern to POS chips and status pills | webapp | feature | parked | S | low | shared |
 | BL-037 | Accessibility: part-of-speech is conveyed by color alone | webapp | bug | done | S | medium | shared |
+| BL-038 | Webapp operator page: surface corpus_health / db_health in the UI | ops | feature | parked | M | medium | mine |
 
 See [`backlog.yml`](backlog.yml) for each item's full description, rationale,
 acceptance criteria, dependencies, related decisions (`D-###`), and references.

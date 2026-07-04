@@ -34,7 +34,7 @@ metadata:
   generated_by:     "Claude Sonnet 5 via Claude Code (merge of Claude Opus 4.8 backlog + OpenAI Codex improvement-proposal candidates)"
   generated_on:     "2026-07-04"
   system_of_record: "docs/backlog.yml"
-  total_items:      37
+  total_items:      38
 
 items:
 
@@ -1127,3 +1127,41 @@ items:
     owner:        "shared"
     source:       "Session finding 2026-07-04: webapp UX/UI audit — completed with visible POS sigils, aria labels, and non-color underline styles."
     tags:         ["accessibility", "reader", "wcag", "annotation"]
+
+  - id:          "BL-038"
+    title:        "Webapp operator page: surface corpus_health / db_health in the UI"
+    summary:      "corpus_health and db_health run CLI-only; expose their findings as an admin-gated webapp page instead of requiring shell + DATABASE_URL access."
+    description: |
+      corpus_health.py (document/job content) and db_health.py (Postgres
+      instance: size, connection pressure, blocked/slow/idle-in-transaction
+      queries, table bloat) both find real issues today (a live 2026-07-04
+      run surfaced 3 errors and 6 warnings across the corpus), but only via
+      `python -m doc_ray.entrypoints.<name>` — an operator needs shell and
+      DATABASE_URL access to see them. Add a webapp route/page that renders
+      both snapshots (totals, issues grouped by severity, running/failed
+      jobs) as HTML. `db_analyzer`'s fuller structure/data-profiling report
+      is out of scope here — it can link out to its generated
+      db_analysis.md/.json rather than be re-rendered inline. This is the
+      "browser operator page" option BL-023 leaves open, scoped here
+      specifically to the webapp UI surface — not BL-023's JSON-schema
+      standardization, GraphQL/admin-endpoint, or CI-wiring parts.
+    category:     "ops"
+    type:         "feature"
+    status:       "parked"
+    complexity:   "M"
+    priority:     "medium"
+    rationale:    "Health checks already exist and find real issues, but are invisible to anyone without CLI + database credentials — a webapp page turns an operational blind spot into a one-click check."
+    acceptance_criteria:
+      - "An operator page in the webapp renders the corpus_health and db_health snapshots without shell access."
+      - "Issues are grouped and visually distinguished by severity (error/warning/info)."
+      - "The page (or the health data it exposes) is admin-gated, not visible to every principal — consistent with BL-012's trust-boundary concerns."
+    dependencies: ["BL-023"]
+    references:
+      - "src/doc_ray/application/corpus_health.py"
+      - "src/doc_ray/application/db_health.py"
+      - "src/doc_ray/application/db_analyzer/"
+      - "webapp/app.py"
+      - "webapp/templates/base.html"
+    owner:        "mine"
+    source:       "Operator request, 2026-07-04 session: 'add the database health check as a UI element at the webapp', following a live corpus_health/db_health report."
+    tags:         ["ops", "health", "webapp", "observability"]
