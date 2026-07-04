@@ -22,9 +22,10 @@ disclaimer: |
 
 source_schema:         "db/migrations"
 # Matches the database's own SemVer (schema_version table / docray_schema_version(),
-# introduced by migration 019; advanced to 1.3.0 by migration 024). Kept in lockstep
-# with doc_ray.__version__ by scripts/check_version_consistency.py.
-source_schema_version: "1.3.0"
+# introduced by migration 019; advanced to 1.3.0 by migration 024, then to 1.4.0 by
+# migration 029 for the backup catalogue). Kept in lockstep with doc_ray.__version__
+# by scripts/check_version_consistency.py.
+source_schema_version: "1.4.0"
 target_engine:         "PostgreSQL 16"
 total_decisions:       16
 

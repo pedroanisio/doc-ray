@@ -198,6 +198,7 @@ MIGRATIONS = [
     ("024_schema_version_1_3_0", "advance the schema SemVer to 1.3.0"),
     ("025_seed_suggestion", "seed_suggestion — domain-seeding curation queue"),
     ("026_backups", "backups — corpus-snapshot archive catalogue"),
+    ("029_schema_version_1_4_0", "advance the schema SemVer to 1.4.0"),
 ]
 
 # ---------------------------------------------------------------------------

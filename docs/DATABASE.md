@@ -1,6 +1,6 @@
 # doc-ray — Database ERD & Data Dictionary
 
-**Schema version `1.3.0`** (SemVer) · 28 migrations applied
+**Schema version `1.4.0`** (SemVer) · 29 migrations applied
 
 > Generated from the live schema by `scripts/gen_data_dictionary.py`. Do not edit by hand — re-run the generator.
 
@@ -1037,4 +1037,5 @@ the caller's RLS instead of the owner's bypass.
 | 024 | `024_schema_version_1_3_0.sql` | advance the schema SemVer to 1.3.0 |
 | 025 | `025_seed_suggestion.sql` | seed_suggestion — domain-seeding curation queue |
 | 026 | `026_backups.sql` | backups — corpus-snapshot archive catalogue |
+| 027 | `029_schema_version_1_4_0.sql` | advance the schema SemVer to 1.4.0 |
 

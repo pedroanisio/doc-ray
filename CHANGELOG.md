@@ -19,11 +19,12 @@ doc-ray carries **one global version** covering both the application package
 (`docray_schema_version()`). They are kept in lockstep by
 `scripts/check_version_consistency.py`, which fails the build on any drift.
 
-## [Unreleased]
+## [1.4.0] - 2026-07-04
 
-Delivered on this branch, not yet released. Cutting the release (and choosing the
-SemVer bump) is an operator decision: `backups` is an operational table and does
-not change `docray_schema_version()`, so existing `1.3.0` archives stay restorable.
+Corpus backup & restore. A minor, backward-compatible release: the new `backups`
+catalogue (migration 026) is the first schema addition since 1.3.0, and migration
+029 advances the schema contract (`docray_schema_version()`) to match — the same
+one-global-version discipline adopted in 1.3.0.
 
 ### Added
 - **Backup & restore** — full-corpus snapshot and point-in-time restore, driven
@@ -49,6 +50,14 @@ not change `docray_schema_version()`, so existing `1.3.0` archives stay restorab
   - Archive downloads are served by the API (`GET /backups/{id}/download`) and
     proxied by the webapp, so the browser tier never needs direct object-store
     access — a host-vs-container `S3_ENDPOINT` mismatch cannot break downloads.
+
+### Changed
+- Database schema version `1.3.0` → `1.4.0` (migration 029), reconciling the
+  `backups` table addition (migration 026) into the global SemVer line —
+  `doc_ray.__version__`, `engineering_decisions.yml` `source_schema_version`, this
+  changelog, and `docray_schema_version()` all move together. Backup archives record
+  the schema version at capture time and restore refuses a mismatch, so archives
+  taken against `1.3.0` do not restore into a `1.4.0` database.
 
 ## [1.3.0] - 2026-07-02
 
@@ -81,4 +90,5 @@ surface consistent from here on.
 - Upload ingestion no longer leaks the temporary scratch filename into a document's
   `title` / `original_filename`; the uploaded name and explicit `title` are preserved.
 
+[1.4.0]: https://semver.org/spec/v2.0.0.html
 [1.3.0]: https://semver.org/spec/v2.0.0.html
