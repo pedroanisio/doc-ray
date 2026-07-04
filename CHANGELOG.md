@@ -22,6 +22,12 @@ doc-ray carries **one global version** covering both the application package
 ## [Unreleased]
 
 ### Added
+- **Read-surface parity guard** (OpenAI GPT-5 via Codex) —
+  `tests/test_read_surface_parity.py` now keeps the async read adapter,
+  GraphQL query resolvers, and Flask browser read shapes from drifting apart.
+  `ReadRepository` now documents the complete public async reader contract,
+  including batch loaders, document-scoped lexeme/KWIC/search filters, and
+  entity read methods, closing `BL-020`.
 - **spaCy annotation provenance** (OpenAI GPT-5 via Codex) —
   `SpacyAnnotator` now writes an `annotated` provenance event in the same
   transaction as its spaCy and lexeme annotation rows. The event records

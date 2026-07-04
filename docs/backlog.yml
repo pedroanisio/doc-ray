@@ -637,7 +637,7 @@ items:
       SQL against persistence_read.
     category:     "api"
     type:         "tech-debt"
-    status:       "ready"
+    status:       "done"
     complexity:   "M"
     priority:     "high"
     rationale:    "persistence_read.py claims to be the read source of truth, but the Flask browser still carries direct SQL for overlapping views."
@@ -652,7 +652,7 @@ items:
       - "webapp/app.py"
       - "engineering_decisions.yml"
     owner:        "shared"
-    source:       "docs/doc_ray_improvement_proposal.md BL-020; grep-verified 2026-07-04."
+    source:       "docs/doc_ray_improvement_proposal.md BL-020; completed 2026-07-04 with parity and protocol drift tests."
     tags:         ["read-model", "sql-drift", "webapp", "graphql"]
 
   - id:          "BL-021"
