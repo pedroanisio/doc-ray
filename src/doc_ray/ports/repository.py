@@ -138,6 +138,36 @@ class ReadRepository(Protocol):
         """Return a document's provenance events (params reassembled) in order."""
         ...
 
+    async def authors_by_documents(
+        self, conn: psycopg.AsyncConnection[Row], document_ids: list[str]
+    ) -> dict[str, list[str]]:
+        """Return author names keyed by document id for a batch of documents."""
+        ...
+
+    async def tags_by_documents(
+        self, conn: psycopg.AsyncConnection[Row], document_ids: list[str]
+    ) -> dict[str, list[str]]:
+        """Return tag names keyed by document id for a batch of documents."""
+        ...
+
+    async def metadata_by_documents(
+        self, conn: psycopg.AsyncConnection[Row], document_ids: list[str]
+    ) -> dict[str, dict[str, str]]:
+        """Return metadata dictionaries keyed by document id for a batch."""
+        ...
+
+    async def sentence_counts_by_documents(
+        self, conn: psycopg.AsyncConnection[Row], document_ids: list[str]
+    ) -> dict[str, int]:
+        """Return sentence counts keyed by document id for a batch."""
+        ...
+
+    async def token_counts_by_documents(
+        self, conn: psycopg.AsyncConnection[Row], document_ids: list[str]
+    ) -> dict[str, int]:
+        """Return token counts keyed by document id for a batch."""
+        ...
+
     async def get_lexeme(self, conn: psycopg.AsyncConnection[Row], uid: str) -> Row | None:
         """Return one lexeme by uid, or ``None`` if absent."""
         ...
@@ -149,6 +179,7 @@ class ReadRepository(Protocol):
         q: str | None = None,
         pos: str | None = None,
         lang: str | None = None,
+        document_id: str | None = None,
         limit: int = 100,
         offset: int = 0,
     ) -> list[Row]:
@@ -156,15 +187,50 @@ class ReadRepository(Protocol):
         ...
 
     async def lexeme_kwic(
-        self, conn: psycopg.AsyncConnection[Row], uid: str, *, limit: int = 80
+        self,
+        conn: psycopg.AsyncConnection[Row],
+        uid: str,
+        *,
+        document_id: str | None = None,
+        limit: int = 80,
+        offset: int = 0,
     ) -> list[Row]:
         """Return keyword-in-context occurrences (pre/hit/post) for a lexeme."""
         ...
 
     async def search_sentences(
-        self, conn: psycopg.AsyncConnection[Row], term: str, *, limit: int = 100
+        self,
+        conn: psycopg.AsyncConnection[Row],
+        term: str,
+        *,
+        document_id: str | None = None,
+        limit: int = 100,
+        offset: int = 0,
     ) -> list[Row]:
         """Return sentences containing *term* (case-insensitive substring)."""
+        ...
+
+    async def list_entities(
+        self,
+        conn: psycopg.AsyncConnection[Row],
+        *,
+        document_id: str | None = None,
+        entity_type: str | None = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> list[Row]:
+        """Return named-entity mentions, optionally scoped by document and type."""
+        ...
+
+    async def entity_frequency(
+        self,
+        conn: psycopg.AsyncConnection[Row],
+        *,
+        document_id: str | None = None,
+        entity_type: str | None = None,
+        limit: int = 100,
+    ) -> list[Row]:
+        """Return entity mention frequencies, optionally scoped by document and type."""
         ...
 
     async def fulltext_search(
