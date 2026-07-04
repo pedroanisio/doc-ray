@@ -150,6 +150,16 @@ def test_document_annotated_reader_highlights_words(client):
     assert "said" in html and "hello" in html
 
 
+def test_document_annotated_reader_uses_non_color_pos_cues(client):
+    html = client.get(f"/doc/{DOC_ID}").get_data(as_text=True)
+    normalized = _norm(html)
+
+    assert 'data-pos="VERB"' in html
+    assert 'aria-label="said, lemma say, part of speech VERB"' in html
+    assert '<span class="pos-sigil" aria-hidden="true">V</span>said' in html
+    assert ".w.p-VERB { border-bottom-style:double;" in normalized
+
+
 def test_document_plain_mode_has_no_word_spans(client):
     html = client.get(f"/doc/{DOC_ID}?annotate=0").get_data(as_text=True)
     assert "He said hello" in html
@@ -174,7 +184,10 @@ def test_annotate_html_wraps_words_preserves_gaps_and_escapes():
         {"rel_start": 3, "rel_end": 7, "uid": LEX_UID, "lemma": "say", "pos": "VERB"},
     ]
     out = str(annotate_html("He said hello", occs))
-    assert '<a class="w p-VERB" href="/lexeme/lx_en.v_say01" data-t="say · VERB">said</a>' in out
+    assert 'class="w p-VERB"' in out
+    assert 'data-pos="VERB"' in out
+    assert 'aria-label="said, lemma say, part of speech VERB"' in out
+    assert '<span class="pos-sigil" aria-hidden="true">V</span>said' in out
     assert out.count("<a ") == 2
     assert out.endswith(" hello")                 # trailing gap preserved verbatim
     assert str(annotate_html("<x>", [])) == "&lt;x&gt;"   # html-escaped

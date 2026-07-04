@@ -95,8 +95,9 @@ overlaid:
 - **Header pills** — language, type, character count, pages, status, and the
   **domain seeding →** link to the curation screen (§3).
 - **Annotated text** — every analyzed word is underlined in its part-of-speech
-  color. Hover a word for its lemma and POS; click it to open that lexeme's
-  page. Sentence ordinals appear in the margin.
+  color and also carries a compact POS sigil plus an accessible label, so the
+  annotation is not color-only. Hover a word for its lemma and POS; click it to
+  open that lexeme's page. Sentence ordinals appear in the margin.
 - **Legend chips** — click a POS chip (NOUN, VERB, …) to mute/unmute that class
   in the overlay, isolating what you care about.
 - **Plain mode** — the annotate/plain toggle (`?annotate=0`) renders the text

@@ -1114,7 +1114,7 @@ items:
       pill color-coding elsewhere share the issue.
     category:     "webapp"
     type:         "bug"
-    status:       "parked"
+    status:       "done"
     complexity:   "S"
     priority:     "medium"
     rationale:    "POS — the reader's primary annotation — is inaccessible to color-blind users because hue is its only encoding (WCAG 1.4.1)."
@@ -1125,5 +1125,5 @@ items:
       - "webapp/templates/document.html"
       - "webapp/templates/base.html"
     owner:        "shared"
-    source:       "Session finding 2026-07-04: webapp UX/UI audit — 2nd-pass refinement (accessibility gap the first pass missed)."
+    source:       "Session finding 2026-07-04: webapp UX/UI audit — completed with visible POS sigils, aria labels, and non-color underline styles."
     tags:         ["accessibility", "reader", "wcag", "annotation"]

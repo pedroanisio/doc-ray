@@ -90,7 +90,7 @@ had shipped but were still marked `parked`/`ready`.
 | BL-034 | Group admin/destructive nav items away from reading | webapp | tech-debt | parked | XS | low | shared |
 | BL-035 | De-emphasize raw ULIDs in user-facing tables | webapp | tech-debt | parked | XS | low | shared |
 | BL-036 | Extend the reader's tooltip pattern to POS chips and status pills | webapp | feature | parked | S | low | shared |
-| BL-037 | Accessibility: part-of-speech is conveyed by color alone | webapp | bug | parked | S | medium | shared |
+| BL-037 | Accessibility: part-of-speech is conveyed by color alone | webapp | bug | done | S | medium | shared |
 
 See [`backlog.yml`](backlog.yml) for each item's full description, rationale,
 acceptance criteria, dependencies, related decisions (`D-###`), and references.

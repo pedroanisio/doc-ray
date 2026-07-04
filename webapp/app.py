@@ -143,6 +143,17 @@ def gql(query: str, variables: dict | None = None) -> dict:
 
 # --- annotation rendering --------------------------------------------------
 
+_POS_SIGIL_SPEC = (
+    "NOUN:N PROPN:PN VERB:V ADJ:J ADV:R PRON:PR NUM:# DET:D "
+    "ADP:P CCONJ:C SCONJ:S PART:T AUX:A PUNCT:. SYM:* X:X INTJ:I"
+)
+_POS_SIGILS = dict(item.split(":") for item in _POS_SIGIL_SPEC.split())
+
+
+def _pos_sigil(pos: str) -> str:
+    """Return the compact visible POS marker used as a non-color cue."""
+    return _POS_SIGILS.get(pos, (pos[:2] or "?").upper())
+
 
 def annotate_html(text: str, occs: list[dict]) -> Markup:
     """Overlay POS-tagged, clickable word spans onto a raw text slice.
@@ -158,9 +169,21 @@ def annotate_html(text: str, occs: list[dict]) -> Markup:
         if a < cur or a >= b or b > len(text):  # skip overlaps / out of range
             continue
         out.append(escape(text[cur:a]))
+        word = text[a:b]
+        pos = str(o["pos"])
+        lemma = str(o["lemma"])
         out.append(
-            Markup('<a class="w p-{pos}" href="/lexeme/{uid}" data-t="{tip}">{w}</a>').format(
-                pos=o["pos"], uid=o["uid"], tip=f"{o['lemma']} · {o['pos']}", w=text[a:b]
+            Markup(
+                '<a class="w p-{pos}" href="/lexeme/{uid}" data-t="{tip}" '
+                'data-pos="{pos}" aria-label="{aria}">'
+                '<span class="pos-sigil" aria-hidden="true">{cue}</span>{w}</a>'
+            ).format(
+                pos=pos,
+                uid=o["uid"],
+                tip=f"{lemma} · {pos}",
+                aria=f"{word}, lemma {lemma}, part of speech {pos}",
+                cue=_pos_sigil(pos),
+                w=word,
             )
         )
         cur = b

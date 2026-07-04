@@ -22,6 +22,10 @@ doc-ray carries **one global version** covering both the application package
 ## [Unreleased]
 
 ### Added
+- **Reader POS accessibility cues** (OpenAI GPT-5 via Codex) —
+  annotated reader words now carry visible part-of-speech sigils, accessible
+  POS labels, and non-color underline styles so POS is no longer conveyed by
+  hue alone, closing `BL-037`.
 - **Annotation output validation** (OpenAI GPT-5 via Codex) —
   `SpacyAnnotator` now validates span bounds, token ordinals, sentence
   references, dependency heads, entity/chunk/coreference spans, lexeme
