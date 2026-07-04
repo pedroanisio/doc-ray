@@ -19,6 +19,25 @@ doc-ray carries **one global version** covering both the application package
 (`docray_schema_version()`). They are kept in lockstep by
 `scripts/check_version_consistency.py`, which fails the build on any drift.
 
+## [Unreleased]
+
+### Added
+- **Postgres instance health CLI** (`python -m doc_ray.entrypoints.db_health`) —
+  reports on the database *instance* itself (size, connection pressure,
+  long-running and lock-blocked queries, table bloat), complementing
+  `corpus_health`'s view of document/job content. The issue rules are pure
+  functions over a snapshot (unit-testable without a database); `--json` emits a
+  machine-readable report; exit code `2` signals any warning/error-level finding.
+- **Multi-engine database analyzer** (`python -m doc_ray.entrypoints.db_analyze`) —
+  inspects a database's structure (schemas, tables, columns, keys, indexes,
+  constraints, sizes) and profiles its data (row counts, null rates, distinct and
+  duplicate candidates, numeric/date/text distributions, outliers), rendering
+  Markdown + JSON reports (`db_analysis.md` / `.json`). Read-only by default
+  (`--allow-write` to opt in); engines are pluggable through a registry
+  (`application/db_analyzer/engines/`), with PostgreSQL shipping today. Flags:
+  `--engine`, `--dsn`, `--schemas` / `--exclude-schemas`, `--structure-only`,
+  `--output-dir`, `--config`, `--json`.
+
 ## [1.4.0] - 2026-07-04
 
 Corpus backup & restore. A minor, backward-compatible release: the new `backups`

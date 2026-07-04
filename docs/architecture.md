@@ -46,8 +46,8 @@
 | **Domain** | `doc_ray.domain` | `pdf_layout` (layout→Markdown), `sentences` (segmentation), `lexemes` (identity, tokenization, `RuleAnalyzer`, language detection), `ulid` (value object), `provenance` (events) | stdlib only |
 | **Ports** | `doc_ray.ports` | `TextExtractor`, `ObjectStore`, `Repository`, `Annotator` — `Protocol` contracts | domain |
 | **Adapters** | `doc_ray.adapters` | `extraction` (PyMuPDF + pypdf + txt/html/epub/docx), `persistence` (Postgres/psycopg), `object_store` (MinIO/boto3), `annotation` / `annotation_spacy`, `export` | domain, ports |
-| **Application** | `doc_ray.application` | `pipeline` (ingest use case), `reannotate`, `reextract`, `backup` (corpus snapshot & restore) | ports, adapters, domain |
-| **Entrypoints** | `doc_ray.entrypoints` | `cli` | application |
+| **Application** | `doc_ray.application` | `pipeline` (ingest use case), `reannotate`, `reextract`, `backup` (corpus snapshot & restore), `db_health` (instance health), `db_analyzer` (multi-engine structure + data profiling) | ports, adapters, domain |
+| **Entrypoints** | `doc_ray.entrypoints` | `cli`, and the diagnostics CLIs `db_health` / `db_analyze` | application |
 | **Config** | `doc_ray.config` | env-driven `Config` (shared kernel) | stdlib |
 
 ## Outside the hexagon
@@ -88,6 +88,19 @@ every other mutation. The archive is streamed to clients through a plain
 browser tier never touches the object store directly. The operational `jobs`
 queue and the `backups` catalog are excluded from every archive, so a restore
 never clobbers the live queue or the index it is reading from.
+
+## Database diagnostics
+
+Two read-only diagnostic entrypoints sit beside the pipeline, neither touching the
+corpus. `db_health` snapshots the Postgres **instance** — size, connection
+pressure, long-running and lock-blocked queries, bloat — and derives findings with
+pure functions over the snapshot (the rules are unit-testable without a database);
+it complements `corpus_health`, which reports on document/job *content*.
+`db_analyzer` is a self-contained, engine-agnostic package: it inspects structure
+and profiles data, then renders Markdown + JSON. Its `Engine` port
+(`db_analyzer/engines/base.py`) resolves through a name→class registry, so a new
+backend is one module plus one registry line — the same ports-&-adapters shape as
+the rest of the hexagon, scoped locally to the analyzer.
 
 ## Running
 

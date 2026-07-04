@@ -102,6 +102,26 @@ snapshot (the live job queue and the backup catalog are excluded, so in-flight
 work and the archive index survive), and it requires the archive's
 `schema_version` to match the target database.
 
+## Database diagnostics
+
+Two read-only CLIs inspect the database without touching the corpus:
+
+```bash
+# Postgres INSTANCE health — size, connection pressure, long-running / lock-blocked
+# queries, table bloat. Exit code 2 on any warning/error-level finding.
+python -m doc_ray.entrypoints.db_health           # text report
+python -m doc_ray.entrypoints.db_health --json     # machine-readable
+
+# Structure inspection + data profiling → Markdown + JSON reports. Read-only by
+# default (--allow-write to opt in); engines are pluggable (PostgreSQL today).
+python -m doc_ray.entrypoints.db_analyze --output-dir ./reports
+python -m doc_ray.entrypoints.db_analyze --structure-only --schemas public
+```
+
+`db_health` reports on the Postgres server itself; `corpus_health` covers
+document/job *content*. `db_analyze` is engine-agnostic — add an engine under
+`application/db_analyzer/engines/` to point it at another database.
+
 ## Running the ingester on the host (no docker for Python)
 
 ```bash
@@ -120,8 +140,8 @@ python -m doc_ray.entrypoints.cli orwell1984.pdf
 | `src/doc_ray/domain/`      | Pure logic & value objects: `pdf_layout`, `sentences`, `lexemes`, `ulid`, `provenance` |
 | `src/doc_ray/ports/`       | Boundary contracts: `TextExtractor`, `ObjectStore`, `Repository`, `Annotator` |
 | `src/doc_ray/adapters/`    | Driven adapters: `extraction` (PyMuPDF/pypdf/…), `persistence` (Postgres), `object_store` (MinIO), `annotation`/`annotation_spacy` |
-| `src/doc_ray/application/` | Use cases: `pipeline`, `reannotate`, `reextract`, `backup` (corpus snapshot/restore) |
-| `src/doc_ray/entrypoints/` | Driving adapters (`python -m doc_ray.entrypoints.<name>`): `cli`, `api` (GraphQL), `worker`, `migrate`, `export`, `annotate`, `annotate_spacy`, `reannotate`, `reextract` |
+| `src/doc_ray/application/` | Use cases: `pipeline`, `reannotate`, `reextract`, `backup` (corpus snapshot/restore), `db_health` (instance health), `db_analyzer` (multi-engine structure + data profiling) |
+| `src/doc_ray/entrypoints/` | Driving adapters (`python -m doc_ray.entrypoints.<name>`): `cli`, `api` (GraphQL), `worker`, `migrate`, `export`, `annotate`, `annotate_spacy`, `reannotate`, `reextract`, `db_health`, `db_analyze` |
 | `src/doc_ray/config.py`    | Env-driven configuration                           |
 | `webapp/`                  | Flask browser over the annotated corpus (frontend, kept **outside** `src/`) |
 | `scripts/`                 | Standalone text tools (`extract_phrases`, `docmodel`, `roundtrip`, `text_decomposer`) — independent of the pipeline; see `scripts/README.md` |
