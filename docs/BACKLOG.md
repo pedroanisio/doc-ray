@@ -48,6 +48,8 @@ had shipped but were still marked `parked`/`ready`.
 
 **2026-07-04 UX audit:** added `BL-026`-`BL-036` from a webapp UX/UI audit (all `webapp` category; findings H1-H3, M1-M4, L1-L4).
 
+**2026-07-04 refine pass (frontend):** promoted `BL-028`/`BL-031` to `ready`; de-duplicated `BL-029`/`BL-036` (definitions vs. the tooltip affordance) and cross-linked them; added `BL-037` (POS color-only accessibility gap, WCAG 1.4.1).
+
 ## Items
 
 | ID | Item | Category | Type | Status | Cx | Priority | Owner |
@@ -79,15 +81,16 @@ had shipped but were still marked `parked`/`ready`.
 | BL-025 | Lexeme/token projection invariant | persistence | tech-debt | done | M | medium | shared |
 | BL-026 | Surface a product value proposition in the webapp | webapp | feature | parked | S | high | shared |
 | BL-027 | Add an in-app help / documentation / onboarding surface | webapp | feature | parked | S | high | shared |
-| BL-028 | Corpus landing: dynamic lede + empty state | webapp | bug | parked | XS | high | shared |
+| BL-028 | Corpus landing: dynamic lede + empty state | webapp | bug | ready | XS | high | shared |
 | BL-029 | Define domain jargon across the webapp | webapp | feature | parked | M | medium | shared |
 | BL-030 | Seeding screen: workflow signposting and Seed confirmation guardrail | webapp | feature | parked | S | medium | shared |
-| BL-031 | Disclose that corpus search is a literal substring match | webapp | feature | parked | XS | medium | shared |
+| BL-031 | Disclose that corpus search is a literal substring match | webapp | feature | ready | XS | medium | shared |
 | BL-032 | Humanize pipeline/job status outcomes and failures | webapp | tech-debt | parked | M | medium | shared |
 | BL-033 | Reader: 'not yet annotated' empty state | webapp | feature | parked | S | low | shared |
 | BL-034 | Group admin/destructive nav items away from reading | webapp | tech-debt | parked | XS | low | shared |
 | BL-035 | De-emphasize raw ULIDs in user-facing tables | webapp | tech-debt | parked | XS | low | shared |
 | BL-036 | Extend the reader's tooltip pattern to POS chips and status pills | webapp | feature | parked | S | low | shared |
+| BL-037 | Accessibility: part-of-speech is conveyed by color alone | webapp | bug | parked | S | medium | shared |
 
 See [`backlog.yml`](backlog.yml) for each item's full description, rationale,
 acceptance criteria, dependencies, related decisions (`D-###`), and references.

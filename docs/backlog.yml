@@ -34,7 +34,7 @@ metadata:
   generated_by:     "Claude Sonnet 5 via Claude Code (merge of Claude Opus 4.8 backlog + OpenAI Codex improvement-proposal candidates)"
   generated_on:     "2026-07-04"
   system_of_record: "docs/backlog.yml"
-  total_items:      36
+  total_items:      37
 
 items:
 
@@ -879,7 +879,7 @@ items:
       states. Make the lede dynamic and add an empty state that points to Upload.
     category:     "webapp"
     type:         "bug"
-    status:       "parked"
+    status:       "ready"
     complexity:   "XS"
     priority:     "high"
     rationale:    "A visibly-wrong count damages credibility, and a brand-new user is shown an empty table with no first action (no activation path)."
@@ -902,8 +902,9 @@ items:
       (seeding.html:31) with no definition; 'canonicalize' (upload.html:40),
       'lexeme'/'occurrence' (landing stats), raw job kinds (job.html:37), and POS
       abbreviations (PROPN/ADP/...) are likewise undefined. Add one-line
-      descriptions under feature headings, title/tooltip on POS chips and status
-      pills, and a short glossary in the help surface.
+      descriptions under feature headings, definitions for POS codes and status
+      pills (surfaced via the shared tooltip affordance, BL-036), and a short
+      glossary in the help surface (BL-027).
     category:     "webapp"
     type:         "feature"
     status:       "parked"
@@ -912,7 +913,8 @@ items:
     rationale:    "Undefined domain vocabulary makes the tool usable only by those who already know the pipeline; a new team member cannot self-onboard."
     acceptance_criteria:
       - "Each major feature page carries a one-line description of what it does."
-      - "POS codes and status pills expose a human-readable definition on hover or in a glossary."
+      - "POS codes and status pills carry a human-readable definition, surfaced via the shared tooltip affordance (BL-036) and listed in the glossary."
+    dependencies: ["BL-027", "BL-036"]
     references:
       - "webapp/templates/document.html"
       - "webapp/templates/seeding.html"
@@ -920,7 +922,7 @@ items:
       - "webapp/templates/job.html"
     owner:        "shared"
     source:       "Session finding 2026-07-04: webapp UX/UI audit (finding M1)."
-    tags:         ["microcopy", "glossary", "tooltips", "clarity"]
+    tags:         ["microcopy", "glossary", "definitions", "clarity"]
 
   - id:          "BL-030"
     title:        "Seeding screen: workflow signposting and Seed confirmation guardrail"
@@ -961,7 +963,7 @@ items:
       full-text search (the fullTextSearch API).
     category:     "webapp"
     type:         "feature"
-    status:       "parked"
+    status:       "ready"
     complexity:   "XS"
     priority:     "medium"
     rationale:    "Undisclosed substring semantics read as 'search is broken' when inflected forms silently fail to match."
@@ -1078,7 +1080,10 @@ items:
       discoverable explanation pattern, but it is not reused: POS legend chips,
       status pills, and the upload pipeline checkbox expose no on-hover
       definition. Extend the same tooltip affordance to those elements for
-      consistent, discoverable explanations.
+      consistent, discoverable explanations. This item provides the reusable
+      affordance; the definitions that populate it are BL-029. The current
+      reader tooltip is CSS :hover-only (document.html:44), so the extension
+      must also work for keyboard and touch users.
     category:     "webapp"
     type:         "feature"
     status:       "parked"
@@ -1086,10 +1091,39 @@ items:
     priority:     "low"
     rationale:    "A good explanation pattern exists but is applied in exactly one place; extending it improves discoverability consistently."
     acceptance_criteria:
-      - "POS chips and status pills expose a definition on hover, reusing the reader's tooltip pattern."
+      - "POS chips and status pills expose their definition through the shared tooltip affordance."
+      - "The affordance is keyboard- and touch-accessible, not hover-only."
     references:
       - "webapp/templates/document.html"
       - "webapp/templates/base.html"
     owner:        "shared"
     source:       "Session finding 2026-07-04: webapp UX/UI audit (finding L4)."
-    tags:         ["tooltips", "consistency", "ux"]
+    tags:         ["tooltips", "consistency", "accessibility", "ux"]
+
+  - id:          "BL-037"
+    title:        "Accessibility: part-of-speech is conveyed by color alone"
+    summary:      "The reader encodes POS solely as underline color; color-blind users cannot distinguish parts of speech (WCAG 1.4.1)."
+    description: |
+      In the reader a word's part of speech is signalled only by the color of
+      its underline (document.html:41: `.w { color:inherit; border-bottom:2px
+      solid var(--c) }`, with `--c` set per POS class). There is no secondary,
+      non-color cue and POS is absent from the hover tooltip (lemma only), so a
+      color-blind reader cannot tell a NOUN from a VERB — failing WCAG 2.1 SC
+      1.4.1 (Use of Color). Add a redundant encoding (POS in the tooltip, an
+      underline-style variation, or an opt-in POS-label mode). The POS legend and
+      pill color-coding elsewhere share the issue.
+    category:     "webapp"
+    type:         "bug"
+    status:       "parked"
+    complexity:   "S"
+    priority:     "medium"
+    rationale:    "POS — the reader's primary annotation — is inaccessible to color-blind users because hue is its only encoding (WCAG 1.4.1)."
+    acceptance_criteria:
+      - "A word's part of speech is distinguishable without relying on color (e.g. exposed in the tooltip or via a non-color cue)."
+      - "The reader remains usable under a grayscale / color-blind simulation."
+    references:
+      - "webapp/templates/document.html"
+      - "webapp/templates/base.html"
+    owner:        "shared"
+    source:       "Session finding 2026-07-04: webapp UX/UI audit — 2nd-pass refinement (accessibility gap the first pass missed)."
+    tags:         ["accessibility", "reader", "wcag", "annotation"]
