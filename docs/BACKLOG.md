@@ -73,7 +73,7 @@ had shipped but were still marked `parked`/`ready`.
 | BL-019 | Annotation output validation | nlp | infra | ready | M | high | shared |
 | BL-020 | Shared read surface or parity tests | api | tech-debt | done | M | high | shared |
 | BL-021 | Canonicalization and review API surfaces | api | feature | parked | M | high | concurrent |
-| BL-022 | Annotation language and model capability registry | nlp | infra | ready | S | medium | shared |
+| BL-022 | Annotation language and model capability registry | nlp | infra | done | S | medium | shared |
 | BL-023 | Operator health surfaces | ops | feature | parked | M | medium | shared |
 | BL-024 | Evaluation and drift artifacts | nlp | research | parked | L | medium | shared |
 | BL-025 | Lexeme/token projection invariant | persistence | tech-debt | ready | M | medium | shared |

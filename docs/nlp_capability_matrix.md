@@ -36,6 +36,15 @@ version, annotation ids, per-layer counts, lexeme-occurrence counts, and
 replacement semantics. `src/doc_ray/tests/test_complete_mapping.py` guards both
 the success event and rollback behavior.
 
+Language/model note: as of `BL-022`,
+`src/doc_ray/adapters/annotation_spacy.py::spacy_capabilities` is the runtime
+registry for spaCy annotation languages. It records language code, model package,
+installed status, supported production layers, and the active fallback policy.
+Unsupported languages fail clearly by default; operators can opt into explicit
+fallback with `DOCRAY_SPACY_FALLBACK_POLICY=fallback`, and the resulting
+detected language, annotation language, model, and fallback decision are recorded
+in provenance params.
+
 ## Capability Matrix
 
 | Layer | Capability | Schema | Writer | Read adapter | GraphQL | Browser | Health | Tests | Status |

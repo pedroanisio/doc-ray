@@ -11,7 +11,11 @@ from __future__ import annotations
 import _itdb
 import pytest
 
-from doc_ray.adapters.annotation_spacy import SpacyAnnotator
+from doc_ray.adapters.annotation_spacy import (
+    SpacyAnnotator,
+    UnsupportedAnnotationLanguage,
+    spacy_capabilities,
+)
 
 # Rich enough for verbs, nouns, named entities, and a dependency root.
 TEXT = (
@@ -22,6 +26,50 @@ TEXT = (
 
 def _n(conn, sql, doc_id):
     return conn.execute(sql, (doc_id,)).fetchone()["n"]
+
+
+def test_spacy_capability_registry_exposes_models_layers_and_install_status():
+    caps = {c.language: c for c in spacy_capabilities()}
+
+    assert caps["en"].model == "en_core_web_sm"
+    assert caps["pt"].model == "pt_core_news_sm"
+    assert isinstance(caps["en"].installed, bool)
+    assert {
+        "tokenization",
+        "lemmatization",
+        "part_of_speech",
+        "morphology",
+        "dependency_parsing",
+        "named_entity_recognition",
+        "lexeme_projection",
+    } <= set(caps["en"].supported_layers)
+
+
+def test_spacy_annotator_rejects_unsupported_language_by_default():
+    ann = SpacyAnnotator()
+
+    with pytest.raises(UnsupportedAnnotationLanguage, match="fr"):
+        ann.resolve_language("fr", lang_default="en")
+
+
+def test_spacy_annotator_fallback_policy_is_explicit_and_provenance_ready():
+    ann = SpacyAnnotator(fallback_policy="fallback")
+
+    resolution = ann.resolve_language("fr", lang_default="en")
+
+    assert resolution.requested_language == "fr"
+    assert resolution.annotation_language == "en"
+    assert resolution.model == "en_core_web_sm"
+    assert resolution.fallback_used is True
+    assert resolution.provenance_params() == {
+        "detected_language": "fr",
+        "annotation_language": "en",
+        "language_model": "en_core_web_sm",
+        "language_fallback_policy": "fallback",
+        "language_fallback_used": True,
+        "language_fallback_from": "fr",
+        "language_fallback_to": "en",
+    }
 
 
 @pytest.fixture
@@ -163,6 +211,11 @@ def test_spacy_annotation_records_provenance_event(mapped):
         ).fetchall()
     }
     assert params["language"] == r["lang"]
+    assert params["detected_language"] == r["detected_lang"]
+    assert params["annotation_language"] == r["lang"]
+    assert params["language_model"] == r["model"]
+    assert params["language_fallback_policy"] == "fail"
+    assert params["language_fallback_used"] == "False"
     assert params["replacement"] == "replace document spacy and lexeme layers for this tool"
     assert params["tokens"] == str(r["tokens"])
     assert params["entities"] == str(r["entities"])

@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import argparse
 import bisect
+import os
 import sys
 from collections.abc import Callable
 from typing import Any
@@ -27,12 +28,21 @@ from typing import Any
 import psycopg
 
 from doc_ray.adapters import persistence as db
+from doc_ray.adapters.annotation_capabilities import (
+    CAPABILITY_MODELS,
+    AnnotationLanguageResolution,
+    UnsupportedAnnotationLanguage,
+    normalize_language,
+    spacy_capabilities,
+)
 from doc_ray.adapters.persistence import DictConnection
 from doc_ray.config import Config
 from doc_ray.domain import lexemes as lex
 from doc_ray.domain.ulid import ULIDFactory, new_ulid_str
 
-_MODELS = {"en": "en_core_web_sm", "pt": "pt_core_news_sm"}
+__all__ = ["SpacyAnnotator", "UnsupportedAnnotationLanguage", "spacy_capabilities"]
+
+_MODELS = CAPABILITY_MODELS
 
 #: An untyped spaCy ``Doc`` (spaCy ships no usable stubs for our surface).
 SpacyDoc = Any
@@ -60,21 +70,82 @@ def _split_tool_tag(tool: str) -> tuple[str, str | None]:
 class SpacyAnnotator:
     """Runs a spaCy pipeline and persists its multi-layer annotation output."""
 
-    def __init__(self) -> None:
+    def __init__(self, fallback_policy: str | None = None) -> None:
         """Initialize the empty per-language pipeline and lexeme caches."""
         self._nlp: dict[str, tuple[SpacyNlp, str]] = {}
         self.lexeme_cache: dict[str, str] = {}
+        self.fallback_policy = self._normalize_policy(
+            fallback_policy or os.environ.get("DOCRAY_SPACY_FALLBACK_POLICY", "fail")
+        )
 
-    def nlp_for(self, lang: str) -> tuple[SpacyNlp, str]:
+    @staticmethod
+    def _normalize_policy(policy: str) -> str:
+        """Validate and normalize the configured fallback policy."""
+        normalized = policy.strip().lower()
+        if normalized not in {"fail", "fallback"}:
+            raise ValueError("fallback_policy must be 'fail' or 'fallback'")
+        return normalized
+
+    def resolve_language(
+        self, lang: str | None, *, lang_default: str = "en"
+    ) -> AnnotationLanguageResolution:
+        """Resolve a detected language to a configured spaCy model.
+
+        Args:
+            lang: Detected language code.
+            lang_default: Fallback language when fallback policy is enabled.
+
+        Returns:
+            The resolved annotation-language/model pair.
+
+        Raises:
+            UnsupportedAnnotationLanguage: If no model supports ``lang`` and the
+                policy is strict, or if the configured fallback language is also
+                unsupported.
+        """
+        requested = normalize_language(lang, default=lang_default)
+        model = CAPABILITY_MODELS.get(requested)
+        if model is not None:
+            return AnnotationLanguageResolution(
+                requested_language=requested,
+                annotation_language=requested,
+                model=model,
+                fallback_policy=self.fallback_policy,
+                fallback_used=False,
+            )
+
+        supported = ", ".join(sorted(CAPABILITY_MODELS))
+        if self.fallback_policy == "fail":
+            raise UnsupportedAnnotationLanguage(
+                f"unsupported annotation language {requested!r}; supported languages: {supported}"
+            )
+
+        fallback = normalize_language(lang_default)
+        fallback_model = CAPABILITY_MODELS.get(fallback)
+        if fallback_model is None:
+            raise UnsupportedAnnotationLanguage(
+                f"unsupported annotation language {requested!r} and unsupported fallback "
+                f"language {fallback!r}; supported languages: {supported}"
+            )
+        return AnnotationLanguageResolution(
+            requested_language=requested,
+            annotation_language=fallback,
+            model=fallback_model,
+            fallback_policy=self.fallback_policy,
+            fallback_used=True,
+        )
+
+    def nlp_for(self, lang: str, *, lang_default: str = "en") -> tuple[SpacyNlp, str]:
         """Return the loaded spaCy pipeline (and tool tag) for a language.
 
         Args:
-            lang: Language code; unknown codes fall back to the English model.
+            lang: Language code to annotate.
+            lang_default: Fallback language when fallback policy is enabled.
 
         Returns:
             A ``(nlp, tool)`` pair where ``tool`` is ``"spacy/<model>@<ver>"``.
         """
-        model = _MODELS.get(lang, _MODELS["en"])
+        model = self.resolve_language(lang, lang_default=lang_default).model
         if model not in self._nlp:
             import importlib.metadata
 
@@ -141,8 +212,10 @@ class SpacyAnnotator:
         text = (row["full_text"] if row else None) or ""
         if not text.strip():
             return {"tokens": 0}
-        lang = lex.detect_language(text, default=lang_default)
-        nlp, tool = self.nlp_for(lang)
+        detected_lang = lex.detect_language(text, default=lang_default)
+        language_resolution = self.resolve_language(detected_lang, lang_default=lang_default)
+        lang = language_resolution.annotation_language
+        nlp, tool = self.nlp_for(lang, lang_default=lang_default)
         doc = nlp(text)
 
         # sentence-span index for offset containment
@@ -202,6 +275,7 @@ class SpacyAnnotator:
             lex_occ=list(lex_occ.items()),
             lex_tool=lex_tool,
             lex_version=lex_version,
+            language_resolution=language_resolution,
         )
         return {
             "tokens": len(token_rows),
@@ -210,6 +284,10 @@ class SpacyAnnotator:
             "coref_chains": len(coref),
             "occurrences": len(lex_occ),
             "lang": lang,
+            "detected_lang": detected_lang,
+            "model": language_resolution.model,
+            "fallback_policy": language_resolution.fallback_policy,
+            "fallback_used": language_resolution.fallback_used,
             "tool": tool,
         }
 
@@ -287,6 +365,7 @@ class SpacyAnnotator:
         lex_occ: list[tuple[str, str]] | None = None,
         lex_tool: str | None = None,
         lex_version: str | None = None,
+        language_resolution: AnnotationLanguageResolution | None = None,
     ) -> None:
         """Persist all spaCy layers (and the lexeme projection) in one txn."""
         with conn.transaction():
@@ -353,6 +432,7 @@ class SpacyAnnotator:
                 "annotation_id": ann,
                 "lexeme_annotation_id": lex_ann,
                 "language": lang,
+                **(language_resolution.provenance_params() if language_resolution else {}),
                 "replacement": "replace document spacy and lexeme layers for this tool",
                 "tokens": len(tokens),
                 "token_features": len(feats),

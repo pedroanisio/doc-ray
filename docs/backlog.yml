@@ -708,7 +708,7 @@ items:
       warn-and-fallback with provenance, or use a configured generic tokenizer.
     category:     "nlp"
     type:         "infra"
-    status:       "ready"
+    status:       "done"
     complexity:   "S"
     priority:     "medium"
     rationale:    "Unknown-language fallback to English can create plausible but low-quality annotations without an operator-visible signal."
@@ -721,7 +721,7 @@ items:
       - "src/doc_ray/adapters/annotation_spacy.py"
       - "src/doc_ray/application/corpus_health.py"
     owner:        "shared"
-    source:       "docs/doc_ray_improvement_proposal.md BL-022; grep-verified 2026-07-04 (_MODELS maps only en/pt)."
+    source:       "docs/doc_ray_improvement_proposal.md BL-022; completed 2026-07-04 with explicit spaCy capability registry and fallback policy."
     tags:         ["language", "spacy", "capability", "provenance"]
 
   - id:          "BL-023"

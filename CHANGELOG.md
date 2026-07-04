@@ -22,6 +22,13 @@ doc-ray carries **one global version** covering both the application package
 ## [Unreleased]
 
 ### Added
+- **spaCy annotation capability registry** (OpenAI GPT-5 via Codex) —
+  `SpacyAnnotator` now exposes a language/model registry with install status,
+  supported layers, and explicit fallback policy. Unsupported languages fail
+  clearly by default; operators can opt into fallback via
+  `DOCRAY_SPACY_FALLBACK_POLICY=fallback`, and provenance records detected
+  language, annotation language, model, policy, and fallback decisions, closing
+  `BL-022`.
 - **Read-surface parity guard** (OpenAI GPT-5 via Codex) —
   `tests/test_read_surface_parity.py` now keeps the async read adapter,
   GraphQL query resolvers, and Flask browser read shapes from drifting apart.
