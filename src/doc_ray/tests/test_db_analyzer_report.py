@@ -46,7 +46,9 @@ def _result():
         duplicate_group_count=0,
     )
     issues = [
-        Issue("missing-primary-key", "warning", "public.other", "public.other has no PK", "quality"),
+        Issue(
+            "missing-primary-key", "warning", "public.other", "public.other has no PK", "quality"
+        ),
         Issue(
             "unindexed-foreign-key",
             "warning",

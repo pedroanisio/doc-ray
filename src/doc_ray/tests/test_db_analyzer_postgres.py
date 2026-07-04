@@ -29,9 +29,7 @@ def scratch_tables(pg):
         )
         """
     )
-    conn.execute(
-        f"INSERT INTO {parent} (name) VALUES ('p1')"
-    )
+    conn.execute(f"INSERT INTO {parent} (name) VALUES ('p1')")
     conn.execute(
         f"INSERT INTO {child} (parent_id, label, amount, created_at) VALUES "
         "(1, 'a', 10, '2024-01-01'), (1, 'b', 20, '2024-01-02'), "
@@ -54,7 +52,9 @@ def test_get_table_structure_reports_pk_and_columns(scratch_tables, pg):
     _parent, child = scratch_tables
     structure = PostgresEngine().get_table_structure(conn, "public", child)
     assert structure.primary_key == ["id"]
-    assert {"id", "parent_id", "label", "amount", "created_at"} <= {c.name for c in structure.columns}
+    assert {"id", "parent_id", "label", "amount", "created_at"} <= {
+        c.name for c in structure.columns
+    }
     assert structure.size_bytes > 0
 
 
@@ -103,6 +103,8 @@ def test_profile_table_computes_null_numeric_and_duplicate_stats(scratch_tables,
 def test_read_only_connection_rejects_writes(pg):
     import _itdb
 
-    with PostgresEngine().connect(_itdb.DB_URL, read_only=True) as conn:
-        with pytest.raises(psycopg.errors.ReadOnlySqlTransaction):
-            conn.execute("CREATE TABLE db_analyzer_should_never_exist (id int)")
+    with (
+        PostgresEngine().connect(_itdb.DB_URL, read_only=True) as conn,
+        pytest.raises(psycopg.errors.ReadOnlySqlTransaction),
+    ):
+        conn.execute("CREATE TABLE db_analyzer_should_never_exist (id int)")

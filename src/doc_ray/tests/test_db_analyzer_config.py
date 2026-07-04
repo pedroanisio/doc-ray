@@ -27,9 +27,7 @@ def test_db_analyzer_dsn_wins_over_database_url():
 
 def test_config_file_is_applied(tmp_path):
     path = tmp_path / "cfg.json"
-    path.write_text(
-        json.dumps({"sample_threshold": 5, "include_schemas": ["public", "app"]})
-    )
+    path.write_text(json.dumps({"sample_threshold": 5, "include_schemas": ["public", "app"]}))
     cfg = load_config(env={}, config_path=str(path))
     assert cfg.sample_threshold == 5
     assert cfg.include_schemas == ("public", "app")

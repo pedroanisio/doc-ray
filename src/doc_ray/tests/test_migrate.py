@@ -53,6 +53,26 @@ def test_needs_autocommit(sql, expected):
     assert migrate._needs_autocommit(sql) is expected
 
 
+class _Rows:
+    def __init__(self, rows):
+        self.rows = rows
+
+    def fetchall(self):
+        return self.rows
+
+
+class _TupleRowConnection:
+    def execute(self, sql):
+        assert sql == "SELECT filename AS filename FROM schema_migrations"
+        return _Rows([("001_init.sql",), ("002_normalize_4nf.sql",)])
+
+
+def test_applied_filenames_accepts_tuple_rows():
+    applied = migrate.applied_filenames(_TupleRowConnection())
+
+    assert applied == {"001_init.sql", "002_normalize_4nf.sql"}
+
+
 def _connect_or_skip():
     import _itdb
 

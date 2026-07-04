@@ -20,10 +20,6 @@ def test_version_is_semver():
     assert _SEMVER_RE.match(doc_ray.__version__), doc_ray.__version__
 
 
-def test_global_version_is_1_3_0():
-    assert doc_ray.__version__ == "1.3.0"
-
-
 def test_all_version_surfaces_agree():
     """The offline consistency gate must pass against the current tree."""
     import check_version_consistency as gate

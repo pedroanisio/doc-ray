@@ -35,7 +35,10 @@ def test_healthy_snapshot_has_no_issues():
 def test_connection_pressure_flags_warning():
     snap = _snapshot(
         max_connections=10,
-        connections=[{"pid": i, "state": "idle", "wait_event_type": None, "duration_s": 1, "query": ""} for i in range(9)],
+        connections=[
+            {"pid": i, "state": "idle", "wait_event_type": None, "duration_s": 1, "query": ""}
+            for i in range(9)
+        ],
     )
     issues = dh.find_issues(snap)
     hit = next(i for i in issues if i["code"] == "connection-pressure")
@@ -46,7 +49,9 @@ def test_connection_pressure_flags_warning():
 def test_low_connection_usage_is_not_flagged():
     snap = _snapshot(
         max_connections=100,
-        connections=[{"pid": 1, "state": "idle", "wait_event_type": None, "duration_s": 1, "query": ""}],
+        connections=[
+            {"pid": 1, "state": "idle", "wait_event_type": None, "duration_s": 1, "query": ""}
+        ],
     )
     assert "connection-pressure" not in _codes(dh.find_issues(snap))
 
@@ -72,7 +77,13 @@ def test_slow_active_query_flags_warning():
 def test_fast_active_query_is_not_flagged():
     snap = _snapshot(
         connections=[
-            {"pid": 42, "state": "active", "wait_event_type": None, "duration_s": 1, "query": "select 1"}
+            {
+                "pid": 42,
+                "state": "active",
+                "wait_event_type": None,
+                "duration_s": 1,
+                "query": "select 1",
+            }
         ]
     )
     assert "query-slow" not in _codes(dh.find_issues(snap))
@@ -132,7 +143,9 @@ def test_table_bloat_flags_warning_above_threshold():
 
 
 def test_small_table_bloat_is_not_flagged():
-    snap = _snapshot(tables=[{"relname": "tiny", "n_live_tup": 2, "n_dead_tup": 8, "dead_pct": 80.0}])
+    snap = _snapshot(
+        tables=[{"relname": "tiny", "n_live_tup": 2, "n_dead_tup": 8, "dead_pct": 80.0}]
+    )
     assert "table-bloat" not in _codes(dh.find_issues(snap))
 
 
@@ -189,4 +202,11 @@ def test_cli_json_output(pg, monkeypatch, capsys):
     rc = dh.main(["--json"])
     assert rc in (0, 2)
     payload = json.loads(capsys.readouterr().out)
-    assert set(payload) == {"size_bytes", "size_pretty", "max_connections", "connections", "tables", "issues"}
+    assert set(payload) == {
+        "size_bytes",
+        "size_pretty",
+        "max_connections",
+        "connections",
+        "tables",
+        "issues",
+    }

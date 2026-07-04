@@ -35,23 +35,23 @@ python -c "import json,yaml,jsonschema; \
 
 ## Items
 
-| ID | Item | Category | Type | Cx | Priority | Owner |
-|----|------|----------|------|----|----------|-------|
-| BL-001 | OCR pass for image-only PDFs | extraction | feature | M | high | shared |
-| BL-002 | Math fidelity: recover equations as LaTeX via opt-in ML backend | extraction | feature | L | medium | shared |
-| BL-003 | Calibrate heading-detection thresholds per corpus | extraction | tech-debt | S | low | mine |
-| BL-004 | Render Markdown in the reading pane | webapp | feature | S | medium | mine |
-| BL-005 | Full-document scroll view + solo-POS focus mode | webapp | feature | M | low | mine |
-| BL-006 | Materialize the remaining NLP annotation layers | nlp | feature | XL | medium | concurrent |
-| BL-007 | Verification layer for ML/LLM annotator output (PALS's Law) | nlp | infra | M | high | shared |
-| BL-008 | Complete the GraphQL (Strawberry) driving adapter | api | feature | L | medium | concurrent |
-| BL-009 | GraphQL safety: depth/complexity limits + keyset pagination | security | feature | M | high | concurrent |
-| BL-010 | Background jobs via a Postgres queue (FOR UPDATE SKIP LOCKED) | ops | feature | L | medium | concurrent |
-| BL-011 | jobs table + sync worker runtime | persistence | feature | M | medium | concurrent |
-| BL-012 | Per-principal LOGIN roles for hostile-direct-SQL isolation | security | feature | L | medium | shared |
-| BL-013 | Raise package coverage from 57% to the 90% gate | testing | tech-debt | L | high | shared |
-| BL-014 | Fix 14 E501 line-length errors in gen_data_dictionary.py | tooling | tech-debt | XS | low | concurrent |
-| BL-015 | Fix test_migrate row_factory KeyError against the live DB | persistence | bug | S | high | concurrent |
+| ID | Item | Category | Type | Status | Cx | Priority | Owner |
+|----|------|----------|------|--------|----|----------|-------|
+| BL-001 | OCR pass for image-only PDFs | extraction | feature | parked | M | high | shared |
+| BL-002 | Math fidelity: recover equations as LaTeX via opt-in ML backend | extraction | feature | parked | L | medium | shared |
+| BL-003 | Calibrate heading-detection thresholds per corpus | extraction | tech-debt | parked | S | low | mine |
+| BL-004 | Render Markdown in the reading pane | webapp | feature | parked | S | medium | mine |
+| BL-005 | Full-document scroll view + solo-POS focus mode | webapp | feature | parked | M | low | mine |
+| BL-006 | Materialize the remaining NLP annotation layers | nlp | feature | parked | XL | medium | concurrent |
+| BL-007 | Verification layer for ML/LLM annotator output (PALS's Law) | nlp | infra | parked | M | high | shared |
+| BL-008 | Complete the GraphQL (Strawberry) driving adapter | api | feature | parked | L | medium | concurrent |
+| BL-009 | GraphQL safety: depth/complexity limits + keyset pagination | security | feature | parked | M | high | concurrent |
+| BL-010 | Background jobs via a Postgres queue (FOR UPDATE SKIP LOCKED) | ops | feature | parked | L | medium | concurrent |
+| BL-011 | jobs table + sync worker runtime | persistence | feature | parked | M | medium | concurrent |
+| BL-012 | Per-principal LOGIN roles for hostile-direct-SQL isolation | security | feature | parked | L | medium | shared |
+| BL-013 | Raise package coverage from 57% to the 90% gate | testing | tech-debt | ready | L | high | shared |
+| BL-014 | Fix 14 E501 line-length errors in gen_data_dictionary.py | tooling | tech-debt | ready | XS | low | concurrent |
+| BL-015 | Fix test_migrate row_factory KeyError against the live DB | persistence | bug | done | S | high | concurrent |
 
 See [`backlog.yml`](backlog.yml) for each item's full description, rationale,
 acceptance criteria, dependencies, related decisions (`D-###`), and references.

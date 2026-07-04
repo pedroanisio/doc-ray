@@ -114,9 +114,7 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     Returns:
         The configured parser.
     """
-    ap = argparse.ArgumentParser(
-        description="Inspect a database's structure and profile its data."
-    )
+    ap = argparse.ArgumentParser(description="Inspect a database's structure and profile its data.")
     ap.add_argument("--config", help="Path to a JSON config file.")
     ap.add_argument("--engine", default=None, help="Database engine (default: postgres).")
     ap.add_argument("--dsn", default=None, help="Connection string.")

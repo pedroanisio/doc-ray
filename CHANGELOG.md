@@ -37,6 +37,10 @@ doc-ray carries **one global version** covering both the application package
   (`application/db_analyzer/engines/`), with PostgreSQL shipping today. Flags:
   `--engine`, `--dsn`, `--schemas` / `--exclude-schemas`, `--structure-only`,
   `--output-dir`, `--config`, `--json`.
+- **Migration runner row-factory regression coverage** (OpenAI GPT-5 via Codex)
+  — `applied_filenames()` now has explicit coverage for tuple-style psycopg
+  rows, guarding the BL-015 live-DB bug where migration filenames could be read
+  through the wrong row access mode.
 
 ## [1.4.0] - 2026-07-04
 

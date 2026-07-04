@@ -433,7 +433,7 @@ items:
       row_factory for that query. Concurrent-owned; a real bug, not flaky.
     category:     "persistence"
     type:         "bug"
-    status:       "ready"
+    status:       "done"
     complexity:   "S"
     priority:     "high"
     rationale:    "A failing test in the migration runner blocks a green suite and signals a real row-access defect."
