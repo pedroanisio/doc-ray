@@ -58,8 +58,15 @@ def test_healthy_snapshot_has_no_issues():
 def test_null_language_flags_fts_degraded():
     snap = _snapshot(
         documents=[
-            {"id": "d1", "title": "t", "language": None, "status": "extracted",
-             "sentences": 4, "mentions": 2, "links": 0}
+            {
+                "id": "d1",
+                "title": "t",
+                "language": None,
+                "status": "extracted",
+                "sentences": 4,
+                "mentions": 2,
+                "links": 0,
+            }
         ]
     )
     issues = ch.find_issues(snap)
@@ -72,8 +79,15 @@ def test_null_language_flags_fts_degraded():
 def test_extracted_doc_without_sentences_is_an_error():
     snap = _snapshot(
         documents=[
-            {"id": "d1", "title": "t", "language": "en", "status": "extracted",
-             "sentences": 0, "mentions": 0, "links": 0}
+            {
+                "id": "d1",
+                "title": "t",
+                "language": "en",
+                "status": "extracted",
+                "sentences": 0,
+                "mentions": 0,
+                "links": 0,
+            }
         ]
     )
     issues = ch.find_issues(snap)
@@ -87,8 +101,15 @@ def test_extracted_doc_without_sentences_is_an_error():
 def test_doc_with_sentences_but_no_mentions_flags_unannotated():
     snap = _snapshot(
         documents=[
-            {"id": "d1", "title": "t", "language": "en", "status": "extracted",
-             "sentences": 8, "mentions": 0, "links": 0}
+            {
+                "id": "d1",
+                "title": "t",
+                "language": "en",
+                "status": "extracted",
+                "sentences": 8,
+                "mentions": 0,
+                "links": 0,
+            }
         ]
     )
     assert "document-unannotated" in _codes(ch.find_issues(snap))
@@ -105,8 +126,12 @@ def test_failed_jobs_are_errors():
 def test_stalled_running_job_flags_warning():
     snap = _snapshot(
         running_jobs=[
-            {"id": "j1", "kind": "annotate", "locked_by": "w1",
-             "heartbeat_age_s": ch.STALE_HEARTBEAT_SECONDS + 1}
+            {
+                "id": "j1",
+                "kind": "annotate",
+                "locked_by": "w1",
+                "heartbeat_age_s": ch.STALE_HEARTBEAT_SECONDS + 1,
+            }
         ]
     )
     assert "job-stalled" in _codes(ch.find_issues(snap))
@@ -139,8 +164,15 @@ def test_exit_code_ignores_info_but_not_warnings():
 def test_render_text_shows_totals_and_issues():
     snap = _snapshot(
         documents=[
-            {"id": "d1", "title": "broken", "language": None, "status": "extracted",
-             "sentences": 4, "mentions": 0, "links": 0}
+            {
+                "id": "d1",
+                "title": "broken",
+                "language": None,
+                "status": "extracted",
+                "sentences": 4,
+                "mentions": 0,
+                "links": 0,
+            }
         ]
     )
     out = ch.render_text(snap, ch.find_issues(snap))

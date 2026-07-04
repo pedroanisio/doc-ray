@@ -93,3 +93,42 @@ def test_search_reads(pg):
             await aconn.close()
 
     asyncio.run(check())
+
+
+def test_fulltext_search_matches_each_documents_ts_config(pg):
+    """The tsquery must use each document's own config, not hardcoded 'english'.
+
+    An unannotated document (``language IS NULL``) has a 'simple'-config fts
+    vector (migration 016); an English-stemmed query like ``florqins`` ->
+    ``florqin`` finds no lexeme in it unless the reader mirrors the writer's
+    config choice. An annotated (``language = 'en'``) document must keep real
+    English stemming (singular query hits plural text).
+
+    Uses an invented word (Postgres's English stemmer is the algorithmic
+    Snowball stripper, not a dictionary, so it stems nonsense words exactly
+    like real ones) so the fixture documents are the query's *only* possible
+    hits — a real word would drift out of a rank-limited result page as the
+    shared corpus grows, decoupling this test from corpus size entirely.
+    """
+    import _itdb
+
+    conn, created = pg
+    text = "Polytechnic florqins teach applied design."
+    doc_null = _itdb.make_doc(conn, text)
+    created.append(doc_null)
+    doc_en = _itdb.make_doc(conn, text)
+    created.append(doc_en)
+    conn.execute("UPDATE documents SET language = 'en' WHERE id = %s", (doc_en,))
+
+    async def check():
+        aconn = await _aconn()
+        try:
+            plural = await read.fulltext_search(aconn, "florqins")
+            assert any(str(r["doc_id"]) == str(doc_null) for r in plural)
+
+            singular = await read.fulltext_search(aconn, "florqin")
+            assert any(str(r["doc_id"]) == str(doc_en) for r in singular)
+        finally:
+            await aconn.close()
+
+    asyncio.run(check())

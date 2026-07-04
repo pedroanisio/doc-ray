@@ -224,6 +224,13 @@ def test_graphql_surface_covers_the_curation_loop(sg_env):
         "VALUES (%s,%s,'flombard',3,'Q900001','Flombard','fictive press','pending')",
         (sid, doc_id),
     )
+    rid = new_ulid_str()
+    conn.execute(
+        "INSERT INTO seed_suggestion "
+        "  (id, document_id, term, occurrences, qid, label, description, status) "
+        "VALUES (%s,%s,'noisyterm',1,'Q900099','Noisy','junk match','pending')",
+        (rid, doc_id),
+    )
 
     app = create_app(Config.from_env())
     with TestClient(app) as client:
@@ -239,13 +246,20 @@ def test_graphql_surface_covers_the_curation_loop(sg_env):
             "query($d: ID!) { seedSuggestions(documentId: $d) { id term qid description status } }",
             {"d": doc_id},
         )["seedSuggestions"]
-        assert [s["term"] for s in listed] == ["flombard"]
-        assert listed[0]["description"] == "fictive press"
+        assert {s["term"] for s in listed} == {"flombard", "noisyterm"}
+        by_term = {s["term"]: s for s in listed}
+        assert by_term["flombard"]["description"] == "fictive press"
 
-        n = gql("mutation($ids: [ID!]) { decideSeeds(approveIds: $ids) }", {"ids": [sid]})[
-            "decideSeeds"
-        ]
-        assert n == 1
+        n = gql(
+            "mutation($a: [ID!], $r: [ID!]) { decideSeeds(approveIds: $a, rejectIds: $r) }",
+            {"a": [sid], "r": [rid]},
+        )["decideSeeds"]
+        assert n == 2  # both the approve and the reject branch ran
+
+        rejected = conn.execute(
+            "SELECT status FROM seed_suggestion WHERE id = %s", (rid,)
+        ).fetchone()
+        assert rejected["status"] == "rejected"
 
         job = gql(
             "mutation($d: ID!) { seedApproved(documentId: $d) { id kind status } }",

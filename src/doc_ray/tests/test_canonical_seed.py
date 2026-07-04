@@ -79,3 +79,51 @@ def test_seed_writes_canonical_and_forms_idempotently():
         for cid in created:
             conn.execute("DELETE FROM canonical WHERE id = %s", (cid,))  # cascades form_index
         conn.close()
+
+
+def test_seed_skips_blank_aliases():
+    conn = _connect_or_skip()
+    created: list[int] = []
+    try:
+        entry = KbEntry(
+            kb_id="Q-test-seed-002",
+            label="Blank Alias Test",
+            entity_type="CONCEPT",
+            description=None,
+            lang="en",
+            aliases=("", "   ", "Real Alias"),
+        )
+        cid = canonical_seed.seed_from_ids(conn, _StubKB([entry]), ["Q-test-seed-002"])[0]
+        created.append(cid)
+        forms = {f["form_surface"] for f in store.forms_for(conn, cid)}
+        assert "Real Alias" in forms
+        assert "" not in forms and "   " not in forms
+    finally:
+        for cid in created:
+            conn.execute("DELETE FROM canonical WHERE id = %s", (cid,))
+        conn.close()
+
+
+def test_seed_from_terms_seeds_the_top_search_hit_and_skips_no_hits():
+    conn = _connect_or_skip()
+    created: list[int] = []
+    try:
+        entry = KbEntry(
+            kb_id="Q-test-seed-003",
+            label="Termsearch Target",
+            entity_type="CONCEPT",
+            description=None,
+            lang="en",
+            aliases=(),
+        )
+        kb = _StubKB([entry])
+
+        ids = canonical_seed.seed_from_terms(conn, kb, ["Termsearch", "no-such-term-xyz"])
+        assert len(ids) == 1  # the no-hit term contributes nothing
+        created.append(ids[0])
+        row = store.lookup_form(conn, form_norm("Termsearch Target"))
+        assert any(r["canonical_id"] == ids[0] for r in row)
+    finally:
+        for cid in created:
+            conn.execute("DELETE FROM canonical WHERE id = %s", (cid,))
+        conn.close()

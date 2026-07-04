@@ -78,7 +78,11 @@ def test_probe_database_ok_and_error():
 
 def test_readiness_ready_only_when_all_ok():
     ready = health.readiness({"database": "ok", "object_store": "ok"})
-    assert ready == {"status": "ready", "ready": True, "checks": {"database": "ok", "object_store": "ok"}}
+    assert ready == {
+        "status": "ready",
+        "ready": True,
+        "checks": {"database": "ok", "object_store": "ok"},
+    }
 
     degraded = health.readiness({"database": "ok", "object_store": "unreachable: boom"})
     assert degraded["ready"] is False

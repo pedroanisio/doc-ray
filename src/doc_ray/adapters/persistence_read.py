@@ -510,17 +510,21 @@ async def fulltext_search(conn: _AConn, query: str, *, limit: int = 25) -> list[
 
     Args:
         conn: Async database connection.
-        query: A ``plainto_tsquery`` search string (English configuration).
+        query: A ``plainto_tsquery`` search string, parsed per document with the
+            same ``docray_ts_config`` the migration-016 triggers used to build
+            that document's ``fts`` (unannotated docs fall back to ``simple``).
         limit: Maximum documents to return.
 
     Returns:
         Rows of ``{doc_id, title, rank}`` ordered by descending rank.
     """
+    # The per-document (lateral) tsquery keeps reader and writer configs
+    # symmetric at the cost of the GIN bitmap scan; acceptable at corpus scale.
     return await _rows(
         conn,
         "SELECT d.id AS doc_id, d.title, ts_rank(c.fts, q) AS rank "
         "FROM document_content c JOIN documents d ON d.id = c.document_id, "
-        "     plainto_tsquery('english', %s) q "
+        "     plainto_tsquery(docray_ts_config(d.language), %s) q "
         "WHERE c.fts @@ q ORDER BY rank DESC, d.title LIMIT %s",
         (query, limit),
     )

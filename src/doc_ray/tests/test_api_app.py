@@ -221,7 +221,9 @@ def test_ingest_upload_transport_accepts_multipart():
         resp = client.post(
             "/graphql", files=_upload_form("mutation($f: Upload!){ noSuchField(file: $f) }")
         )
-    assert resp.status_code == 200, f"multipart rejected at transport: {resp.status_code} {resp.text!r}"
+    assert resp.status_code == 200, (
+        f"multipart rejected at transport: {resp.status_code} {resp.text!r}"
+    )
     body = resp.json()
     assert body.get("data") is None
     assert body["errors"], body

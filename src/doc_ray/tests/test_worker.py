@@ -84,6 +84,13 @@ def test_run_once_handler_error_requeues(qconn):
     assert q.get(conn, job_id).status is JobStatus.QUEUED  # attempts 1 < 3 -> retry
 
 
+class _NoopKb:
+    """Stand-in for the KB clients' ``.close()`` contract (no network, no-op teardown)."""
+
+    def close(self):
+        return None
+
+
 class _MemStore:
     """In-memory ObjectStore stand-in for upload-ingest tests (no S3/boto3)."""
 
@@ -247,6 +254,178 @@ def test_annotate_job_sets_document_language(qconn):
         assert q.get(conn, job_id).status is JobStatus.SUCCEEDED
         row = conn.execute("SELECT language FROM documents WHERE id = %s", (doc_id,)).fetchone()
         assert row["language"] == "en"
+    finally:
+        conn.execute("DELETE FROM documents WHERE id = %s", (doc_id,))
+
+
+def test_handle_seed_canonical_dispatches_qids_and_terms(qconn, monkeypatch):
+    conn, created = qconn
+    from doc_ray.application.jobs import HANDLERS
+
+    calls: list[tuple[str, list]] = []
+    monkeypatch.setattr("doc_ray.adapters.wikidata.WikidataClient", lambda: _NoopKb())
+    monkeypatch.setattr(
+        "doc_ray.application.canonical_seed.seed_from_ids",
+        lambda _c, _kb, ids: calls.append(("ids", ids)) or [1],
+    )
+    monkeypatch.setattr(
+        "doc_ray.application.canonical_seed.seed_from_terms",
+        lambda _c, _kb, terms: calls.append(("terms", terms)) or [2, 3],
+    )
+    job_id = q.enqueue(conn, "seed_canonical", {"qids": ["Q1"], "terms": ["gutenberg"]}, priority=0)
+    created.append(job_id)
+    run_once(conn, None, worker_id="w1", handlers=HANDLERS)
+    assert q.get(conn, job_id).status is JobStatus.SUCCEEDED
+    result = conn.execute("SELECT result FROM jobs WHERE id = %s", (job_id,)).fetchone()["result"]
+    assert result == {"seeded": 3}  # 1 from ids + 2 from terms
+    assert ("ids", ["Q1"]) in calls and ("terms", ["gutenberg"]) in calls
+
+
+def test_handle_seed_suggest_dispatches_to_service(qconn, monkeypatch):
+    import _itdb
+
+    conn, created = qconn
+    from doc_ray.application.jobs import HANDLERS
+
+    doc_id = _itdb.make_doc(conn, "Suggest me a seed. Second sentence.")
+    seen = {}
+    monkeypatch.setattr("doc_ray.adapters.wikidata.WikidataClient", lambda: _NoopKb())
+    monkeypatch.setattr("doc_ray.adapters.wikipedia.WikipediaClient", lambda: _NoopKb())
+    monkeypatch.setattr(
+        "doc_ray.application.seed_suggest.suggest_for_document",
+        lambda _c, _wiki, _kb, did, **kw: (
+            seen.update(document_id=did, **kw) or {"suggested": 5, "resolved": 2}
+        ),
+    )
+    job_id = q.enqueue(
+        conn,
+        "seed_suggest",
+        {"limit": 10, "min_mentions": 1, "min_lexemes": 2},
+        priority=0,
+        document_id=doc_id,
+    )
+    created.append(job_id)
+    try:
+        run_once(conn, None, worker_id="w1", handlers=HANDLERS)
+        assert q.get(conn, job_id).status is JobStatus.SUCCEEDED
+        result = conn.execute("SELECT result FROM jobs WHERE id = %s", (job_id,)).fetchone()[
+            "result"
+        ]
+        assert result == {"suggested": 5, "resolved": 2}
+        assert seen == {"document_id": doc_id, "limit": 10, "min_mentions": 1, "min_lexemes": 2}
+    finally:
+        conn.execute("DELETE FROM documents WHERE id = %s", (doc_id,))
+
+
+def test_handle_seed_approved_with_no_approved_rows_seeds_nothing(qconn):
+    import _itdb
+
+    conn, created = qconn
+    from doc_ray.application.jobs import HANDLERS
+
+    doc_id = _itdb.make_doc(conn, "Nothing approved yet. Second sentence.")
+    job_id = q.enqueue(conn, "seed_approved", {}, priority=0, document_id=doc_id)
+    created.append(job_id)
+    try:
+        run_once(conn, None, worker_id="w1", handlers=HANDLERS)
+        assert q.get(conn, job_id).status is JobStatus.SUCCEEDED
+        result = conn.execute("SELECT result FROM jobs WHERE id = %s", (job_id,)).fetchone()[
+            "result"
+        ]
+        assert result == {"seeded": 0}
+    finally:
+        conn.execute("DELETE FROM documents WHERE id = %s", (doc_id,))
+
+
+def test_chain_stops_when_chain_is_empty(qconn, monkeypatch):
+    # Spy on enqueue rather than inspect the shared jobs table (a live worker
+    # may be running concurrently against the same DB).
+    conn, created = qconn
+    job_id = q.enqueue(conn, "step-a", {}, priority=0)  # no 'chain' key at all
+    created.append(job_id)
+
+    calls = []
+    real_enqueue = q.enqueue
+    monkeypatch.setattr(
+        "doc_ray.adapters.queue_postgres.enqueue",
+        lambda *a, **kw: calls.append((a, kw)) or real_enqueue(*a, **kw),
+    )
+    run_once(conn, None, worker_id="w1", handlers={"step-a": lambda c, s, j: {"ok": 1}})
+    assert calls == []  # no successor enqueued
+
+
+def test_handle_canonicalize_resolve_true_invokes_frontier_resolver(qconn, monkeypatch):
+    # payload {"resolve": true} must run Stage 3 on the Stage-2 residue — stub
+    # the resolver so this never makes a real Anthropic call. The residue is
+    # made deterministic (a synthetic unlinked mention) rather than relying on
+    # spaCy's NER to tag a nonsense word.
+    import _itdb
+
+    from doc_ray.application.resolution import ResolutionOutcome
+    from doc_ray.domain.ulid import new_ulid_str
+
+    conn, created = qconn
+    from doc_ray.application.jobs import HANDLERS
+
+    text = "Zzqxlorph appeared once. Second sentence."
+    doc_id = _itdb.make_doc(conn, text)
+    ann = new_ulid_str()
+    conn.execute(
+        "INSERT INTO annotations (id, document_id, layer, tool) VALUES (%s,%s,'spacy','test')",
+        (ann, doc_id),
+    )
+    span = conn.execute(
+        "INSERT INTO spans (document_id, char_start, char_end) VALUES (%s, 0, 10) RETURNING id",
+        (doc_id,),
+    ).fetchone()["id"]
+    conn.execute(
+        "INSERT INTO entity_mention (id, annotation_id, span_id, entity_type) "
+        "VALUES (%s,%s,%s,'ORG')",
+        (new_ulid_str(), ann, span),
+    )
+    seen = {}
+    monkeypatch.setattr("doc_ray.adapters.resolver_claude.ClaudeResolver", lambda: "stub-resolver")
+    monkeypatch.setattr(
+        "doc_ray.application.resolution.resolve_residue",
+        lambda _c, resolver, did, residue: (
+            seen.update(resolver=resolver, document_id=did, n_residue=len(residue))
+            or ResolutionOutcome(linked=1, created=2, review=3, skipped=0)
+        ),
+    )
+    job_id = q.enqueue(conn, "canonicalize", {"resolve": True}, priority=0, document_id=doc_id)
+    created.append(job_id)
+    try:
+        run_once(conn, None, worker_id="w1", handlers=HANDLERS)
+        assert q.get(conn, job_id).status is JobStatus.SUCCEEDED
+        result = conn.execute("SELECT result FROM jobs WHERE id = %s", (job_id,)).fetchone()[
+            "result"
+        ]
+        assert result["resolved"] == 3  # linked + created
+        assert result["created"] == 2 and result["review"] == 3
+        assert seen["resolver"] == "stub-resolver" and seen["document_id"] == doc_id
+    finally:
+        conn.execute("DELETE FROM documents WHERE id = %s", (doc_id,))
+
+
+def test_handle_canonicalize_resolve_true_with_no_residue_skips_resolver(qconn, monkeypatch):
+    # resolve=True with an empty residue must not construct a resolver at all
+    # (no Anthropic client, no network) — the guard is `and result.residue`.
+    import _itdb
+
+    conn, created = qconn
+    from doc_ray.application.jobs import HANDLERS
+
+    doc_id = _itdb.make_doc(conn, "Nothing ambiguous here at all whatsoever.")
+
+    def _boom():
+        raise AssertionError("ClaudeResolver must not be constructed with empty residue")
+
+    monkeypatch.setattr("doc_ray.adapters.resolver_claude.ClaudeResolver", _boom)
+    job_id = q.enqueue(conn, "canonicalize", {"resolve": True}, priority=0, document_id=doc_id)
+    created.append(job_id)
+    try:
+        run_once(conn, None, worker_id="w1", handlers=HANDLERS)
+        assert q.get(conn, job_id).status is JobStatus.SUCCEEDED
     finally:
         conn.execute("DELETE FROM documents WHERE id = %s", (doc_id,))
 
