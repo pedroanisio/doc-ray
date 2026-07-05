@@ -1,6 +1,6 @@
 # doc-ray — Database ERD & Data Dictionary
 
-**Schema version `1.5.0`** (SemVer) · 31 migrations applied
+**Schema version `1.6.0`** (SemVer) · 33 migrations applied
 
 > Generated from the live schema by `scripts/gen_data_dictionary.py`. Do not edit by hand — re-run the generator.
 
@@ -1002,9 +1002,12 @@ stays cheap. Reads use a `FOR SELECT` policy only; writes use separate
 `FOR INSERT/UPDATE/DELETE` policies (with `WITH CHECK`) so they never
 contaminate read plans.
 
-**Trust boundary.** The principal GUC is honored only for `docray_api`, the
-trusted app-tier role. Direct SQL users are isolated with per-principal
-`LOGIN` roles recorded in `principals.db_role` and created with
+**Trust boundary.** The HTTP API maps bearer or `X-DocRay-API-Token`
+credentials to principals, then drops every request to `docray_api`. The
+principal GUC is honored only for that trusted app-tier role; anonymous API
+requests run as `docray_api` with no principal id rather than as the superuser.
+Direct SQL users are isolated with per-principal `LOGIN` roles recorded in
+`principals.db_role` and created with
 `docray_create_principal_login(principal, role_name, password)`. Those roles
 inherit `docray_client` and are mapped by authenticated database identity, so
 setting `app.principal_id` cannot impersonate a different principal. The
@@ -1048,3 +1051,5 @@ owner's bypass.
 | 029 | `029_schema_version_1_4_0.sql` | advance the schema SemVer to 1.4.0 |
 | 030 | `030_principal_login_roles.sql` | per-principal LOGIN roles, `docray_api` trusted GUC role, and direct-SQL impersonation guard |
 | 031 | `031_schema_version_1_5_0.sql` | advance the schema SemVer to 1.5.0 |
+| 032 | `032_api_role_runtime_grants.sql` | grant API runtime access to jobs and document-scoped seed suggestions under RLS |
+| 033 | `033_schema_version_1_6_0.sql` | advance the schema SemVer to 1.6.0 |

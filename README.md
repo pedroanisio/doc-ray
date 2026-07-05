@@ -34,6 +34,8 @@ This work is subject to the methodological caveats and commitments described in 
 
 ```bash
 cp .env.example .env
+# Edit .env before starting: set POSTGRES_PASSWORD to a real secret.
+# Compose refuses the historical default (`docray`) and placeholder values.
 
 # 1. Bring up Postgres + MinIO (schema auto-applies on first init)
 docker compose up -d postgres minio createbucket
@@ -108,6 +110,15 @@ Other query/mutation surface: `documents` / `document` / `searchSentences` /
 `canonicalizeDocument(resolve:)` (writes — every mutation enqueues a worker
 job and returns it; poll `job(id)` for completion, never a synchronous
 result).
+
+API authentication is token-to-principal based. Set
+`DOCRAY_API_TOKENS='token=principal_uuid[:read+write]'` to map bearer tokens (or
+`X-DocRay-API-Token`) to rows in `principals`. Unauthenticated requests are
+allowed by default for local/single-operator use, but they still drop to the
+RLS-limited `docray_api` role with no principal id; set
+`DOCRAY_API_ALLOW_ANONYMOUS=false` to fail closed with HTTP 401. API pool bounds
+are explicit through `DOCRAY_API_POOL_MIN_SIZE`, `DOCRAY_API_POOL_MAX_SIZE`, and
+`DOCRAY_API_POOL_TIMEOUT`.
 
 The webapp (`python -m webapp.app`, or `flask --app webapp.app run --port
 5001`) is a read-only Postgres browser plus a thin GraphQL write path: upload

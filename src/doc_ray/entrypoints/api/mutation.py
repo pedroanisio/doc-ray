@@ -38,6 +38,12 @@ from doc_ray.entrypoints.api.types import Info, Job
 _PIPELINE_CHAIN = [KIND_ANNOTATE, KIND_CANONICALIZE]
 
 
+def _require_write(ctx: RequestContext) -> None:
+    """Require an authenticated principal with write scope for API mutations."""
+    if ctx.principal.principal_id is None or "write" not in ctx.principal.scopes:
+        raise PermissionError("API mutation requires an authenticated principal with write scope")
+
+
 async def _job_status(ctx: RequestContext, job_id: str) -> Job:
     """Load the freshly-enqueued job's status row and map it to a GraphQL Job."""
     row = await queue.status_async(ctx.conn, job_id)
@@ -54,6 +60,7 @@ class Mutation:
     async def reannotate(self, info: Info, document_id: strawberry.ID, lang: str = "en") -> Job:
         """Enqueue a re-annotation of a document; returns the queued job."""
         ctx = info.context
+        _require_write(ctx)
         job_id = await queue.enqueue_async(
             ctx.conn, KIND_REANNOTATE, {"lang": lang}, document_id=str(document_id)
         )
@@ -63,6 +70,7 @@ class Mutation:
     async def delete_document(self, info: Info, document_id: strawberry.ID) -> Job:
         """Enqueue deletion of a document (cascades to its layers); returns the job."""
         ctx = info.context
+        _require_write(ctx)
         job_id = await queue.enqueue_async(ctx.conn, KIND_DELETE, {}, document_id=str(document_id))
         return await _job_status(ctx, job_id)
 
@@ -72,6 +80,7 @@ class Mutation:
     ) -> Job:
         """Enqueue Stage-1 annotation (tokens/NER/coref) for a document."""
         ctx = info.context
+        _require_write(ctx)
         job_id = await queue.enqueue_async(
             ctx.conn, KIND_ANNOTATE, {"lang": lang}, document_id=str(document_id)
         )
@@ -87,6 +96,7 @@ class Mutation:
         LLM cost is always an explicit request, never a default.
         """
         ctx = info.context
+        _require_write(ctx)
         payload = {"resolve": True} if resolve else {}
         job_id = await queue.enqueue_async(
             ctx.conn, KIND_CANONICALIZE, payload, document_id=str(document_id)
@@ -101,6 +111,7 @@ class Mutation:
         nothing reaches the canonical registry without an approval.
         """
         ctx = info.context
+        _require_write(ctx)
         job_id = await queue.enqueue_async(
             ctx.conn, KIND_SEED_SUGGEST, {"limit": limit}, document_id=str(document_id)
         )
@@ -117,7 +128,9 @@ class Mutation:
 
         ``seeded`` rows are immutable — re-deciding them is a no-op.
         """
-        conn = info.context.conn
+        ctx = info.context
+        _require_write(ctx)
+        conn = ctx.conn
         updated = 0
         if approve_ids:
             updated += await seeds.decide_async(conn, [str(i) for i in approve_ids], "approved")
@@ -129,6 +142,7 @@ class Mutation:
     async def seed_approved(self, info: Info, document_id: strawberry.ID) -> Job:
         """Enqueue seeding of a document's approved suggestions into the registry."""
         ctx = info.context
+        _require_write(ctx)
         job_id = await queue.enqueue_async(
             ctx.conn, KIND_SEED_APPROVED, {}, document_id=str(document_id)
         )
@@ -142,6 +156,7 @@ class Mutation:
         in the ``backups`` table. Poll ``job(id)`` for completion.
         """
         ctx = info.context
+        _require_write(ctx)
         payload = {"note": note} if note else {}
         job_id = await queue.enqueue_async(ctx.conn, KIND_BACKUP, payload, document_id=None)
         return await _job_status(ctx, job_id)
@@ -154,6 +169,7 @@ class Mutation:
         from the archive. The target must be at the archive's schema version.
         """
         ctx = info.context
+        _require_write(ctx)
         job_id = await queue.enqueue_async(
             ctx.conn, KIND_RESTORE, {"backup_id": str(backup_id)}, document_id=None
         )
@@ -178,6 +194,7 @@ class Mutation:
         from doc_ray.config import Config
 
         ctx = info.context
+        _require_write(ctx)
         # The Upload scalar resolves to a Starlette UploadFile at runtime.
         upload = cast(UploadFile, file)
         data = await upload.read()

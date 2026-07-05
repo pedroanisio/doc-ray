@@ -7,6 +7,8 @@ steps explicitly. All writes enqueue worker jobs — nothing runs in-request.
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 import pytest
 
 
@@ -25,24 +27,38 @@ def api_env():
 
     conn = _connect_or_skip()
     doc_id = _itdb.make_doc(conn, "Pipeline zqorvithex test. Second sentence.")
+    principal = conn.execute(
+        "SELECT id FROM principals WHERE display_name = 'bootstrap-admin'"
+    ).fetchone()
+    if principal is None:
+        pytest.skip("RBAC seed principal absent")
     try:
-        yield conn, doc_id
+        yield conn, doc_id, str(principal["id"])
     finally:
         conn.execute("DELETE FROM documents WHERE id = %s", (doc_id,))
         conn.close()
 
 
-def _client():
+def _client(principal_id: str):
     from fastapi.testclient import TestClient
 
     from doc_ray.config import Config
     from doc_ray.entrypoints.api.app import create_app
 
-    return TestClient(create_app(Config.from_env()))
+    cfg = replace(
+        Config.from_env(),
+        api_tokens={"test-token": (principal_id, frozenset({"read", "write"}))},
+        api_allow_anonymous=False,
+    )
+    return TestClient(create_app(cfg))
 
 
 def _gql(client, query, variables=None):
-    r = client.post("/graphql", json={"query": query, "variables": variables or {}})
+    r = client.post(
+        "/graphql",
+        json={"query": query, "variables": variables or {}},
+        headers={"Authorization": "Bearer test-token"},
+    )
     assert r.status_code == 200, r.text
     body = r.json()
     assert body.get("errors") is None, body
@@ -50,9 +66,9 @@ def _gql(client, query, variables=None):
 
 
 def test_mutations_enqueue_and_jobs_query_lists_them(api_env):
-    conn, doc_id = api_env
+    conn, doc_id, principal_id = api_env
     job_ids = []
-    with _client() as client:
+    with _client(principal_id) as client:
         ann = _gql(
             client,
             "mutation($d: ID!) { annotateDocument(documentId: $d) { id kind status } }",
@@ -82,7 +98,8 @@ def test_mutations_enqueue_and_jobs_query_lists_them(api_env):
 
 def test_jobs_query_without_document_id_returns_recent_jobs(api_env):
     # Branch coverage: document_id is optional (the unscoped "recent jobs" view).
-    with _client() as client:
+    _conn, _doc_id, principal_id = api_env
+    with _client(principal_id) as client:
         data = _gql(client, "{ jobs(limit: 1) { id kind } }")
         assert isinstance(data["jobs"], list)
 
@@ -90,7 +107,8 @@ def test_jobs_query_without_document_id_returns_recent_jobs(api_env):
 def test_jobs_query_with_invalid_document_id_returns_empty_not_an_error(api_env):
     # A non-UUID documentId must not hit the uuid-cast DB error path — it is a
     # clean, empty result (verified live incident: previously 500'd).
-    with _client() as client:
+    _conn, _doc_id, principal_id = api_env
+    with _client(principal_id) as client:
         data = _gql(client, '{ jobs(documentId: "not-a-uuid") { id } }')
         assert data["jobs"] == []
 
@@ -99,8 +117,8 @@ def test_full_text_search_query_finds_the_fixture_document(api_env):
     # Uses an invented word — a real one could rank outside the default result
     # page as the shared corpus grows (the exact bug fixed in
     # test_persistence_read.py's ts-config regression test).
-    conn, doc_id = api_env
-    with _client() as client:
+    conn, doc_id, principal_id = api_env
+    with _client(principal_id) as client:
         data = _gql(
             client,
             "query($q: String!) { fullTextSearch(query: $q) { documentId title } }",

@@ -112,13 +112,26 @@ coreference chains, and entity links from the persisted NLP layers.
 
 ## Access-control boundary
 
-The API tier is trusted to assert the current principal only while running as
-`docray_api`, a `NOLOGIN` member of `docray_client`. Hostile direct-SQL access is
-bound to per-principal `LOGIN` roles created by `docray_create_principal_login()`
-and stored on `principals.db_role`; those roles inherit the RLS-limited
+The API authenticates inbound bearer/API-token requests with
+`HeaderTokenAuthenticator`, then drops every HTTP request to `docray_api`, a
+`NOLOGIN` member of `docray_client`. Authenticated requests set
+`app.principal_id` to the mapped principal; anonymous requests, when enabled for
+local/single-operator use, still run as `docray_api` with no principal id and do
+not inherit the superuser bypass. Hostile direct-SQL access is bound to
+per-principal `LOGIN` roles created by `docray_create_principal_login()` and
+stored on `principals.db_role`; those roles inherit the RLS-limited
 `docray_client` capability but cannot impersonate another principal by setting
 `app.principal_id`. The `docray` owner remains the trusted batch/admin writer
 and bypasses RLS by design.
+
+## Deployment guardrails
+
+Compose binds Postgres to `127.0.0.1` by default, requires a non-default
+`POSTGRES_PASSWORD`, and pins the pgvector/Postgres image by digest so routine
+pulls do not silently change the collation library behind an existing `pgdata`
+volume. API connection-pool bounds are explicit (`DOCRAY_API_POOL_MIN_SIZE`,
+`DOCRAY_API_POOL_MAX_SIZE`, `DOCRAY_API_POOL_TIMEOUT`) so deployment capacity is
+configured rather than inherited from psycopg defaults.
 
 ## Ports & their adapters
 

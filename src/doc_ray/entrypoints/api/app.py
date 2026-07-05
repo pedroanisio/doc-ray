@@ -31,7 +31,7 @@ from doc_ray.entrypoints.api.loaders import Loaders
 from doc_ray.entrypoints.api.schema import build_schema
 from doc_ray.entrypoints.api.security import (
     Authenticator,
-    NoopAuthenticator,
+    HeaderTokenAuthenticator,
     apply_principal,
     reset_principal,
 )
@@ -71,18 +71,24 @@ def create_app(cfg: Config | None = None, authenticator: Authenticator | None = 
 
     Args:
         cfg: Runtime configuration; defaults to :meth:`Config.from_env`.
-        authenticator: Request authenticator; defaults to :class:`NoopAuthenticator`
-            (anonymous, unfiltered — RLS bypassed on the trusted connection).
+        authenticator: Request authenticator; defaults to
+            :class:`HeaderTokenAuthenticator` configured from environment tokens.
 
     Returns:
         A configured :class:`fastapi.FastAPI` app with GraphQL mounted at ``/graphql``.
     """
     settings = cfg or Config.from_env()
-    auth = authenticator or NoopAuthenticator()
+    auth = authenticator or HeaderTokenAuthenticator(
+        tokens=settings.api_tokens,
+        allow_anonymous=settings.api_allow_anonymous,
+    )
     store = ObjectStore(settings)
     pool = AsyncConnectionPool(
         settings.database_url,
         open=False,
+        min_size=settings.api_pool_min_size,
+        max_size=settings.api_pool_max_size,
+        timeout=settings.api_pool_timeout,
         kwargs={"row_factory": dict_row, "autocommit": True},
     )
 

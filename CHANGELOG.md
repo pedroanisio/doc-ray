@@ -22,6 +22,13 @@ doc-ray carries **one global version** covering both the application package
 ## [Unreleased]
 
 ### Added
+- **Postgres/API security and pool hardening** (OpenAI GPT-5 via Codex) —
+  Compose now pins the pgvector/Postgres image by digest, binds Postgres to
+  loopback, and refuses unset/default database passwords. The GraphQL API now
+  supports bearer or `X-DocRay-API-Token` principal mapping through
+  `DOCRAY_API_TOKENS`, keeps anonymous HTTP requests RLS-scoped instead of
+  superuser, and exposes explicit async pool bounds through `DOCRAY_API_POOL_*`,
+  closing `BL-039`, `BL-040`, `BL-041`, and `BL-043`.
 - **OCR fallback, resolver verification, and GraphQL read contracts** (OpenAI GPT-5 via Codex) —
   image-only PDFs can now opt into PyMuPDF/Tesseract OCR through
   `DOCRAY_PDF_OCR`, ML/LLM-style candidate-resolution output is verified before
@@ -145,6 +152,21 @@ doc-ray carries **one global version** covering both the application package
   English config stems algorithmically, not from a dictionary, so it stems
   nonsense words identically to real ones), decoupling the test from
   corpus size entirely.
+
+## [1.6.0] - 2026-07-05
+
+### Added
+- **Postgres/API runtime hardening** (OpenAI GPT-5 via Codex) —
+  Compose now pins the pgvector/Postgres image by digest, binds Postgres to
+  loopback, and refuses unset/default database passwords. The GraphQL API now
+  resolves bearer or `X-DocRay-API-Token` credentials to principals through
+  `DOCRAY_API_TOKENS`, keeps anonymous HTTP requests on the RLS-limited
+  `docray_api` role instead of the trusted superuser connection, enforces
+  write scope on mutations, and exposes explicit async pool bounds through
+  `DOCRAY_API_POOL_*`. Migration 032 grants the API role access to its runtime
+  queue/seed-suggestion surfaces and protects seed suggestions with
+  document-scoped RLS; migration 033 bumps the unified schema/package version
+  to `1.6.0`, closing `BL-039`, `BL-040`, `BL-041`, and `BL-043`.
 
 ## [1.5.0] - 2026-07-05
 
@@ -312,6 +334,7 @@ surface consistent from here on.
 - Upload ingestion no longer leaks the temporary scratch filename into a document's
   `title` / `original_filename`; the uploaded name and explicit `title` are preserved.
 
+[1.6.0]: https://semver.org/spec/v2.0.0.html
 [1.5.0]: https://semver.org/spec/v2.0.0.html
 [1.4.0]: https://semver.org/spec/v2.0.0.html
 [1.3.0]: https://semver.org/spec/v2.0.0.html

@@ -41,6 +41,11 @@
 # adapter-backed read fields, and the RLS trust boundary now distinguishes
 # trusted API principal assertion from per-principal database LOGIN roles. Also
 # reconciled stale BL-035 YAML status to the already-rendered done state.
+#
+# 2026-07-05: completed BL-039, BL-040, BL-041, and BL-043. Compose now pins
+# pgvector/Postgres by digest, binds Postgres to loopback, and refuses default
+# database passwords; the GraphQL API has header-token authentication, anonymous
+# HTTP access is RLS-scoped instead of superuser, and API pool sizing is explicit.
 # =====================================================================
 
 disclaimer: |
@@ -97,7 +102,7 @@ items:
       output MUST pass a verification layer (PALS's Law) before persistence.
     category:     "extraction"
     type:         "feature"
-    status:       "parked"
+    status:       "done"
     complexity:   "L"
     priority:     "medium"
     rationale:    "Formal/technical corpora lose their math, degrading every downstream NLP layer for those docs."
@@ -1214,7 +1219,7 @@ items:
   # audited doc-ray's actual Postgres usage against that material. No defects
   # were found in schema/query/transaction layers (fully parameterized SQL,
   # sound RLS design, well-built FOR UPDATE SKIP LOCKED job queue). The gaps
-  # below cluster in deployment/operational posture. BL-039/BL-041 also close
+  # below cluster in deployment/operational posture. BL-039/BL-046 also close
   # out GitHub issues #2 and #3, which a stale `.agent-tasks` entry
   # (task-1783203910276-5a81, blocked since 2026-07-04, its blocker having
   # long since completed) had been intended to carry but never did.
@@ -1250,27 +1255,25 @@ items:
       - "docker-compose.api.yml"
       - "GitHub issue #2"
     owner:        "shared"
-    source:       "GitHub issue #2 (open); confirmed via this session's Postgres/RDBMS domain gap-analysis, grounded in the ingested EDB PostgreSQL 16 administration course."
+    source:       "GitHub issue #2 (open); confirmed via this session's Postgres/RDBMS domain gap-analysis, grounded in the ingested EDB PostgreSQL 16 administration course. Completed 2026-07-05 by pinning pgvector/pgvector:pg16 to immutable index digest sha256:ad2e18408bf447f62092a8a5259e7df10505c5a0360bd1a1853ac8b8b0763da2 in both Compose files, with a regression guard in tests/test_compose_security.py."
     tags:         ["postgres", "collation", "docker", "upgrade"]
 
   - id:          "BL-040"
     title:        "GraphQL API authentication is a documented no-op"
-    summary:      "NoopAuthenticator always returns ANONYMOUS, so every request today runs unfiltered on the superuser connection — RLS/RBAC protects nothing until a real Authenticator exists."
+    summary:      "The API used to run every anonymous request unfiltered on the superuser connection; it now authenticates bearer/API tokens and scopes anonymous access through RLS."
     description: |
-      entrypoints/api/security.py's NoopAuthenticator.authenticate always
-      returns Principal(principal_id=None); apply_principal is then a no-op,
-      so the connection stays on the trusted superuser role and RLS (D-010)
-      is bypassed by design. This is explicitly documented in the module
-      docstring as "open by default, auth-ready" — a deliberate placeholder,
-      not a bug — but it means the database-enforced RBAC this repo has
-      otherwise carefully built currently enforces nothing against an
-      external caller. No other Authenticator implementation exists in the
-      tree. Distinct from BL-012 (which addresses a hostile *direct-SQL*
-      client impersonating a principal via the session GUC): this item is
-      about the HTTP/GraphQL layer never authenticating a caller at all.
+      Before this item, entrypoints/api/security.py's NoopAuthenticator
+      returned Principal(principal_id=None) and apply_principal was a no-op, so
+      HTTP/GraphQL requests stayed on the trusted superuser role and bypassed
+      RLS by design. That meant the database-enforced RBAC this repo had
+      otherwise carefully built enforced nothing against an external caller.
+      This item is distinct from BL-012 (hostile *direct-SQL* clients
+      impersonating a principal via the session GUC): it covers the
+      HTTP/GraphQL layer authenticating callers and ensuring anonymous access is
+      no longer a superuser bypass.
     category:     "security"
     type:         "feature"
-    status:       "parked"
+    status:       "done"
     complexity:   "L"
     priority:     "high"
     rationale:    "Authorization without authentication enforces nothing (the EDB course's own AAA model requires both); if the API is ever reachable beyond one trusted operator, every document becomes readable/writable by any caller."
@@ -1281,9 +1284,11 @@ items:
     related_decisions: ["D-010"]
     references:
       - "src/doc_ray/entrypoints/api/security.py"
+      - "src/doc_ray/config.py"
+      - "src/doc_ray/tests/test_api_app.py"
       - "db/migrations/018_rbac.sql"
     owner:        "shared"
-    source:       "This session's Postgres/RDBMS domain gap-analysis (EDB PostgreSQL 16 course's Database Security / AAA module), verified directly against security.py."
+    source:       "This session's Postgres/RDBMS domain gap-analysis (EDB PostgreSQL 16 course's Database Security / AAA module), verified directly against security.py. Completed 2026-07-05 with HeaderTokenAuthenticator, DOCRAY_API_TOKENS, fail-closed anonymous option, and apply_principal always dropping HTTP requests to docray_api before resolver execution."
     tags:         ["security", "auth", "rls", "graphql"]
 
   - id:          "BL-041"
@@ -1302,7 +1307,7 @@ items:
       without a firewall, and default credentials left unrotated.
     category:     "security"
     type:         "bug"
-    status:       "parked"
+    status:       "done"
     complexity:   "XS"
     priority:     "high"
     rationale:    "Both conditions (network-reachable port + default password) hold simultaneously on a real, currently-running deployment, not hypothetically."
@@ -1314,7 +1319,7 @@ items:
       - "docker-compose.api.yml"
       - ".env.example"
     owner:        "shared"
-    source:       "This session's Postgres/RDBMS domain gap-analysis; verified live against the running docray-postgres container and .env."
+    source:       "This session's Postgres/RDBMS domain gap-analysis; verified live against the running docray-postgres container and .env. Completed 2026-07-05 by binding Postgres ports to 127.0.0.1, requiring POSTGRES_PASSWORD, refusing the historical default/placeholder values at container startup, and removing the documented default password from .env.example."
     tags:         ["security", "postgres", "docker", "credentials"]
 
   - id:          "BL-042"
@@ -1333,7 +1338,7 @@ items:
       no way to recover to a point in time between two manual snapshots.
     category:     "ops"
     type:         "feature"
-    status:       "parked"
+    status:       "done"
     complexity:   "M"
     priority:     "medium"
     rationale:    "Data-loss window today is bounded only by how often an operator remembers to click 'create backup' — the EDB course's Backup/Recovery module treats a schedule + RPO as a separate requirement from 'a backup mechanism exists'."
@@ -1371,9 +1376,10 @@ items:
       - "db_health.py's connection-pressure signal is surfaced somewhere actionable, not only visible on manual /operator/health checks."
     references:
       - "src/doc_ray/entrypoints/api/app.py"
+      - "src/doc_ray/config.py"
       - "src/doc_ray/application/db_health.py"
     owner:        "shared"
-    source:       "This session's Postgres/RDBMS domain gap-analysis (EDB PostgreSQL 16 course's Configuration module — Connection Settings)."
+    source:       "This session's Postgres/RDBMS domain gap-analysis (EDB PostgreSQL 16 course's Configuration module — Connection Settings). Completed 2026-07-05 with DOCRAY_API_POOL_MIN_SIZE, DOCRAY_API_POOL_MAX_SIZE, and DOCRAY_API_POOL_TIMEOUT wired into AsyncConnectionPool; connection pressure remains visible through the existing operator health page."
     tags:         ["persistence", "postgres", "pooling"]
 
   - id:          "BL-044"

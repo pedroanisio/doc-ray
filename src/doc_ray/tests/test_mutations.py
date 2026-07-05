@@ -16,9 +16,14 @@ from psycopg.rows import dict_row
 from doc_ray.entrypoints.api.context import RequestContext
 from doc_ray.entrypoints.api.loaders import Loaders
 from doc_ray.entrypoints.api.schema import build_schema
-from doc_ray.entrypoints.api.security import ANONYMOUS
+from doc_ray.entrypoints.api.security import Principal
 
 _MIGRATIONS = Path(__file__).resolve().parents[3] / "db" / "migrations"
+WRITE_PRINCIPAL = Principal(
+    subject="test-writer",
+    principal_id="00000000-0000-0000-0000-000000000001",
+    scopes=frozenset({"read", "write"}),
+)
 
 
 async def _aconn() -> psycopg.AsyncConnection:
@@ -46,7 +51,7 @@ def test_reannotate_and_delete_enqueue(pg):
     async def check():
         aconn = await _aconn()
         try:
-            ctx = RequestContext(conn=aconn, principal=ANONYMOUS, loaders=Loaders(aconn))
+            ctx = RequestContext(conn=aconn, principal=WRITE_PRINCIPAL, loaders=Loaders(aconn))
             reann = await schema.execute(
                 'mutation ($id: ID!) { reannotate(documentId: $id, lang: "en") '
                 "{ id kind status documentId } }",

@@ -8,10 +8,13 @@ from __future__ import annotations
 
 import asyncio
 import json
+from dataclasses import replace
+from uuid import uuid4
 
 import _itdb
 import psycopg
 import pytest
+from fastapi import HTTPException
 from psycopg.rows import dict_row
 
 from doc_ray.config import Config
@@ -21,10 +24,17 @@ from doc_ray.entrypoints.api.loaders import Loaders
 from doc_ray.entrypoints.api.schema import build_schema
 from doc_ray.entrypoints.api.security import (
     ANONYMOUS,
+    HeaderTokenAuthenticator,
     NoopAuthenticator,
     Principal,
     apply_principal,
     reset_principal,
+)
+
+WRITE_PRINCIPAL = Principal(
+    subject="test-writer",
+    principal_id="00000000-0000-0000-0000-000000000000",
+    scopes=frozenset({"read", "write"}),
 )
 
 
@@ -64,6 +74,82 @@ def test_noop_authenticator_returns_anonymous():
     asyncio.run(check())
 
 
+def test_header_token_authenticator_maps_bearer_token_to_principal():
+    token = "secret-token"
+    principal_id = str(uuid4())
+    authenticator = HeaderTokenAuthenticator(tokens={token: principal_id})
+
+    class Request:
+        headers = {"authorization": f"Bearer {token}"}
+
+    async def check():
+        principal = await authenticator.authenticate(Request())  # type: ignore[arg-type]
+        assert principal.principal_id == principal_id
+        assert principal.subject == "token:secret-token"
+        assert principal.scopes == frozenset({"read", "write"})
+
+    asyncio.run(check())
+
+
+def test_header_token_authenticator_can_fail_closed():
+    authenticator = HeaderTokenAuthenticator(tokens={"known": str(uuid4())}, allow_anonymous=False)
+
+    class Request:
+        headers: dict[str, str] = {}
+
+    async def check():
+        with pytest.raises(HTTPException) as exc:
+            await authenticator.authenticate(Request())  # type: ignore[arg-type]
+        assert exc.value.status_code == 401
+
+    asyncio.run(check())
+
+
+def test_config_reads_api_pool_and_auth_settings(monkeypatch):
+    principal_id = str(uuid4())
+    monkeypatch.setenv("DOCRAY_API_POOL_MIN_SIZE", "2")
+    monkeypatch.setenv("DOCRAY_API_POOL_MAX_SIZE", "9")
+    monkeypatch.setenv("DOCRAY_API_POOL_TIMEOUT", "3.5")
+    monkeypatch.setenv("DOCRAY_API_TOKENS", f"tok={principal_id}:read")
+    monkeypatch.setenv("DOCRAY_API_ALLOW_ANONYMOUS", "false")
+
+    cfg = Config.from_env()
+
+    assert cfg.api_pool_min_size == 2
+    assert cfg.api_pool_max_size == 9
+    assert cfg.api_pool_timeout == 3.5
+    assert cfg.api_tokens == {"tok": (principal_id, frozenset({"read"}))}
+    assert cfg.api_allow_anonymous is False
+
+
+def test_create_app_passes_explicit_pool_bounds(monkeypatch):
+    import doc_ray.entrypoints.api.app as api_app
+
+    class FakePool:
+        def __init__(self, dsn, *, open, kwargs, min_size, max_size, timeout):
+            self.dsn = dsn
+            self.open_arg = open
+            self.kwargs = kwargs
+            self.min_size = min_size
+            self.max_size = max_size
+            self.timeout = timeout
+
+        async def open(self):  # pragma: no cover - lifespan is not entered
+            raise AssertionError("not used")
+
+        async def close(self):  # pragma: no cover - lifespan is not entered
+            raise AssertionError("not used")
+
+    monkeypatch.setattr(api_app, "AsyncConnectionPool", FakePool)
+
+    cfg = replace(_cfg(), api_pool_min_size=2, api_pool_max_size=8, api_pool_timeout=4.0)
+    app = create_app(cfg)
+
+    assert app.state.pool.min_size == 2
+    assert app.state.pool.max_size == 8
+    assert app.state.pool.timeout == 4.0
+
+
 def test_apply_and_reset_principal_switch_roles(pg):
     conn, _ = pg
     row = conn.execute("SELECT id FROM principals WHERE display_name='bootstrap-admin'").fetchone()
@@ -87,8 +173,12 @@ def test_apply_and_reset_principal_switch_roles(pg):
             got = await cur.fetchone()
             assert got["u"] != "docray_client"
 
-            # Anonymous principals must be a no-op in both directions.
+            # Anonymous HTTP requests still drop to the RLS-limited API role;
+            # they no longer stay on the trusted superuser connection.
             await apply_principal(aconn, ANONYMOUS)
+            cur = await aconn.execute("SELECT current_user AS u")
+            got = await cur.fetchone()
+            assert got["u"] == "docray_api"
             await reset_principal(aconn, ANONYMOUS)
         finally:
             await aconn.close()
@@ -109,7 +199,7 @@ def test_mutations_enqueue_jobs_on_isolated_queue(pg):
         try:
             # Shadow the shared queue with a session-local temp table.
             await aconn.execute("CREATE TEMP TABLE jobs (LIKE public.jobs INCLUDING ALL)")
-            ctx = RequestContext(conn=aconn, principal=ANONYMOUS, loaders=Loaders(aconn))
+            ctx = RequestContext(conn=aconn, principal=WRITE_PRINCIPAL, loaders=Loaders(aconn))
 
             r = await schema.execute(
                 'mutation($id:ID!){ reannotate(documentId:$id, lang:"en") { id kind status } }',
@@ -132,6 +222,27 @@ def test_mutations_enqueue_jobs_on_isolated_queue(pg):
             cur = await aconn.execute("SELECT count(*) AS n FROM jobs")
             n = (await cur.fetchone())["n"]
             assert n == 2  # both landed on the shadow queue only
+        finally:
+            await aconn.close()
+
+    asyncio.run(check())
+
+
+def test_anonymous_mutation_requires_write_scope(pg):
+    schema = build_schema()
+
+    async def check():
+        aconn = await psycopg.AsyncConnection.connect(
+            _itdb.DB_URL, row_factory=dict_row, autocommit=True
+        )
+        try:
+            ctx = RequestContext(conn=aconn, principal=ANONYMOUS, loaders=Loaders(aconn))
+            result = await schema.execute(
+                'mutation{ createBackup(note:"blocked"){ id } }',
+                context_value=ctx,
+            )
+            assert result.errors is not None
+            assert "write scope" in result.errors[0].message
         finally:
             await aconn.close()
 
@@ -162,7 +273,7 @@ def test_seeding_and_backup_mutations_enqueue_on_isolated_queue(pg):
         )
         try:
             await aconn.execute("CREATE TEMP TABLE jobs (LIKE public.jobs INCLUDING ALL)")
-            ctx = RequestContext(conn=aconn, principal=ANONYMOUS, loaders=Loaders(aconn))
+            ctx = RequestContext(conn=aconn, principal=WRITE_PRINCIPAL, loaders=Loaders(aconn))
 
             r = await schema.execute(
                 "mutation($d:ID!){ suggestSeeds(documentId:$d){ kind status } }",
@@ -242,7 +353,7 @@ def test_document_satellites_resolve_in_listing(pg):
             _itdb.DB_URL, row_factory=dict_row, autocommit=True
         )
         try:
-            ctx = RequestContext(conn=aconn, principal=ANONYMOUS, loaders=Loaders(aconn))
+            ctx = RequestContext(conn=aconn, principal=WRITE_PRINCIPAL, loaders=Loaders(aconn))
             r = await schema.execute(
                 "{ documents(limit: 200) { id tags tokenCount metadata { key value } } }",
                 context_value=ctx,
@@ -339,7 +450,7 @@ def test_ingest_document_upload_mutation(pg):
         )
         try:
             await aconn.execute("CREATE TEMP TABLE jobs (LIKE public.jobs INCLUDING ALL)")
-            ctx = RequestContext(conn=aconn, principal=ANONYMOUS, loaders=Loaders(aconn))
+            ctx = RequestContext(conn=aconn, principal=WRITE_PRINCIPAL, loaders=Loaders(aconn))
             r = await schema.execute(
                 'mutation($f: Upload!){ ingestDocument(file: $f, title: "itup") { kind status } }',
                 variable_values={"f": upload},
@@ -386,7 +497,7 @@ def test_ingest_document_upload_mutation_pipeline_false_skips_chain(pg):
         )
         try:
             await aconn.execute("CREATE TEMP TABLE jobs (LIKE public.jobs INCLUDING ALL)")
-            ctx = RequestContext(conn=aconn, principal=ANONYMOUS, loaders=Loaders(aconn))
+            ctx = RequestContext(conn=aconn, principal=WRITE_PRINCIPAL, loaders=Loaders(aconn))
             r = await schema.execute(
                 "mutation($f: Upload!){ ingestDocument(file: $f, pipeline: false) { kind } }",
                 variable_values={"f": upload},

@@ -17,15 +17,26 @@
 
 services:
   postgres:
-    image: pgvector/pgvector:pg16      # postgres:16 + pgvector (drop-in superset)
+    image: pgvector/pgvector:pg16@sha256:ad2e18408bf447f62092a8a5259e7df10505c5a0360bd1a1853ac8b8b0763da2
     container_name: docray-postgres
     restart: unless-stopped
+    entrypoint:
+      - /bin/sh
+      - -ec
+      - |
+        case "$${POSTGRES_PASSWORD:-}" in
+          ""|docray|change-me|change-me-docray)
+            echo "Refusing to start Postgres with an unset/default POSTGRES_PASSWORD" >&2
+            exit 64
+            ;;
+        esac
+        exec docker-entrypoint.sh postgres
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-docray}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-docray}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD to a non-default secret}
       POSTGRES_DB: ${POSTGRES_DB:-docray}
     ports:
-      - "${POSTGRES_PORT:-5432}:5432"
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
       # Migrations run automatically on first init (empty data dir only).
@@ -46,7 +57,7 @@ services:
         condition: service_healthy
     environment:
       PYTHONPATH: /app/src
-      DATABASE_URL: postgresql://${POSTGRES_USER:-docray}:${POSTGRES_PASSWORD:-docray}@postgres:5432/${POSTGRES_DB:-docray}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-docray}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD to a non-default secret}@postgres:5432/${POSTGRES_DB:-docray}
     entrypoint: ["python", "-m", "doc_ray.entrypoints.migrate"]
 
   # GraphQL API (D-001). Served at http://localhost:${API_PORT:-8000}/graphql
@@ -61,7 +72,7 @@ services:
         condition: service_completed_successfully
     environment:
       PYTHONPATH: /app/src        # api package lives under src/ (src layout)
-      DATABASE_URL: postgresql://${POSTGRES_USER:-docray}:${POSTGRES_PASSWORD:-docray}@postgres:5432/${POSTGRES_DB:-docray}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-docray}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD to a non-default secret}@postgres:5432/${POSTGRES_DB:-docray}
       # The GraphQL schema includes the ingestDocument upload mutation, which needs an
       # object store. This slim stack ships no MinIO; point at the full stack's MinIO on
       # the shared `docray` network (resolves when docker-compose.yml's minio is running).
@@ -72,6 +83,11 @@ services:
       S3_ACCESS_KEY: ${S3_ACCESS_KEY:-minioadmin}
       S3_SECRET_KEY: ${S3_SECRET_KEY:-minioadmin}
       S3_BUCKET: ${S3_BUCKET:-documents}
+      DOCRAY_API_POOL_MIN_SIZE: ${DOCRAY_API_POOL_MIN_SIZE:-1}
+      DOCRAY_API_POOL_MAX_SIZE: ${DOCRAY_API_POOL_MAX_SIZE:-10}
+      DOCRAY_API_POOL_TIMEOUT: ${DOCRAY_API_POOL_TIMEOUT:-10}
+      DOCRAY_API_TOKENS: ${DOCRAY_API_TOKENS:-}
+      DOCRAY_API_ALLOW_ANONYMOUS: ${DOCRAY_API_ALLOW_ANONYMOUS:-true}
     ports:
       - "${API_PORT:-8000}:8000"
     # Liveness only (this stack may legitimately run without an object store). Query

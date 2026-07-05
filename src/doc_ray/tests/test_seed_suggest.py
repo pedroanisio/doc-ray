@@ -8,6 +8,8 @@ before any canonical is minted. Stub resolvers — no network in tests.
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 import pytest
 
 from doc_ray.domain.ulid import new_ulid_str
@@ -217,6 +219,11 @@ def test_graphql_surface_covers_the_curation_loop(sg_env):
     from doc_ray.entrypoints.api.app import create_app
 
     conn, doc_id = sg_env
+    principal = conn.execute(
+        "SELECT id FROM principals WHERE display_name = 'bootstrap-admin'"
+    ).fetchone()
+    if principal is None:
+        pytest.skip("RBAC seed principal absent")
     sid = new_ulid_str()
     conn.execute(
         "INSERT INTO seed_suggestion "
@@ -232,11 +239,20 @@ def test_graphql_surface_covers_the_curation_loop(sg_env):
         (rid, doc_id),
     )
 
-    app = create_app(Config.from_env())
+    cfg = replace(
+        Config.from_env(),
+        api_tokens={"test-token": (str(principal["id"]), frozenset({"read", "write"}))},
+        api_allow_anonymous=False,
+    )
+    app = create_app(cfg)
     with TestClient(app) as client:
 
         def gql(query, variables=None):
-            r = client.post("/graphql", json={"query": query, "variables": variables or {}})
+            r = client.post(
+                "/graphql",
+                json={"query": query, "variables": variables or {}},
+                headers={"Authorization": "Bearer test-token"},
+            )
             assert r.status_code == 200, r.text
             body = r.json()
             assert body.get("errors") is None, body

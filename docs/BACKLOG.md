@@ -88,6 +88,12 @@ canonical/review read fields, and database-authenticated per-principal LOGIN
 role isolation. Also reconciled `BL-035`'s YAML status to the existing rendered
 done state.
 
+**2026-07-05 security and Postgres ops hardening:** completed `BL-039`,
+`BL-040`, `BL-041`, and `BL-043` by pinning the pgvector/Postgres image digest,
+binding Postgres to loopback, refusing default database passwords, adding
+header-token API authentication with RLS-scoped anonymous requests, and wiring
+explicit API connection-pool bounds.
+
 ## Items
 
 | ID | Item | Category | Type | Status | Cx | Priority | Owner |
@@ -130,11 +136,11 @@ done state.
 | BL-036 | Extend the reader's tooltip pattern to POS chips and status pills | webapp | feature | done | S | low | shared |
 | BL-037 | Accessibility: part-of-speech is conveyed by color alone | webapp | bug | done | S | medium | shared |
 | BL-038 | Webapp operator page: surface corpus_health / db_health in the UI | ops | feature | done | M | medium | mine |
-| BL-039 | Pin the Postgres image to stop collation-version drift (GH#2) | ops | bug | parked | S | high | shared |
-| BL-040 | GraphQL API authentication is a documented no-op | security | feature | parked | L | high | shared |
-| BL-041 | Postgres port published on all interfaces with default credentials | security | bug | parked | XS | high | shared |
+| BL-039 | Pin the Postgres image to stop collation-version drift (GH#2) | ops | bug | done | S | high | shared |
+| BL-040 | GraphQL API authentication is a documented no-op | security | feature | done | L | high | shared |
+| BL-041 | Postgres port published on all interfaces with default credentials | security | bug | done | XS | high | shared |
 | BL-042 | No scheduled backups, retention policy, or PITR/WAL archiving | ops | feature | parked | M | medium | shared |
-| BL-043 | API connection-pool sizing is unconfigured | persistence | tech-debt | parked | XS | medium | shared |
+| BL-043 | API connection-pool sizing is unconfigured | persistence | tech-debt | done | XS | medium | shared |
 | BL-044 | No proactive autovacuum/index tuning despite two prior cascade-delete incidents | persistence | tech-debt | parked | M | high | shared |
 | BL-045 | FTS read/write language-config symmetry isn't enforced by a test | testing | tech-debt | parked | XS | low | shared |
 | BL-046 | docker-compose ingester exit code 2 reads as a startup failure (GH#3) | ops | tech-debt | parked | XS | low | shared |
