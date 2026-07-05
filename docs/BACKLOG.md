@@ -108,6 +108,8 @@ live backlog after these three.
 
 **2026-07-05 codebase-improvement additions:** added `BL-047`-`BL-055` — from the FrameForge reference analysis (drift-gates, structured error envelope, property/golden tests, import-boundary test, graceful optional deps) plus session findings (phrase/semantic search, index-corruption monitoring).
 
+**2026-07-05 document-surface UX/data-management audit:** added `BL-056`-`BL-063` from a document-surface capability audit (parallel webapp-UI and GraphQL/persistence/schema reviews against 9 claimed product gaps). Confirmed absent: thumbnails/previews, document collections, editable post-ingestion metadata, lifecycle states beyond ingestion status, bulk document actions, AI-suggested document metadata refinements, and an operator metadata-correction workflow. Also added a narrower item for the pagination/filtering gaps found once the already-shipped keyset pagination (`BL-009`/`D-008`) was excluded from scope.
+
 ## Items
 
 | ID | Item | Category | Type | Status | Cx | Priority | Owner |
@@ -167,6 +169,14 @@ live backlog after these three.
 | BL-053 | Golden-output harness with hash-lock and tolerance oracle | testing | infra | parked | L | medium | shared |
 | BL-054 | Expose phrase and semantic (vector) search on the GraphQL API | api | feature | parked | M | medium | shared |
 | BL-055 | Add index-health / corruption monitoring (amcheck + checksums) | ops | infra | parked | M | medium | shared |
+| BL-056 | Document thumbnails and visual previews | webapp | feature | parked | L | medium | shared |
+| BL-057 | Document collections: manual and rule-based smart collections | webapp | feature | parked | L | medium | shared |
+| BL-058 | Editable document metadata (rename, description, tags) with an audit log | api | feature | parked | M | high | shared |
+| BL-059 | Document lifecycle states beyond ingestion status (archive, soft-delete, restore) | persistence | feature | parked | L | high | shared |
+| BL-060 | Bulk actions for documents (tag, archive, move, delete) | api | feature | parked | M | medium | shared |
+| BL-061 | AI-suggested document metadata refinements (titles, tags, duplicates, grouping) | nlp | feature | parked | M | medium | shared |
+| BL-062 | Operator-facing document metadata correction and enrichment workflow | ops | feature | parked | M | medium | shared |
+| BL-063 | Paginate the main document list and add filter arguments to the documents query | api | tech-debt | parked | S | medium | shared |
 
 See [`backlog.yml`](backlog.yml) for each item's full description, rationale,
 acceptance criteria, dependencies, related decisions (`D-###`), and references.

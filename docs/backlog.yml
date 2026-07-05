@@ -15,7 +15,8 @@
 #
 # ARCHITECTURAL REQUIREMENT (PALS's LAW): LLMs will always produce some form of error.
 # Absence of output verification is a design defect, not a runtime bug. Any item that
-# introduces an ML/LLM annotator (BL-002, BL-006) carries a verification obligation.
+# introduces an ML/LLM annotator or suggestion feature (BL-002, BL-006, BL-061) carries
+# a verification obligation.
 #
 # 2026-07-04: merged with docs/doc_ray_improvement_proposal.md — its 10
 # backlog-shaped candidates were added as BL-016..BL-025 (see that document for
@@ -59,6 +60,17 @@
 # audit trail for model-required schema-only layers, and BL-024 has durable
 # corpus snapshots, evaluation runs, metrics, and gold samples. No fourth item
 # remained in the live backlog after these three.
+#
+# 2026-07-05: added BL-056..BL-063 from a document-surface UX/data-management
+# capability audit (parallel webapp-UI and GraphQL/persistence/schema reviews
+# against 9 claimed product gaps). Confirmed-absent: thumbnails/previews,
+# document collections, editable post-ingestion metadata, lifecycle states
+# beyond ingestion status, bulk document actions, AI-suggested document
+# metadata refinements, and an operator metadata-correction workflow. Also
+# added a narrower item for the two pagination/filtering gaps the audit found
+# once the already-shipped keyset pagination (BL-009/D-008) was excluded.
+# Any item introducing an ML/LLM suggestion feature (BL-002, BL-006, BL-061)
+# carries a PALS's-Law verification obligation.
 # =====================================================================
 
 disclaimer: |
@@ -71,7 +83,7 @@ metadata:
   generated_by:     "Claude Sonnet 5 via Claude Code (merge of Claude Opus 4.8 backlog + OpenAI Codex improvement-proposal candidates)"
   generated_on:     "2026-07-05"
   system_of_record: "docs/backlog.yml"
-  total_items:      55
+  total_items:      63
 
 items:
 
@@ -1735,3 +1747,294 @@ items:
     owner:        "shared"
     source:       "Session finding 2026-07-05: failed-jobs investigation -- idx_lexeme_occurrences_span corrupted page (block 19542) failed an annotate job; healed by restart; data_checksums=off; document 3ada6f03 left unannotated."
     tags:         ["ops", "postgres", "corruption", "monitoring", "reliability"]
+
+  - id:          "BL-056"
+    title:        "Document thumbnails and visual previews"
+    summary:      "Document listings are text-only rows; there is no thumbnail, first-page preview, or file-type icon anywhere in the webapp."
+    description: |
+      A document-surface UX audit (2026-07-05) found zero occurrences of
+      thumbnail/preview/page-image concepts across src/doc_ray and db/migrations,
+      and zero <img>/icon rendering in webapp/templates/*.html — documents.html
+      and document.html render title/metadata rows only. For a corpus of PDFs,
+      images, and scans, a text-only list makes visual recognition and
+      at-a-glance triage impossible. Needs: a render step (first-page-to-image)
+      added to the ingestion pipeline, content-addressed thumbnail storage
+      alongside the existing sha256-keyed blob in MinIO, a pending/failed
+      preview-status distinct from the document's own ingestion status, and
+      fallback file-type icons for formats that can't be rendered.
+    category:     "webapp"
+    type:         "feature"
+    status:       "parked"
+    complexity:   "L"
+    priority:     "medium"
+    rationale:    "Text-only rows for a visual-document corpus force operators to open each document to identify it; this is the single most visible gap versus a managed document surface."
+    acceptance_criteria:
+      - "PDFs, images, and scans get a generated first-page thumbnail stored alongside the original blob."
+      - "Unsupported formats fall back to a file-type icon instead of a blank row."
+      - "A pending/failed preview-status is visible in the UI while generation is in flight or errored."
+      - "documents.html and document.html render the thumbnail/icon in the document row."
+    references:
+      - "webapp/templates/documents.html"
+      - "webapp/templates/document.html"
+      - "src/doc_ray/application/jobs.py"
+      - "src/doc_ray/adapters/persistence.py"
+    owner:        "shared"
+    source:       "Session finding 2026-07-05: document-surface UX/data-management capability audit (parallel webapp-UI and GraphQL/persistence reviews against 9 claimed product gaps)."
+    tags:         ["webapp", "ux", "thumbnails", "previews", "ingestion"]
+
+  - id:          "BL-057"
+    title:        "Document collections: manual and rule-based smart collections"
+    summary:      "There is no concept of grouping documents into collections anywhere in the schema, domain, or webapp — only per-document tags exist, and those aren't filterable."
+    description: |
+      Grepping for "collection" as a document-grouping concept across schema,
+      migrations, and domain code returns nothing (only Python's own stdlib
+      collections module). Needs a new first-class domain concept: manual
+      collections a user curates explicitly, and smart/auto collections that
+      match documents against a stored rule (metadata field, tag, doc_type,
+      source, project, date range, or inferred topic) and update as new
+      documents match. Smart-collection rule evaluation should reuse the same
+      filter-predicate logic as BL-063 rather than inventing a second query
+      language.
+    category:     "webapp"
+    type:         "feature"
+    status:       "parked"
+    complexity:   "L"
+    priority:     "medium"
+    rationale:    "Without collections, the only way to group related documents today is per-document tags with no browse-by-tag UI — there is no unit of organization above a single document."
+    acceptance_criteria:
+      - "A user can create a manual collection and add/remove documents from it."
+      - "A smart collection is defined by a stored rule and automatically includes matching documents, present and future."
+      - "Collections are visible and navigable from the webapp document surface."
+    dependencies:
+      - "BL-063"
+    references:
+      - "db/migrations"
+      - "webapp/templates/documents.html"
+      - "src/doc_ray/entrypoints/api/query.py"
+    owner:        "shared"
+    source:       "Session finding 2026-07-05: document-surface UX/data-management capability audit (parallel webapp-UI and GraphQL/persistence reviews against 9 claimed product gaps)."
+    tags:         ["webapp", "api", "persistence", "organization", "collections"]
+
+  - id:          "BL-058"
+    title:        "Editable document metadata (rename, description, tags) with an audit log"
+    summary:      "No GraphQL mutation or webapp route can rename a document or edit its title, description, or tags after ingestion — metadata is write-once at upload time."
+    description: |
+      All 11 mutations in src/doc_ray/entrypoints/api/mutation.py were
+      enumerated (reannotate, delete_document, annotate_document,
+      semantic_enrich_document, canonicalize_document, suggest_seeds,
+      decide_seeds, seed_approved, create_backup, restore_backup,
+      ingest_document) — none renames or edits a document's title,
+      description, or tags post-ingestion; ingest_document only accepts a
+      title at upload time. The tags/document_tags tables (migration
+      004_normalize_4nf.sql) already model tags as normalized data and
+      Document.tags is a real read field, but nothing ever writes to them
+      after ingest. This is the sharpest gap found in the audit: an operator
+      or user who spots a wrong title, a missing tag, or a typo has no path
+      to fix it. Any new mutation here must write to a document-metadata
+      change-history table (distinct from the existing document_provenance
+      ingestion-event log and the resolution_review/canonical_merge
+      entity-resolution audit trail, which cover different concerns) so every
+      edit is attributable and reversible.
+    category:     "api"
+    type:         "feature"
+    status:       "parked"
+    complexity:   "M"
+    priority:     "high"
+    rationale:    "This is the foundational gap: lifecycle states, bulk actions, AI-suggested refinements, and operator correction (BL-059/BL-060/BL-061/BL-062) all need a mutation surface to write to, and none currently exists."
+    acceptance_criteria:
+      - "A mutation exists to update a document's title, description, and tags after ingestion."
+      - "Every metadata edit is recorded in a change-history table with who/when/before/after."
+      - "The webapp exposes a form to make these edits and see the edit history."
+    references:
+      - "src/doc_ray/entrypoints/api/mutation.py"
+      - "db/migrations/004_normalize_4nf.sql"
+      - "src/doc_ray/adapters/persistence.py"
+    owner:        "shared"
+    related_decisions:
+      - "D-001"
+      - "D-010"
+    source:       "Session finding 2026-07-05: document-surface UX/data-management capability audit (parallel webapp-UI and GraphQL/persistence reviews against 9 claimed product gaps)."
+    tags:         ["api", "webapp", "metadata", "audit-log"]
+
+  - id:          "BL-059"
+    title:        "Document lifecycle states beyond ingestion status (archive, soft-delete, restore)"
+    summary:      "documents.status only ever takes pending/extracted/failed (an ingestion-pipeline state); delete_document is a hard cascade with no per-document undo."
+    description: |
+      db/migrations/001_init.sql defines documents.status with values
+      pending|extracted|failed, set only by the ingestion pipeline
+      (src/doc_ray/... pipeline.py). handle_delete (src/doc_ray/application/
+      jobs.py) performs a hard cascading DELETE; KIND_RESTORE only restores a
+      whole-corpus backup archive (src/doc_ray/application/backup.py), not a
+      single document. There is no draft/reviewed/archived state, and no
+      per-document soft-delete-then-restore path — an accidental delete
+      today is unrecoverable short of a full corpus restore. This needs new
+      lifecycle states layered on top of (not replacing) the existing
+      ingestion status, a soft-delete flag or archived_at timestamp, and a
+      restore path scoped to one document. State transitions should log to
+      the same change-history mechanism introduced by BL-058.
+    category:     "persistence"
+    type:         "feature"
+    status:       "parked"
+    complexity:   "L"
+    priority:     "high"
+    rationale:    "Hard-delete-only with no per-document restore is a real operational risk: the only recovery path today is a full-corpus backup restore, which is disproportionate for a single accidental delete."
+    acceptance_criteria:
+      - "documents supports at least one lifecycle state beyond ingestion status (e.g. archived) distinct from pending/extracted/failed."
+      - "A deleted document can be restored individually, without restoring the whole corpus from backup."
+      - "Every lifecycle-state transition is recorded in the BL-058 change-history table."
+    dependencies:
+      - "BL-058"
+    references:
+      - "db/migrations/001_init.sql"
+      - "src/doc_ray/application/jobs.py"
+      - "src/doc_ray/application/backup.py"
+    owner:        "shared"
+    related_decisions:
+      - "D-007"
+      - "D-010"
+    source:       "Session finding 2026-07-05: document-surface UX/data-management capability audit (parallel webapp-UI and GraphQL/persistence reviews against 9 claimed product gaps)."
+    tags:         ["persistence", "api", "lifecycle", "soft-delete", "restore"]
+
+  - id:          "BL-060"
+    title:        "Bulk actions for documents (tag, archive, move, delete)"
+    summary:      "Bulk approve/reject exists for KB seed suggestions (decide_seeds), but every document-affecting mutation takes exactly one document_id — there is no bulk tag, archive, or delete for documents."
+    description: |
+      seeding.html's per-row checkboxes and decide_seeds' approve_ids/
+      reject_ids lists (mutation.py) are the only bulk pattern in the
+      codebase, and they operate on seed_suggestion rows, not documents.
+      delete_document, reannotate, annotate_document, canonicalize_document,
+      and the metadata-edit mutation from BL-058 all take a single
+      document_id. Organizing more than a handful of documents one at a time
+      does not scale. Needs bulk variants (or a shared batch wrapper) for
+      tag, archive (BL-059), and delete, plus a multi-select UI pattern on
+      the document list matching the one already proven on seeding.html.
+    category:     "api"
+    type:         "feature"
+    status:       "parked"
+    complexity:   "M"
+    priority:     "medium"
+    rationale:    "Without bulk actions, correcting or organizing metadata across a corpus means repeating the same single-document mutation once per document — the seeding screen already proves the checkbox+bulk-button pattern works in this webapp."
+    acceptance_criteria:
+      - "A document list supports multi-select via checkboxes, matching the existing seeding.html pattern."
+      - "At least bulk-tag and bulk-archive operations are available from the selection."
+      - "Each bulk operation records one change-history entry per affected document (BL-058)."
+    dependencies:
+      - "BL-058"
+      - "BL-059"
+    references:
+      - "webapp/templates/seeding.html"
+      - "src/doc_ray/entrypoints/api/mutation.py"
+    owner:        "shared"
+    related_decisions:
+      - "D-001"
+    source:       "Session finding 2026-07-05: document-surface UX/data-management capability audit (parallel webapp-UI and GraphQL/persistence reviews against 9 claimed product gaps)."
+    tags:         ["api", "webapp", "bulk-actions"]
+
+  - id:          "BL-061"
+    title:        "AI-suggested document metadata refinements (titles, tags, duplicates, grouping)"
+    summary:      "The existing AI-suggestion pipeline (deterministic Wikidata pageprops matching + a Claude resolver for ambiguous cases) only ever proposes canonical entities/terms — it never suggests a document title, tags, or flags duplicates."
+    description: |
+      seed_suggest.py is explicitly deterministic (pins candidates to an
+      exact Wikidata identity via pageprops, no fuzzy top-hit matching), and
+      the Claude-based adapter (src/doc_ray/adapters/resolver_claude.py,
+      model claude-opus-4-8) is invoked only by the background canonicalize
+      job (src/doc_ray/application/jobs.py) to resolve ambiguous entity
+      mentions against the canonical registry — never document metadata.
+      Extending this proven, verification-gated pattern to document-level
+      suggestions (better titles, candidate tags, near-duplicate detection,
+      semantic-similarity grouping) needs BL-058's editable-metadata mutation
+      as a write target, and every suggestion must pass the same PALS's-Law
+      verification obligation already applied to BL-002/BL-006 before being
+      shown for human review — no unverified LLM output reaches a document's
+      real metadata.
+    category:     "nlp"
+    type:         "feature"
+    status:       "parked"
+    complexity:   "M"
+    priority:     "medium"
+    rationale:    "The product already has a mature, non-hallucinatory suggestion architecture for entities; reusing it for document metadata is lower-risk than a bespoke feature, but only once there is an editable target (BL-058) and an explicit verification gate."
+    acceptance_criteria:
+      - "Document title/tag suggestions are generated and surfaced for human review, never auto-applied."
+      - "Near-duplicate or semantically-similar documents are detected and surfaced."
+      - "Every suggestion passes the shared ML/LLM output verification port before being shown (PALS's Law)."
+      - "Low-confidence suggestions are visibly distinguished from high-confidence ones."
+    dependencies:
+      - "BL-058"
+    references:
+      - "src/doc_ray/application/seed_suggest.py"
+      - "src/doc_ray/adapters/resolver_claude.py"
+      - "src/doc_ray/application/term_scan.py"
+    owner:        "shared"
+    source:       "Session finding 2026-07-05: document-surface UX/data-management capability audit (parallel webapp-UI and GraphQL/persistence reviews against 9 claimed product gaps)."
+    tags:         ["nlp", "ai-suggestions", "metadata", "verification"]
+
+  - id:          "BL-062"
+    title:        "Operator-facing document metadata correction and enrichment workflow"
+    summary:      "/operator/health surfaces per-document data-quality issues but is strictly read-only diagnostics — there is no way for an operator to act on what it shows."
+    description: |
+      webapp/operator_health.py and its route (gated by
+      DOCRAY_OPERATOR_HEALTH_TOKEN) are built entirely from SELECT-only SQL
+      and render corpus totals, per-document data-quality issues, and job/DB
+      health for display only. An operator can see that a document has a
+      metadata problem but has no route or GraphQL admin surface to fix it —
+      the workflow dead-ends at diagnosis. Once BL-058 exists, this item
+      exposes the same edit/audit primitives through an operator-scoped
+      surface, ideally linking directly from a flagged issue on the health
+      page to the corrective action.
+    category:     "ops"
+    type:         "feature"
+    status:       "parked"
+    complexity:   "M"
+    priority:     "medium"
+    rationale:    "Surfacing a data-quality issue without a way to act on it is a dead-end workflow; BL-023/BL-038 built the diagnostic half, this closes the loop."
+    acceptance_criteria:
+      - "An operator can navigate from a flagged data-quality issue directly to a correction action for that document."
+      - "The correction reuses BL-058's mutation and change-history mechanism rather than a separate write path."
+      - "Access remains gated the same way /operator/health is today."
+    dependencies:
+      - "BL-058"
+    references:
+      - "webapp/operator_health.py"
+      - "webapp/app.py"
+    owner:        "shared"
+    related_decisions:
+      - "D-010"
+    source:       "Session finding 2026-07-05: document-surface UX/data-management capability audit (parallel webapp-UI and GraphQL/persistence reviews against 9 claimed product gaps)."
+    tags:         ["ops", "webapp", "operator", "metadata"]
+
+  - id:          "BL-063"
+    title:        "Paginate the main document list and add filter arguments to the documents query"
+    summary:      "The main document list and /search render unbounded/hard-capped results with no pager, and the documents GraphQL query takes no doc_type/status/source/date/tag filter arguments, even though keyset pagination (BL-009/D-008) already shipped for other fields."
+    description: |
+      documents.html's landing route has no LIMIT/OFFSET and no pager,
+      unlike /lexemes (which already paginates with prev/next links) and the
+      /doc/<id> sentence reader (which already paginates). /search hard-caps
+      at LIMIT 100/80 with no pager. Separately, the documents GraphQL query
+      itself (query.py) accepts only limit/after — no doc_type, status,
+      source, or date-range filter, unlike lexemes/entities which already
+      take filter arguments. This is narrower than it first appears: the
+      keyset-cursor infrastructure, MAX_PAGE_SIZE clamp, and depth/complexity
+      limiter already exist and are proven on other fields (BL-009, done) —
+      this item is wiring that same infrastructure onto the two remaining
+      unbounded surfaces and adding filter arguments, not building pagination
+      from scratch.
+    category:     "api"
+    type:         "tech-debt"
+    status:       "parked"
+    complexity:   "S"
+    priority:     "medium"
+    rationale:    "A growing corpus will make the main document list and search results unusable without a pager, and the documents query can't yet be filtered by the metadata fields (doc_type, status, tags) it already stores."
+    acceptance_criteria:
+      - "The main document list paginates using the same keyset-cursor pattern already used by lexemes/entities."
+      - "/search results are paginated instead of hard-capped."
+      - "The documents GraphQL query accepts filter arguments for at least doc_type, status, and tags."
+    references:
+      - "webapp/templates/documents.html"
+      - "webapp/templates/lexemes.html"
+      - "src/doc_ray/entrypoints/api/query.py"
+      - "src/doc_ray/adapters/persistence_read.py"
+    owner:        "shared"
+    related_decisions:
+      - "D-008"
+    source:       "Session finding 2026-07-05: document-surface UX/data-management capability audit (parallel webapp-UI and GraphQL/persistence reviews against 9 claimed product gaps)."
+    tags:         ["api", "webapp", "pagination", "filtering"]
