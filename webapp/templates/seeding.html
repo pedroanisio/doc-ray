@@ -25,6 +25,9 @@
   td.desc { color:var(--ink-soft); max-width:34rem; }
   td.desc .lbl { color:var(--ink); font-weight:600; }
   .noqid { color:var(--ink-faint); font-style:italic; }
+  .workflow { margin:.8rem 0 1rem; padding:.75rem .9rem; border:1px solid var(--line);
+    border-radius:var(--r-sm); background:var(--panel); color:var(--ink-soft); }
+  .workflow b { color:var(--ink); }
 </style>
 
 <div class="seedhead">
@@ -34,11 +37,16 @@
 </div>
 <p class="noqid"><a href="{{ url_for('help_page') }}#domain-seeding">Domain seeding guide</a></p>
 <p><a href="/doc/{{ doc.id }}">&larr; {{ doc.title }}</a></p>
+<p class="workflow">
+  <b>Workflow:</b> Mine candidates -> audit identities -> approve exact matches -> seed approved rows.
+  Seeded rows enter the shared canonical registry and cannot be re-decided here.
+</p>
 
 {% if notice %}<div class="notice">{{ notice }}</div>{% endif %}
 {% if error %}<div class="errbox">{{ error }}</div>{% endif %}
 
-<form method="post">
+<form method="post"
+      onsubmit="if (event.submitter && event.submitter.value === 'seed') return confirm('Seed approved rows permanently? Seeded rows enter the shared canonical registry and cannot be re-decided here.'); return true;">
   <div class="actions">
     <button name="action" value="mine">Mine candidates</button>
     <button name="action" value="approve">Approve selected</button>

@@ -22,6 +22,11 @@ doc-ray carries **one global version** covering both the application package
 ## [Unreleased]
 
 ### Added
+- **Webapp orientation and guardrails** (OpenAI GPT-5 via Codex) —
+  the corpus landing page now states the ingest -> annotate -> curate value
+  proposition, the seeding screen shows its workflow and confirms permanent
+  seeding, and the masthead separates Backups from everyday reading
+  navigation, closing `BL-026`, `BL-030`, and `BL-034`.
 - **In-app help guide** (OpenAI GPT-5 via Codex) —
   the Flask browser now has a persistent `/help` guide reachable from every
   page, with contextual guide links from pipeline status, domain seeding, and

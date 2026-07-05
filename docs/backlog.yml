@@ -827,7 +827,7 @@ items:
       and consider a dismissible first-run intro card.
     category:     "webapp"
     type:         "feature"
-    status:       "parked"
+    status:       "done"
     complexity:   "S"
     priority:     "high"
     rationale:    "A new user cannot answer 'what does this do / who is it for / what value' from the UI alone — the highest-leverage orientation gap."
@@ -839,7 +839,7 @@ items:
       - "webapp/templates/base.html"
       - "docs/webapp_user_manual.md"
     owner:        "shared"
-    source:       "Session finding 2026-07-04: webapp UX/UI audit (finding H1)."
+    source:       "Session finding 2026-07-05: completed with landing-page copy naming the ingest -> annotate -> curate flow and auditable research corpus value."
     tags:         ["onboarding", "microcopy", "ux", "clarity"]
 
   - id:          "BL-027"
@@ -940,7 +940,7 @@ items:
       actions, and a confirmation on Seed that names its permanence.
     category:     "webapp"
     type:         "feature"
-    status:       "parked"
+    status:       "done"
     complexity:   "S"
     priority:     "medium"
     rationale:    "The screen's own copy warns 'one wrong seed pollutes the registry for every document', yet the irreversible action has no guardrail and the workflow order is unsignposted."
@@ -952,7 +952,7 @@ items:
       - "webapp/templates/backups.html"
       - "docs/webapp_user_manual.md"
     owner:        "shared"
-    source:       "Session finding 2026-07-04: webapp UX/UI audit (finding M2)."
+    source:       "Session finding 2026-07-05: completed with visible mine -> audit -> approve -> seed workflow copy and a seed-only permanence confirmation."
     tags:         ["seeding", "error-prevention", "ux", "microcopy"]
 
   - id:          "BL-031"
@@ -1041,7 +1041,7 @@ items:
       not adjacent to everyday reading.
     category:     "webapp"
     type:         "tech-debt"
-    status:       "parked"
+    status:       "done"
     complexity:   "XS"
     priority:     "low"
     rationale:    "Flat IA places a destructive admin surface one mis-click from reading features."
@@ -1050,7 +1050,7 @@ items:
     references:
       - "webapp/templates/base.html"
     owner:        "shared"
-    source:       "Session finding 2026-07-04: webapp UX/UI audit (finding L2)."
+    source:       "Session finding 2026-07-05: completed with reading and admin nav groups; Backups is visually separated from everyday reading navigation."
     tags:         ["navigation", "information-architecture", "ux"]
 
   - id:          "BL-035"

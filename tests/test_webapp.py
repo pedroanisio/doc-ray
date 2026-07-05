@@ -263,6 +263,23 @@ def test_home_empty_corpus_shows_upload_call_to_action(client, monkeypatch):
     assert 'href="/upload"' in html
 
 
+def test_home_states_product_value_proposition(client):
+    html = client.get("/").get_data(as_text=True)
+    normalized = _norm(html)
+
+    assert "Ingest documents, annotate text, and curate domain entities" in normalized
+    assert "auditable research corpus" in normalized
+
+
+def test_header_groups_reading_and_admin_navigation(client):
+    html = client.get("/").get_data(as_text=True)
+    normalized = _norm(html)
+
+    assert 'class="nav-group nav-reading"' in html
+    assert 'class="nav-group nav-admin"' in html
+    assert normalized.index("Corpus") < normalized.index("Upload") < normalized.index("Backups")
+
+
 # --- document page ---------------------------------------------------------
 
 
@@ -423,6 +440,19 @@ def test_technical_screens_link_to_contextual_help(client):
     assert 'href="/help#pipeline-status"' in job
     assert 'href="/help#domain-seeding"' in seeding
     assert 'href="/help#backups"' in backups
+
+
+def test_seeding_screen_signposts_workflow_and_confirms_seed(client):
+    html = client.get(f"/doc/{DOC_ID}/seeding").get_data(as_text=True)
+    normalized = _norm(html)
+
+    assert (
+        "Mine candidates -> audit identities -> approve exact matches -> seed approved rows"
+        in normalized
+    )
+    assert "Seeded rows enter the shared canonical registry" in normalized
+    assert "confirm(" in html
+    assert "Seed approved rows permanently?" in html
 
 
 # --- operator health -------------------------------------------------------

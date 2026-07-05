@@ -58,7 +58,9 @@ python -m webapp.app
 Then open <http://localhost:5001>. The sun/moon button in the header toggles the
 light ("paper") and dark ("ink") themes; the choice is remembered per browser.
 The header's **Help** link opens the in-app guide at `/help`; technical screens
-also link directly to their relevant guide sections.
+also link directly to their relevant guide sections. Backups is visually grouped
+apart from the everyday reading/search/upload navigation because restore is an
+operator/destructive surface.
 
 ---
 
@@ -91,11 +93,13 @@ later re-runs and seeding jobs appear here too.
 
 ### 2.2 Documents (`/`)
 
-The landing page states the current document count, lists every document in the
-corpus — title, type, language, size, sentence count, and which annotation tools
-have run — plus corpus-wide totals (documents, sentences, lexemes,
-occurrences). Click a title to open the reader. If the corpus is empty, the page
-shows an upload call-to-action instead of an unexplained empty table.
+The landing page states the product flow — ingest documents, annotate text, and
+curate domain entities into an auditable research corpus — then shows the
+current document count, lists every document in the corpus (title, type,
+language, size, sentence count, and which annotation tools have run), and shows
+corpus-wide totals (documents, sentences, lexemes, occurrences). Click a title
+to open the reader. If the corpus is empty, the page shows an upload
+call-to-action instead of an unexplained empty table.
 
 ### 2.3 Document reader (`/doc/<id>`)
 
@@ -180,11 +184,12 @@ Postgres store directly and does not write to the corpus.
 ## 3. The domain-seeding workflow
 
 Seeding teaches the registry a document's domain vocabulary so the
-canonicalization pipeline can link mentions deterministically. Automating it
-end-to-end is deliberately **not** supported: knowledge-base resolution
-sometimes lands on a plausible-but-wrong identity, and one wrong seed pollutes
-the shared registry for every document. The screen exists to make the human
-audit fast instead of skippable.
+canonicalization pipeline can link mentions deterministically. The screen shows
+the required order up front: mine candidates → audit identities → approve exact
+matches → seed approved rows. Automating it end-to-end is deliberately **not**
+supported: knowledge-base resolution sometimes lands on a plausible-but-wrong
+identity, and one wrong seed pollutes the shared registry for every document.
+The screen exists to make the human audit fast instead of skippable.
 
 ### Step 1 — Mine candidates
 
@@ -231,10 +236,10 @@ can re-decide until you seed.
 
 ### Step 4 — Seed
 
-**Seed N approved** queues a job that writes the approved entities (and their
-multilingual aliases) into the canonical registry, then marks those rows
-**seeded**. Seeded is final: those rows record what entered the registry and
-can no longer be re-decided.
+**Seed N approved** asks for explicit confirmation, then queues a job that
+writes the approved entities (and their multilingual aliases) into the canonical
+registry and marks those rows **seeded**. Seeded is final: those rows record
+what entered the registry and can no longer be re-decided.
 
 After seeding, re-run canonicalization for the document (the API's
 `canonicalizeDocument` mutation) — newly seeded vocabulary links immediately,

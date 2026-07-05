@@ -84,7 +84,9 @@
     .brand { font-family:var(--display); font-weight:600; font-size:1.4rem;
              letter-spacing:-.02em; color:var(--ink); }
     .brand b { color:var(--accent); font-weight:600; }
-    header nav { display:flex; gap:.15rem; flex:1; margin-left:.5rem; flex-wrap:wrap; }
+    header nav { display:flex; gap:.55rem; flex:1; margin-left:.5rem; flex-wrap:wrap; align-items:center; }
+    .nav-group { display:flex; gap:.15rem; flex-wrap:wrap; align-items:center; }
+    .nav-admin { margin-left:auto; padding-left:.65rem; border-left:1px solid var(--line); }
     header nav a { position:relative; color:var(--ink-soft); font-family:var(--mono);
       font-size:.7rem; text-transform:uppercase; letter-spacing:.13em;
       padding:.5rem .72rem; border-radius:var(--r-sm); transition:color .15s, background .15s; }
@@ -186,12 +188,16 @@
   <header>
     <a class="brand" href="{{ url_for('documents') }}">doc<b>·</b>ray</a>
     <nav>
-      <a href="{{ url_for('documents') }}" class="{{ 'on' if request.endpoint in ['documents','document','seeding','seeding_action'] }}">Corpus</a>
-      <a href="{{ url_for('lexemes') }}" class="{{ 'on' if request.endpoint in ['lexemes','lexeme'] }}">Lexicon</a>
-      <a href="{{ url_for('search') }}" class="{{ 'on' if request.endpoint == 'search' }}">Search</a>
-      <a href="{{ url_for('upload_form') }}" class="{{ 'on' if request.endpoint in ['upload_form','upload_submit','job_status'] }}">Upload</a>
-      <a href="{{ url_for('backups') }}" class="{{ 'on' if request.endpoint in ['backups','backups_create','backups_restore','backups_download'] }}">Backups</a>
-      <a href="{{ url_for('help_page') }}" class="{{ 'on' if request.endpoint == 'help_page' }}">Help</a>
+      <span class="nav-group nav-reading">
+        <a href="{{ url_for('documents') }}" class="{{ 'on' if request.endpoint in ['documents','document','seeding','seeding_action'] }}">Corpus</a>
+        <a href="{{ url_for('lexemes') }}" class="{{ 'on' if request.endpoint in ['lexemes','lexeme'] }}">Lexicon</a>
+        <a href="{{ url_for('search') }}" class="{{ 'on' if request.endpoint == 'search' }}">Search</a>
+        <a href="{{ url_for('upload_form') }}" class="{{ 'on' if request.endpoint in ['upload_form','upload_submit','job_status'] }}">Upload</a>
+        <a href="{{ url_for('help_page') }}" class="{{ 'on' if request.endpoint == 'help_page' }}">Help</a>
+      </span>
+      <span class="nav-group nav-admin">
+        <a href="{{ url_for('backups') }}" class="{{ 'on' if request.endpoint in ['backups','backups_create','backups_restore','backups_download'] }}">Backups</a>
+      </span>
     </nav>
     <button class="toggle" onclick="toggleTheme()" title="Toggle light / dark" aria-label="Toggle theme">
       <span class="sun">☀</span><span class="moon">☾</span>
