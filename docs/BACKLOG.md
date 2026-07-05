@@ -5,7 +5,7 @@ disclaimer:
     Any statement or premise not backed by a real logical definition
     or verifiable reference may be invalid, erroneous, or a hallucination.
   generated_by: "Claude Sonnet 5 via Claude Code (merge of Claude Opus 4.8 backlog + OpenAI Codex improvement-proposal candidates)"
-  date: "2026-07-04"
+  date: "2026-07-05"
 ---
 
 # Backlog
@@ -110,6 +110,8 @@ live backlog after these three.
 
 **2026-07-05 document-surface UX/data-management audit:** added `BL-056`-`BL-063` from a document-surface capability audit (parallel webapp-UI and GraphQL/persistence/schema reviews against 9 claimed product gaps). Confirmed absent: thumbnails/previews, document collections, editable post-ingestion metadata, lifecycle states beyond ingestion status, bulk document actions, AI-suggested document metadata refinements, and an operator metadata-correction workflow. Also added a narrower item for the pagination/filtering gaps found once the already-shipped keyset pagination (`BL-009`/`D-008`) was excluded from scope.
 
+**2026-07-05 enterprise-IAM gap analysis:** added `BL-064`-`BL-075` against a supplied checklist (Authentication: OIDC/SAML/local; Provisioning: SCIM; Session: cookie/JWT/refresh; Authorization: tenant RBAC/ABAC/resource-level; Audit: append-only/searchable/exportable), verified live against `security.py`, `mutation.py`, `018_rbac.sql`, and the `jobs`/`backups` grant migrations. Confirmed absent: OIDC, SAML, SCIM, any tenant concept, webapp session/login, JWTs, refresh tokens, ABAC, and any security audit log (`document_provenance` is pipeline/domain history, not an access log). `BL-064` is a live confirmed bug, not a future-state gap: every mutation resolver checks only global read/write scope, never the caller's `document_acl` grant for the specific `document_id` — and `jobs`/`backups` carry no RLS at all — so any write-scoped token can currently mutate or delete any document in the corpus, not just ones it holds a grant on. `BL-065` (a tenant primitive, currently absent entirely) is flagged as the foundational blocker the tenant-scoped items (`BL-067`, `BL-068`, `BL-073`, `BL-075`) depend on.
+
 ## Items
 
 | ID | Item | Category | Type | Status | Cx | Priority | Owner |
@@ -177,6 +179,18 @@ live backlog after these three.
 | BL-061 | AI-suggested document metadata refinements (titles, tags, duplicates, grouping) | nlp | feature | parked | M | medium | shared |
 | BL-062 | Operator-facing document metadata correction and enrichment workflow | ops | feature | parked | M | medium | shared |
 | BL-063 | Paginate the main document list and add filter arguments to the documents query | api | tech-debt | parked | S | medium | shared |
+| BL-064 | Mutation resolvers never check per-document write ACL (any write token can mutate any document) | security | bug | ready | M | high | shared |
+| BL-065 | Introduce a tenant model as the foundation for tenant-aware RBAC | security | feature | parked | XL | high | shared |
+| BL-066 | OIDC authentication as the default authenticator | security | feature | parked | L | high | shared |
+| BL-067 | SAML SSO for enterprise tenants | security | feature | parked | L | medium | shared |
+| BL-068 | SCIM provisioning, authoritative for managed users | security | feature | parked | L | medium | shared |
+| BL-069 | Demote static bearer tokens to an explicit local/break-glass fallback | security | tech-debt | parked | S | medium | shared |
+| BL-070 | Webapp session: real per-user login with a secure HttpOnly cookie | security | feature | parked | M | high | shared |
+| BL-071 | Short-lived signed access JWTs for the GraphQL/REST API | security | feature | parked | M | medium | shared |
+| BL-072 | Refresh-token rotation with reuse detection | security | feature | parked | M | medium | shared |
+| BL-073 | ABAC layer for sensitive and contextual authorization rules | security | feature | parked | L | medium | shared |
+| BL-074 | Append-only security audit-event log distinct from document_provenance | security | feature | parked | L | high | shared |
+| BL-075 | Tenant-admin audit surface: search by actor/action/target/time/IP, exportable | security | feature | parked | M | medium | shared |
 
 See [`backlog.yml`](backlog.yml) for each item's full description, rationale,
 acceptance criteria, dependencies, related decisions (`D-###`), and references.

@@ -83,7 +83,7 @@ metadata:
   generated_by:     "Claude Sonnet 5 via Claude Code (merge of Claude Opus 4.8 backlog + OpenAI Codex improvement-proposal candidates)"
   generated_on:     "2026-07-05"
   system_of_record: "docs/backlog.yml"
-  total_items:      63
+  total_items:      75
 
 items:
 
@@ -2038,3 +2038,376 @@ items:
       - "D-008"
     source:       "Session finding 2026-07-05: document-surface UX/data-management capability audit (parallel webapp-UI and GraphQL/persistence reviews against 9 claimed product gaps)."
     tags:         ["api", "webapp", "pagination", "filtering"]
+
+  - id:          "BL-064"
+    title:        "Mutation resolvers never check per-document write ACL (any write token can mutate any document)"
+    summary:      "Every GraphQL mutation calls only _require_write (a global read/write scope check); none consult document_acl for the specific document_id, and the jobs/backups tables have no RLS at all — so a principal scoped to one document can enqueue reannotate/delete/canonicalize/restore against any other document in the corpus."
+    description: |
+      Verified directly against the live tree: reannotate, delete_document,
+      annotate_document, semantic_enrich_document, canonicalize_document,
+      suggest_seeds, seed_approved, create_backup, restore_backup, and
+      ingest_document (src/doc_ray/entrypoints/api/mutation.py) each call only
+      `_require_write(ctx)`, which checks `"write" in ctx.principal.scopes` —
+      a global capability, not a per-document grant. None of them call
+      `docray_writable_documents()` or check `document_acl` for the
+      `document_id` argument the caller supplies. Compounding this,
+      `db/migrations/018_rbac.sql`'s RLS attachment loop (`docray_attach_rls`)
+      covers documents and every document-scoped child table, but `jobs`
+      (`db/migrations/032_api_role_runtime_grants.sql`:
+      `GRANT SELECT, INSERT ON jobs TO docray_client` — no
+      `ENABLE ROW LEVEL SECURITY`) and `backups`
+      (`db/migrations/026_backups.sql`: `GRANT SELECT ON backups TO
+      docray_client` — also no RLS) are granted to the client role directly,
+      unfiltered. The worker that later processes an enqueued job runs on the
+      superuser connection (RLS bypass by design, per D-010), so an
+      out-of-scope enqueue is not just visible — it executes. Net effect: the
+      `document_acl`/role infrastructure this repo already built (BL-012,
+      BL-040) constrains direct reads through the RLS-scoped connection, but
+      every write path and the entire `jobs`/`backups` surface currently
+      ignores it — any token with global `write` scope is, in practice,
+      equivalent to admin for every document.
+    category:     "security"
+    type:         "bug"
+    status:       "ready"
+    complexity:   "M"
+    priority:     "high"
+    rationale:    "This is the concrete, present-day form of 'resource-level authorization on every object' being absent — not a hypothetical for a future multi-tenant deployment. It is independent of and does not require any SSO/tenant work below; it is fixable against the schema that exists today."
+    acceptance_criteria:
+      - "Every mutation that takes a document_id checks the caller's write grant on that specific document (via docray_writable_documents() or an equivalent query) before enqueuing, and fails closed (not found/forbidden) otherwise."
+      - "jobs and backups gain RLS policies scoping SELECT/INSERT to the caller's document grants (jobs) or admin role (backups, corpus-wide by nature)."
+      - "A regression test proves a write-scoped-but-non-admin principal cannot enqueue a job against a document outside their document_acl grants."
+    related_decisions: ["D-010"]
+    references:
+      - "src/doc_ray/entrypoints/api/mutation.py"
+      - "db/migrations/018_rbac.sql"
+      - "db/migrations/032_api_role_runtime_grants.sql"
+      - "db/migrations/026_backups.sql"
+    owner:        "shared"
+    source:       "Gap-analysis 2026-07-05 against a supplied enterprise-IAM checklist (Authentication/Provisioning/Session/Authorization/Audit), verified live against mutation.py, 018_rbac.sql, and the jobs/backups grant migrations."
+    tags:         ["security", "rbac", "rls", "authorization", "bug"]
+
+  - id:          "BL-065"
+    title:        "Introduce a tenant model as the foundation for tenant-aware RBAC"
+    summary:      "There is no tenant concept anywhere in the schema or code — principals, roles, and document_acl are all global/single-organization. Tenant-aware RBAC, SAML-per-tenant, SCIM-per-tenant, and tenant-admin-visible audit all require this primitive first."
+    description: |
+      Grepped the whole tree for "tenant": the only hits are a stray tag and
+      a rationale sentence on BL-012 using the word loosely (single-tenant
+      trust-boundary reasoning), not an actual multi-tenant model. `principals`
+      (018_rbac.sql) has no `tenant_id`; neither do `documents`, `roles`, or
+      `document_acl`. `docray_readable_documents()`/`docray_writable_documents()`
+      compute a single global visible-set per principal with no tenant
+      partitioning. Every downstream item in this gap-analysis batch that
+      says "per enterprise tenant" or "tenant admin" (BL-067 SAML, BL-068
+      SCIM, BL-073 ABAC's tenant-scoped rules, BL-075's tenant-admin audit
+      view) is blocked on this not existing yet.
+    category:     "security"
+    type:         "feature"
+    status:       "parked"
+    complexity:   "XL"
+    priority:     "high"
+    rationale:    "Without a tenant primitive, 'tenant-aware RBAC as base' cannot be built — it would have to be retrofitted onto every table and RLS policy a second time. This is the single foundational decision the rest of the requested gap list depends on; sequencing it first avoids rework."
+    acceptance_criteria:
+      - "A tenants table exists; principals and documents carry a tenant_id."
+      - "RLS policies partition by tenant_id before applying the existing document_acl/role checks (a principal in tenant A can never see tenant B's rows, independent of any ACL misconfiguration)."
+      - "A migration plan exists for the current single-tenant data (assign it to one default tenant) with no data loss."
+    dependencies: []
+    related_decisions: ["D-010"]
+    references:
+      - "db/migrations/018_rbac.sql"
+    owner:        "shared"
+    source:       "Gap-analysis 2026-07-05 against a supplied enterprise-IAM checklist; verified absent by grep across the schema and application code."
+    tags:         ["security", "rbac", "multi-tenant", "foundational"]
+
+  - id:          "BL-066"
+    title:        "OIDC authentication as the default authenticator"
+    summary:      "The API only has a static bearer/X-DocRay-API-Token authenticator (HeaderTokenAuthenticator); D-010 explicitly named 'bearer/OIDC -> principal' as the federation slot for app-layer auth, and it was never filled."
+    description: |
+      src/doc_ray/entrypoints/api/security.py implements exactly one
+      Authenticator besides the test NoopAuthenticator: HeaderTokenAuthenticator,
+      which maps a static opaque string (configured via DOCRAY_API_TOKENS) to
+      a principal id and scopes. There is no OIDC client, no JWKS validation,
+      no discovery-document handling anywhere in the tree (grepped: zero
+      hits for oidc/OIDC/jwt outside of a doc-comment mentioning "OIDC sub"
+      as a future external_subject value on the principals table). D-010's
+      own decision text says "App-layer auth remains the federation slot
+      (bearer/OIDC -> principal)" — i.e. this was a known, named gap left
+      for later, not an oversight.
+    category:     "security"
+    type:         "feature"
+    status:       "parked"
+    complexity:   "L"
+    priority:     "high"
+    rationale:    "OIDC is the named default in the request; it is also the only path to a real per-human identity (today every caller behind a shared bearer token is administratively indistinguishable from any other holder of that same string)."
+    acceptance_criteria:
+      - "An OIDCAuthenticator (or equivalent) validates a bearer JWT against the configured issuer's JWKS and resolves `sub`/claims to a principals row (creating one on first login if the tenant's policy allows, per BL-068)."
+      - "HeaderTokenAuthenticator remains available but is no longer the default when an OIDC issuer is configured (see BL-069)."
+      - "principals.external_subject (already a column, currently unused) is populated from the OIDC `sub` claim."
+    dependencies: []
+    related_decisions: ["D-010"]
+    references:
+      - "src/doc_ray/entrypoints/api/security.py"
+      - "db/migrations/018_rbac.sql"
+    owner:        "shared"
+    source:       "Gap-analysis 2026-07-05 against a supplied enterprise-IAM checklist; verified against security.py and D-010's own decision text naming this as the deferred federation slot."
+    tags:         ["security", "auth", "oidc", "federation"]
+
+  - id:          "BL-067"
+    title:        "SAML SSO for enterprise tenants"
+    summary:      "No SAML implementation exists (grepped: zero hits). Once tenants (BL-065) and an external-identity authenticator (BL-066) exist, enterprise tenants need a SAML option alongside OIDC."
+    description: |
+      Enterprise IdPs that don't speak OIDC (ADFS and older Azure AD/Okta
+      configurations are the common case) need SAML. This is scoped as
+      tenant-configurable (a tenant picks OIDC or SAML, not a global switch),
+      which is why it depends on the tenant model rather than being bundled
+      into BL-066.
+    category:     "security"
+    type:         "feature"
+    status:       "parked"
+    complexity:   "L"
+    priority:     "medium"
+    rationale:    "Named explicitly in the request as enterprise-tenant-scoped; priority is medium rather than high because no enterprise tenant exists yet to consume it (see BL-065's foundational status)."
+    acceptance_criteria:
+      - "A tenant can configure a SAML IdP (metadata URL or XML) and log its users in via SAML instead of OIDC."
+      - "SAML assertions map to the same Principal/tenant_id model OIDC populates, so downstream RBAC/ABAC/audit code paths do not fork per protocol."
+    dependencies: ["BL-065", "BL-066"]
+    related_decisions: ["D-010"]
+    references:
+      - "src/doc_ray/entrypoints/api/security.py"
+    owner:        "shared"
+    source:       "Gap-analysis 2026-07-05 against a supplied enterprise-IAM checklist; verified absent by grep."
+    tags:         ["security", "auth", "saml", "enterprise"]
+
+  - id:          "BL-068"
+    title:        "SCIM provisioning, authoritative for managed users"
+    summary:      "Principals are provisioned entirely by hand today (an operator INSERTs into principals/principal_roles, or edits the DOCRAY_API_TOKENS env var). No SCIM endpoint exists; nothing marks a principal as IdP-managed vs. locally-owned."
+    description: |
+      There is no /scim path, no SCIM schema handling, and no concept of a
+      principal being "managed" by an external system anywhere in the code
+      or migrations (grepped: zero hits for scim/SCIM). Today, adding a user
+      means a manual SQL INSERT (018_rbac.sql's seed rows are the only
+      example in the repo) or appending a DOCRAY_API_TOKENS entry and
+      restarting the API. "SCIM is authoritative" additionally implies a
+      guard that currently doesn't exist anywhere: nothing stops a local
+      admin from hand-editing a SCIM-managed principal's roles today,
+      because there is no managed/unmanaged distinction at all yet.
+    category:     "security"
+    type:         "feature"
+    status:       "parked"
+    complexity:   "L"
+    priority:     "medium"
+    rationale:    "Manual provisioning does not scale past one operator and cannot deprovision automatically when an enterprise tenant removes a user from their IdP — the exact gap SCIM closes."
+    acceptance_criteria:
+      - "A per-tenant SCIM 2.0 endpoint (Users, Groups) accepts create/update/deactivate requests from a tenant's IdP."
+      - "principals gains a managed_by/source column; SCIM-sourced principals reject conflicting manual role edits (or surface them as drift), making SCIM the authoritative source for those rows."
+      - "Deprovisioning via SCIM revokes document_acl grants and role assignments, not just disabling login."
+    dependencies: ["BL-065", "BL-066"]
+    related_decisions: ["D-010"]
+    references:
+      - "db/migrations/018_rbac.sql"
+    owner:        "shared"
+    source:       "Gap-analysis 2026-07-05 against a supplied enterprise-IAM checklist; verified absent by grep and by reading the only existing provisioning path (manual SQL / env var)."
+    tags:         ["security", "provisioning", "scim", "enterprise"]
+
+  - id:          "BL-069"
+    title:        "Demote static bearer tokens to an explicit local/break-glass fallback"
+    summary:      "Once OIDC exists (BL-066), the current HeaderTokenAuthenticator (static, non-expiring, shared-secret tokens) should become an explicit, documented fallback for local/offline use — not remain the only or default authenticator."
+    description: |
+      Today HeaderTokenAuthenticator is the only real authenticator
+      (config.py wires it unconditionally in create_app). It has no
+      expiry, no rotation, and no per-token audit trail beyond the static
+      DOCRAY_API_TOKENS mapping — acceptable for a single-operator/local
+      deployment (as D-010 accepted explicitly) but wrong as the ongoing
+      default once federated login exists. This item is intentionally small:
+      it is a wiring/precedence and documentation change, not new auth logic.
+    category:     "security"
+    type:         "tech-debt"
+    status:       "parked"
+    complexity:   "S"
+    priority:     "medium"
+    rationale:    "'Local login only if needed' (the request's own phrasing) implies static tokens stay available but stop being the implicit default once a real IdP is configured — otherwise the weaker path is always the one left enabled."
+    acceptance_criteria:
+      - "When an OIDC issuer is configured, HeaderTokenAuthenticator is only reachable via an explicit opt-in flag, documented as a break-glass/local-dev path."
+      - ".env.example documents the precedence and the security tradeoff of leaving static tokens enabled alongside OIDC."
+    dependencies: ["BL-066"]
+    related_decisions: ["D-010"]
+    references:
+      - "src/doc_ray/entrypoints/api/security.py"
+      - "src/doc_ray/entrypoints/api/app.py"
+      - ".env.example"
+    owner:        "shared"
+    source:       "Gap-analysis 2026-07-05 against a supplied enterprise-IAM checklist."
+    tags:         ["security", "auth", "tech-debt"]
+
+  - id:          "BL-070"
+    title:        "Webapp session: real per-user login with a secure HttpOnly cookie"
+    summary:      "The webapp has no login at all today — DOCRAY_PRINCIPAL_ID is a single static server-side config value (the same identity for every browser hitting the process), not a per-user session. No Flask session/cookie mechanism exists (no SECRET_KEY, no session[...] usage anywhere in webapp/)."
+    description: |
+      Grepped webapp/*.py: zero uses of Flask's `session`, no
+      `app.secret_key`/`SECRET_KEY` configuration. `_apply_principal`
+      (webapp/app.py) reads one process-wide `DOCRAY_PRINCIPAL_ID` from the
+      environment and stamps it on every request's DB connection — every
+      browser session hitting this webapp process is the same principal.
+      There is no login page, no logout, no cookie at all. This is the
+      webapp-side prerequisite for OIDC/SAML (BL-066/BL-067) to mean
+      anything for actual browser users, since today nobody logs in as
+      themselves.
+    category:     "security"
+    type:         "feature"
+    status:       "parked"
+    complexity:   "M"
+    priority:     "high"
+    rationale:    "Every other item in this batch (tenant RBAC, ABAC, audit-by-actor) is meaningless for the webapp's actual human users until there is a real per-user identity in the browser, not one shared static config value."
+    acceptance_criteria:
+      - "A login flow (redirect to the configured OIDC/SAML IdP) establishes a signed, HttpOnly, Secure session cookie scoped to the authenticated principal."
+      - "_apply_principal binds the session's principal_id instead of the static DOCRAY_PRINCIPAL_ID env var; the env var becomes a local-dev-only fallback (mirrors BL-069)."
+      - "Session cookies are invalidated on logout and expire server-side, not just client-side."
+    dependencies: ["BL-066"]
+    related_decisions: ["D-010"]
+    references:
+      - "webapp/app.py"
+    owner:        "shared"
+    source:       "Gap-analysis 2026-07-05 against a supplied enterprise-IAM checklist; verified absent by grep across webapp/."
+    tags:         ["security", "webapp", "session", "auth"]
+
+  - id:          "BL-071"
+    title:        "Short-lived signed access JWTs for the GraphQL/REST API"
+    summary:      "API tokens today (DOCRAY_API_TOKENS) are static opaque strings with no expiry and no signature — they are valid until an operator edits .env and restarts the API. There is no JWT issuance or verification anywhere in the tree."
+    description: |
+      Confirmed by reading config.py's `_parse_api_tokens` and
+      security.py's `HeaderTokenAuthenticator`: a token is a dict key with an
+      indefinite lifetime. Grepped for jwt/JWT across src/: zero hits. This
+      item introduces short-lived (minutes-to-hours) signed access tokens
+      issued after OIDC/SAML login (BL-066/BL-067) or by an internal
+      token-exchange endpoint, verified statelessly by the API without a
+      round-trip to the IdP on every request.
+    category:     "security"
+    type:         "feature"
+    status:       "parked"
+    complexity:   "M"
+    priority:     "medium"
+    rationale:    "A leaked static bearer token today is valid forever until manually rotated; short-lived JWTs bound the blast radius of a leaked credential to the token's lifetime."
+    acceptance_criteria:
+      - "The API issues/accepts signed JWTs with a short exp claim, verified via a local key/JWKS without a DB round-trip per request."
+      - "HeaderTokenAuthenticator's static-token path remains for the break-glass case (BL-069); the two coexist without collision (distinguishable by format/prefix)."
+    dependencies: ["BL-066"]
+    related_decisions: ["D-010"]
+    references:
+      - "src/doc_ray/config.py"
+      - "src/doc_ray/entrypoints/api/security.py"
+    owner:        "shared"
+    source:       "Gap-analysis 2026-07-05 against a supplied enterprise-IAM checklist; verified absent by grep and by reading the current token model."
+    tags:         ["security", "auth", "jwt", "api"]
+
+  - id:          "BL-072"
+    title:        "Refresh-token rotation with reuse detection"
+    summary:      "No refresh-token mechanism exists (follows directly from BL-071's absence of any JWT issuance). Long-lived API clients need a way to obtain new access tokens without re-running the full IdP login flow, without handing out a permanently valid credential."
+    description: |
+      Scoped as its own item (rather than folded into BL-071) because
+      rotation has distinct, independently testable acceptance criteria —
+      reuse detection and family revocation — that a plain "issue a JWT"
+      implementation does not automatically get for free.
+    category:     "security"
+    type:         "feature"
+    status:       "parked"
+    complexity:   "M"
+    priority:     "medium"
+    rationale:    "Without rotation, a stolen refresh token is as dangerous as today's static bearer tokens — rotation-with-reuse-detection is what makes 'refresh tokens where needed' actually safer than the status quo rather than a same-risk rename of it."
+    acceptance_criteria:
+      - "Each refresh exchanges the presented token for a new access+refresh pair and invalidates the presented one (rotation)."
+      - "Reusing an already-rotated refresh token revokes the entire token family and is logged (feeds BL-074's audit log)."
+    dependencies: ["BL-071"]
+    related_decisions: ["D-010"]
+    references:
+      - "src/doc_ray/entrypoints/api/security.py"
+    owner:        "shared"
+    source:       "Gap-analysis 2026-07-05 against a supplied enterprise-IAM checklist."
+    tags:         ["security", "auth", "jwt", "refresh-token"]
+
+  - id:          "BL-073"
+    title:        "ABAC layer for sensitive and contextual authorization rules"
+    summary:      "Authorization today is RBAC + per-document ACL only (roles: reader/curator/admin; document_acl grants). There is no attribute/context-based rule engine — no way to express 'only from this IP range', 'only during business hours', or 'documents tagged sensitive need an extra grant'."
+    description: |
+      018_rbac.sql's model is deliberately simple: a principal either holds
+      a role-derived permission or a specific document_acl row. That is
+      sufficient for coarse RBAC but cannot express contextual or
+      attribute-based rules (network origin, time window, document
+      sensitivity labels, request risk score) without new machinery layered
+      on top — RLS policies as currently generated are static per-table
+      templates, not a rule engine.
+    category:     "security"
+    type:         "feature"
+    status:       "parked"
+    complexity:   "L"
+    priority:     "medium"
+    rationale:    "Named explicitly in the request ('ABAC for sensitive and contextual rules'); RBAC alone cannot express 'this document is sensitive, so requires elevated context' — that needs attributes on the resource and the request, not just a role on the principal."
+    acceptance_criteria:
+      - "A policy layer evaluates request/resource attributes (e.g. tenant, IP, time, a document sensitivity tag) in addition to RBAC, and can deny an otherwise-RBAC-permitted action."
+      - "At least one real contextual rule ships as a worked example (e.g. a 'sensitive' document tag requiring an additional explicit grant beyond the owning document's normal ACL)."
+    dependencies: ["BL-065"]
+    related_decisions: ["D-010"]
+    references:
+      - "db/migrations/018_rbac.sql"
+    owner:        "shared"
+    source:       "Gap-analysis 2026-07-05 against a supplied enterprise-IAM checklist; verified against 018_rbac.sql's RBAC-only policy templates."
+    tags:         ["security", "abac", "authorization"]
+
+  - id:          "BL-074"
+    title:        "Append-only security audit-event log distinct from document_provenance"
+    summary:      "document_provenance (domain/pipeline history: ingest/annotate/canonicalize events) is not a security audit trail — it has no actor IP, no record of reads, and no coverage of auth events (login, token issuance, permission denials). No general-purpose, append-only access/action audit log exists."
+    description: |
+      Read src/doc_ray/domain/provenance.py and the document_provenance
+      table: they record pipeline stage transitions (annotated, ingested,
+      canonicalized...) with an actor label, which is provenance for the
+      *data*, not an audit trail for *access*. There is no table or code path
+      that records "principal X called mutation Y against target Z from IP W
+      at time T", nor one for authentication events (successful/failed
+      login, token issuance, permission-denied). BL-012/BL-040 added
+      authentication and per-principal isolation but never added the
+      corresponding audit trail of who did what.
+    category:     "security"
+    type:         "feature"
+    status:       "parked"
+    complexity:   "L"
+    priority:     "high"
+    rationale:    "Without this, BL-064's exact bug class (a scoped principal reaching an out-of-grant document) would have been invisible after the fact — there is currently no way to answer 'who accessed/mutated what, from where, and when' for this system at all, tenant or no tenant."
+    acceptance_criteria:
+      - "Every authenticated mutation and every authentication event (success, failure, permission-denied) writes an append-only audit_events row: actor (principal_id/subject), action, target (resource type + id), timestamp, source IP."
+      - "The table is insert-only at the application role level (no UPDATE/DELETE grant to docray_client), and superuser-only for any correction, so the log cannot be quietly edited by the same principals it records."
+      - "GraphQL reads (at minimum for sensitive resources) are covered, not only writes — the request explicitly lists 'searchable by actor, action, target, time, IP', which reads as covering both."
+    dependencies: []
+    related_decisions: ["D-010"]
+    references:
+      - "src/doc_ray/domain/provenance.py"
+      - "db/migrations/018_rbac.sql"
+    owner:        "shared"
+    source:       "Gap-analysis 2026-07-05 against a supplied enterprise-IAM checklist; verified against provenance.py showing the existing audit trail is domain/pipeline-scoped, not a security access log."
+    tags:         ["security", "audit", "compliance"]
+
+  - id:          "BL-075"
+    title:        "Tenant-admin audit surface: search by actor/action/target/time/IP, exportable"
+    summary:      "Once an audit-event log exists (BL-074), tenant admins need a way to see it: no audit UI/API surface exists today anywhere in the webapp or GraphQL schema (the closest thing, BL-038's operator-health page, is corpus/DB health, not an access-audit view)."
+    description: |
+      webapp/operator_health.py (BL-038) is the only admin-gated surface in
+      the webapp today, and it reports corpus/database health metrics, not
+      audit events — confirmed by reading its contents. This item is the
+      read/search/export surface over BL-074's log: a filtered query
+      (actor, action, target, time range, IP) and an export endpoint for
+      enterprise customers who need to pull their own audit trail into
+      their own tooling.
+    category:     "security"
+    type:         "feature"
+    status:       "parked"
+    complexity:   "M"
+    priority:     "medium"
+    rationale:    "An audit log nobody can search or export satisfies the letter of 'append-only audit events' but not 'visible to tenant admins' / 'searchable' / 'exportable for enterprise customers' — all three are explicit, separate requirements in the request."
+    acceptance_criteria:
+      - "A GraphQL query (or REST endpoint) filters audit_events by actor, action, target, time range, and source IP, admin-gated per tenant (a tenant admin sees only their own tenant's events)."
+      - "A CSV/JSON export of a filtered audit result set is available, mirroring the existing backup-download proxy pattern (webapp never touches storage directly; the API streams it)."
+    dependencies: ["BL-074", "BL-065"]
+    related_decisions: ["D-010"]
+    references:
+      - "webapp/operator_health.py"
+      - "webapp/app.py"
+    owner:        "shared"
+    source:       "Gap-analysis 2026-07-05 against a supplied enterprise-IAM checklist."
+    tags:         ["security", "audit", "webapp", "export"]
