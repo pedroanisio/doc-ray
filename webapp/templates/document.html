@@ -46,14 +46,22 @@
     color:var(--ink-faint); font-variant-numeric:tabular-nums; }
   .reader-heading { position:relative; padding-left:3rem; margin:1.7rem 0 .7rem;
     font-family:var(--serif); line-height:1.25; color:var(--ink); }
-  .reader-heading.h1 { font-size:1.7rem; font-weight:600; }
-  .reader-heading.h2 { font-size:1.45rem; font-weight:600; }
-  .reader-heading.h3 { font-size:1.25rem; font-weight:600; color:var(--ink-soft); }
+  .reader-heading.h1 { font-size:1.7rem; font-weight:600; margin-top:2.3rem; }
+  .reader-heading.h2 { font-size:1.45rem; font-weight:600; margin-top:1.5rem; }
+  .reader-heading.h3 { font-size:1.25rem; font-weight:600; color:var(--ink-soft);
+    margin-top:1.05rem; margin-bottom:.45rem; }
+  /* Two headings back to back read as a title + subtitle pair (common in
+     slide-style sources split by split_structural_blocks) — collapse the
+     gap between them rather than stacking each level's full lead-in space. */
+  .reader-heading + .reader-heading { margin-top:.3rem; }
   .reader-heading .ord { top:.45em; }
-  .reader-list { margin:.2rem 0 .85rem 0; padding:0; list-style:none; }
+  .reader-list { margin:.15rem 0 .6rem 0; padding:0; list-style:none; }
   .reader-list li { position:relative; padding-left:4.2rem; margin:.22rem 0; }
   .reader-list li::before { content:""; position:absolute; left:3.05rem; top:.85em;
     width:.36rem; height:.36rem; border-radius:50%; background:var(--accent); }
+  /* Each bullet is its own <ul> (one per split block/sentence) so a run of
+     them reads as one continuous list rather than several stacked lists. */
+  .reader-list + .reader-list { margin-top:-.35rem; }
   .reader-note { margin:0 0 1.2rem; padding:.85rem 1rem; border:1px solid var(--line);
     border-left:3px solid var(--accent); background:var(--panel); color:var(--ink-soft);
     font-family:var(--sans); font-size:.9rem; line-height:1.5; }
@@ -151,20 +159,22 @@
         </div>
       {% endif %}
       {% for s in sentences %}
-        {% set raw_text = s.text or '' %}
-        {% set has_html = annotate and s.html is defined %}
-        {% set rendered = (s.html|string) if has_html else '' %}
-        {% if raw_text.startswith('### ') %}
-          <h4 class="reader-heading h3"><span class="ord">{{ s.ordinal }}</span>{% if has_html %}{{ rendered[4:]|safe }}{% else %}{{ raw_text[4:] }}{% endif %}</h4>
-        {% elif raw_text.startswith('## ') %}
-          <h3 class="reader-heading h2"><span class="ord">{{ s.ordinal }}</span>{% if has_html %}{{ rendered[3:]|safe }}{% else %}{{ raw_text[3:] }}{% endif %}</h3>
-        {% elif raw_text.startswith('# ') %}
-          <h2 class="reader-heading h1"><span class="ord">{{ s.ordinal }}</span>{% if has_html %}{{ rendered[2:]|safe }}{% else %}{{ raw_text[2:] }}{% endif %}</h2>
-        {% elif raw_text.startswith('- ') %}
-          <ul class="reader-list"><li><span class="ord">{{ s.ordinal }}</span>{% if has_html %}{{ rendered[2:]|safe }}{% else %}{{ raw_text[2:] }}{% endif %}</li></ul>
-        {% else %}
-          <p><span class="ord">{{ s.ordinal }}</span>{% if has_html %}{{ s.html }}{% else %}{{ raw_text }}{% endif %}</p>
-        {% endif %}
+        {% set ns = namespace(first=true) %}
+        {% for b in s.blocks %}
+          {% set ord = s.ordinal if ns.first else '' %}
+          {% if b.type == 'h1' %}
+            <h2 class="reader-heading h1"><span class="ord">{{ ord }}</span>{% if b.html is defined %}{{ b.html }}{% else %}{{ b.text }}{% endif %}</h2>
+          {% elif b.type == 'h2' %}
+            <h3 class="reader-heading h2"><span class="ord">{{ ord }}</span>{% if b.html is defined %}{{ b.html }}{% else %}{{ b.text }}{% endif %}</h3>
+          {% elif b.type == 'h3' %}
+            <h4 class="reader-heading h3"><span class="ord">{{ ord }}</span>{% if b.html is defined %}{{ b.html }}{% else %}{{ b.text }}{% endif %}</h4>
+          {% elif b.type == 'list' %}
+            <ul class="reader-list"><li><span class="ord">{{ ord }}</span>{% if b.html is defined %}{{ b.html }}{% else %}{{ b.text }}{% endif %}</li></ul>
+          {% else %}
+            <p><span class="ord">{{ ord }}</span>{% if b.html is defined %}{{ b.html }}{% else %}{{ b.text }}{% endif %}</p>
+          {% endif %}
+          {% set ns.first = false %}
+        {% endfor %}
       {% endfor %}
       {% if not full_view %}
         <div class="pager">

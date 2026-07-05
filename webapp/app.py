@@ -25,12 +25,24 @@ try:
     from webapp.health_contract import operator_health_payload
     from webapp.job_view import decorate_job_rows
     from webapp.operator_health import build_operator_health, require_operator_health
-    from webapp.reader_blocks import annotate_html, latest_annotation_state
+    from webapp.reader_blocks import (
+        annotate_html,
+        latest_annotation_state,
+        render_annotated_blocks,
+        render_plain_blocks,
+        split_structural_blocks,
+    )
 except ModuleNotFoundError:  # pragma: no cover - direct ``python webapp/app.py`` path.
     from health_contract import operator_health_payload
     from job_view import decorate_job_rows
     from operator_health import build_operator_health, require_operator_health
-    from reader_blocks import annotate_html, latest_annotation_state
+    from reader_blocks import (
+        annotate_html,
+        latest_annotation_state,
+        render_annotated_blocks,
+        render_plain_blocks,
+        split_structural_blocks,
+    )
 
 DATABASE_URL = os.environ.get("DATABASE_URL", "postgresql://docray:docray@localhost:5455/docray")
 
@@ -264,7 +276,14 @@ def document(doc_id):
             (str(doc_id), per_page, (page - 1) * per_page),
         )
 
-    if annotate and sentences:
+    if sentences:
+        # Sentence segmentation only splits on terminal punctuation, so a run
+        # of un-punctuated Markdown lines (heading, caption, bullet, next
+        # heading, ...) can be folded into a single stored sentence. The raw
+        # ``full_text`` slice still has the original blank-line/newline block
+        # boundaries that ``sentence.text`` collapsed away, so block-splitting
+        # always works from that raw slice — in both reading modes — rather
+        # than the lossy collapsed text.
         lo = min(s["ss"] for s in sentences)
         hi = max(s["se"] for s in sentences)
         slice_row = q1(
@@ -273,32 +292,40 @@ def document(doc_id):
             (lo + 1, hi - lo, str(doc_id)),
         )
         page_text = (slice_row or {}).get("t") or ""
-        occ = q(
-            """
-            SELECT sp.char_start AS a, sp.char_end AS b, l.uid, l.lemma, l.pos
-            FROM lexeme_occurrences o
-            JOIN annotations an ON an.id = o.annotation_id
-            JOIN spans sp       ON sp.id = o.span_id
-            JOIN lexemes l      ON l.uid = o.lexeme_uid
-            WHERE an.document_id = %s AND sp.char_start >= %s AND sp.char_end <= %s
-            ORDER BY sp.char_start
-            """,
-            (str(doc_id), lo, hi),
+        occ = (
+            q(
+                """
+                SELECT sp.char_start AS a, sp.char_end AS b, l.uid, l.lemma, l.pos
+                FROM lexeme_occurrences o
+                JOIN annotations an ON an.id = o.annotation_id
+                JOIN spans sp       ON sp.id = o.span_id
+                JOIN lexemes l      ON l.uid = o.lexeme_uid
+                WHERE an.document_id = %s AND sp.char_start >= %s AND sp.char_end <= %s
+                ORDER BY sp.char_start
+                """,
+                (str(doc_id), lo, hi),
+            )
+            if annotate
+            else []
         )
         for s in sentences:
             body = page_text[s["ss"] - lo : s["se"] - lo]
-            inside = [
-                {
-                    "rel_start": o["a"] - s["ss"],
-                    "rel_end": o["b"] - s["ss"],
-                    "uid": o["uid"],
-                    "lemma": o["lemma"],
-                    "pos": o["pos"],
-                }
-                for o in occ
-                if o["a"] >= s["ss"] and o["b"] <= s["se"]
-            ]
-            s["html"] = annotate_html(body, inside)
+            blocks = split_structural_blocks(body)
+            if annotate:
+                inside = [
+                    {
+                        "rel_start": o["a"] - s["ss"],
+                        "rel_end": o["b"] - s["ss"],
+                        "uid": o["uid"],
+                        "lemma": o["lemma"],
+                        "pos": o["pos"],
+                    }
+                    for o in occ
+                    if o["a"] >= s["ss"] and o["b"] <= s["se"]
+                ]
+                s["blocks"] = render_annotated_blocks(body, inside, blocks)
+            else:
+                s["blocks"] = render_plain_blocks(body, blocks)
 
     pages = max(1, -(-n_sent // per_page))
     return render_template(
