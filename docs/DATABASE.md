@@ -1,6 +1,6 @@
 # doc-ray — Database ERD & Data Dictionary
 
-**Schema version `1.6.0`** (SemVer) · 33 migrations applied
+**Schema version `1.7.0`** (SemVer) · 35 migrations applied
 
 > Generated from the live schema by `scripts/gen_data_dictionary.py`. Do not edit by hand — re-run the generator.
 
@@ -1053,3 +1053,5 @@ owner's bypass.
 | 031 | `031_schema_version_1_5_0.sql` | advance the schema SemVer to 1.5.0 |
 | 032 | `032_api_role_runtime_grants.sql` | grant API runtime access to jobs and document-scoped seed suggestions under RLS |
 | 033 | `033_schema_version_1_6_0.sql` | advance the schema SemVer to 1.6.0 |
+| 034 | `034_annotation_table_autovacuum.sql` | tune autovacuum/analyze thresholds for high-churn annotation tables |
+| 035 | `035_schema_version_1_7_0.sql` | advance the schema SemVer to 1.7.0 |

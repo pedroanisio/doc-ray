@@ -48,3 +48,7 @@ class ObjectStore(Protocol):
     def list_objects(self, prefix: str = "") -> list[str]:
         """Return every object key under *prefix* (all keys when empty)."""
         ...
+
+    def delete(self, key: str) -> None:
+        """Delete one object key if it exists."""
+        ...

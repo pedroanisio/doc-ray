@@ -50,6 +50,9 @@ docker compose run --rm ingester /data/orwell1984.pdf
 docker compose run --rm ingester /data
 ```
 
+The `ingester` service is profile-gated as an on-demand command, so plain
+`docker compose up` does not start it or emit an argument-error banner.
+
 Expected output:
 
 ```
@@ -88,7 +91,7 @@ Beyond the batch `ingester` CLI, the stack ships a GraphQL API (Strawberry)
 and a Flask browser over the corpus:
 
 ```bash
-docker compose up -d postgres minio createbucket api worker
+docker compose up -d postgres minio createbucket api worker backup-scheduler
 ```
 
 `api` serves GraphQL at `http://localhost:8000/graphql`; `worker` is the
@@ -152,6 +155,13 @@ snapshot (the live job queue and the backup catalog are excluded, so in-flight
 work and the archive index survive), and it requires the archive's
 `schema_version` to match the target database.
 
+The Compose stack also runs `backup-scheduler` by default when the full service
+set is started. It enqueues a backup job every
+`DOCRAY_BACKUP_SCHEDULE_SECONDS` seconds and prunes old backup archives after
+`DOCRAY_BACKUP_RETENTION_DAYS`, while always retaining the newest
+`DOCRAY_BACKUP_RETENTION_COUNT` archives. PITR/WAL archiving is intentionally
+not enabled by this app-native snapshot scheduler.
+
 ## Database diagnostics
 
 Two read-only CLIs inspect the database without touching the corpus:
@@ -161,6 +171,7 @@ Two read-only CLIs inspect the database without touching the corpus:
 # queries, table bloat. Exit code 2 on any warning/error-level finding.
 python -m doc_ray.entrypoints.db_health           # text report
 python -m doc_ray.entrypoints.db_health --json     # machine-readable
+python -m doc_ray.entrypoints.db_health --watch 300 # exit non-zero on warning/error
 
 # Structure inspection + data profiling → Markdown + JSON reports. Read-only by
 # default (--allow-write to opt in); engines are pluggable (PostgreSQL today).
@@ -171,6 +182,8 @@ python -m doc_ray.entrypoints.db_analyze --structure-only --schemas public
 `db_health` reports on the Postgres server itself; `corpus_health` covers
 document/job *content*. `db_analyze` is engine-agnostic — add an engine under
 `application/db_analyzer/engines/` to point it at another database.
+In Compose, `docker compose --profile ops up -d db-health-monitor` runs that
+watch mode as a restartable alert surface.
 
 ## Running the ingester on the host (no docker for Python)
 

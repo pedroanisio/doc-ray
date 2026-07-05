@@ -19,6 +19,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import time
 from collections import Counter
 from typing import Any
 
@@ -227,6 +228,23 @@ def render_text(snapshot: dict[str, Any], issues: list[dict[str, Any]]) -> str:
     return "\n".join(lines)
 
 
+def _run_once(*, json_report: bool) -> int:
+    cfg = Config.from_env()
+    try:
+        with db.connect(cfg) as conn:
+            snapshot = collect(conn)
+    except psycopg.OperationalError as e:
+        print(f"Cannot reach database: {e}", file=sys.stderr)
+        return 1
+
+    issues = find_issues(snapshot)
+    if json_report:
+        print(json.dumps({**snapshot, "issues": issues}, default=str, indent=2))
+    else:
+        print(render_text(snapshot, issues))
+    return exit_code(issues)
+
+
 def main(argv: list[str] | None = None) -> int:
     """Run the database health report CLI.
 
@@ -239,22 +257,26 @@ def main(argv: list[str] | None = None) -> int:
     """
     ap = argparse.ArgumentParser(description="Report the health of the doc-ray Postgres instance.")
     ap.add_argument("--json", action="store_true", help="Emit the report as JSON.")
+    ap.add_argument(
+        "--watch",
+        type=float,
+        metavar="SECONDS",
+        help=(
+            "Poll until a warning/error is found, then exit non-zero so a "
+            "scheduler or container restart policy has an alert signal."
+        ),
+    )
     args = ap.parse_args(argv)
 
-    cfg = Config.from_env()
-    try:
-        with db.connect(cfg) as conn:
-            snapshot = collect(conn)
-    except psycopg.OperationalError as e:
-        print(f"Cannot reach database: {e}", file=sys.stderr)
-        return 1
-
-    issues = find_issues(snapshot)
-    if args.json:
-        print(json.dumps({**snapshot, "issues": issues}, default=str, indent=2))
-    else:
-        print(render_text(snapshot, issues))
-    return exit_code(issues)
+    if args.watch is None:
+        return _run_once(json_report=args.json)
+    if args.watch <= 0:
+        ap.error("--watch must be greater than zero")
+    while True:
+        rc = _run_once(json_report=args.json)
+        if rc != 0:
+            return rc
+        time.sleep(args.watch)
 
 
 if __name__ == "__main__":

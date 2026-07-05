@@ -166,6 +166,12 @@ browser tier never touches the object store directly. The operational `jobs`
 queue and the `backups` catalog are excluded from every archive, so a restore
 never clobbers the live queue or the index it is reading from.
 
+`backup-scheduler` is the deployed cadence trigger: it periodically enqueues
+`backup` jobs through the same Postgres queue and prunes old object-store
+archives according to `DOCRAY_BACKUP_RETENTION_*`. This remains snapshot-based
+recovery; WAL/PITR archiving is intentionally outside the app-native backup
+engine rather than silently implied.
+
 ## Database diagnostics
 
 Two read-only diagnostic entrypoints sit beside the pipeline, neither touching the

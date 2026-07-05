@@ -44,3 +44,38 @@ def test_env_example_does_not_publish_the_historical_default_password():
     text = (_ROOT / ".env.example").read_text(encoding="utf-8")
     assert "POSTGRES_PASSWORD=docray" not in text
     assert "POSTGRES_PASSWORD=change-me" in text
+
+
+def test_ingester_is_profiled_as_an_on_demand_run_only_service():
+    compose = _compose("docker-compose.yml")
+    ingester = compose["services"]["ingester"]
+
+    assert ingester["profiles"] == ["ingest"]
+    assert "restart" not in ingester
+
+
+def test_db_health_monitor_is_an_opt_in_ops_profile_alert_path():
+    compose = _compose("docker-compose.yml")
+    monitor = compose["services"]["db-health-monitor"]
+
+    assert monitor["profiles"] == ["ops"]
+    assert monitor["restart"] == "unless-stopped"
+    assert monitor["entrypoint"] == [
+        "python",
+        "-m",
+        "doc_ray.entrypoints.db_health",
+        "--watch",
+        "${DOCRAY_DB_HEALTH_INTERVAL_SECONDS:-300}",
+    ]
+
+
+def test_backup_scheduler_runs_with_the_default_stack():
+    compose = _compose("docker-compose.yml")
+    scheduler = compose["services"]["backup-scheduler"]
+
+    assert "profiles" not in scheduler
+    assert scheduler["restart"] == "unless-stopped"
+    assert scheduler["entrypoint"] == ["python", "-m", "doc_ray.entrypoints.backup_scheduler"]
+    assert scheduler["environment"]["DOCRAY_BACKUP_SCHEDULE_SECONDS"] == (
+        "${DOCRAY_BACKUP_SCHEDULE_SECONDS:-86400}"
+    )

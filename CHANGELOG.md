@@ -22,6 +22,12 @@ doc-ray carries **one global version** covering both the application package
 ## [Unreleased]
 
 ### Added
+- **Scheduled backups and Postgres maintenance hardening** (OpenAI GPT-5 via Codex) —
+  the Compose stack now runs a backup scheduler with retention pruning, exposes
+  `db_health --watch` as an opt-in ops monitor, tunes autovacuum/analyze
+  thresholds for high-churn annotation tables, prevents the on-demand ingester
+  from starting during plain `docker compose up`, and adds an FTS language-config
+  drift guard, closing `BL-042`, `BL-044`, `BL-045`, and `BL-046`.
 - **Postgres/API security and pool hardening** (OpenAI GPT-5 via Codex) —
   Compose now pins the pgvector/Postgres image by digest, binds Postgres to
   loopback, and refuses unset/default database passwords. The GraphQL API now
@@ -152,6 +158,20 @@ doc-ray carries **one global version** covering both the application package
   English config stems algorithmically, not from a dictionary, so it stems
   nonsense words identically to real ones), decoupling the test from
   corpus size entirely.
+
+## [1.7.0] - 2026-07-05
+
+### Added
+- **Scheduled backup retention and maintenance guardrails** (OpenAI GPT-5 via Codex) —
+  `backup-scheduler` now enqueues backup jobs on a configured cadence, prunes
+  old backup archives from object storage and the backup catalog according to
+  explicit retention settings, and documents WAL/PITR as out of scope for the
+  app-native snapshot mechanism. Migration 034 sets per-table autovacuum and
+  analyze thresholds on `tokens`, `dependency`, `lexeme_occurrences`, and
+  `entity_mention`; migration 035 advances the unified schema/package version
+  to `1.7.0`. The Compose ingester is profile-gated as a run-only service, and
+  a static FTS guard now keeps read/write language config coupled through
+  `docray_ts_config`, closing `BL-042`, `BL-044`, `BL-045`, and `BL-046`.
 
 ## [1.6.0] - 2026-07-05
 
@@ -334,6 +354,7 @@ surface consistent from here on.
 - Upload ingestion no longer leaks the temporary scratch filename into a document's
   `title` / `original_filename`; the uploaded name and explicit `title` are preserved.
 
+[1.7.0]: https://semver.org/spec/v2.0.0.html
 [1.6.0]: https://semver.org/spec/v2.0.0.html
 [1.5.0]: https://semver.org/spec/v2.0.0.html
 [1.4.0]: https://semver.org/spec/v2.0.0.html

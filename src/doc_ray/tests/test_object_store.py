@@ -42,3 +42,13 @@ def test_put_returns_canonical_uri_and_get_roundtrips(store):
     uri = store.put(key, body, "text/plain")
     assert uri == f"s3://{store.bucket}/{key}"
     assert store.get(key) == body
+
+
+def test_delete_removes_an_object_key(store):
+    key = f"it/{uuid.uuid4().hex}.txt"
+    store.put(key, b"delete me", "text/plain")
+    assert key in store.list_objects("it/")
+
+    store.delete(key)
+
+    assert key not in store.list_objects("it/")

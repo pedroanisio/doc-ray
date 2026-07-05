@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 from doc_ray.application import db_health as dh
+
+_ROOT = Path(__file__).resolve().parents[3]
 
 # --- snapshot builders -------------------------------------------------------
 
@@ -210,3 +213,11 @@ def test_cli_json_output(pg, monkeypatch, capsys):
         "tables",
         "issues",
     }
+
+
+def test_autovacuum_migration_tunes_high_churn_annotation_tables():
+    sql = (_ROOT / "db/migrations/034_annotation_table_autovacuum.sql").read_text(encoding="utf-8")
+    for table in ("tokens", "dependency", "lexeme_occurrences", "entity_mention"):
+        assert f"ALTER TABLE {table} SET" in sql
+    assert "autovacuum_vacuum_scale_factor" in sql
+    assert "autovacuum_vacuum_threshold" in sql

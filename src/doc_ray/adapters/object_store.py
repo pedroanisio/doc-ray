@@ -89,3 +89,11 @@ class ObjectStore:
         for page in paginator.paginate(Bucket=self._bucket, Prefix=prefix):
             keys.extend(obj["Key"] for obj in page.get("Contents", []))
         return sorted(keys)
+
+    def delete(self, key: str) -> None:
+        """Delete one object key if it exists.
+
+        Args:
+            key: Object key to remove from the configured bucket.
+        """
+        self._client.delete_object(Bucket=self._bucket, Key=key)

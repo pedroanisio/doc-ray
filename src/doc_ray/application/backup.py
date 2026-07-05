@@ -28,7 +28,7 @@ from __future__ import annotations
 import io
 import json
 import tarfile
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import psycopg
@@ -315,6 +315,47 @@ def restore_backup(
         raise ValueError(f"backup {backup_id!r} has no archive (status {row[1]!r})")
     archive = store.get(object_key)
     return restore_from_archive(conn, store, archive)
+
+
+def prune_backups(
+    conn: psycopg.Connection[Any],
+    store: ObjectStore,
+    *,
+    keep_latest: int,
+    max_age_days: int | None,
+    now: datetime | None = None,
+) -> list[dict[str, str]]:
+    """Delete backup archives outside the configured retention window.
+
+    The newest ``keep_latest`` available archives are always retained. Older
+    archives are pruned when they exceed ``max_age_days``; when
+    ``max_age_days`` is ``None``, every archive beyond ``keep_latest`` is
+    pruned.
+    """
+    if keep_latest < 0:
+        raise ValueError("keep_latest must be non-negative")
+    if max_age_days is not None and max_age_days < 0:
+        raise ValueError("max_age_days must be non-negative")
+    cutoff = None
+    if max_age_days is not None:
+        cutoff = (now or datetime.now(timezone.utc)) - timedelta(days=max_age_days)
+
+    rows = _q(
+        conn,
+        "SELECT id, object_key, created_at FROM backups "
+        "WHERE status = 'available' AND object_key IS NOT NULL "
+        "ORDER BY created_at DESC, id DESC",
+    )
+    pruned: list[dict[str, str]] = []
+    for idx, (backup_id, object_key, created_at) in enumerate(rows):
+        if idx < keep_latest:
+            continue
+        if cutoff is not None and created_at >= cutoff:
+            continue
+        store.delete(str(object_key))
+        conn.execute("DELETE FROM backups WHERE id = %s", (backup_id,))
+        pruned.append({"id": str(backup_id), "object_key": str(object_key)})
+    return pruned
 
 
 def _read_member(tar: tarfile.TarFile, name: str) -> bytes:

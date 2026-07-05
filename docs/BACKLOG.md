@@ -94,6 +94,12 @@ binding Postgres to loopback, refusing default database passwords, adding
 header-token API authentication with RLS-scoped anonymous requests, and wiring
 explicit API connection-pool bounds.
 
+**2026-07-05 backup and maintenance hardening:** completed `BL-042`, `BL-044`,
+`BL-045`, and `BL-046` with scheduled backup enqueueing, retention pruning,
+annotation-table autovacuum tuning, a db-health monitor path, an FTS
+language-config drift guard, and a profile-gated on-demand ingester. Also
+corrected stale status drift for `BL-002` and `BL-024`, which remain parked.
+
 ## Items
 
 | ID | Item | Category | Type | Status | Cx | Priority | Owner |
@@ -139,11 +145,11 @@ explicit API connection-pool bounds.
 | BL-039 | Pin the Postgres image to stop collation-version drift (GH#2) | ops | bug | done | S | high | shared |
 | BL-040 | GraphQL API authentication is a documented no-op | security | feature | done | L | high | shared |
 | BL-041 | Postgres port published on all interfaces with default credentials | security | bug | done | XS | high | shared |
-| BL-042 | No scheduled backups, retention policy, or PITR/WAL archiving | ops | feature | parked | M | medium | shared |
+| BL-042 | No scheduled backups, retention policy, or PITR/WAL archiving | ops | feature | done | M | medium | shared |
 | BL-043 | API connection-pool sizing is unconfigured | persistence | tech-debt | done | XS | medium | shared |
-| BL-044 | No proactive autovacuum/index tuning despite two prior cascade-delete incidents | persistence | tech-debt | parked | M | high | shared |
-| BL-045 | FTS read/write language-config symmetry isn't enforced by a test | testing | tech-debt | parked | XS | low | shared |
-| BL-046 | docker-compose ingester exit code 2 reads as a startup failure (GH#3) | ops | tech-debt | parked | XS | low | shared |
+| BL-044 | No proactive autovacuum/index tuning despite two prior cascade-delete incidents | persistence | tech-debt | done | M | high | shared |
+| BL-045 | FTS read/write language-config symmetry isn't enforced by a test | testing | tech-debt | done | XS | low | shared |
+| BL-046 | docker-compose ingester exit code 2 reads as a startup failure (GH#3) | ops | tech-debt | done | XS | low | shared |
 
 See [`backlog.yml`](backlog.yml) for each item's full description, rationale,
 acceptance criteria, dependencies, related decisions (`D-###`), and references.

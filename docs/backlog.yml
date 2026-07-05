@@ -46,6 +46,12 @@
 # pgvector/Postgres by digest, binds Postgres to loopback, and refuses default
 # database passwords; the GraphQL API has header-token authentication, anonymous
 # HTTP access is RLS-scoped instead of superuser, and API pool sizing is explicit.
+#
+# 2026-07-05: completed BL-042, BL-044, BL-045, and BL-046. The stack now has a
+# backup scheduler with retention pruning, annotation-table autovacuum tuning,
+# an opt-in db_health monitor path, a static FTS language-config guard, and the
+# on-demand ingester is excluded from default compose startup. Also corrected
+# stale status drift for BL-002/BL-024 (still parked) and BL-039/BL-043 (done).
 # =====================================================================
 
 disclaimer: |
@@ -102,7 +108,7 @@ items:
       output MUST pass a verification layer (PALS's Law) before persistence.
     category:     "extraction"
     type:         "feature"
-    status:       "done"
+    status:       "parked"
     complexity:   "L"
     priority:     "medium"
     rationale:    "Formal/technical corpora lose their math, degrading every downstream NLP layer for those docs."
@@ -808,7 +814,7 @@ items:
       rates, annotation coverage, and review acceptance/rejection rates.
     category:     "nlp"
     type:         "research"
-    status:       "done"
+    status:       "parked"
     complexity:   "L"
     priority:     "medium"
     rationale:    "The NLP source treats evaluation and maintenance as part of composition, but Doc-Ray currently tracks structural health more than model or corpus quality drift."
@@ -1243,7 +1249,7 @@ items:
       and was never revisited).
     category:     "ops"
     type:         "bug"
-    status:       "parked"
+    status:       "done"
     complexity:   "S"
     priority:     "high"
     rationale:    "The mismatch is already actively logging on this deployment, not hypothetical; every image rebuild risks worsening drift or silent collation-dependent query-result corruption."
@@ -1351,7 +1357,7 @@ items:
       - "db/migrations/026_backups.sql"
       - "src/doc_ray/tests/test_backup.py"
     owner:        "shared"
-    source:       "This session's Postgres/RDBMS domain gap-analysis (EDB PostgreSQL 16 course's Backup, Recovery and PITR module)."
+    source:       "This session's Postgres/RDBMS domain gap-analysis (EDB PostgreSQL 16 course's Backup, Recovery and PITR module). Completed 2026-07-05 with a backup-scheduler service that enqueues KIND_BACKUP at a configured cadence, retention pruning that deletes old backup archives/catalog rows, and docs that explicitly keep WAL/PITR outside the app-native snapshot scheduler."
     tags:         ["ops", "backup", "postgres", "pitr"]
 
   - id:          "BL-043"
@@ -1367,7 +1373,7 @@ items:
       on-demand, not alerted on.
     category:     "persistence"
     type:         "tech-debt"
-    status:       "parked"
+    status:       "done"
     complexity:   "XS"
     priority:     "medium"
     rationale:    "No incident has occurred yet, but nothing currently prevents concurrent load or scaled workers from approaching max_connections and producing 'too many connections' failures."
@@ -1399,7 +1405,7 @@ items:
       bloat-generating by construction on exactly these large tables.
     category:     "persistence"
     type:         "tech-debt"
-    status:       "parked"
+    status:       "done"
     complexity:   "M"
     priority:     "high"
     rationale:    "Two real incidents are direct evidence of this pattern; as the corpus grows past its current ~90 documents the same incident class is likely to recur in a new shape without proactive per-table settings."
@@ -1413,7 +1419,7 @@ items:
       - "src/doc_ray/application/db_health.py"
       - "src/doc_ray/adapters/persistence.py"
     owner:        "shared"
-    source:       "This session's Postgres/RDBMS domain gap-analysis (EDB PostgreSQL 16 course's Routine Maintenance module), grounded in the two dated incident-fix migrations already in the tree."
+    source:       "This session's Postgres/RDBMS domain gap-analysis (EDB PostgreSQL 16 course's Routine Maintenance module), grounded in the two dated incident-fix migrations already in the tree. Completed 2026-07-05 with migration 034 setting table-local autovacuum/analyze thresholds for tokens, dependency, lexeme_occurrences, and entity_mention, plus an opt-in db-health-monitor compose service using db_health --watch as a non-zero alert path."
     tags:         ["persistence", "postgres", "autovacuum", "performance"]
 
   - id:          "BL-045"
@@ -1429,7 +1435,7 @@ items:
       through the shared function.
     category:     "testing"
     type:         "tech-debt"
-    status:       "parked"
+    status:       "done"
     complexity:   "XS"
     priority:     "low"
     rationale:    "Low impact today (no violating caller found), but would silently degrade recall for pt/simple-config documents if a future contributor bypasses the shared function — exactly the kind of drift this repo's own PALS's-Law verification ethos argues should be caught mechanically, not by convention."
@@ -1439,7 +1445,7 @@ items:
       - "db/migrations/016_fts_language_aware.sql"
       - "src/doc_ray/adapters/persistence_read.py"
     owner:        "shared"
-    source:       "This session's Postgres/RDBMS domain gap-analysis."
+    source:       "This session's Postgres/RDBMS domain gap-analysis. Completed 2026-07-05 with src/doc_ray/tests/test_fts_language_config.py, a static guard that fails future tsvector/tsquery call sites unless they route through docray_ts_config."
     tags:         ["testing", "fts", "postgres"]
 
   - id:          "BL-046"
@@ -1457,7 +1463,7 @@ items:
       in the GitHub issue.
     category:     "ops"
     type:         "tech-debt"
-    status:       "parked"
+    status:       "done"
     complexity:   "XS"
     priority:     "low"
     rationale:    "Not a Postgres/RDBMS defect, but surfaced by the same review pass and shares the same stalled .agent-tasks entry as BL-039 (task-1783203910276-5a81) that was meant to backlog it."
@@ -1467,5 +1473,5 @@ items:
       - "docker-compose.yml"
       - "GitHub issue #3"
     owner:        "shared"
-    source:       "GitHub issue #3 (open), carried over from the stalled task-1783203910276-5a81."
+    source:       "GitHub issue #3 (open), carried over from the stalled task-1783203910276-5a81. Completed 2026-07-05 by placing the ingester service behind the ingest compose profile so plain docker compose up no longer starts the run-only CLI or emits an argparse exit-code-2 banner."
     tags:         ["docs", "docker-compose", "dx"]
