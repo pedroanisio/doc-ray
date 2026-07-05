@@ -1,0 +1,119 @@
+{% extends "base.html" %}
+{% block title %}operator health · doc·ray{% endblock %}
+{% block body %}
+<style>
+  .health-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:.65rem; }
+  .metric { background:var(--panel); border:1px solid var(--line); border-radius:var(--r-sm);
+    padding:.8rem .9rem; box-shadow:var(--shadow-sm); }
+  .metric b { display:block; font-family:var(--display); font-size:1.65rem; line-height:1.05; }
+  .metric span { font-family:var(--mono); font-size:.62rem; letter-spacing:.1em;
+    text-transform:uppercase; color:var(--ink-faint); }
+  .health-layout { display:grid; grid-template-columns:minmax(0,1fr); gap:1rem; }
+  .issue-groups { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:.8rem; }
+  .severity-group { border-left:4px solid var(--line); }
+  .severity-group.error { border-left-color:var(--accent); }
+  .severity-group.warning { border-left-color:var(--pos-adj); }
+  .severity-group.info { border-left-color:var(--pos-noun); }
+  .issue { padding:.7rem 0; border-top:1px solid var(--line-soft); }
+  .issue:first-of-type { border-top:0; }
+  .issue-code { display:inline-flex; font-family:var(--mono); font-size:.66rem; letter-spacing:.05em;
+    text-transform:uppercase; color:var(--ink-soft); border:1px solid var(--line);
+    border-radius:3px; padding:.08rem .4rem; margin-bottom:.25rem; }
+  .empty { color:var(--ink-faint); font-size:.86rem; }
+  .compact td, .compact th { padding:.45rem .55rem; }
+</style>
+
+<p class="kicker">Restricted operations</p>
+<h1>Operator health</h1>
+<p class="lede" style="max-width:38rem">
+  Read-only corpus and database checks, rendered from the same Postgres store as
+  the browser. The page is hidden unless the operator token is supplied.
+</p>
+
+<section class="health-layout">
+  <div>
+    <h2>Corpus health</h2>
+    <div class="health-grid">
+      {% for label, value in [
+        ("documents", corpus.totals.documents),
+        ("sentences", corpus.totals.sentences),
+        ("tokens", corpus.totals.tokens),
+        ("mentions", corpus.totals.entity_mentions),
+        ("links", corpus.totals.entity_links),
+        ("canonicals", corpus.totals.canonical_entries),
+        ("lexemes", corpus.totals.lexemes),
+        ("embeddings", corpus.totals.embeddings),
+      ] %}
+      <div class="metric"><b>{{ "{:,}".format(value or 0) }}</b><span>{{ label }}</span></div>
+      {% endfor %}
+    </div>
+
+    <div class="issue-groups" style="margin-top:1rem">
+      {% for group in corpus.issue_groups %}
+      <div class="card severity-group {{ group.severity }}">
+        <h2>{{ group.severity }} group</h2>
+        {% for issue in group.findings %}
+        <div class="issue">
+          <span class="issue-code">{{ issue.code }}</span>
+          <div>{{ issue.detail }}</div>
+        </div>
+        {% else %}
+        <p class="empty">No {{ group.severity }} findings.</p>
+        {% endfor %}
+      </div>
+      {% endfor %}
+    </div>
+
+    <h2>Jobs</h2>
+    <table class="compact">
+      <thead><tr><th>Kind</th><th>Status</th><th class="num">Count</th></tr></thead>
+      <tbody>
+      {% for row in corpus.jobs %}
+        <tr><td>{{ row.kind }}</td><td><span class="pill">{{ row.status }}</span></td>
+          <td class="num">{{ row.count }}</td></tr>
+      {% else %}
+        <tr><td colspan="3" class="empty">No jobs recorded.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <div>
+    <h2>Database health</h2>
+    <div class="health-grid">
+      <div class="metric"><b>{{ database.size_pretty }}</b><span>database size</span></div>
+      <div class="metric"><b>{{ database.connections|length + 1 }}/{{ database.max_connections }}</b>
+        <span>connections</span></div>
+      <div class="metric"><b>{{ database.tables|length }}</b><span>tracked tables</span></div>
+    </div>
+
+    <div class="issue-groups" style="margin-top:1rem">
+      {% for group in database.issue_groups %}
+      <div class="card severity-group {{ group.severity }}">
+        <h2>{{ group.severity }} group</h2>
+        {% for issue in group.findings %}
+        <div class="issue">
+          <span class="issue-code">{{ issue.code }}</span>
+          <div>{{ issue.detail }}</div>
+        </div>
+        {% else %}
+        <p class="empty">No {{ group.severity }} findings.</p>
+        {% endfor %}
+      </div>
+      {% endfor %}
+    </div>
+
+    <h2>Connections</h2>
+    <table class="compact">
+      <thead><tr><th>State</th><th class="num">Count</th></tr></thead>
+      <tbody>
+      {% for state, count in database.connection_state_counts %}
+        <tr><td>{{ state }}</td><td class="num">{{ count }}</td></tr>
+      {% else %}
+        <tr><td colspan="2" class="empty">No other database sessions.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}

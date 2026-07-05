@@ -45,6 +45,7 @@ need the API (with its object-store configuration) and the worker up as well.
 | `PORT` | HTTP port when run as a module | `5001` |
 | `DOCRAY_DB_ROLE` | Non-superuser role for row-level security | `docray_client` |
 | `DOCRAY_PRINCIPAL_ID` | Principal stamped on each request (enables RLS) | unset = superuser passthrough (local/dev only) |
+| `DOCRAY_OPERATOR_HEALTH_TOKEN` | Token required for `/operator/health` | unset = route hidden |
 
 ### Launching
 
@@ -56,10 +57,19 @@ python -m webapp.app
 
 Then open <http://localhost:5001>. The sun/moon button in the header toggles the
 light ("paper") and dark ("ink") themes; the choice is remembered per browser.
+The header's **Help** link opens the in-app guide at `/help`; technical screens
+also link directly to their relevant guide sections.
 
 ---
 
 ## 2. Screens
+
+### Help (`/help`)
+
+Short in-app guide for the core browser workflows: reading the corpus, following
+pipeline status, curating domain seeding, and operating backups. The guide is
+reachable from every page through the masthead Help link. Pipeline status,
+domain seeding, and backups also link to their corresponding guide sections.
 
 ### 2.0 Upload (`/upload`)
 
@@ -152,6 +162,18 @@ with their status, row/blob/document counts, and size.
 Like every other write, create and restore go through the API and run in the
 worker; downloads are proxied through the API too, so the browser never needs
 object-store credentials.
+
+### 2.9 Operator health (`/operator/health`)
+
+Restricted page for read-only operational checks. Set
+`DOCRAY_OPERATOR_HEALTH_TOKEN` on the webapp process, then request the page with
+either `?token=<token>` or the `X-Operator-Token` header. When the token is unset
+or wrong, the route returns 404.
+
+The page renders corpus-health totals, document/job findings, database size,
+connection pressure, lock/slow-query findings, and table-bloat findings. Issues
+are grouped as `error`, `warning`, and `info`; the browser reads the same
+Postgres store directly and does not write to the corpus.
 
 ---
 

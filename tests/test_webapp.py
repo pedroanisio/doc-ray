@@ -7,6 +7,8 @@ template rendering (POS bars, KWIC highlighting, pagination, 404s, empty states)
 
 from __future__ import annotations
 
+from datetime import datetime
+
 import pytest
 
 from webapp import app as webapp
@@ -16,8 +18,13 @@ MISSING_ID = "22222222-2222-2222-2222-222222222222"
 LEX_UID = "lx_en.v_say01"
 
 _DOC = {
-    "id": DOC_ID, "title": "orwell1984", "doc_type": "pdf", "language": "en",
-    "char_count": 583865, "page_count": 284, "status": "extracted",
+    "id": DOC_ID,
+    "title": "orwell1984",
+    "doc_type": "pdf",
+    "language": "en",
+    "char_count": 583865,
+    "page_count": 284,
+    "status": "extracted",
 }
 _LEX = {"uid": LEX_UID, "lang": "en", "pos": "VERB", "lemma": "say"}
 
@@ -26,8 +33,66 @@ def _norm(sql: str) -> str:
     return " ".join(sql.split())
 
 
-def fake_q(sql, params=()):
-    s = _norm(sql)
+def _fake_health_q(s: str):
+    if "FROM documents d" in s and "ORDER BY d.created_at" in s:
+        return [dict(_DOC, language=None, sentences=6002, mentions=0, links=0)]
+    if "FROM jobs GROUP BY kind, status" in s:
+        return [
+            {"kind": "annotate", "status": "failed", "count": 2},
+            {"kind": "ingest", "status": "succeeded", "count": 1},
+        ]
+    if "FROM jobs WHERE status = 'running'" in s:
+        return [
+            {
+                "id": "job-stale",
+                "kind": "canonicalize",
+                "locked_by": "worker-1",
+                "heartbeat_age_s": 301,
+            }
+        ]
+    if "FROM pg_stat_activity" in s:
+        return [
+            {
+                "pid": 42,
+                "state": "active",
+                "wait_event_type": "Lock",
+                "duration_s": 10,
+                "query": "update documents set title = 'x'",
+            }
+        ]
+    if "FROM pg_stat_user_tables" in s:
+        return [
+            {
+                "relname": "documents",
+                "n_live_tup": 8000,
+                "n_dead_tup": 2500,
+                "dead_pct": 23.8,
+            }
+        ]
+    return None
+
+
+def _fake_workflow_q(s: str):
+    if "FROM seed_suggestion WHERE document_id" in s:
+        return []
+    if "FROM jobs WHERE document_id" in s:
+        return [
+            {
+                "id": "job-1",
+                "kind": "ingest",
+                "status": "succeeded",
+                "error": None,
+                "result": {"document_id": DOC_ID},
+                "created_at": datetime(2026, 7, 4, 12, 0),
+                "finished_at": datetime(2026, 7, 4, 12, 1),
+            }
+        ]
+    if "FROM backups ORDER BY created_at DESC" in s:
+        return []
+    return None
+
+
+def _fake_document_q(s: str):
     if "FROM documents d" in s and "ORDER BY d.char_count" in s:
         return [dict(_DOC, n_sentences=6002, tools="spacy/en_core_web_sm")]
     if "document_authors" in s:
@@ -46,6 +111,10 @@ def fake_q(sql, params=()):
             {"a": 3, "b": 7, "uid": LEX_UID, "lemma": "say", "pos": "VERB"},
             {"a": 8, "b": 13, "uid": "lx_en.x_hi", "lemma": "hello", "pos": "INTJ"},
         ]
+    return None
+
+
+def _fake_lexeme_q(s: str):
     if "FROM lexemes l" in s and "LEFT JOIN lexeme_occurrences" in s:
         return [{"uid": LEX_UID, "lang": "en", "pos": "VERB", "lemma": "say", "uses": 496}]
     if "DISTINCT lang FROM lexemes" in s:
@@ -55,24 +124,84 @@ def fake_q(sql, params=()):
     if "AS form" in s:
         return [{"form": "said"}, {"form": "says"}]
     if "AS kwic" in s:
-        return [{"doc_id": DOC_ID, "title": "orwell1984", "char_start": 3,
-                 "kwic": "He said hello there", "surface": "said"}]
+        return [
+            {
+                "doc_id": DOC_ID,
+                "title": "orwell1984",
+                "char_start": 3,
+                "kwic": "He said hello there",
+                "surface": "said",
+            }
+        ]
+    return None
+
+
+def _fake_search_q(s: str):
     if "FROM sentences s" in s and "ILIKE" in s:
-        return [{"doc_id": DOC_ID, "title": "orwell1984", "ordinal": 3,
-                 "text": "Winston loved Big Brother."}]
+        return [
+            {
+                "doc_id": DOC_ID,
+                "title": "orwell1984",
+                "ordinal": 3,
+                "text": "Winston loved Big Brother.",
+            }
+        ]
+    return None
+
+
+def fake_q(sql, params=()):
+    s = _norm(sql)
+    for handler in (
+        _fake_health_q,
+        _fake_workflow_q,
+        _fake_document_q,
+        _fake_lexeme_q,
+        _fake_search_q,
+    ):
+        rows = handler(s)
+        if rows is not None:
+            return rows
     return []
 
 
 def fake_q1(sql, params=()):
     s = _norm(sql)
+    if "FROM tokens" in s and "entity_mention" in s and "canonical" in s:
+        return {
+            "documents": 5,
+            "sentences": 15200,
+            "tokens": 100000,
+            "entity_mentions": 0,
+            "entity_links": 0,
+            "canonical_entries": 3,
+            "lexemes": 30013,
+            "embeddings": 0,
+        }
     if "FROM documents) docs" in s:
         return {"docs": 5, "sents": 15200, "lexemes": 30013, "occ": 283809}
+    if "pg_database_size(current_database()) AS bytes" in s:
+        return {"bytes": 1048576, "pretty": "1024 kB"}
+    if "max_connections FROM pg_settings" in s:
+        return {"max_connections": 10}
+    if "FROM jobs WHERE id" in s:
+        return {
+            "id": params[0],
+            "kind": "ingest",
+            "status": "succeeded",
+            "document_id": DOC_ID,
+            "error": None,
+            "result": {"document_id": DOC_ID},
+            "created_at": datetime(2026, 7, 4, 12, 0),
+            "finished_at": datetime(2026, 7, 4, 12, 1),
+        }
+    if "SELECT id, title FROM documents WHERE id" in s:
+        return {"id": DOC_ID, "title": _DOC["title"]}
     if "SELECT * FROM documents WHERE id" in s:
         return _DOC if str(params[0]) == DOC_ID else None
     if "count(*) n FROM sentences WHERE document_id" in s:
-        return {"n": 120}                       # 120 / 40 per page -> 3 pages
+        return {"n": 120}  # 120 / 40 per page -> 3 pages
     if "substring(full_text FROM" in s:
-        return {"t": "He said hello"}            # raw slice for annotation
+        return {"t": "He said hello"}  # raw slice for annotation
     if "SELECT * FROM lexemes WHERE uid" in s:
         return _LEX if params[0] == LEX_UID else None
     if "count(*) n FROM lexeme_occurrences WHERE lexeme_uid" in s:
@@ -85,16 +214,18 @@ def client(monkeypatch):
     monkeypatch.setattr(webapp, "q", fake_q)
     monkeypatch.setattr(webapp, "q1", fake_q1)
     webapp.app.config.update(TESTING=True)
+    webapp.app.config.pop("OPERATOR_HEALTH_TOKEN", None)
     return webapp.app.test_client()
 
 
 # --- documents index -------------------------------------------------------
 
+
 def test_home_lists_documents_and_totals(client):
     html = client.get("/").get_data(as_text=True)
     assert "orwell1984" in html
     assert f"/doc/{DOC_ID}" in html
-    assert "283,809" in html          # occurrence total, comma-formatted
+    assert "283,809" in html  # occurrence total, comma-formatted
 
 
 def test_home_lede_uses_live_document_count(client, monkeypatch):
@@ -134,6 +265,7 @@ def test_home_empty_corpus_shows_upload_call_to_action(client, monkeypatch):
 
 # --- document page ---------------------------------------------------------
 
+
 def test_document_page_shows_pos_and_verbs(client):
     html = client.get(f"/doc/{DOC_ID}").get_data(as_text=True)
     assert "Parts of speech" in html
@@ -143,7 +275,7 @@ def test_document_page_shows_pos_and_verbs(client):
 
 
 def test_document_annotated_reader_highlights_words(client):
-    html = client.get(f"/doc/{DOC_ID}").get_data(as_text=True)   # annotate on by default
+    html = client.get(f"/doc/{DOC_ID}").get_data(as_text=True)  # annotate on by default
     assert 'class="w p-VERB"' in html
     assert 'data-t="say · VERB"' in html
     assert f"/lexeme/{LEX_UID}" in html
@@ -179,6 +311,7 @@ def test_document_missing_returns_404(client):
 
 def test_annotate_html_wraps_words_preserves_gaps_and_escapes():
     from webapp.app import annotate_html
+
     occs = [
         {"rel_start": 0, "rel_end": 2, "uid": "lx_en.o_he", "lemma": "he", "pos": "PRON"},
         {"rel_start": 3, "rel_end": 7, "uid": LEX_UID, "lemma": "say", "pos": "VERB"},
@@ -189,11 +322,12 @@ def test_annotate_html_wraps_words_preserves_gaps_and_escapes():
     assert 'aria-label="said, lemma say, part of speech VERB"' in out
     assert '<span class="pos-sigil" aria-hidden="true">V</span>said' in out
     assert out.count("<a ") == 2
-    assert out.endswith(" hello")                 # trailing gap preserved verbatim
-    assert str(annotate_html("<x>", [])) == "&lt;x&gt;"   # html-escaped
+    assert out.endswith(" hello")  # trailing gap preserved verbatim
+    assert str(annotate_html("<x>", [])) == "&lt;x&gt;"  # html-escaped
 
 
 # --- lexeme index ----------------------------------------------------------
+
 
 def test_lexemes_index_renders_and_filters(client):
     html = client.get("/lexemes?pos=VERB&lang=en").get_data(as_text=True)
@@ -204,19 +338,22 @@ def test_lexemes_index_renders_and_filters(client):
 
 
 def test_lexemes_empty_state(client, monkeypatch):
-    monkeypatch.setattr(webapp, "q",
-                        lambda sql, params=(): [] if "LEFT JOIN lexeme_occurrences" in sql
-                        else fake_q(sql, params))
+    monkeypatch.setattr(
+        webapp,
+        "q",
+        lambda sql, params=(): [] if "LEFT JOIN lexeme_occurrences" in sql else fake_q(sql, params),
+    )
     html = client.get("/lexemes?q=zzzzz").get_data(as_text=True)
     assert "No lexemes match." in html
 
 
 # --- lexeme detail (KWIC) --------------------------------------------------
 
+
 def test_lexeme_kwic_highlights_the_surface(client):
     html = client.get(f"/lexeme/{LEX_UID}").get_data(as_text=True)
     assert "say" in html
-    assert "said" in html                       # an observed form
+    assert "said" in html  # an observed form
     # KWIC: 'He said hello there' split around 'said', surface highlighted
     assert ">said</span>" in html
     assert "He " in html and "hello there" in html
@@ -227,6 +364,7 @@ def test_lexeme_missing_returns_404(client):
 
 
 # --- search ----------------------------------------------------------------
+
 
 def test_search_highlights_the_term(client):
     html = client.get("/search?q=Winston").get_data(as_text=True)
@@ -263,9 +401,63 @@ def test_search_without_query_shows_no_results_table(client):
     assert "<th>Sentence</th>" not in html
 
 
+# --- help / guide ----------------------------------------------------------
+
+
+def test_help_entry_is_reachable_from_every_page(client):
+    home = client.get("/").get_data(as_text=True)
+    guide = client.get("/help").get_data(as_text=True)
+
+    assert 'href="/help"' in home
+    assert "doc-ray guide" in guide
+    assert 'id="pipeline-status"' in guide
+    assert 'id="domain-seeding"' in guide
+    assert 'id="backups"' in guide
+
+
+def test_technical_screens_link_to_contextual_help(client):
+    job = client.get("/job/job-1").get_data(as_text=True)
+    seeding = client.get(f"/doc/{DOC_ID}/seeding").get_data(as_text=True)
+    backups = client.get("/backups").get_data(as_text=True)
+
+    assert 'href="/help#pipeline-status"' in job
+    assert 'href="/help#domain-seeding"' in seeding
+    assert 'href="/help#backups"' in backups
+
+
+# --- operator health -------------------------------------------------------
+
+
+def test_operator_health_requires_admin_token(client):
+    webapp.app.config["OPERATOR_HEALTH_TOKEN"] = "secret"
+
+    assert client.get("/operator/health").status_code == 404
+    assert client.get("/operator/health?token=wrong").status_code == 404
+
+
+def test_operator_health_renders_corpus_and_database_snapshots(client):
+    webapp.app.config["OPERATOR_HEALTH_TOKEN"] = "secret"
+
+    html = client.get("/operator/health?token=secret").get_data(as_text=True)
+    normalized = _norm(html)
+
+    assert "Operator health" in html
+    assert "Corpus health" in html
+    assert "Database health" in html
+    assert "document-unannotated" in html
+    assert "job-failed" in html
+    assert "job-stalled" in html
+    assert "query-blocked" in html
+    assert "table-bloat" in html
+    assert "error group" in normalized
+    assert "warning group" in normalized
+    assert "info group" in normalized
+
+
 # ---------------------------------------------------------------------------
 # RLS enforcement: get_conn drops to docray_client + sets the principal
 # ---------------------------------------------------------------------------
+
 
 class _RecordingConn:
     def __init__(self):
@@ -283,7 +475,7 @@ class _RecordingConn:
 
             def execute(self_, query, params=None):
                 try:
-                    rendered = query.as_string(None)     # psycopg Composed
+                    rendered = query.as_string(None)  # psycopg Composed
                 except AttributeError:
                     rendered = str(query)
                 outer.calls.append((rendered, params))
@@ -302,10 +494,11 @@ def test_get_conn_enforces_rls_when_principal_configured(monkeypatch):
     with webapp.app.test_request_context():
         webapp.get_conn()
     joined = " ".join(q for q, _ in fake.calls)
-    assert "SET ROLE" in joined and "docray_client" in joined   # dropped to RLS role
+    assert "SET ROLE" in joined and "docray_client" in joined  # dropped to RLS role
     # principal is bound as a parameter (not string-interpolated)
-    assert any("set_config" in q and p == ("11111111-1111-1111-1111-111111111111",)
-               for q, p in fake.calls)
+    assert any(
+        "set_config" in q and p == ("11111111-1111-1111-1111-111111111111",) for q, p in fake.calls
+    )
 
 
 def test_get_conn_is_superuser_passthrough_without_principal(monkeypatch):
@@ -314,4 +507,4 @@ def test_get_conn_is_superuser_passthrough_without_principal(monkeypatch):
     monkeypatch.setattr(webapp, "PRINCIPAL_ID", None)
     with webapp.app.test_request_context():
         webapp.get_conn()
-    assert fake.calls == []                                     # no SET ROLE / set_config
+    assert fake.calls == []  # no SET ROLE / set_config

@@ -853,7 +853,7 @@ items:
       (link or in-app render) plus contextual '?' links on the technical screens.
     category:     "webapp"
     type:         "feature"
-    status:       "parked"
+    status:       "done"
     complexity:   "S"
     priority:     "high"
     rationale:    "Users cannot self-serve on undocumented jargon; every stuck user becomes a support request."
@@ -862,9 +862,13 @@ items:
       - "Seeding, backups, and job-status screens link to their relevant documentation section."
     references:
       - "webapp/templates/base.html"
+      - "webapp/templates/help.html"
+      - "webapp/templates/job.html"
+      - "webapp/templates/seeding.html"
+      - "webapp/templates/backups.html"
       - "docs/webapp_user_manual.md"
     owner:        "shared"
-    source:       "Session finding 2026-07-04: webapp UX/UI audit (finding H2)."
+    source:       "Session finding 2026-07-04: completed with persistent /help route plus contextual guide links on job status, seeding, and backups."
     tags:         ["help", "docs", "onboarding", "ux"]
 
   - id:          "BL-028"
@@ -1147,7 +1151,7 @@ items:
       standardization, GraphQL/admin-endpoint, or CI-wiring parts.
     category:     "ops"
     type:         "feature"
-    status:       "parked"
+    status:       "done"
     complexity:   "M"
     priority:     "medium"
     rationale:    "Health checks already exist and find real issues, but are invisible to anyone without CLI + database credentials — a webapp page turns an operational blind spot into a one-click check."
@@ -1155,13 +1159,14 @@ items:
       - "An operator page in the webapp renders the corpus_health and db_health snapshots without shell access."
       - "Issues are grouped and visually distinguished by severity (error/warning/info)."
       - "The page (or the health data it exposes) is admin-gated, not visible to every principal — consistent with BL-012's trust-boundary concerns."
-    dependencies: ["BL-023"]
+    dependencies: []
     references:
       - "src/doc_ray/application/corpus_health.py"
       - "src/doc_ray/application/db_health.py"
       - "src/doc_ray/application/db_analyzer/"
       - "webapp/app.py"
-      - "webapp/templates/base.html"
+      - "webapp/operator_health.py"
+      - "webapp/templates/operator_health.html"
     owner:        "mine"
-    source:       "Operator request, 2026-07-04 session: 'add the database health check as a UI element at the webapp', following a live corpus_health/db_health report."
+    source:       "Operator request, 2026-07-04 session: implemented as /operator/health with DOCRAY_OPERATOR_HEALTH_TOKEN gating; kept webapp-local to preserve the no doc_ray import boundary."
     tags:         ["ops", "health", "webapp", "observability"]

@@ -32,6 +32,7 @@
   <span class="counts">{{ counts.pending }} pending · {{ counts.approved }} approved ·
     {{ counts.rejected }} rejected · {{ counts.seeded }} seeded</span>
 </div>
+<p class="noqid"><a href="{{ url_for('help_page') }}#domain-seeding">Domain seeding guide</a></p>
 <p><a href="/doc/{{ doc.id }}">&larr; {{ doc.title }}</a></p>
 
 {% if notice %}<div class="notice">{{ notice }}</div>{% endif %}

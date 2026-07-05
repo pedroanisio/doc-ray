@@ -22,6 +22,7 @@
 </style>
 
 <h1>Pipeline status</h1>
+<p class="hint"><a href="{{ url_for('help_page') }}#pipeline-status">Pipeline guide</a></p>
 {% if doc %}
   <p><a href="/doc/{{ doc.id }}">&rarr; {{ doc.title }}</a></p>
 {% elif active %}

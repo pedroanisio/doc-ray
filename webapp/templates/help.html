@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+{% block title %}help · doc·ray{% endblock %}
+{% block body %}
+<style>
+  main { max-width:920px; }
+  .guide-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(250px,1fr)); gap:1rem; }
+  .guide-card h2 { margin-top:0; }
+  .steps { margin:.7rem 0 0; padding-left:1.2rem; color:var(--ink-soft); }
+  .steps li { margin:.25rem 0; }
+  .anchor-list { display:flex; gap:.45rem; flex-wrap:wrap; margin:1rem 0 1.4rem; }
+  .anchor-list a { font-family:var(--mono); font-size:.68rem; letter-spacing:.06em;
+    text-transform:uppercase; border:1px solid var(--line); border-radius:var(--r-sm);
+    padding:.35rem .55rem; color:var(--ink-soft); }
+  .anchor-list a:hover { color:var(--accent); border-color:var(--accent); text-decoration:none; }
+</style>
+
+<p class="kicker">Guide</p>
+<h1>doc-ray guide</h1>
+<p class="lede" style="max-width:42rem">
+  doc-ray turns source documents into an auditable corpus: ingest files, annotate
+  text into linguistic layers, search the results, and curate domain entities
+  before they enter the shared canonical registry.
+</p>
+
+<div class="anchor-list">
+  <a href="#reading">Reading</a>
+  <a href="#pipeline-status">Pipeline status</a>
+  <a href="#domain-seeding">Domain seeding</a>
+  <a href="#backups">Backups</a>
+</div>
+
+<section class="guide-grid">
+  <div class="card guide-card" id="reading">
+    <h2>Reading</h2>
+    <p>
+      The corpus page lists ingested documents. Open a document to read sentence
+      pages with part-of-speech annotation overlaid; click any annotated word to
+      inspect its lexeme and keyword-in-context examples.
+    </p>
+  </div>
+
+  <div class="card guide-card" id="pipeline-status">
+    <h2>Pipeline status</h2>
+    <p>
+      Uploads enqueue background jobs. The status page refreshes while work is
+      queued or running, then links to the document and its curation screen.
+    </p>
+    <ol class="steps">
+      <li>Ingest stores the source and extracted text.</li>
+      <li>Annotate builds sentences, lexemes, and entity mentions.</li>
+      <li>Canonicalize links known entities when the registry can resolve them.</li>
+    </ol>
+  </div>
+
+  <div class="card guide-card" id="domain-seeding">
+    <h2>Domain seeding</h2>
+    <p>
+      Seeding is the human audit loop for adding reliable entities to the
+      canonical registry. Mine candidates, audit every identity, approve only
+      exact matches, then seed the approved rows.
+    </p>
+  </div>
+
+  <div class="card guide-card" id="backups">
+    <h2>Backups</h2>
+    <p>
+      Backups capture the corpus database and stored blobs as one archive.
+      Restore is destructive: it rewinds the corpus to that archive, so confirm
+      the target snapshot before starting a restore job.
+    </p>
+  </div>
+</section>
+{% endblock %}

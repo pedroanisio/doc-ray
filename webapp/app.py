@@ -22,6 +22,11 @@ from markupsafe import Markup, escape
 from psycopg import sql
 from psycopg.rows import dict_row
 
+try:
+    from webapp.operator_health import build_operator_health, require_operator_health
+except ModuleNotFoundError:  # pragma: no cover - direct ``python webapp/app.py`` path.
+    from operator_health import build_operator_health, require_operator_health
+
 DATABASE_URL = os.environ.get("DATABASE_URL", "postgresql://docray:docray@localhost:5455/docray")
 
 # Row-Level Security enforcement (see db/migrations/018_rbac.sql). The superuser
@@ -36,6 +41,7 @@ app = Flask(__name__)
 # Uploads are forwarded to the API, which buffers the file for hashing — cap
 # the request size here so an oversized POST is rejected at the front door.
 app.config["MAX_CONTENT_LENGTH"] = int(os.environ.get("DOCRAY_MAX_UPLOAD_MB", "200")) * 1024 * 1024
+app.add_url_rule("/help", "help_page", lambda: render_template("help.html"))
 
 
 # --- per-request DB connection --------------------------------------------
@@ -214,6 +220,13 @@ def documents():
         "(SELECT count(*) FROM lexeme_occurrences) occ"
     )
     return render_template("documents.html", rows=rows, totals=totals)
+
+
+@app.route("/operator/health")
+def operator_health():
+    """Render read-only corpus and database health snapshots for operators."""
+    require_operator_health()
+    return render_template("operator_health.html", **build_operator_health(q, q1))
 
 
 @app.route("/doc/<uuid:doc_id>")

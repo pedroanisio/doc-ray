@@ -50,7 +50,9 @@ had shipped but were still marked `parked`/`ready`.
 
 **2026-07-04 refine pass (frontend):** promoted `BL-028`/`BL-031` to `ready`; de-duplicated `BL-029`/`BL-036` (definitions vs. the tooltip affordance) and cross-linked them; added `BL-037` (POS color-only accessibility gap, WCAG 1.4.1).
 
-**2026-07-04 ops:** added `BL-038` (webapp operator page for `corpus_health`/`db_health`), narrowing `BL-023`'s browser-page option to the webapp UI surface specifically.
+**2026-07-04 help:** completed `BL-027` with a persistent `/help` guide and contextual guide links from pipeline status, domain seeding, and backups.
+
+**2026-07-04 ops:** added and completed `BL-038` (webapp operator page for `corpus_health`/`db_health`) as the `/operator/health` page gated by `DOCRAY_OPERATOR_HEALTH_TOKEN`, narrowing `BL-023`'s browser-page option to the webapp UI surface specifically.
 
 ## Items
 
@@ -82,7 +84,7 @@ had shipped but were still marked `parked`/`ready`.
 | BL-024 | Evaluation and drift artifacts | nlp | research | parked | L | medium | shared |
 | BL-025 | Lexeme/token projection invariant | persistence | tech-debt | done | M | medium | shared |
 | BL-026 | Surface a product value proposition in the webapp | webapp | feature | parked | S | high | shared |
-| BL-027 | Add an in-app help / documentation / onboarding surface | webapp | feature | parked | S | high | shared |
+| BL-027 | Add an in-app help / documentation / onboarding surface | webapp | feature | done | S | high | shared |
 | BL-028 | Corpus landing: dynamic lede + empty state | webapp | bug | done | XS | high | shared |
 | BL-029 | Define domain jargon across the webapp | webapp | feature | parked | M | medium | shared |
 | BL-030 | Seeding screen: workflow signposting and Seed confirmation guardrail | webapp | feature | parked | S | medium | shared |
@@ -93,7 +95,7 @@ had shipped but were still marked `parked`/`ready`.
 | BL-035 | De-emphasize raw ULIDs in user-facing tables | webapp | tech-debt | parked | XS | low | shared |
 | BL-036 | Extend the reader's tooltip pattern to POS chips and status pills | webapp | feature | parked | S | low | shared |
 | BL-037 | Accessibility: part-of-speech is conveyed by color alone | webapp | bug | done | S | medium | shared |
-| BL-038 | Webapp operator page: surface corpus_health / db_health in the UI | ops | feature | parked | M | medium | mine |
+| BL-038 | Webapp operator page: surface corpus_health / db_health in the UI | ops | feature | done | M | medium | mine |
 
 See [`backlog.yml`](backlog.yml) for each item's full description, rationale,
 acceptance criteria, dependencies, related decisions (`D-###`), and references.

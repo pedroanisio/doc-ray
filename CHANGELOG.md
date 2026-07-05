@@ -22,6 +22,14 @@ doc-ray carries **one global version** covering both the application package
 ## [Unreleased]
 
 ### Added
+- **In-app help guide** (OpenAI GPT-5 via Codex) —
+  the Flask browser now has a persistent `/help` guide reachable from every
+  page, with contextual guide links from pipeline status, domain seeding, and
+  backups, closing `BL-027`.
+- **Operator health page** (OpenAI GPT-5 via Codex) —
+  `/operator/health` now renders read-only corpus and database health snapshots
+  in the Flask browser, grouping findings by `error`/`warning`/`info` and
+  requiring `DOCRAY_OPERATOR_HEALTH_TOKEN`, closing `BL-038`.
 - **Reader POS accessibility cues** (OpenAI GPT-5 via Codex) —
   annotated reader words now carry visible part-of-speech sigils, accessible
   POS labels, and non-color underline styles so POS is no longer conveyed by
