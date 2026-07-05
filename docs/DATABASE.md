@@ -1,6 +1,6 @@
 # doc-ray — Database ERD & Data Dictionary
 
-**Schema version `1.7.0`** (SemVer) · 35 migrations applied
+**Schema version `1.8.0`** (SemVer) · 37 migrations applied
 
 > Generated from the live schema by `scripts/gen_data_dictionary.py`. Do not edit by hand — re-run the generator.
 
@@ -788,13 +788,13 @@ by RLS keyed on these (see §Access control).
 | `external_subject` | text | yes |  |  |  |
 | `disabled_at` | timestamp with time zone | yes |  |  |  |
 | `created_at` | timestamp with time zone |  |  | `now()` |  |
-| `db_role` | name | yes | UQ |  | Per-principal LOGIN role for direct-SQL RLS isolation. |
+| `db_role` | name | yes | UQ |  |  |
 
 - **Primary key:** (id)
-- **Unique:** UNIQUE (display_name)
 - **Unique:** UNIQUE (db_role)
+- **Unique:** UNIQUE (display_name)
+- **Check:** CHECK (((db_role IS NULL) OR (db_role <> ALL (ARRAY['docray'::name, 'docray_client'::name, 'docray_api'::name]))))
 - **Check:** CHECK ((kind = ANY (ARRAY['human'::text, 'service'::text])))
-- **Check:** CHECK ((db_role IS NULL OR db_role NOT IN ('docray'::name, 'docray_client'::name, 'docray_api'::name)))
 - **Index** `principals_db_role_key`: public.principals USING btree (db_role)
 - **Index** `principals_display_name_key`: public.principals USING btree (display_name)
 
@@ -860,7 +860,88 @@ by RLS keyed on these (see §Access control).
 - **Index** `idx_document_acl_document`: public.document_acl USING btree (document_id)
 - **Index** `idx_document_acl_principal`: public.document_acl USING btree (principal_id)
 
-### 5.11 Meta
+### 5.11 Evaluation & drift artifacts
+
+Corpus snapshots, evaluation runs, metric rows, and gold samples make quality and drift measurements
+durable and citeable instead of one-off operator observations.
+
+#### `corpus_snapshot`
+
+| Column | Type | Null | Key | Default | Notes |
+|---|---|---|---|---|---|
+| `id` | ulid |  | PK |  |  |
+| `created_at` | timestamp with time zone |  |  | `now()` |  |
+| `source` | text |  |  |  |  |
+| `schema_version` | text |  |  |  |  |
+| `document_count` | bigint |  |  |  |  |
+| `sentence_count` | bigint |  |  |  |  |
+| `token_count` | bigint |  |  |  |  |
+| `lexeme_count` | bigint |  |  |  |  |
+| `lexeme_occurrence_count` | bigint |  |  |  |  |
+| `entity_mention_count` | bigint |  |  |  |  |
+| `entity_link_count` | bigint |  |  |  |  |
+| `review_pending_count` | bigint |  |  | `0` |  |
+| `review_approved_count` | bigint |  |  | `0` |  |
+| `review_rejected_count` | bigint |  |  | `0` |  |
+| `tool_versions` | jsonb |  |  | `'{}'::jsonb` |  |
+| `lexeme_distribution` | jsonb |  |  | `'{}'::jsonb` |  |
+| `entity_distribution` | jsonb |  |  | `'{}'::jsonb` |  |
+| `fact_refs` | jsonb |  |  | `'{}'::jsonb` |  |
+
+- **Primary key:** (id)
+- **Index** `idx_corpus_snapshot_created`: public.corpus_snapshot USING btree (created_at DESC)
+
+#### `evaluation_run`
+
+| Column | Type | Null | Key | Default | Notes |
+|---|---|---|---|---|---|
+| `id` | ulid |  | PK |  |  |
+| `snapshot_id` | ulid |  | FK→corpus_snapshot |  |  |
+| `created_at` | timestamp with time zone |  |  | `now()` |  |
+| `evaluator` | text |  |  |  |  |
+| `evaluator_version` | text |  |  |  |  |
+| `schema_version` | text |  |  |  |  |
+| `note` | text | yes |  |  |  |
+
+- **Primary key:** (id)
+- **FK:** FOREIGN KEY (snapshot_id) REFERENCES corpus_snapshot(id) ON DELETE CASCADE
+- **Index** `idx_evaluation_run_snapshot`: public.evaluation_run USING btree (snapshot_id, created_at DESC)
+
+#### `evaluation_metric`
+
+| Column | Type | Null | Key | Default | Notes |
+|---|---|---|---|---|---|
+| `run_id` | ulid |  | PK, FK→evaluation_run |  |  |
+| `name` | text |  | PK |  |  |
+| `subject` | text |  | PK |  |  |
+| `subject_id` | text |  | PK |  |  |
+| `value_numeric` | double precision | yes |  |  |  |
+| `value_json` | jsonb |  |  | `'{}'::jsonb` |  |
+| `unit` | text |  |  | `'count'::text` |  |
+| `fact_refs` | jsonb |  |  | `'{}'::jsonb` |  |
+
+- **Primary key:** (run_id, name, subject, subject_id)
+- **FK:** FOREIGN KEY (run_id) REFERENCES evaluation_run(id) ON DELETE CASCADE
+- **Index** `idx_evaluation_metric_name`: public.evaluation_metric USING btree (name, subject, subject_id)
+
+#### `gold_sample`
+
+| Column | Type | Null | Key | Default | Notes |
+|---|---|---|---|---|---|
+| `id` | ulid |  | PK |  |  |
+| `document_id` | uuid | yes | FK→documents |  |  |
+| `span_id` | uuid | yes | FK→spans |  |  |
+| `label` | text |  |  |  |  |
+| `expected` | jsonb |  |  |  |  |
+| `source` | text |  |  |  |  |
+| `created_at` | timestamp with time zone |  |  | `now()` |  |
+
+- **Primary key:** (id)
+- **FK:** FOREIGN KEY (document_id) REFERENCES documents(id) ON DELETE CASCADE
+- **FK:** FOREIGN KEY (span_id) REFERENCES spans(id) ON DELETE CASCADE
+- **Index** `idx_gold_sample_label`: public.gold_sample USING btree (label, created_at DESC)
+
+### 5.12 Meta
 
 Applied-migration ledger, the schema's SemVer, and the corpus-backup catalogue. `backups` is
 operational: it and the `jobs` queue are excluded from every snapshot and from restore, so a restore
@@ -957,7 +1038,9 @@ SELECT a.document_id,
 | Function | Returns | Security | Lang |
 |---|---|---|---|
 | `docray_attach_rls(tbl regclass, tmpl text)` | `void` | invoker | plpgsql |
-| `docray_current_principal()` | `uuid` | invoker | sql |
+| `docray_create_principal_login(principal uuid, role_name name, password text DEFAULT NULL::text)` | `name` | DEFINER | plpgsql |
+| `docray_current_principal()` | `uuid` | DEFINER | sql |
+| `docray_effective_actor()` | `name` | invoker | sql |
 | `docray_is_admin()` | `boolean` | DEFINER | sql |
 | `docray_readable_documents()` | `SETOF uuid` | DEFINER | sql |
 | `docray_schema_version()` | `text` | invoker | sql |
@@ -1049,9 +1132,11 @@ owner's bypass.
 | 027 | `027_fk_cascade_indexes.sql` | index the annotations delete-cascade FK paths |
 | 028 | `028_document_delete_cascade_indexes.sql` | index the document delete-cascade FK paths |
 | 029 | `029_schema_version_1_4_0.sql` | advance the schema SemVer to 1.4.0 |
-| 030 | `030_principal_login_roles.sql` | per-principal LOGIN roles, `docray_api` trusted GUC role, and direct-SQL impersonation guard |
+| 030 | `030_principal_login_roles.sql` | per-principal LOGIN roles and trusted API principal assertion |
 | 031 | `031_schema_version_1_5_0.sql` | advance the schema SemVer to 1.5.0 |
-| 032 | `032_api_role_runtime_grants.sql` | grant API runtime access to jobs and document-scoped seed suggestions under RLS |
+| 032 | `032_api_role_runtime_grants.sql` | grant API runtime access to jobs and seed suggestions under RLS |
 | 033 | `033_schema_version_1_6_0.sql` | advance the schema SemVer to 1.6.0 |
-| 034 | `034_annotation_table_autovacuum.sql` | tune autovacuum/analyze thresholds for high-churn annotation tables |
+| 034 | `034_annotation_table_autovacuum.sql` | autovacuum/analyze thresholds for annotation tables |
 | 035 | `035_schema_version_1_7_0.sql` | advance the schema SemVer to 1.7.0 |
+| 036 | `036_evaluation_drift.sql` | evaluation runs, corpus snapshots, metrics, and gold samples |
+| 037 | `037_schema_version_1_8_0.sql` | advance the schema SemVer to 1.8.0 |

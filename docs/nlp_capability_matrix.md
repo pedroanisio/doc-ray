@@ -53,6 +53,14 @@ record `validation_status=passed` and `validation_errors=0` in job and
 provenance output; invalid graphs fail before the annotation/provenance rows
 become visible.
 
+Semantic-enrichment note: as of `BL-006`, `application.semantic_enrichment`
+ports the deterministic subset of the remaining schema-only layers. It writes
+PDTB-style connective relations, simple TimeML date/event rows, lexicon
+sentiment, and hash-BoW embeddings under one provenance-stamped annotation run.
+Subword tokenization, constituency, SRL, WSD, and AMR remain schema-only because
+they require a dedicated tokenizer/parser/model or knowledge base rather than a
+safe deterministic fallback.
+
 ## Capability Matrix
 
 | Layer | Capability | Schema | Writer | Read adapter | GraphQL | Browser | Health | Tests | Status |
@@ -73,10 +81,10 @@ become visible.
 | 14 | Semantic role labeling | `db/migrations/011_meaning_discourse.sql` | none: no production SRL writer is registered | none: no read-adapter function for SRL rows | none: no GraphQL SRL field | none: not browser-exposed | none: no health signal beyond table tests | `src/doc_ray/tests/test_011_meaning.py` | schema-only |
 | 15 | Word-sense disambiguation | `db/migrations/011_meaning_discourse.sql` | none: no production WSD writer is registered | none: no read-adapter function for word_sense rows | none: no GraphQL WSD field | none: not browser-exposed | none: no health signal beyond table tests | `src/doc_ray/tests/test_011_meaning.py` | schema-only |
 | 16 | AMR semantic parsing | `db/migrations/011_meaning_discourse.sql` | none: no production AMR writer is registered | none: no read-adapter function for AMR rows | none: no GraphQL AMR field | none: not browser-exposed | none: no health signal beyond table tests | `src/doc_ray/tests/test_011_meaning.py` | schema-only |
-| 17 | Discourse relations | `db/migrations/011_meaning_discourse.sql` | none: no production discourse writer is registered | none: no read-adapter function for discourse rows | none: no GraphQL discourse field | none: not browser-exposed | none: no health signal beyond table tests | `src/doc_ray/tests/test_011_meaning.py` | schema-only |
-| 18 | Temporal and event annotation | `db/migrations/011_meaning_discourse.sql` | none: no production TimeML writer is registered | none: no read-adapter function for temporal rows | none: no GraphQL temporal field | none: not browser-exposed | none: no health signal beyond table tests | `src/doc_ray/tests/test_011_meaning.py` | schema-only |
-| 19 | Sentiment | `db/migrations/011_meaning_discourse.sql` | none: no production sentiment writer is registered | none: no read-adapter function for sentiment rows | none: no GraphQL sentiment field | none: not browser-exposed | none: no health signal beyond table tests | `src/doc_ray/tests/test_011_meaning.py` | schema-only |
-| 20 | Embeddings | `db/migrations/012_embeddings.sql`; `db/migrations/021_canonical.sql` | none: no production embedding writer is registered | none: no read-adapter function for embedding rows | none: no GraphQL embedding field | none: embedding backend is not surfaced | `src/doc_ray/application/corpus_health.py` missing-embedding issue | `src/doc_ray/tests/test_012_embeddings.py`; `src/doc_ray/tests/test_corpus_health.py` | schema-only |
+| 17 | Discourse relations | `db/migrations/011_meaning_discourse.sql` | writer: `src/doc_ray/application/semantic_enrichment.py::annotate_document` | none: no read-adapter function for discourse rows | none: no GraphQL discourse field | none: not browser-exposed | none: no health signal beyond table tests | `src/doc_ray/tests/test_011_meaning.py`; `src/doc_ray/tests/test_semantic_enrichment.py` | writer-backed |
+| 18 | Temporal and event annotation | `db/migrations/011_meaning_discourse.sql` | writer: `src/doc_ray/application/semantic_enrichment.py::annotate_document` | none: no read-adapter function for temporal rows | none: no GraphQL temporal field | none: not browser-exposed | none: no health signal beyond table tests | `src/doc_ray/tests/test_011_meaning.py`; `src/doc_ray/tests/test_semantic_enrichment.py` | writer-backed |
+| 19 | Sentiment | `db/migrations/011_meaning_discourse.sql` | writer: `src/doc_ray/application/semantic_enrichment.py::annotate_document` | none: no read-adapter function for sentiment rows | none: no GraphQL sentiment field | none: not browser-exposed | none: no health signal beyond table tests | `src/doc_ray/tests/test_011_meaning.py`; `src/doc_ray/tests/test_semantic_enrichment.py` | writer-backed |
+| 20 | Embeddings | `db/migrations/012_embeddings.sql`; `db/migrations/021_canonical.sql` | writer: `src/doc_ray/application/semantic_enrichment.py::annotate_document` | none: no read-adapter function for embedding rows | none: no GraphQL embedding field | none: embedding backend is not surfaced | `src/doc_ray/application/corpus_health.py` missing-embedding issue | `src/doc_ray/tests/test_012_embeddings.py`; `src/doc_ray/tests/test_corpus_health.py`; `src/doc_ray/tests/test_semantic_enrichment.py` | writer-backed |
 
 ## Drift Guard
 

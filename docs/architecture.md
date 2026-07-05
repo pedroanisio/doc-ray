@@ -55,9 +55,9 @@ disclaimer:
 |---|---|---|---|
 | **Domain** | `doc_ray.domain` | `pdf_layout` (layout→Markdown), `sentences` (segmentation), `lexemes` (identity, tokenization, `RuleAnalyzer`, language detection), `ulid` (value object), `provenance` (events) | stdlib only |
 | **Ports** | `doc_ray.ports` | `TextExtractor`, `ObjectStore`, `Repository`, `Annotator`, `ModelOutputVerifier` — `Protocol` contracts | domain |
-| **Adapters** | `doc_ray.adapters` | `extraction` (PyMuPDF + opt-in OCR + pypdf + txt/html/epub/docx), `persistence` (Postgres/psycopg), `persistence_read` / `persistence_layers_read` / `persistence_canonical_read` (bounded async GraphQL read models), `object_store` (MinIO/boto3), `annotation` / `annotation_spacy`, `export`, `wikidata` / `wikipedia` (canonical-entity KB resolution), `queue_postgres` (`FOR UPDATE SKIP LOCKED` job queue) | domain, ports |
-| **Application** | `doc_ray.application` | `pipeline` (ingest use case), `reannotate`, `reextract`, `verification` (shared ML/LLM output gate), `jobs` (worker dispatch + payload-carried pipeline-chain automation), `term_scan` / `canonicalize` / `resolution` / `seed_suggest` / `canonical_seed` (entity canonicalization — see below), `backup` (corpus snapshot & restore), `corpus_health`, `db_health` (instance health), `db_analyzer` (multi-engine structure + data profiling) | ports, adapters, domain |
-| **Entrypoints** | `doc_ray.entrypoints` | `cli`; `api` (GraphQL, Strawberry) and `worker` — the async-read / sync-write split every mutation runs through (see below); `migrate`, `export`, `annotate(_spacy)`, `reannotate`, `reextract`; the diagnostics CLIs `corpus_health` / `db_health` / `db_analyze` | application |
+| **Adapters** | `doc_ray.adapters` | `extraction` (PyMuPDF + opt-in OCR + opt-in verified external math backend + pypdf + txt/html/epub/docx), `persistence` (Postgres/psycopg), `persistence_read` / `persistence_layers_read` / `persistence_canonical_read` (bounded async GraphQL read models), `object_store` (MinIO/boto3), `annotation` / `annotation_spacy`, `export`, `wikidata` / `wikipedia` (canonical-entity KB resolution), `queue_postgres` (`FOR UPDATE SKIP LOCKED` job queue) | domain, ports |
+| **Application** | `doc_ray.application` | `pipeline` (ingest use case), `reannotate`, `reextract`, `verification` (shared ML/LLM output gate), `jobs` (worker dispatch + payload-carried pipeline-chain automation), `term_scan` / `canonicalize` / `resolution` / `seed_suggest` / `canonical_seed` (entity canonicalization — see below), `semantic_enrichment` (deterministic discourse/temporal/sentiment/embedding writer), `evaluation` (snapshot + drift metrics), `backup` (corpus snapshot & restore), `corpus_health`, `db_health` (instance health), `db_analyzer` (multi-engine structure + data profiling) | ports, adapters, domain |
+| **Entrypoints** | `doc_ray.entrypoints` | `cli`; `api` (GraphQL, Strawberry) and `worker` — the async-read / sync-write split every mutation runs through (see below); `migrate`, `export`, `annotate`, `annotate_spacy`, `annotate_semantic`, `evaluate`, `reannotate`, `reextract`; the diagnostics CLIs `corpus_health` / `db_health` / `db_analyze` | application |
 | **Config** | `doc_ray.config` | env-driven `Config` (shared kernel) | stdlib |
 
 ## Outside the hexagon
@@ -137,7 +137,7 @@ configured rather than inherited from psycopg defaults.
 
 | Port | Adapter |
 |---|---|
-| `TextExtractor` | `adapters.extraction.extract` — dispatch by extension; PDF via PyMuPDF (structured Markdown), opt-in Tesseract OCR for image-only pages, and a pypdf fallback |
+| `TextExtractor` | `adapters.extraction.extract` — dispatch by extension; PDF via PyMuPDF (structured Markdown), opt-in Tesseract OCR for image-only pages, opt-in verified external math extraction for LaTeX-bearing PDFs, and a pypdf fallback |
 | `ObjectStore` | `adapters.object_store.ObjectStore` — MinIO/S3 blob store |
 | `Repository` | `adapters.persistence` — Postgres data-access (documents, spans, sentences, lexemes, annotations) |
 | `Annotator` | `domain.lexemes.RuleAnalyzer` (zero-dep) and `adapters.annotation_spacy.SpacyAnnotator` (real POS) |
@@ -199,6 +199,18 @@ claims GraphQL exposure that doesn't resolve to a live Strawberry field, or if
 a row claims a writer without a citable production path and test. It proves
 the matrix hasn't drifted from the code; it does not evaluate annotation
 quality.
+
+`application.semantic_enrichment` now fills the deterministic subset that does
+not require a dedicated model or KB: PDTB-style connective relations, simple
+TimeML date/event rows, lexicon sentiment, and hash-BoW span embeddings. These
+rows are explicitly heuristic and provenance-stamped; subword tokenization,
+constituency, SRL, WSD, and AMR remain schema-only until a real model-backed
+writer lands.
+
+`application.evaluation` records durable corpus snapshots and evaluation runs.
+It stores lexical/entity distributions and review/tool-version facts in
+`corpus_snapshot`, writes citeable `evaluation_metric` rows, and compares
+snapshots deterministically so drift can be audited across pipeline versions.
 
 ## Running
 

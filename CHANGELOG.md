@@ -22,6 +22,16 @@ doc-ray carries **one global version** covering both the application package
 ## [Unreleased]
 
 ### Added
+- **Evaluation, semantic enrichment, and math extraction completion** (OpenAI GPT-5 via Codex) —
+  migration 036 adds durable `corpus_snapshot`, `evaluation_run`,
+  `evaluation_metric`, and `gold_sample` artifacts, while
+  `application.evaluation` records lexical/entity distributions with citeable
+  fact references and deterministic snapshot deltas. PDFs can opt into a
+  verified external math extractor contract (`DOCRAY_PDF_MATH_BACKEND=external`)
+  that rejects non-LaTeX ML output before persistence. The new
+  `annotate_semantic` entrypoint fills deterministic discourse, temporal/event,
+  sentiment, and hash-BoW embedding layers, closing `BL-002`, `BL-006`, and
+  `BL-024`.
 - **Scheduled backups and Postgres maintenance hardening** (OpenAI GPT-5 via Codex) —
   the Compose stack now runs a backup scheduler with retention pruning, exposes
   `db_health --watch` as an opt-in ops monitor, tunes autovacuum/analyze
@@ -158,6 +168,21 @@ doc-ray carries **one global version** covering both the application package
   English config stems algorithmically, not from a dictionary, so it stems
   nonsense words identically to real ones), decoupling the test from
   corpus size entirely.
+
+## [1.8.0] - 2026-07-05
+
+### Added
+- **Evaluation and remaining NLP backlog completion** (OpenAI GPT-5 via Codex) —
+  migration 036 adds evaluation/drift tables and migration 037 advances the
+  unified package/schema version to `1.8.0`. `python -m
+  doc_ray.entrypoints.evaluate` records corpus snapshots and base
+  lexical/entity metrics with fact citations. `python -m
+  doc_ray.entrypoints.annotate_semantic` populates deterministic discourse,
+  TimeML date/event, sentiment, and hash-BoW embedding rows with provenance.
+  PDF extraction can opt into an external Docling/Marker/Nougat-style command
+  that must emit verified LaTeX-bearing JSON before output can be persisted.
+  This closes `BL-002`, `BL-006`, and `BL-024`; the live backlog had no fourth
+  remaining item.
 
 ## [1.7.0] - 2026-07-05
 
@@ -354,6 +379,7 @@ surface consistent from here on.
 - Upload ingestion no longer leaks the temporary scratch filename into a document's
   `title` / `original_filename`; the uploaded name and explicit `title` are preserved.
 
+[1.8.0]: https://semver.org/spec/v2.0.0.html
 [1.7.0]: https://semver.org/spec/v2.0.0.html
 [1.6.0]: https://semver.org/spec/v2.0.0.html
 [1.5.0]: https://semver.org/spec/v2.0.0.html

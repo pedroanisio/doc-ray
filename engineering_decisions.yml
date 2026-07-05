@@ -25,10 +25,11 @@ source_schema:         "db/migrations"
 # introduced by migration 019; advanced to 1.3.0 by migration 024, to 1.4.0 by
 # migration 029 for the backup catalogue, to 1.5.0 by migration 031 for
 # principal LOGIN-role isolation, to 1.6.0 by migration 033 for API-role
-# runtime grants, then to 1.7.0 by migration 035 for scheduled backup
-# retention and annotation-table autovacuum tuning). Kept in lockstep with doc_ray.__version__
-# by scripts/check_version_consistency.py.
-source_schema_version: "1.7.0"
+# runtime grants, to 1.7.0 by migration 035 for scheduled backup retention and
+# annotation-table autovacuum tuning, then to 1.8.0 by migration 037 for
+# evaluation/drift artifacts). Kept in lockstep with doc_ray.__version__ by
+# scripts/check_version_consistency.py.
+source_schema_version: "1.8.0"
 target_engine:         "PostgreSQL 16"
 total_decisions:       16
 

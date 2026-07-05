@@ -98,18 +98,24 @@ explicit API connection-pool bounds.
 `BL-045`, and `BL-046` with scheduled backup enqueueing, retention pruning,
 annotation-table autovacuum tuning, a db-health monitor path, an FTS
 language-config drift guard, and a profile-gated on-demand ingester. Also
-corrected stale status drift for `BL-002` and `BL-024`, which remain parked.
+corrected stale status drift for `BL-039` and `BL-043`.
+
+**2026-07-05 evaluation and NLP completion:** completed the remaining parked
+items `BL-002`, `BL-006`, and `BL-024` with a verified opt-in external PDF math
+backend contract, deterministic semantic enrichment for layers 17–20, and
+durable evaluation snapshots/metrics. No fourth backlog item existed in the
+live backlog after these three.
 
 ## Items
 
 | ID | Item | Category | Type | Status | Cx | Priority | Owner |
 |----|------|----------|------|--------|----|----------|-------|
 | BL-001 | OCR pass for image-only PDFs | extraction | feature | done | M | high | shared |
-| BL-002 | Math fidelity: recover equations as LaTeX via opt-in ML backend | extraction | feature | parked | L | medium | shared |
+| BL-002 | Math fidelity: recover equations as LaTeX via opt-in ML backend | extraction | feature | done | L | medium | shared |
 | BL-003 | Calibrate heading-detection thresholds per corpus | extraction | tech-debt | done | S | low | mine |
 | BL-004 | Render Markdown in the reading pane | webapp | feature | done | S | medium | mine |
 | BL-005 | Full-document scroll view + solo-POS focus mode | webapp | feature | done | M | low | mine |
-| BL-006 | Materialize the remaining NLP annotation layers | nlp | feature | parked | XL | medium | concurrent |
+| BL-006 | Materialize the remaining NLP annotation layers | nlp | feature | done | XL | medium | concurrent |
 | BL-007 | Verification layer for ML/LLM annotator output (PALS's Law) | nlp | infra | done | M | high | shared |
 | BL-008 | Complete the GraphQL (Strawberry) driving adapter | api | feature | done | L | medium | concurrent |
 | BL-009 | GraphQL safety: depth/complexity limits + keyset pagination | security | feature | done | M | high | concurrent |
@@ -127,7 +133,7 @@ corrected stale status drift for `BL-002` and `BL-024`, which remain parked.
 | BL-021 | Canonicalization and review API surfaces | api | feature | done | M | high | concurrent |
 | BL-022 | Annotation language and model capability registry | nlp | infra | done | S | medium | shared |
 | BL-023 | Operator health surfaces | ops | feature | done | M | medium | shared |
-| BL-024 | Evaluation and drift artifacts | nlp | research | parked | L | medium | shared |
+| BL-024 | Evaluation and drift artifacts | nlp | research | done | L | medium | shared |
 | BL-025 | Lexeme/token projection invariant | persistence | tech-debt | done | M | medium | shared |
 | BL-026 | Surface a product value proposition in the webapp | webapp | feature | done | S | high | shared |
 | BL-027 | Add an in-app help / documentation / onboarding surface | webapp | feature | done | S | high | shared |

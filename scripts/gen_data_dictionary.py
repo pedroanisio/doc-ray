@@ -117,6 +117,12 @@ GROUPS: list[tuple[str, str, list[str]]] = [
         ],
     ),
     (
+        "Evaluation & drift artifacts",
+        "Corpus snapshots, evaluation runs, metric rows, and gold samples make quality and drift "
+        "measurements durable and citeable instead of one-off operator observations.",
+        ["corpus_snapshot", "evaluation_run", "evaluation_metric", "gold_sample"],
+    ),
+    (
         "Meta",
         "Applied-migration ledger, the schema's SemVer, and the corpus-backup "
         "catalogue. `backups` is operational: it and the `jobs` queue are excluded "
@@ -202,6 +208,20 @@ MIGRATIONS = [
     ("027_fk_cascade_indexes", "index the annotations delete-cascade FK paths"),
     ("028_document_delete_cascade_indexes", "index the document delete-cascade FK paths"),
     ("029_schema_version_1_4_0", "advance the schema SemVer to 1.4.0"),
+    ("030_principal_login_roles", "per-principal LOGIN roles and trusted API principal assertion"),
+    ("031_schema_version_1_5_0", "advance the schema SemVer to 1.5.0"),
+    (
+        "032_api_role_runtime_grants",
+        "grant API runtime access to jobs and seed suggestions under RLS",
+    ),
+    ("033_schema_version_1_6_0", "advance the schema SemVer to 1.6.0"),
+    ("034_annotation_table_autovacuum", "autovacuum/analyze thresholds for annotation tables"),
+    ("035_schema_version_1_7_0", "advance the schema SemVer to 1.7.0"),
+    (
+        "036_evaluation_drift",
+        "evaluation runs, corpus snapshots, metrics, and gold samples",
+    ),
+    ("037_schema_version_1_8_0", "advance the schema SemVer to 1.8.0"),
 ]
 
 # ---------------------------------------------------------------------------
@@ -341,11 +361,11 @@ holds any `document_acl` row on it, and may **write** iff *admin* or holds an
 **Enforcement.** RLS is `ENABLE`d (not `FORCE`) on 33 tables. The `docray`
 role is a **superuser and table owner**, so it **bypasses RLS** — the ingest
 pipeline and admin tooling use it as the trusted batch writer. End-user / API
-traffic must run as the non-superuser role **`docray_client`** (`SET ROLE
-docray_client`) and set the principal per transaction:
+traffic must run as the non-superuser role **`docray_api`** (`SET ROLE
+docray_api`) and set the principal per transaction:
 
 ```sql
-SET ROLE docray_client;
+SET ROLE docray_api;
 SET app.principal_id = '<principal uuid>';
 ```
 
@@ -359,13 +379,18 @@ stays cheap. Reads use a `FOR SELECT` policy only; writes use separate
 `FOR INSERT/UPDATE/DELETE` policies (with `WITH CHECK`) so they never
 contaminate read plans.
 
-**Trust boundary.** The principal comes from a session GUC the connecting role
-can set, so this is safe only when the DB client is the trusted app tier. A
-client able to run arbitrary SQL as `docray_client` could impersonate any
-principal; hostile direct access would need per-principal `LOGIN` roles keyed
-on `current_user`. The derived views (`lexeme_occurrence_detail`,
-`lexeme_forms`, `lexeme_keys`) are set `security_invoker = true` so they inherit
-the caller's RLS instead of the owner's bypass.
+**Trust boundary.** The HTTP API maps bearer or `X-DocRay-API-Token`
+credentials to principals, then drops every request to `docray_api`. The
+principal GUC is honored only for that trusted app-tier role; anonymous API
+requests run as `docray_api` with no principal id rather than as the superuser.
+Direct SQL users are isolated with per-principal `LOGIN` roles recorded in
+`principals.db_role` and created with
+`docray_create_principal_login(principal, role_name, password)`. Those roles
+inherit `docray_client` and are mapped by authenticated database identity, so
+setting `app.principal_id` cannot impersonate a different principal. The
+derived views (`lexeme_occurrence_detail`, `lexeme_forms`, `lexeme_keys`) are
+set `security_invoker = true` so they inherit the caller's RLS instead of the
+owner's bypass.
 """
 
 
@@ -624,7 +649,6 @@ def main() -> int:
     o.append("|---|---|---|")
     for i, (name, what) in enumerate(MIGRATIONS, 1):
         o.append(f"| {i:03d} | `{name}.sql` | {md_escape(what)} |")
-    o.append("")
 
     text = "\n".join(o) + "\n"
     with open(os.path.abspath(OUT), "w", encoding="utf-8") as f:

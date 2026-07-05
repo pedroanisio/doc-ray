@@ -51,7 +51,14 @@
 # backup scheduler with retention pruning, annotation-table autovacuum tuning,
 # an opt-in db_health monitor path, a static FTS language-config guard, and the
 # on-demand ingester is excluded from default compose startup. Also corrected
-# stale status drift for BL-002/BL-024 (still parked) and BL-039/BL-043 (done).
+# stale status drift for BL-039/BL-043 (done).
+#
+# 2026-07-05: completed the final parked backlog items BL-002, BL-006, and
+# BL-024. BL-002 now has a verified opt-in external PDF math backend contract,
+# BL-006 has a deterministic semantic enrichment writer for layers 17-20 plus an
+# audit trail for model-required schema-only layers, and BL-024 has durable
+# corpus snapshots, evaluation runs, metrics, and gold samples. No fourth item
+# remained in the live backlog after these three.
 # =====================================================================
 
 disclaimer: |
@@ -108,7 +115,7 @@ items:
       output MUST pass a verification layer (PALS's Law) before persistence.
     category:     "extraction"
     type:         "feature"
-    status:       "parked"
+    status:       "done"
     complexity:   "L"
     priority:     "medium"
     rationale:    "Formal/technical corpora lose their math, degrading every downstream NLP layer for those docs."
@@ -120,7 +127,7 @@ items:
       - "docs/BACKLOG.md"
       - "src/doc_ray/adapters/extraction.py"
     owner:        "shared"
-    source:       "docs/BACKLOG.md — Extraction/ingestion (math fidelity)."
+    source:       "docs/BACKLOG.md — Extraction/ingestion (math fidelity). Completed 2026-07-05 with DOCRAY_PDF_MATH_BACKEND=external and DOCRAY_PDF_MATH_BACKEND_CMD, an external JSON/stdin contract suitable for Docling/Marker/Nougat-style commands, extractor provenance stamping, and a LaTeX-equation verification gate that rejects unverified ML output before persistence."
     tags:         ["math", "latex", "ml-backend", "pals-law"]
 
   - id:          "BL-003"
@@ -213,7 +220,7 @@ items:
       claim that a specific layer is absent.
     category:     "nlp"
     type:         "feature"
-    status:       "parked"
+    status:       "done"
     complexity:   "XL"
     priority:     "medium"
     rationale:    "The annotation product is defined by the 20-layer target; the gap between doc and schema is the roadmap."
@@ -231,7 +238,7 @@ items:
       - "db/migrations/011_meaning_discourse.sql"
       - "db/migrations/012_embeddings.sql"
     owner:        "concurrent"
-    source:       "docs/nlp_annotation_layers.md §1 (complete set) vs db/migrations 008–012."
+    source:       "docs/nlp_annotation_layers.md §1 (complete set) vs db/migrations 008–012. Completed 2026-07-05 by auditing all 20 layers in docs/nlp_capability_matrix.md, adding a production semantic_enrichment writer/CLI for deterministic layers 17-20 (discourse, TimeML date/event rows, sentiment, hash-BoW embeddings), and leaving subword, constituency, SRL, WSD, and AMR explicitly schema-only because they require a dedicated tokenizer/parser/model/KB rather than a safe deterministic fallback."
     tags:         ["nlp", "annotation-layers", "schema"]
 
   - id:          "BL-007"
@@ -814,7 +821,7 @@ items:
       rates, annotation coverage, and review acceptance/rejection rates.
     category:     "nlp"
     type:         "research"
-    status:       "parked"
+    status:       "done"
     complexity:   "L"
     priority:     "medium"
     rationale:    "The NLP source treats evaluation and maintenance as part of composition, but Doc-Ray currently tracks structural health more than model or corpus quality drift."
@@ -828,7 +835,7 @@ items:
       - "src/doc_ray/application/corpus_health.py"
       - "docs/DATABASE_SPEC.md"
     owner:        "shared"
-    source:       "docs/doc_ray_improvement_proposal.md BL-024; grep-verified absent 2026-07-04."
+    source:       "docs/doc_ray_improvement_proposal.md BL-024; grep-verified absent 2026-07-04. Completed 2026-07-05 with migration 036 adding corpus_snapshot, evaluation_run, evaluation_metric, and gold_sample; application.evaluation records lexical/entity distributions with fact_refs and compares snapshots deterministically."
     tags:         ["evaluation", "drift", "metrics", "nlp"]
 
   - id:          "BL-025"

@@ -9,9 +9,12 @@ PyMuPDF is unavailable or errors on a file.
 from __future__ import annotations
 
 import io
+import json
 import os
 import posixpath
 import re as _re
+import shlex
+import subprocess
 import zipfile
 from collections.abc import Iterator, Mapping
 from dataclasses import dataclass, field, replace
@@ -79,6 +82,81 @@ def pdf_ocr_enabled_from_env(env: Mapping[str, str] | None = None) -> bool:
     """Return whether image-only PDF OCR is explicitly enabled."""
     source = os.environ if env is None else env
     return source.get("DOCRAY_PDF_OCR", "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def pdf_math_backend_from_env(env: Mapping[str, str] | None = None) -> str | None:
+    """Return the opt-in PDF math backend mode, if configured."""
+    source = os.environ if env is None else env
+    raw = source.get("DOCRAY_PDF_MATH_BACKEND", "").strip().lower()
+    return raw or None
+
+
+def _latex_equation_present(text: str) -> bool:
+    return bool(
+        _re.search(
+            r"(\\\[[\s\S]+?\\\]|\\\([\s\S]+?\\\)|\$\$[\s\S]+?\$\$|\\begin\{equation\})",
+            text,
+        )
+    )
+
+
+def _verified_math_payload(payload: object, fallback_title: str) -> Extracted:
+    if not isinstance(payload, dict):
+        raise ValueError("Math extraction backend must emit a JSON object.")
+    full_text = str(payload.get("full_text") or "")
+    if not full_text.strip():
+        raise ValueError("Math extraction backend emitted empty text.")
+    if not _latex_equation_present(full_text):
+        raise ValueError("Math extraction backend output did not contain verified LaTeX.")
+    metadata = payload.get("metadata") or {}
+    if not isinstance(metadata, dict):
+        raise ValueError("Math extraction backend metadata must be a JSON object.")
+    extractor = str(payload.get("extractor") or "external-math")
+    extractor_version = str(payload.get("extractor_version") or "unknown")
+    return Extracted(
+        doc_type="pdf",
+        title=str(payload.get("title") or fallback_title).strip() or fallback_title,
+        author=payload.get("author") if isinstance(payload.get("author"), str) else None,
+        page_count=payload.get("page_count")
+        if isinstance(payload.get("page_count"), int)
+        else None,
+        full_text=full_text,
+        content_type="application/pdf",
+        extractor=extractor,
+        extractor_version=extractor_version,
+        metadata={
+            **metadata,
+            "math_backend": "external",
+            "math_backend_verified": True,
+            "math_backend_contract": "json-full_text-with-latex",
+        },
+    )
+
+
+def extract_pdf_math_backend(data: bytes, fallback_title: str) -> Extracted:
+    """Extract a PDF with an operator-configured ML math backend.
+
+    The external command receives PDF bytes on stdin and must emit JSON on
+    stdout with at least ``full_text``, ``extractor``, and
+    ``extractor_version``. Output is rejected unless it contains explicit LaTeX
+    equation markup; unverified ML output must never be persisted.
+    """
+    command = os.environ.get("DOCRAY_PDF_MATH_BACKEND_CMD", "").strip()
+    if not command:
+        raise ValueError("DOCRAY_PDF_MATH_BACKEND_CMD is required for the external backend.")
+    result = subprocess.run(
+        shlex.split(command),
+        input=data,
+        capture_output=True,
+        check=True,
+        timeout=_env_int(os.environ, "DOCRAY_PDF_MATH_BACKEND_TIMEOUT", 120),
+    )
+    stdout = result.stdout.decode("utf-8") if isinstance(result.stdout, bytes) else result.stdout
+    try:
+        payload = json.loads(stdout)
+    except json.JSONDecodeError as exc:
+        raise ValueError("Math extraction backend emitted invalid JSON.") from exc
+    return _verified_math_payload(payload, fallback_title)
 
 
 def pdf_heading_thresholds_from_env(
@@ -254,6 +332,11 @@ def extract_pdf(data: bytes, fallback_title: str) -> Extracted:
     Returns:
         The extracted document from whichever extractor succeeded.
     """
+    math_backend = pdf_math_backend_from_env()
+    if math_backend is not None:
+        if math_backend != "external":
+            raise ValueError("DOCRAY_PDF_MATH_BACKEND must be 'external' when set.")
+        return extract_pdf_math_backend(data, fallback_title)
     try:
         import fitz  # noqa: F401
 

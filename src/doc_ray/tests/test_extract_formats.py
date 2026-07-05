@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import io
+import json
+import subprocess
 import zipfile
 
 import pytest
 
+from doc_ray.adapters import extraction
 from doc_ray.adapters.extraction import _EXTRACTORS, extract
 
 
@@ -88,3 +91,47 @@ def test_extraction_strips_nul_bytes():
     assert "\x00" not in e.full_text
     assert "\x00" not in e.title
     assert "Clear writing wins." in e.full_text
+
+
+def test_opt_in_pdf_math_backend_accepts_verified_latex(monkeypatch):
+    def run(cmd, *, input, capture_output, check, timeout):  # noqa: ANN001
+        assert cmd == ["marker", "--json"]
+        assert input == b"%PDF math"
+        payload = {
+            "full_text": "Euler identity:\n\\[e^{i\\pi}+1=0\\]",
+            "title": "math paper",
+            "page_count": 1,
+            "extractor": "marker",
+            "extractor_version": "1.2.3",
+            "metadata": {"source": "fixture"},
+        }
+        return subprocess.CompletedProcess(cmd, 0, stdout=json.dumps(payload), stderr="")
+
+    monkeypatch.setenv("DOCRAY_PDF_MATH_BACKEND", "external")
+    monkeypatch.setenv("DOCRAY_PDF_MATH_BACKEND_CMD", "marker --json")
+    monkeypatch.setattr(extraction.subprocess, "run", run)
+
+    e = extraction.extract_pdf(b"%PDF math", "fallback")
+
+    assert e.full_text.startswith("Euler identity")
+    assert e.extractor == "marker"
+    assert e.extractor_version == "1.2.3"
+    assert e.metadata["math_backend_verified"] is True
+    assert e.metadata["source"] == "fixture"
+
+
+def test_opt_in_pdf_math_backend_rejects_unverified_output(monkeypatch):
+    def run(cmd, *, input, capture_output, check, timeout):  # noqa: ANN001
+        payload = {
+            "full_text": "Euler identity was extracted without equation markup.",
+            "extractor": "marker",
+            "extractor_version": "1.2.3",
+        }
+        return subprocess.CompletedProcess(cmd, 0, stdout=json.dumps(payload), stderr="")
+
+    monkeypatch.setenv("DOCRAY_PDF_MATH_BACKEND", "external")
+    monkeypatch.setenv("DOCRAY_PDF_MATH_BACKEND_CMD", "marker --json")
+    monkeypatch.setattr(extraction.subprocess, "run", run)
+
+    with pytest.raises(ValueError, match="LaTeX"):
+        extraction.extract_pdf(b"%PDF math", "fallback")

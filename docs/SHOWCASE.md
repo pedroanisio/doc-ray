@@ -29,8 +29,7 @@ addressed by character spans, each run is scoped by `(document, layer, tool)`.
 | **spaCy** | `python -m doc_ray.entrypoints.annotate_spacy --all` | `tokens` (+UPOS/XPOS/lemma link), `token_feature`, `chunk`, `dependency`, `entity_mention`, `coref_chain/mention` | 3, 5, 6, 7, 8, 10, 11, 13 |
 | **Term scan** | worker job `canonicalize` (`application/term_scan.py`) | `entity_mention` (`layer=term`) for registry-known vocabulary NER never tags | 11 (deterministic) |
 | **Entity canonicalization** | `seed_suggest`/`seed_approved`/`canonicalize` worker jobs, or the webapp's `/doc/<id>/seeding` screen | `canonical`, `form_index`, `entity_link` (`scheme=canonical`), `resolution_review` | 12 |
-| **Embeddings** | _not yet ported to `doc_ray`_ | `embedding` (hash-BoW, pgvector) | 20 |
-| **Heuristics** | _not yet ported to `doc_ray`_ | `discourse_relation`, `timex`, `sentiment` | 17, 18, 19 |
+| **Semantic enrichment** | `python -m doc_ray.entrypoints.annotate_semantic --all` | `discourse_relation`, `timex`, `event`, `sentiment`, `embedding` (hash-BoW, pgvector) | 17, 18, 19, 20 |
 | **Export** | `python -m doc_ray.entrypoints.export --filename <f>` | (read-back) full JSON record | — |
 | **Reannotate (spaCy)** | `python -m doc_ray.entrypoints.reannotate --all` | re-runs the spaCy layer for stored documents | 6–11 |
 | **Roundtrip** | `python scripts/roundtrip.py <pdf> <json>` | (verify) reproduces source | — |
@@ -45,8 +44,7 @@ docker compose run --rm ingester /data/static/fixtures
 export DATABASE_URL='postgresql://docray:docray@localhost:5455/docray'
 python -m doc_ray.entrypoints.annotate        --all   # rule lexemes
 python -m doc_ray.entrypoints.annotate_spacy  --all   # tokens/POS/morph/deps/NER/chunks/coref
-# embeddings + heuristic (discourse/temporal/sentiment) annotators are not yet
-# ported to doc_ray — their tables and tests remain (migrations 011–012).
+python -m doc_ray.entrypoints.annotate_semantic --all  # discourse/time/sentiment/embeddings
 
 # 3. showcase report
 docker compose exec -T postgres psql -U docray -d docray -f - < scripts/showcase.sql
@@ -72,16 +70,15 @@ claims honest — see [`docs/nlp_capability_matrix.md`](nlp_capability_matrix.md
 | ✅ | 11 NER | spaCy | real (model) |
 | ✅ | 13 coreference | string-match over proper nouns (spaCy layer) | heuristic |
 | ✅ | 12 entity linking | registry-driven term scan + Wikidata-backed canonicalization pipeline (`canonical_seed`/`term_scan`/`canonicalize`/`resolution`) | real (live KB), opt-in frontier LLM for residue |
-| ⚪ | 17 discourse | annotator not yet ported to `doc_ray` | schema + tests ready |
-| ⚪ | 18 temporal (TIMEX) | annotator not yet ported to `doc_ray` | schema + tests ready |
-| ⚪ | 19 sentiment | annotator not yet ported to `doc_ray` | schema + tests ready |
-| ⚪ | 20 embeddings | annotator not yet ported to `doc_ray` | schema + tests ready |
-| ⚪ | 4 subwords, 9 constituency, 14 SRL, 15 WSD, 16 AMR | — | schema ready; needs a dedicated model/KB |
+| ✅ | 17 discourse | `annotate_semantic` connective heuristic | heuristic |
+| ✅ | 18 temporal (TIMEX) | `annotate_semantic` date/event heuristic | heuristic |
+| ✅ | 19 sentiment | `annotate_semantic` lexicon heuristic | heuristic |
+| ✅ | 20 embeddings | `annotate_semantic` hash-BoW vectors | heuristic |
+| ⚪ | 4 subwords, 9 constituency, 14 SRL, 15 WSD, 16 AMR | — | schema ready; needs a dedicated tokenizer/parser/model/KB |
 
 The empty layers have **tables and tests in place** (migrations 008–012); they
-await either a model/knowledge base (4, 9, 14, 15, 16) or a port of the
-original heuristic/embedding annotators (17–20). No schema change is required to
-fill them. Layer 12 (entity linking) is no longer in this category — see below.
+await a model/knowledge base (4, 9, 14, 15, 16). No schema change is required to
+fill them. Layers 12 and 17–20 are no longer in this category — see below.
 
 ## Honesty notes
 
@@ -98,8 +95,8 @@ fill them. Layer 12 (entity linking) is no longer in this category — see below
   `CLAUDE.md`). Ambiguous or low-confidence verdicts land in a review queue,
   never silently guessed. Full design: `canonicalization_pipeline.md`.
 - The discourse (17), temporal (18), sentiment (19), and embedding (20)
-  annotators from the original baseline are **not yet ported to `doc_ray`** —
-  their tables and tests remain, but no CLI currently populates them, so those
-  layers are unpopulated in a fresh run.
+  annotators are deterministic heuristics. They are useful for drift/search
+  experiments and are provenance-stamped as heuristic output; they do not claim
+  model-grade semantic interpretation.
 - Multiple annotation runs coexist per document (rule lexemes + spaCy), each
   attributed to its tool — the layer-aware `annotations` design.

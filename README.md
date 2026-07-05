@@ -193,6 +193,27 @@ pip install -r requirements.txt
 python -m doc_ray.entrypoints.cli orwell1984.pdf
 ```
 
+PDF extraction defaults to PyMuPDF with a pypdf fallback. Math-heavy corpora can
+opt into an external Docling/Marker/Nougat-style backend by setting
+`DOCRAY_PDF_MATH_BACKEND=external` and `DOCRAY_PDF_MATH_BACKEND_CMD`; that
+command must read PDF bytes on stdin and emit JSON containing LaTeX-bearing
+`full_text`. Output without explicit LaTeX equation markup is rejected before it
+can be persisted.
+
+Optional deterministic semantic enrichment for the schema-backed discourse,
+temporal/event, sentiment, and embedding layers is available after token
+annotation:
+
+```bash
+python -m doc_ray.entrypoints.annotate_semantic --all
+```
+
+Evaluation snapshots and lexical/entity drift metrics can be recorded with:
+
+```bash
+python -m doc_ray.entrypoints.evaluate --source fixture --json
+```
+
 ## Layout
 
 | Path                       | Purpose                                            |
@@ -202,9 +223,9 @@ python -m doc_ray.entrypoints.cli orwell1984.pdf
 | `src/doc_ray/`             | The core package — **hexagonal / DDD** layout (below) |
 | `src/doc_ray/domain/`      | Pure logic & value objects: `pdf_layout`, `sentences`, `lexemes`, `ulid`, `provenance` |
 | `src/doc_ray/ports/`       | Boundary contracts: `TextExtractor`, `ObjectStore`, `Repository`, `Annotator` |
-| `src/doc_ray/adapters/`    | Driven adapters: `extraction` (PyMuPDF/pypdf/…), `persistence` (Postgres), `object_store` (MinIO), `annotation`/`annotation_spacy`, `wikidata`/`wikipedia` (KB resolution), `queue_postgres` (job queue) |
-| `src/doc_ray/application/` | Use cases: `pipeline`, `reannotate`, `reextract`, `jobs` (dispatch + pipeline chaining), `term_scan`/`canonicalize`/`resolution`/`seed_suggest`/`canonical_seed` (entity canonicalization), `backup` (corpus snapshot/restore), `corpus_health`, `db_health` (instance health), `db_analyzer` (multi-engine structure + data profiling) |
-| `src/doc_ray/entrypoints/` | Driving adapters (`python -m doc_ray.entrypoints.<name>`): `cli`, `api` (GraphQL), `worker`, `migrate`, `export`, `annotate`, `annotate_spacy`, `reannotate`, `reextract`, `db_health`, `db_analyze` |
+| `src/doc_ray/adapters/`    | Driven adapters: `extraction` (PyMuPDF/pypdf/opt-in external math backend), `persistence` (Postgres), `object_store` (MinIO), `annotation`/`annotation_spacy`, `wikidata`/`wikipedia` (KB resolution), `queue_postgres` (job queue) |
+| `src/doc_ray/application/` | Use cases: `pipeline`, `reannotate`, `reextract`, `jobs` (dispatch + pipeline chaining), `term_scan`/`canonicalize`/`resolution`/`seed_suggest`/`canonical_seed` (entity canonicalization), `semantic_enrichment`, `evaluation`, `backup` (corpus snapshot/restore), `corpus_health`, `db_health` (instance health), `db_analyzer` (multi-engine structure + data profiling) |
+| `src/doc_ray/entrypoints/` | Driving adapters (`python -m doc_ray.entrypoints.<name>`): `cli`, `api` (GraphQL), `worker`, `migrate`, `export`, `annotate`, `annotate_spacy`, `annotate_semantic`, `evaluate`, `reannotate`, `reextract`, `db_health`, `db_analyze` |
 | `src/doc_ray/config.py`    | Env-driven configuration                           |
 | `webapp/`                  | Flask browser over the annotated corpus (frontend, kept **outside** `src/`) |
 | `scripts/`                 | Standalone text tools (`extract_phrases`, `docmodel`, `roundtrip`, `text_decomposer`) — independent of the pipeline; see `scripts/README.md` |
