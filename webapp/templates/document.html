@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% import "_terms.html" as terms %}
 {% block title %}{{ doc.title }} · doc·ray{% endblock %}
 {% block body %}
 <style>
@@ -91,8 +92,11 @@
     <span class="pill">{{ doc.doc_type }}</span>
     <span class="pill">{{ "{:,}".format(doc.char_count or 0) }} chars</span>
     {% if doc.page_count %}<span class="pill">{{ doc.page_count }} pp.</span>{% endif %}
-    <span class="pill">{{ doc.status }}</span>
-    <a class="pill" href="/doc/{{ doc.id }}/seeding">domain seeding &rarr;</a>
+    {{ terms.status_pill(doc.status) }}
+    <a class="pill tip" tabindex="0"
+       aria-label="Domain seeding: the curation loop that approves exact knowledge-base identities."
+       data-tip="Domain seeding is the curation loop that approves exact knowledge-base identities."
+       href="/doc/{{ doc.id }}/seeding">domain seeding &rarr;<span class="sr-only" role="tooltip">Domain seeding is the curation loop that approves exact knowledge-base identities.</span></a>
     {% if authors %}<span style="color:var(--ink-soft)">&nbsp; by {{ authors|join(", ") }}</span>{% endif %}
     {% for t in tags %}<span class="pill">{{ t }}</span>{% endfor %}
   </div>
@@ -109,7 +113,7 @@
       {% if annotate %}
       <div class="legend" id="legend">
         {% for p in pos %}
-          <span class="chip p-{{ p.pos }}" data-pos="{{ p.pos }}"><span class="swatch"></span>{{ p.pos }}</span>
+          {{ terms.pos_pill(p.pos, 'chip') }}
         {% endfor %}
       </div>
       <span class="kicker">click a tag to mute · hover a word for its lemma</span>
@@ -155,7 +159,9 @@
       {% set maxn = (pos|map(attribute='n')|max) if pos else 1 %}
       {% for p in pos %}
         <div class="posrow p-{{ p.pos }}">
-          <a class="lab" href="{{ url_for('lexemes', pos=p.pos) }}"><span class="swatch"></span>{{ p.pos }}</a>
+          <a class="lab tip" href="{{ url_for('lexemes', pos=p.pos) }}" tabindex="0"
+             aria-label="{{ p.pos }}: {{ terms.pos_defs.get(p.pos, p.pos) }}"
+             data-tip="{{ terms.pos_defs.get(p.pos, p.pos) }}"><span class="swatch"></span>{{ p.pos }}<span class="sr-only" role="tooltip">{{ terms.pos_defs.get(p.pos, p.pos) }}</span></a>
           <div class="bar" style="width:{{ (100*p.n/maxn)|round(0,'floor') }}%; background:var(--c); opacity:.8"></div>
           <span class="num">{{ "{:,}".format(p.n) }}</span>
         </div>

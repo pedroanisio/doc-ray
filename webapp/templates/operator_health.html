@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% import "_terms.html" as terms %}
 {% block title %}operator health · doc·ray{% endblock %}
 {% block body %}
 <style>
@@ -29,6 +30,7 @@
   Read-only corpus and database checks, rendered from the same Postgres store as
   the browser. The page is hidden unless the operator token is supplied.
 </p>
+<p class="hint"><a href="{{ url_for('operator_health_json', token=request.args.get('token')) }}">Stable JSON contract</a></p>
 
 <section class="health-layout">
   <div>
@@ -69,7 +71,7 @@
       <thead><tr><th>Kind</th><th>Status</th><th class="num">Count</th></tr></thead>
       <tbody>
       {% for row in corpus.jobs %}
-        <tr><td>{{ row.kind }}</td><td><span class="pill">{{ row.status }}</span></td>
+        <tr><td>{{ row.kind }}</td><td>{{ terms.status_pill(row.status) }}</td>
           <td class="num">{{ row.count }}</td></tr>
       {% else %}
         <tr><td colspan="3" class="empty">No jobs recorded.</td></tr>

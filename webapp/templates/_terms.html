@@ -1,0 +1,58 @@
+{% set pos_defs = {
+  'NOUN': 'Common noun: a person, place, thing, or concept.',
+  'PROPN': 'Proper noun: a named person, place, organization, or title.',
+  'VERB': 'Verb or predicate: an action, event, or state.',
+  'ADJ': 'Adjective: a descriptor that modifies a noun.',
+  'ADV': 'Adverb: a modifier for a verb, adjective, or clause.',
+  'PRON': 'Pronoun: a substitute for a noun phrase.',
+  'NUM': 'Number: a numeric value or quantity.',
+  'DET': 'Determiner: a word that introduces a noun phrase.',
+  'ADP': 'Adposition: a preposition or postposition.',
+  'CCONJ': 'Coordinating conjunction: joins peer phrases or clauses.',
+  'SCONJ': 'Subordinating conjunction: introduces a dependent clause.',
+  'PART': 'Particle: a grammatical function word.',
+  'AUX': 'Auxiliary verb: supports tense, mood, or voice.',
+  'PUNCT': 'Punctuation mark.',
+  'SYM': 'Symbol.',
+  'X': 'Other or unclassified token.',
+  'INTJ': 'Interjection.'
+} %}
+
+{% set status_defs = {
+  'queued': 'Waiting for a worker to claim the job.',
+  'running': 'A worker is currently processing this job.',
+  'succeeded': 'Completed successfully.',
+  'failed': 'Needs operator attention before retrying.',
+  'available': 'Backup archive is ready to download or restore.',
+  'creating': 'Backup archive is currently being created.',
+  'restoring': 'Restore job is currently rewinding the corpus.',
+  'pending': 'Waiting for a curator decision.',
+  'approved': 'Approved for seeding, but not written to the registry yet.',
+  'rejected': 'Rejected by a curator.',
+  'seeded': 'Written to the shared canonical registry.',
+  'extracted': 'Text has been extracted and is ready for downstream annotation.'
+} %}
+
+{% macro explain(definition, class_name='') -%}
+<span class="tip {{ class_name }}" tabindex="0" aria-label="{{ definition }}" data-tip="{{ definition }}">
+  {{ caller() }}
+  <span class="sr-only" role="tooltip">{{ definition }}</span>
+</span>
+{%- endmacro %}
+
+{% macro pos_pill(pos, class_name='pill', style='') -%}
+{% set definition = pos_defs.get(pos, pos ~ ': part-of-speech tag.') %}
+<span class="tip {{ class_name }} p-{{ pos }}" tabindex="0" aria-label="{{ pos }}: {{ definition }}" data-tip="{{ definition }}" data-pos="{{ pos }}"{% if style %} style="{{ style }}"{% endif %}>
+  <span class="swatch"></span>{{ pos }}
+  <span class="sr-only" role="tooltip">{{ definition }}</span>
+</span>
+{%- endmacro %}
+
+{% macro status_pill(status, label='', class_name='pill') -%}
+{% set text = label or status %}
+{% set definition = status_defs.get(status, status ~ ': status value.') %}
+<span class="tip {{ class_name }}" tabindex="0" aria-label="{{ text }}: {{ definition }}" data-tip="{{ definition }}">
+  {{ text }}
+  <span class="sr-only" role="tooltip">{{ definition }}</span>
+</span>
+{%- endmacro %}

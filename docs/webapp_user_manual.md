@@ -183,6 +183,23 @@ connection pressure, lock/slow-query findings, and table-bloat findings. Issues
 are grouped as `error`, `warning`, and `info`; the browser reads the same
 Postgres store directly and does not write to the corpus.
 
+Operators can also request `/operator/health.json` with the same token. That
+route returns the stable `operator-health.v1` JSON contract: corpus totals,
+job/status counts, issue groups, database size/connection/table summaries, and
+the same corpus/database findings shown in the browser page.
+
+### 2.10 In-app definitions and tooltips
+
+The browser defines core terms in place instead of assuming prior project
+knowledge. Major feature pages include one-line descriptions for the work they
+perform, and the Help page includes a glossary for lexeme, occurrence,
+annotation, canonicalization, domain seeding, and POS codes.
+
+POS chips and status pills use the same shared tooltip affordance: hover with a
+pointer, focus with a keyboard, or tap to focus on touch devices to reveal the
+plain-language definition. Screen-reader-only tooltip text is also present in
+the control.
+
 ---
 
 ## 3. The domain-seeding workflow

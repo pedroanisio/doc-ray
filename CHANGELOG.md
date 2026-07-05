@@ -22,6 +22,12 @@ doc-ray carries **one global version** covering both the application package
 ## [Unreleased]
 
 ### Added
+- **Operator health contract and webapp definitions** (OpenAI GPT-5 via Codex) —
+  `/operator/health.json` now exposes an admin-gated `operator-health.v1`
+  payload, POS chips and status pills share keyboard/touch-accessible
+  definitions, and the webapp Help surface plus feature pages define core
+  terms such as lexeme, occurrence, annotate, canonicalize, and domain
+  seeding, closing `BL-023`, `BL-029`, and `BL-036`.
 - **Reader and job-status polish** (OpenAI GPT-5 via Codex) —
   the reader now renders extracted Markdown headings and lists as structured
   blocks while preserving inline POS annotation links, explains

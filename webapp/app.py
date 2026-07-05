@@ -17,15 +17,17 @@ import json
 import os
 
 import psycopg
-from flask import Flask, g, render_template, request
+from flask import Flask, g, jsonify, render_template, request
 from psycopg import sql
 from psycopg.rows import dict_row
 
 try:
+    from webapp.health_contract import operator_health_payload
     from webapp.job_view import decorate_job_rows
     from webapp.operator_health import build_operator_health, require_operator_health
     from webapp.reader_blocks import annotate_html, latest_annotation_state
 except ModuleNotFoundError:  # pragma: no cover - direct ``python webapp/app.py`` path.
+    from health_contract import operator_health_payload
     from job_view import decorate_job_rows
     from operator_health import build_operator_health, require_operator_health
     from reader_blocks import annotate_html, latest_annotation_state
@@ -180,6 +182,13 @@ def operator_health():
     """Render read-only corpus and database health snapshots for operators."""
     require_operator_health()
     return render_template("operator_health.html", **build_operator_health(q, q1))
+
+
+@app.route("/operator/health.json")
+def operator_health_json():
+    """Return the stable operator-health JSON contract for operators."""
+    require_operator_health()
+    return jsonify(operator_health_payload(build_operator_health(q, q1)))
 
 
 @app.route("/doc/<uuid:doc_id>")

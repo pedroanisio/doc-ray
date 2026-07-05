@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% import "_terms.html" as terms %}
 {% block title %}job {{ job.id }} · doc·ray{% endblock %}
 {% block head %}{% if active %}<meta http-equiv="refresh" content="3">{% endif %}{% endblock %}
 {% block body %}
@@ -24,6 +25,10 @@
 </style>
 
 <h1>Pipeline status</h1>
+<p class="lede" style="max-width:39rem">
+  Pipeline status tracks the background jobs that ingest files, annotate text,
+  and canonicalize known entity mentions.
+</p>
 <p class="hint"><a href="{{ url_for('help_page') }}#pipeline-status">Pipeline guide</a></p>
 {% if doc %}
   <p><a href="/doc/{{ doc.id }}">&rarr; {{ doc.title }}</a></p>
@@ -38,7 +43,7 @@
   <tr>
     <td style="font-family:var(--mono); font-size:.68rem;">{{ j.id }}</td>
     <td>{{ j.kind_label }}</td>
-    <td><span class="st st-{{ j.status }}">{{ j.status_label }}</span></td>
+    <td>{{ terms.status_pill(j.status, j.status_label, 'st st-' ~ j.status) }}</td>
     <td class="res">
       <strong>{{ j.outcome.summary }}</strong>
       {% if j.outcome.detail %}<p class="detail">{{ j.outcome.detail }}</p>{% endif %}

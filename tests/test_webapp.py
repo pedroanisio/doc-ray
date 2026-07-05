@@ -513,6 +513,29 @@ def test_seeding_screen_signposts_workflow_and_confirms_seed(client):
     assert "Seed approved rows permanently?" in html
 
 
+def test_help_glossary_defines_core_terms(client):
+    html = client.get("/help").get_data(as_text=True)
+    normalized = _norm(html)
+
+    assert 'id="glossary"' in html
+    assert "Lexeme" in html
+    assert "one normalized vocabulary identity" in normalized
+    assert "Canonicalize" in html
+    assert "links mentions to known canonical entities" in normalized
+    assert "Part-of-speech codes" in html
+
+
+def test_feature_pages_carry_domain_definitions(client):
+    upload = _norm(client.get("/upload").get_data(as_text=True))
+    lexicon = _norm(client.get("/lexemes").get_data(as_text=True))
+    seeding = _norm(client.get(f"/doc/{DOC_ID}/seeding").get_data(as_text=True))
+
+    assert "Annotate builds sentences, lexemes, and entity mentions" in upload
+    assert "Canonicalize links known mentions to canonical entities" in upload
+    assert "A lexeme is one normalized vocabulary identity" in lexicon
+    assert "Domain seeding is the curation loop" in seeding
+
+
 # --- job status ------------------------------------------------------------
 
 
@@ -560,6 +583,36 @@ def test_job_status_humanizes_failed_outcome(client, monkeypatch):
     assert "ValueError" not in html
 
 
+def test_status_pills_expose_accessible_definitions(client, monkeypatch):
+    def backup_q(sql, params=()):
+        if "FROM backups ORDER BY created_at DESC" in _norm(sql):
+            return [
+                {
+                    "id": "backup-1",
+                    "status": "available",
+                    "created_at": datetime(2026, 7, 4, 12, 0),
+                    "table_rows": 10,
+                    "blob_count": 1,
+                    "doc_count": 1,
+                    "archive_bytes": 1048576,
+                    "note": "smoke",
+                    "error": None,
+                }
+            ]
+        return fake_q(sql, params)
+
+    monkeypatch.setattr(webapp, "q", backup_q)
+
+    job = client.get("/job/job-1").get_data(as_text=True)
+    backups = client.get("/backups").get_data(as_text=True)
+
+    assert 'class="tip st st-succeeded"' in job
+    assert 'tabindex="0"' in job
+    assert 'role="tooltip"' in job
+    assert "Completed successfully" in job
+    assert "Backup archive is ready to download or restore" in backups
+
+
 # --- operator health -------------------------------------------------------
 
 
@@ -587,6 +640,47 @@ def test_operator_health_renders_corpus_and_database_snapshots(client):
     assert "error group" in normalized
     assert "warning group" in normalized
     assert "info group" in normalized
+
+
+def test_operator_health_json_has_stable_contract(client):
+    webapp.app.config["OPERATOR_HEALTH_TOKEN"] = "secret"
+
+    response = client.get("/operator/health.json?token=secret")
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert payload["schema_version"] == "operator-health.v1"
+    assert set(payload) == {"schema_version", "corpus", "database"}
+    assert set(payload["corpus"]) == {"totals", "issues", "issue_groups", "jobs"}
+    assert set(payload["database"]) == {
+        "size",
+        "connections",
+        "tables",
+        "issues",
+        "issue_groups",
+    }
+    assert payload["corpus"]["totals"]["documents"] == 5
+    assert any(
+        issue["code"] == "job-failed" and issue["severity"] == "error"
+        for issue in payload["corpus"]["issues"]
+    )
+    assert any(issue["code"] == "document-unannotated" for issue in payload["corpus"]["issues"])
+    assert any(issue["code"] == "query-blocked" for issue in payload["database"]["issues"])
+
+
+def test_operator_health_pills_and_pos_chips_expose_accessible_definitions(client):
+    webapp.app.config["OPERATOR_HEALTH_TOKEN"] = "secret"
+
+    doc = client.get(f"/doc/{DOC_ID}").get_data(as_text=True)
+    health = client.get("/operator/health?token=secret").get_data(as_text=True)
+
+    assert "Common noun" in doc
+    assert "Verb or predicate" in doc
+    assert 'class="tip chip p-NOUN"' in doc
+    assert 'data-pos="NOUN"' in doc
+    assert 'tabindex="0"' in doc
+    assert "Needs operator attention" in health
+    assert 'role="tooltip"' in health
 
 
 # ---------------------------------------------------------------------------

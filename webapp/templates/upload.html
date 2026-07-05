@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% import "_terms.html" as terms %}
 {% block title %}upload · doc·ray{% endblock %}
 {% block body %}
 <style>
@@ -20,6 +21,10 @@
 <h1>Upload a document</h1>
 <p class="hint">EPUB, PDF, TXT, MD, or DOCX. The file is ingested by the background
 worker; with the pipeline enabled it is annotated and canonicalized automatically.</p>
+<p class="lede">
+  Annotate builds sentences, lexemes, and entity mentions. Canonicalize links
+  known mentions to canonical entities after annotation finishes.
+</p>
 
 {% if error %}<div class="errbox">{{ error }}</div>{% endif %}
 
@@ -37,7 +42,11 @@ worker; with the pipeline enabled it is annotated and canonicalized automaticall
     <input type="checkbox" name="pipeline" id="pipeline" checked>
     <label for="pipeline" style="margin:0; text-transform:none; font-family:inherit;
       font-size:.9rem; color:var(--ink);">
-      run the full pipeline (annotate &rarr; canonicalize) after ingest</label>
+      run the full pipeline (
+      {% call terms.explain("Annotate builds sentences, lexemes, and entity mentions.") %}annotate{% endcall %}
+      &rarr;
+      {% call terms.explain("Canonicalize links known mentions to canonical entities.") %}canonicalize{% endcall %}
+      ) after ingest</label>
   </div>
   <button>Upload &amp; ingest</button>
 </form>

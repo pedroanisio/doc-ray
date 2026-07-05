@@ -736,7 +736,7 @@ items:
       page, and wire core checks into smoke/CI.
     category:     "ops"
     type:         "feature"
-    status:       "parked"
+    status:       "done"
     complexity:   "M"
     priority:     "medium"
     rationale:    "Health checks exist, but their outputs are not yet a coherent operator workflow."
@@ -750,7 +750,7 @@ items:
       - "src/doc_ray/application/db_health.py"
       - "src/doc_ray/application/db_analyzer/"
     owner:        "shared"
-    source:       "docs/doc_ray_improvement_proposal.md BL-023 — corpus health, db health, and db analyzer modules present but uncoordinated, 2026-07-04."
+    source:       "docs/doc_ray_improvement_proposal.md BL-023 — corpus health, db health, and db analyzer modules present but uncoordinated, 2026-07-04; completed with an admin-gated HTML page plus stable operator-health.v1 JSON contract."
     tags:         ["ops", "health", "observability", "admin"]
 
   - id:          "BL-024"
@@ -911,7 +911,7 @@ items:
       glossary in the help surface (BL-027).
     category:     "webapp"
     type:         "feature"
-    status:       "parked"
+    status:       "done"
     complexity:   "M"
     priority:     "medium"
     rationale:    "Undefined domain vocabulary makes the tool usable only by those who already know the pipeline; a new team member cannot self-onboard."
@@ -925,7 +925,7 @@ items:
       - "webapp/templates/upload.html"
       - "webapp/templates/job.html"
     owner:        "shared"
-    source:       "Session finding 2026-07-04: webapp UX/UI audit (finding M1)."
+    source:       "Session finding 2026-07-04: webapp UX/UI audit (finding M1); completed with page-level definitions, glossary entries, and tooltip-backed POS/status terminology."
     tags:         ["microcopy", "glossary", "definitions", "clarity"]
 
   - id:          "BL-030"
@@ -1090,7 +1090,7 @@ items:
       must also work for keyboard and touch users.
     category:     "webapp"
     type:         "feature"
-    status:       "parked"
+    status:       "done"
     complexity:   "S"
     priority:     "low"
     rationale:    "A good explanation pattern exists but is applied in exactly one place; extending it improves discoverability consistently."
@@ -1101,7 +1101,7 @@ items:
       - "webapp/templates/document.html"
       - "webapp/templates/base.html"
     owner:        "shared"
-    source:       "Session finding 2026-07-04: webapp UX/UI audit (finding L4)."
+    source:       "Session finding 2026-07-04: webapp UX/UI audit (finding L4); completed with shared keyboard/touch-accessible tooltip affordances for POS chips and status pills."
     tags:         ["tooltips", "consistency", "accessibility", "ux"]
 
   - id:          "BL-037"

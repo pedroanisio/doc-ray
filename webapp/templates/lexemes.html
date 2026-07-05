@@ -1,8 +1,13 @@
 {% extends "base.html" %}
+{% import "_terms.html" as terms %}
 {% block title %}Lexicon · doc·ray{% endblock %}
 {% block body %}
 <p class="kicker">Every distinct word, by identity</p>
 <h1>The <span class="accent">Lexicon</span></h1>
+<p class="lede" style="max-width:38rem">
+  A lexeme is one normalized vocabulary identity. The lexicon groups observed
+  word forms by lemma, language, part of speech, and corpus use count.
+</p>
 
 <form class="filters" method="get">
   <input type="text" name="q" value="{{ term }}" placeholder="lemma contains…" autofocus>
@@ -27,7 +32,7 @@
       <tr class="p-{{ l.pos }}">
         <td style="font-family:var(--display); font-size:1.1rem">
           <a href="{{ url_for('lexeme', uid=l.uid) }}" style="color:var(--c)">{{ l.lemma }}</a></td>
-        <td><span class="pill" style="color:var(--c); border-color:var(--c)"><span class="swatch"></span>{{ l.pos }}</span></td>
+        <td>{{ terms.pos_pill(l.pos, 'pill', 'color:var(--c); border-color:var(--c)') }}</td>
         <td><span class="pill lang">{{ l.lang }}</span></td>
         <td class="mono" style="color:var(--ink-faint); font-size:.72rem">{{ l.uid }}</td>
         <td class="num">{{ "{:,}".format(l.uses) }}</td>

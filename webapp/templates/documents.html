@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% import "_terms.html" as terms %}
 {% block title %}Corpus · doc·ray{% endblock %}
 {% block body %}
 <p class="kicker">Ingest -> annotate -> curate</p>
@@ -11,8 +12,8 @@
 </p>
 <p class="lede" style="max-width:34rem">
   {{ "{:,}".format(doc_count) }} {{ doc_label }}, decomposed to sentences and
-  lexemes and tagged for part of speech. Open one to read it with its annotation
-  layer.
+  {% call terms.explain("A lexeme is one normalized vocabulary identity, such as the lemma 'say' across forms like said and says.") %}lexemes{% endcall %}
+  and tagged for part of speech. Open one to read it with its annotation layer.
 </p>
 
 <div class="card" style="margin-top:1.6rem; display:flex; flex-wrap:wrap; gap:.5rem 0">

@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% import "_terms.html" as terms %}
 {% block title %}backups · doc·ray{% endblock %}
 {% block body %}
 <style>
@@ -51,7 +52,7 @@ snapshot; it is <strong>destructive</strong>.</p>
     {% for r in rows %}
     <tr>
       <td class="mono" style="font-size:.82rem">{{ r.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
-      <td><span class="st {{ r.status }}">{{ r.status }}</span></td>
+      <td>{{ terms.status_pill(r.status, r.status, 'st ' ~ r.status) }}</td>
       <td class="num">{{ '{:,}'.format(r.table_rows or 0) }}</td>
       <td class="num">{{ r.blob_count or 0 }}</td>
       <td class="num">{{ r.doc_count or 0 }}</td>
