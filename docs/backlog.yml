@@ -71,7 +71,7 @@ metadata:
   generated_by:     "Claude Sonnet 5 via Claude Code (merge of Claude Opus 4.8 backlog + OpenAI Codex improvement-proposal candidates)"
   generated_on:     "2026-07-05"
   system_of_record: "docs/backlog.yml"
-  total_items:      46
+  total_items:      55
 
 items:
 
@@ -1482,3 +1482,256 @@ items:
     owner:        "shared"
     source:       "GitHub issue #3 (open), carried over from the stalled task-1783203910276-5a81. Completed 2026-07-05 by placing the ingester service behind the ingest compose profile so plain docker compose up no longer starts the run-only CLI or emits an argparse exit-code-2 banner."
     tags:         ["docs", "docker-compose", "dx"]
+
+  # ===== IMPROVEMENTS: FrameForge analysis + session findings (2026-07-05) =====
+
+  - id:          "BL-047"
+    title:        "Drift-gate generated docs with a --check twin"
+    summary:      "DATABASE.md is generated but nothing asserts it is current; add a gen_data_dictionary.py --check gate to CI/pre-commit."
+    description: |
+      scripts/gen_data_dictionary.py regenerates docs/DATABASE.md from the live
+      schema, but no gate asserts the committed file matches a fresh run — a stale
+      DATABASE.md (e.g. a wrong 'N migrations applied' header) can be committed
+      unnoticed, as happened during the 1.4.0 work. Add a --check mode that
+      regenerates to a buffer and diffs against the committed file, wired into
+      pre-commit and CI, and apply the same twin to any other generated artifact.
+    category:     "tooling"
+    type:         "infra"
+    status:       "parked"
+    complexity:   "XS"
+    priority:     "high"
+    rationale:    "Generated artifacts silently rot; a --check twin turns doc drift into a red gate instead of a stale commit."
+    acceptance_criteria:
+      - "scripts/gen_data_dictionary.py --check exits non-zero when docs/DATABASE.md differs from a fresh regeneration."
+      - "The check runs in pre-commit and in CI."
+    references:
+      - "scripts/gen_data_dictionary.py"
+      - "docs/DATABASE.md"
+      - ".pre-commit-config.yaml"
+    owner:        "shared"
+    source:       "Reference-codebase analysis 2026-07-04: FrameForge (framegraph) — every generator ships a --check twin (tooling/gen_docs.py --check, docs/schema/build_schema.py --check) aggregated in a byte-identical `make check` + CI."
+    tags:         ["docs", "drift", "ci", "generated"]
+
+  - id:          "BL-048"
+    title:        "Gate documentation prose against machine facts"
+    summary:      "Numeric claims in README/docs (counts, versions) go stale silently; add a test asserting documented facts equal live/generated reality."
+    description: |
+      Docs assert numbers that quietly go false — the corpus landing lede hardcoded
+      'Five documents' against a 41-doc corpus (BL-028), and DATABASE.md's migration
+      count drifted. check_version_consistency.py pins versions but not doc prose.
+      Add tests/test_docs_in_sync.py asserting that documented, machine-derivable
+      counts (migration count, table counts, documented corpus figures) equal the
+      machine value, per FrameForge's test_docs_in_sync. Scope to stable facts only.
+    category:     "testing"
+    type:         "infra"
+    status:       "parked"
+    complexity:   "S"
+    priority:     "high"
+    rationale:    "Prose that makes numeric claims drifts against reality; a red test is cheaper than a stale-doc incident."
+    acceptance_criteria:
+      - "A test fails when a documented, machine-derivable count no longer matches the live/generated value."
+      - "The check is limited to stable facts, not volatile numbers, to avoid churny failures."
+    references:
+      - "scripts/check_version_consistency.py"
+      - "docs/DATABASE.md"
+      - "README.md"
+    owner:        "shared"
+    source:       "Reference-codebase analysis 2026-07-04: FrameForge — tests/test_docs_in_sync.py asserts README '<n> $defs' == schema count and 'N/N green' == real test count."
+    tags:         ["docs", "testing", "drift"]
+
+  - id:          "BL-049"
+    title:        "Structured result/error envelope for jobs and the API"
+    summary:      "Job results and failures surface as raw dicts / exception reprs; adopt a structured {ok,error,error_type,hint,validation.issues} envelope."
+    description: |
+      Worker job results reach the webapp as raw Python dicts and failures as raw
+      exception reprs (BL-032), and GraphQL errors carry no structured hint/error_type.
+      Adopt a consistent envelope — {ok, error, error_type, hint, validation.issues[]
+      with JSON-pointer paths} — produced by the job layer and surfaced by GraphQL and
+      the webapp. Envelope only expected exceptions (ValueError/OSError/...); real bugs
+      still raise (PALS's Law); name silent losses explicitly. BL-032 consumes it.
+    category:     "api"
+    type:         "feature"
+    status:       "parked"
+    complexity:   "M"
+    priority:     "high"
+    rationale:    "Callers (agents and the webapp) get raw tracebacks or silent partial success; a structured envelope with a next-step hint makes failures actionable without swallowing real bugs."
+    acceptance_criteria:
+      - "Job results and failures carry a structured {ok, error, error_type, hint, validation-issues} shape."
+      - "Only expected exception classes are enveloped; unexpected exceptions still raise (PALS's Law)."
+      - "The webapp job page renders the human message and hint from the envelope (feeds BL-032)."
+    references:
+      - "src/doc_ray/application/jobs.py"
+      - "src/doc_ray/entrypoints/api/mutation.py"
+      - "webapp/templates/job.html"
+    owner:        "shared"
+    source:       "Reference-codebase analysis 2026-07-04: FrameForge — mcp/results.py and mcp/server.py return {ok,error,error_type,hint,validation.issues[]}; only ValueError/OSError/SyntaxError are enveloped, real bugs raise."
+    tags:         ["api", "error-model", "jobs", "dx"]
+
+  - id:          "BL-050"
+    title:        "Property-based invariants for ingest and annotation"
+    summary:      "No property-based tests exist; add Hypothesis invariants (ingest never crashes; span offsets stay in bounds; annotation round-trips)."
+    description: |
+      The suite is example-based only; ingest has already crashed on adversarial
+      inputs (NUL bytes stripped at extraction, zero-text scanned PDFs). Add hypothesis
+      invariants: extraction/ingest never raises over arbitrary bytes; sentence/span
+      character offsets never exceed the source text length; annotation/persistence
+      round-trips are idempotent. Follow FrameForge's model: a round-trip idempotence
+      property plus a totality 'never raises' property.
+    category:     "testing"
+    type:         "infra"
+    status:       "parked"
+    complexity:   "S"
+    priority:     "medium"
+    rationale:    "Example tests miss whole input classes; property tests directly target the crash-on-adversarial-input failure mode the pipeline has already hit."
+    acceptance_criteria:
+      - "A property test asserts extraction/ingest never raises over generated byte/text inputs."
+      - "A property test asserts sentence/span offsets never exceed the source length."
+      - "hypothesis is a declared dev dependency."
+    references:
+      - "src/doc_ray/tests/"
+      - "src/doc_ray/application/pipeline.py"
+      - "src/doc_ray/domain/sentences.py"
+    owner:        "shared"
+    source:       "Reference-codebase analysis 2026-07-04: FrameForge — test_elements.py::test_fuzzed_document_roundtrips (validate->dump->revalidate idempotence) and test_element_render.py::test_renderer_never_raises_on_fuzzed_text (totality)."
+    tags:         ["testing", "property-based", "hypothesis", "robustness"]
+
+  - id:          "BL-051"
+    title:        "Graceful optional-dependency handling with install hints"
+    summary:      "Entrypoints hard-fail with opaque ModuleNotFoundError when optional deps are absent; add optional groups + actionable install hints."
+    description: |
+      Running the API/worker/MCP raises bare ModuleNotFoundError (fastapi, strawberry,
+      pyshacl, spaCy models, ...) with no remediation. Group optional dependencies
+      (api, nlp, mcp) and guard heavy/optional imports at the entrypoints so a missing
+      dependency yields an actionable message ('needs X - run <install command>')
+      rather than a stacktrace, following FrameForge's _can_import-driven availability
+      with install hints. The core import path stays light.
+    category:     "tooling"
+    type:         "feature"
+    status:       "parked"
+    complexity:   "S"
+    priority:     "medium"
+    rationale:    "Opaque import failures are a recurring DX papercut; actionable hints turn a stacktrace into a one-line fix."
+    acceptance_criteria:
+      - "A missing optional dependency at an entrypoint produces a clear message naming the dependency and the install command."
+      - "Optional dependency groups are declared so subsystems can be installed independently."
+    references:
+      - "pyproject.toml"
+      - "src/doc_ray/entrypoints/"
+      - "webapp/app.py"
+    owner:        "shared"
+    source:       "Reference-codebase analysis 2026-07-04: FrameForge — dependency-free core + PEP-735 optional groups + cli.py print_targets ('--list' prints live availability with install hints)."
+    tags:         ["tooling", "dx", "packaging", "dependencies"]
+
+  - id:          "BL-052"
+    title:        "Test-enforce the hexagonal import direction"
+    summary:      "Layering (domain <- ports <- adapters <- application <- entrypoints) is convention-only; add a test forbidding inward-to-outward imports."
+    description: |
+      The hexagonal boundaries are documented but not machine-enforced, so an
+      accidental inward->outward import (e.g. domain importing an adapter) would pass
+      unnoticed. Add a test that walks package imports and asserts the dependency
+      direction, following FrameForge's tests/test_package_boundary.py (which forbids
+      the package importing its tooling).
+    category:     "testing"
+    type:         "infra"
+    status:       "parked"
+    complexity:   "XS"
+    priority:     "medium"
+    rationale:    "An architectural invariant enforced only by convention eventually erodes; a cheap import-direction test makes a violation a red build."
+    acceptance_criteria:
+      - "A test fails if a domain or ports module imports an outer layer (adapters/application/entrypoints)."
+      - "The allowed direction is encoded once and checked over the whole package."
+    references:
+      - "src/doc_ray/domain/"
+      - "src/doc_ray/ports/"
+      - "src/doc_ray/tests/"
+    owner:        "shared"
+    source:       "Reference-codebase analysis 2026-07-04: FrameForge — tests/test_package_boundary.py::test_framegraph_package_does_not_import_tooling enforces layering by test."
+    tags:         ["testing", "architecture", "boundaries"]
+
+  - id:          "BL-053"
+    title:        "Golden-output harness with hash-lock and tolerance oracle"
+    summary:      "No snapshot/golden tests exist; add a deterministic golden harness (SHA-256 lock + numeric-tolerance oracle) for render/annotation outputs."
+    description: |
+      Deterministic outputs (webapp annotation overlays, canonicalization results over
+      a fixed fixture corpus) can regress silently. Add a golden harness pinning
+      per-fixture SHA-256 hashes (exact gate) plus a numeric-tolerance oracle so a hash
+      mismatch is classified cosmetic (structure identical, values within +/-eps) vs
+      real drift, per FrameForge's render_golden.py + oracle.lock.json, with a ratcheted
+      coverage meta-test. Requires deterministic (clock/random-free) output paths.
+    category:     "testing"
+    type:         "infra"
+    status:       "parked"
+    complexity:   "L"
+    priority:     "medium"
+    rationale:    "Golden tests catch silent regressions in structured outputs; a hash-lock plus tolerance oracle separates float jitter from real drift without a brittle exact-match snapshot."
+    acceptance_criteria:
+      - "A golden gate fails on real output drift over a fixed fixture corpus."
+      - "Cosmetic numeric jitter within tolerance does not fail the gate."
+      - "Golden coverage is ratcheted (may not shrink)."
+    references:
+      - "src/doc_ray/tests/"
+      - "src/doc_ray/application/canonicalize.py"
+      - "webapp/"
+    owner:        "shared"
+    source:       "Reference-codebase analysis 2026-07-04: FrameForge — tooling/render_golden.py pins per-page SHA-256 in oracle.lock.json + reference renders as a +/-tolerance oracle; test_golden_coverage.py ratchets coverage."
+    tags:         ["testing", "golden", "snapshot", "regression"]
+
+  - id:          "BL-054"
+    title:        "Expose phrase and semantic (vector) search on the GraphQL API"
+    summary:      "fullTextSearch is stemmed-term-only and searchSentences is literal substring; the pgvector embedding layer exists but is not queryable — add phrase and semantic search."
+    description: |
+      Interrogating the corpus over GraphQL showed the only retrieval modes are
+      fullTextSearch (stemmed term-AND, so exact-phrase queries return nothing) and
+      searchSentences (literal substring). The embedding layer (pgvector, migration
+      012) is present in the schema but surfaced in no query, so phrase-level and
+      concept-level retrieval is impossible and clean definition extraction fails.
+      Add (a) exact-phrase full-text search and (b) semantic nearest-neighbour search
+      over the existing embeddings as GraphQL query fields.
+    category:     "api"
+    type:         "feature"
+    status:       "parked"
+    complexity:   "M"
+    priority:     "medium"
+    rationale:    "Term-AND and substring search cannot answer phrase or concept-level questions, and the embedding layer is already stored but unreachable -- a whole class of retrieval the data supports is unavailable."
+    acceptance_criteria:
+      - "A GraphQL query returns exact-phrase matches over sentences."
+      - "A GraphQL query returns nearest-neighbour sentences/documents for a query over the existing pgvector column."
+      - "Both are covered by tests."
+    references:
+      - "src/doc_ray/entrypoints/api/query.py"
+      - "src/doc_ray/adapters/persistence_read.py"
+      - "db/migrations/012_embeddings.sql"
+    owner:        "shared"
+    source:       "Session finding 2026-07-05: GraphQL corpus investigation -- fullTextSearch is stemmed-term-only (exact-phrase queries return 0), searchSentences is substring, and the pgvector embedding layer is present but exposed in no query."
+    tags:         ["api", "search", "semantic", "pgvector", "retrieval"]
+
+  - id:          "BL-055"
+    title:        "Add index-health / corruption monitoring (amcheck + checksums)"
+    summary:      "A transient index-page corruption silently failed an annotate job; there is no proactive corruption detection and data_checksums is off."
+    description: |
+      An annotate job failed on 'index idx_lexeme_occurrences_span contains corrupted
+      page at block 19542' (2026-07-05); the corruption cleared after a Postgres restart
+      (in-memory/torn page) and amcheck now passes, but the affected document was left
+      unannotated and nothing detected the problem proactively. data_checksums is off,
+      so genuine on-disk corruption cannot be caught by checksums. Add a periodic amcheck
+      (bt_index_check/bt_index_parent_check) sweep that surfaces corruption before it
+      fails jobs, decide on enabling data_checksums, and allow re-enqueue of jobs
+      terminally failed by a transient IndexCorrupted. Distinct from the autovacuum/
+      index-tuning item (this is detection, not tuning).
+    category:     "ops"
+    type:         "infra"
+    status:       "parked"
+    complexity:   "M"
+    priority:     "medium"
+    rationale:    "Index corruption failed a job silently and left a document unannotated with no detection; a health sweep turns a silent data gap into an early signal."
+    acceptance_criteria:
+      - "A periodic amcheck sweep reports index corruption as a health signal."
+      - "A decision is recorded on whether to enable data_checksums."
+      - "Jobs terminally failed by a transient IndexCorrupted can be identified for re-enqueue."
+    references:
+      - "src/doc_ray/application/db_health.py"
+      - "src/doc_ray/application/corpus_health.py"
+      - "db/migrations"
+    owner:        "shared"
+    source:       "Session finding 2026-07-05: failed-jobs investigation -- idx_lexeme_occurrences_span corrupted page (block 19542) failed an annotate job; healed by restart; data_checksums=off; document 3ada6f03 left unannotated."
+    tags:         ["ops", "postgres", "corruption", "monitoring", "reliability"]
