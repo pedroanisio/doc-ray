@@ -112,6 +112,10 @@ live backlog after these three.
 
 **2026-07-05 enterprise-IAM gap analysis:** added `BL-064`-`BL-075` against a supplied checklist (Authentication: OIDC/SAML/local; Provisioning: SCIM; Session: cookie/JWT/refresh; Authorization: tenant RBAC/ABAC/resource-level; Audit: append-only/searchable/exportable), verified live against `security.py`, `mutation.py`, `018_rbac.sql`, and the `jobs`/`backups` grant migrations. Confirmed absent: OIDC, SAML, SCIM, any tenant concept, webapp session/login, JWTs, refresh tokens, ABAC, and any security audit log (`document_provenance` is pipeline/domain history, not an access log). `BL-064` is a live confirmed bug, not a future-state gap: every mutation resolver checks only global read/write scope, never the caller's `document_acl` grant for the specific `document_id` — and `jobs`/`backups` carry no RLS at all — so any write-scoped token can currently mutate or delete any document in the corpus, not just ones it holds a grant on. `BL-065` (a tenant primitive, currently absent entirely) is flagged as the foundational blocker the tenant-scoped items (`BL-067`, `BL-068`, `BL-073`, `BL-075`) depend on.
 
+**2026-07-05 overlay-on-original-document feature design:** added `BL-076`-`BL-083`, decomposing the request "display the overlays/pages/rendering over the original document" into its component parts, verified against the live tree: PyMuPDF extraction already computes per-span bounding-box/page geometry (`extraction.py`'s `_spans_of_line`/`_blocks_from_pages`) but discards it before persistence (`BL-076`, the foundational blocker); `spans` stores only `char_start`/`char_end`, no page or coordinates (`BL-077`); the existing corpus would need re-extraction, not just re-annotation, to backfill that data (`BL-078`); no code path anywhere renders a PDF page as an image (repo-wide grep for `get_pixmap`/`pdf2image`/`Pixmap` returned zero hits) or streams the original file to a browser at all (`BL-079`, `BL-080`); the reader's "Pages" tab is a fixed 40-sentence chunk unrelated to real PDF page breaks, which the overlay view needs fixed first so both views agree on what "page 3" means (`BL-081`); and `BL-082` is the overlay view itself, with `BL-083` parked as a V2 (entity/canonical-link highlights reusing the same mechanism).
+
+**2026-07-05 overlay feature, corrected for format coverage:** the design above was PDF-only; corrected after being told the corpus also ingests docx/html and should consider pptx/svg. Verified live: `.pptx` and `.svg` have zero extraction code or dependency anywhere in the tree today (format-support gaps, not overlay-scope questions — added `BL-084`, `BL-085`); `docx`/`html`/`epub` extraction already exists but captures no positional/DOM data at all (`extract_docx` is paragraph-text-only; the HTML/EPUB path discards the DOM), and none of the three have a PDF-style fixed page to rasterize, so they need a DOM/markup-highlighting approach instead of `BL-076`-`BL-082`'s render-page-then-draw-bbox model (added `BL-086`). `BL-084`/`BL-085` land ingestion only; `BL-087` (parked on both) extends the bbox-overlay pattern to PPTX (real per-slide shape coordinates via python-pptx) and SVG (native vector coordinates, no rasterization needed at all) once each format can be ingested. `BL-076`, `BL-079`, `BL-081`, and `BL-082` were retitled/re-scoped in place to state "(PDF)" explicitly rather than imply their approach generalizes.
+
 ## Items
 
 | ID | Item | Category | Type | Status | Cx | Priority | Owner |
@@ -191,6 +195,18 @@ live backlog after these three.
 | BL-073 | ABAC layer for sensitive and contextual authorization rules | security | feature | parked | L | medium | shared |
 | BL-074 | Append-only security audit-event log distinct from document_provenance | security | feature | parked | L | high | shared |
 | BL-075 | Tenant-admin audit surface: search by actor/action/target/time/IP, exportable | security | feature | parked | M | medium | shared |
+| BL-076 | Persist per-span page number and bounding box at extraction time (PDF) | extraction | feature | ready | M | high | shared |
+| BL-077 | Schema: persist page number and bounding box on spans | persistence | feature | parked | M | high | shared |
+| BL-078 | Backfill page/bbox for already-ingested documents via re-extraction | ops | feature | parked | L | medium | shared |
+| BL-079 | Route: render an original PDF page as an image (PDF) | webapp | feature | parked | M | medium | shared |
+| BL-080 | Route: stream the original uploaded file to the browser | webapp | feature | parked | S | low | shared |
+| BL-081 | Align the reader's Pages tab to real PDF page boundaries (PDF) | webapp | tech-debt | parked | S | medium | shared |
+| BL-082 | Overlay view: POS/word highlights positioned over the rendered original page (PDF) | webapp | feature | parked | L | medium | shared |
+| BL-083 | Extend the overlay view to entity/canonical-link highlights (V2) | webapp | feature | parked | M | low | shared |
+| BL-084 | Extraction support for PPTX (PowerPoint) | extraction | feature | parked | M | low | shared |
+| BL-085 | Extraction support for SVG | extraction | feature | parked | S | low | shared |
+| BL-086 | Overlay strategy for non-paginated formats (docx/html/epub): highlight in a rendered view of the original markup | webapp | feature | parked | L | low | shared |
+| BL-087 | Overlay support for PPTX/SVG once ingested (slide/vector-native positioning) | webapp | feature | parked | M | low | shared |
 
 See [`backlog.yml`](backlog.yml) for each item's full description, rationale,
 acceptance criteria, dependencies, related decisions (`D-###`), and references.
