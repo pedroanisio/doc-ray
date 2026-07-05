@@ -77,15 +77,16 @@ domain seeding, and backups also link to their corresponding guide sections.
 
 Drag in (or pick) an EPUB, PDF, TXT, MD, or DOCX — optionally with an explicit
 title — and submit. By default the **full pipeline** checkbox is on: the file
-is ingested, then automatically annotated and canonicalized, with no further
-clicks. Untick it to ingest only. Uploads are capped in size (200 MB by
-default; `DOCRAY_MAX_UPLOAD_MB` overrides). Submitting lands you on the
-pipeline-status page (§2.1) for the new document.
+is ingested, then automatically annotated, semantically enriched, and
+canonicalized, with no further clicks. Untick it to ingest only. Uploads are
+capped in size (200 MB by default; `DOCRAY_MAX_UPLOAD_MB` overrides).
+Submitting lands you on the pipeline-status page (§2.1) for the new document.
 
 ### 2.1 Pipeline status (`/job/<id>`)
 
 Shows every background job attached to the uploaded document — ingest,
-annotate, canonicalize, and anything run later — with live status pills. The
+annotate, semantic-enrich, canonicalize, and anything run later — with live
+status pills. The
 page refreshes itself every 3 seconds while anything is queued or running and
 stops when the pipeline finishes, linking to the document and its
 domain-seeding screen. The table uses numbered steps for scanning; the raw job

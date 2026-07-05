@@ -44,7 +44,7 @@ docker compose up -d postgres minio createbucket
 docker compose build ingester
 
 # 3. Ingest the sample PDF (repo root is mounted at /data)
-docker compose run --rm ingester /data/orwell1984.pdf
+docker compose run --rm ingester /data/static/fixtures/AirFrance447_BEA.pdf
 
 # ...or a whole directory, recursively
 docker compose run --rm ingester /data
@@ -57,7 +57,7 @@ Expected output:
 
 ```
 Ingesting 1 file(s) into postgres:5432/docray ...
-  [OK ] orwell1984.pdf -> 3f2a...uuid
+  [OK ] AirFrance447_BEA.pdf -> 3f2a...uuid
 Done: ingested=1
 ```
 
@@ -103,16 +103,20 @@ webapp-driven ingestion path — the pipeline runs unattended from there:
 mutation($f: Upload!) {
   ingestDocument(file: $f, pipeline: true) { id status }   # pipeline: true is the default
 }
-# on success, enqueues annotate -> canonicalize as a job-payload chain;
+# on success, enqueues annotate -> semantic_enrich -> canonicalize as a job-payload chain;
 # poll pipeline progress with: { jobs(documentId: "...") { kind status } }
 ```
 
 Other query/mutation surface: `documents` / `document` / `searchSentences` /
-`fullTextSearch` / `lexeme(s)` / `entities` / `entityFrequency` (reads);
-`reannotate` / `deleteDocument` / `annotateDocument` /
-`canonicalizeDocument(resolve:)` (writes — every mutation enqueues a worker
-job and returns it; poll `job(id)` for completion, never a synchronous
-result).
+`fullTextSearch` / `lexeme(s)` / `entities` / `entityFrequency` / `job` /
+`jobs` (reads); `reannotate` / `deleteDocument` / `annotateDocument` /
+`canonicalizeDocument(resolve:)` / `semanticEnrichDocument` (pipeline writes —
+every mutation enqueues a worker job and returns it; poll `job(id)` for
+completion, never a synchronous result). Entity canonicalization curation:
+`seedSuggestions` / `canonical` / `canonicalSearch` / `unresolvedMentions` /
+`resolutionReview` (reads), `suggestSeeds` / `decideSeeds` / `seedApproved`
+(writes). Backup/restore: `createBackup` / `restoreBackup` (see
+[Backup & restore](#backup--restore) below).
 
 API authentication is token-to-principal based. Set
 `DOCRAY_API_TOKENS='token=principal_uuid[:read+write]'` to map bearer tokens (or
@@ -190,7 +194,7 @@ watch mode as a restartable alert surface.
 ```bash
 pip install -r requirements.txt
 # DATABASE_URL / S3_ENDPOINT default to localhost — see .env.example
-python -m doc_ray.entrypoints.cli orwell1984.pdf
+python -m doc_ray.entrypoints.cli static/fixtures/AirFrance447_BEA.pdf
 ```
 
 PDF extraction defaults to PyMuPDF with a pypdf fallback. Math-heavy corpora can

@@ -84,8 +84,9 @@ the API's event loop.
 A job's payload can carry a `chain`: on success, `run_once` enqueues the next
 kind for the same document with the remaining chain before returning —
 deterministic and auditable in the `jobs` table, and the mechanism behind
-`ingestDocument(pipeline: true)` reaching a fully annotated, canonicalized
-document with no further calls.
+`ingestDocument(pipeline: true)` reaching a fully annotated, semantically
+enriched, and canonicalized document (`annotate` -> `semantic_enrich` ->
+`canonicalize`) with no further calls.
 
 ## Entity canonicalization
 

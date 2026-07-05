@@ -22,6 +22,46 @@ doc-ray carries **one global version** covering both the application package
 ## [Unreleased]
 
 ### Added
+- **Doc-hygiene audit fixes + drift regression tests** (Claude Sonnet 5 via
+  Claude Code) — README's quick-start referenced a removed fixture
+  (`orwell1984.pdf`) and its GraphQL surface list had drifted 7 fields behind
+  the live schema; `.env.example` was missing ~20 environment variables the
+  code actually reads (`API_MAX_DEPTH`/`API_MAX_TOKENS`, `WORKER_*`,
+  `DOCRAY_PDF_HEADING_*`, `DOCRAY_PDF_OCR*`, `PORT`, `S3_REGION`, and others);
+  `CLAUDE.md` still carried its unfilled seed-template block and an unresolved
+  `PURPOSE.md` reference. `docs/DATABASE.md` is regenerated (schema `1.9.0`,
+  42 migrations). New `src/doc_ray/tests/test_doc_hygiene.py` makes each of
+  these a mechanical drift guard going forward (each with a self-test proving
+  it can actually fail). `docs/doc-ray-database-*.pdf/svg` ERD diagrams remain
+  stale — no generator script exists for them yet (tracked as a gap, not fixed
+  here; see the doc-hygiene report's Recommendation 1).
+- **Semantic enrichment joins the default pipeline; entity/chunk reads stop
+  rejoining `document_content`** (Claude Sonnet 5 via Claude Code) — the
+  post-ingest pipeline chain is now `ingest -> annotate -> semantic_enrich ->
+  canonicalize`, queueable explicitly via the new GraphQL
+  `semanticEnrichDocument` mutation or the `semantic_enrich` job kind.
+  Separately, `entity_mention` and `chunk` each gain a denormalized `surface`
+  column (migrations 038-042, schema `1.9.0`), populated at annotation write
+  time; `entityFrequency`, `entities`, `chunks`, `entityLinks`, and
+  `unresolvedMentions` read it directly instead of recovering the text via a
+  per-row `substring()` join against `document_content` at query time. That
+  join, combined with a `GROUP BY` blocking `LIMIT` pushdown, had let an
+  unremarkable `entityFrequency`/`entities` call (no `documentId` filter) force
+  an unbounded, TOAST-detoasting scan across the whole corpus — 7-17 minutes
+  pinning every core across 8 parallel backends. Every pooled API connection
+  now also carries a Postgres `statement_timeout`
+  (`DOCRAY_API_STATEMENT_TIMEOUT_MS`, default 15s) as a second, independent
+  guardrail against any future unbounded query. See `engineering_decisions.yml`
+  `D-017`.
+- **Webapp: shared stylesheet, graceful database-unavailable page**
+  (Claude Sonnet 5 via Claude Code) — the design tokens and component styles
+  that `base.html` inlined, plus several near-duplicate per-page rules
+  (`.hint`/`.muted`, `.notice`/`.errbox`, the job/seeding status pill, the
+  dense-table `th`/`td` rules), are consolidated into
+  `webapp/static/design-system.css`; no visual change. A Postgres connection
+  failure (unreachable, or a rejected password) now renders a plain "Can't
+  reach the database" page with the connection error and a short checklist,
+  instead of surfacing Werkzeug's raw interactive debugger/traceback.
 - **Drift-gate for the generated data dictionary + hexagonal import guard**
   (Claude Opus 4.8 via Claude Code) — `scripts/gen_data_dictionary.py` gains a
   `--check` mode (`_in_sync`) that fails when `docs/DATABASE.md` is stale versus the

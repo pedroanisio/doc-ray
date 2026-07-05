@@ -1,6 +1,6 @@
 # doc-ray — Database ERD & Data Dictionary
 
-**Schema version `1.8.0`** (SemVer) · 37 migrations applied
+**Schema version `1.9.0`** (SemVer) · 42 migrations applied
 
 > Generated from the live schema by `scripts/gen_data_dictionary.py`. Do not edit by hand — re-run the generator.
 
@@ -469,6 +469,7 @@ has exactly one head → a function).
 | `annotation_id` | ulid |  | FK→annotations |  |  |
 | `span_id` | uuid |  | FK→spans |  |  |
 | `chunk_type` | text |  |  |  |  |
+| `surface` | text |  |  |  |  |
 
 - **Primary key:** (id)
 - **FK:** FOREIGN KEY (annotation_id) REFERENCES annotations(id) ON DELETE CASCADE
@@ -525,12 +526,14 @@ Named-entity mentions, entity linking to a KB, and coreference chains.
 | `annotation_id` | ulid |  | FK→annotations |  |  |
 | `span_id` | uuid |  | FK→spans |  |  |
 | `entity_type` | text |  |  |  |  |
+| `surface` | text |  |  |  |  |
 
 - **Primary key:** (id)
 - **FK:** FOREIGN KEY (annotation_id) REFERENCES annotations(id) ON DELETE CASCADE
 - **FK:** FOREIGN KEY (span_id) REFERENCES spans(id) ON DELETE CASCADE
 - **Index** `idx_entity_mention_annotation`: public.entity_mention USING btree (annotation_id)
 - **Index** `idx_entity_mention_span`: public.entity_mention USING btree (span_id)
+- **Index** `idx_entity_mention_type_surface`: public.entity_mention USING btree (entity_type, surface)
 - **RLS:** enabled — read/write policies via *annotation_id → annotations*
 
 #### `entity_link`
