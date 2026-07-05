@@ -158,12 +158,12 @@ live backlog after these three.
 | BL-044 | No proactive autovacuum/index tuning despite two prior cascade-delete incidents | persistence | tech-debt | done | M | high | shared |
 | BL-045 | FTS read/write language-config symmetry isn't enforced by a test | testing | tech-debt | done | XS | low | shared |
 | BL-046 | docker-compose ingester exit code 2 reads as a startup failure (GH#3) | ops | tech-debt | done | XS | low | shared |
-| BL-047 | Drift-gate generated docs with a --check twin | tooling | infra | parked | XS | high | shared |
+| BL-047 | Drift-gate generated docs with a --check twin | tooling | infra | done | XS | high | shared |
 | BL-048 | Gate documentation prose against machine facts | testing | infra | parked | S | high | shared |
 | BL-049 | Structured result/error envelope for jobs and the API | api | feature | parked | M | high | shared |
 | BL-050 | Property-based invariants for ingest and annotation | testing | infra | parked | S | medium | shared |
 | BL-051 | Graceful optional-dependency handling with install hints | tooling | feature | parked | S | medium | shared |
-| BL-052 | Test-enforce the hexagonal import direction | testing | infra | parked | XS | medium | shared |
+| BL-052 | Test-enforce the hexagonal import direction | testing | infra | done | XS | medium | shared |
 | BL-053 | Golden-output harness with hash-lock and tolerance oracle | testing | infra | parked | L | medium | shared |
 | BL-054 | Expose phrase and semantic (vector) search on the GraphQL API | api | feature | parked | M | medium | shared |
 | BL-055 | Add index-health / corruption monitoring (amcheck + checksums) | ops | infra | parked | M | medium | shared |

@@ -1497,7 +1497,7 @@ items:
       pre-commit and CI, and apply the same twin to any other generated artifact.
     category:     "tooling"
     type:         "infra"
-    status:       "parked"
+    status:       "done"
     complexity:   "XS"
     priority:     "high"
     rationale:    "Generated artifacts silently rot; a --check twin turns doc drift into a red gate instead of a stale commit."
@@ -1633,7 +1633,7 @@ items:
       the package importing its tooling).
     category:     "testing"
     type:         "infra"
-    status:       "parked"
+    status:       "done"
     complexity:   "XS"
     priority:     "medium"
     rationale:    "An architectural invariant enforced only by convention eventually erodes; a cheap import-direction test makes a violation a red build."

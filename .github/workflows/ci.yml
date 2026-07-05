@@ -66,5 +66,7 @@ jobs:
           pip install -r requirements.txt -r requirements-dev.txt
       - name: Apply migrations
         run: python -m doc_ray.entrypoints.migrate || echo "migration runner not yet present (pre-Phase-1)"
+      - name: DATABASE.md drift gate (BL-047)
+        run: python scripts/gen_data_dictionary.py --check
       - name: Pytest with coverage (D-013)
         run: pytest --cov=doc_ray --cov-fail-under=90 tests src/doc_ray/tests -q

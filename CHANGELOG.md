@@ -22,6 +22,15 @@ doc-ray carries **one global version** covering both the application package
 ## [Unreleased]
 
 ### Added
+- **Drift-gate for the generated data dictionary + hexagonal import guard**
+  (Claude Opus 4.8 via Claude Code) — `scripts/gen_data_dictionary.py` gains a
+  `--check` mode (`_in_sync`) that fails when `docs/DATABASE.md` is stale versus the
+  live schema, wired as a CI gate that runs after migrations; a new
+  `src/doc_ray/tests/test_import_boundary.py` fails if `doc_ray.domain` or
+  `doc_ray.ports` import an outer layer, enforcing the points-inward dependency rule
+  by test. The generator's hand-authored data constants (`RLS_PATH`, `MIGRATIONS`)
+  move to `scripts/_data_dictionary_content.py` to keep both files within the 400
+  net-LOC cap (D-015). Closes `BL-047` and `BL-052`.
 - **Evaluation, semantic enrichment, and math extraction completion** (OpenAI GPT-5 via Codex) —
   migration 036 adds durable `corpus_snapshot`, `evaluation_run`,
   `evaluation_metric`, and `gold_sample` artifacts, while
@@ -168,6 +177,24 @@ doc-ray carries **one global version** covering both the application package
   English config stems algorithmically, not from a dictionary, so it stems
   nonsense words identically to real ones), decoupling the test from
   corpus size entirely.
+
+## [1.9.0] - 2026-07-05
+
+### Fixed
+- **entity_frequency/entities corpus-wide query could peg every core for
+  minutes** (Claude Sonnet 5 via Claude Code) — `entity_mention` and `chunk`
+  now carry a `surface` column, populated at annotation write time instead of
+  reconstructed via `substring(document_content.full_text, ...)` at read time.
+  Without this, calling `entityFrequency`/`entities` without a `documentId` (a
+  schema-permitted call shape) forced Postgres to extract and `GROUP BY` a
+  substring of the full document text for every mention in the entire corpus
+  before returning anything, since a `GROUP BY` blocks `LIMIT` pushdown — this
+  pegged 8 parallel backends across every core for 7-17 minutes each against
+  the live corpus. Migration 038 backfills existing rows and adds the column;
+  `list_chunks`, `list_entity_links`, and `list_unresolved_mentions` were
+  fixed the same way. Every pooled API connection also now carries a Postgres
+  `statement_timeout` (`DOCRAY_API_STATEMENT_TIMEOUT_MS`, default 15s) as an
+  independent guardrail against any future unbounded query.
 
 ## [1.8.0] - 2026-07-05
 
