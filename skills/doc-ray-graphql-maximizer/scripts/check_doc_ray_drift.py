@@ -17,6 +17,7 @@ SEMVER_RE = re.compile(r"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$")
 REQUIRED_PATHS = [
     "README.md",
     "CHANGELOG.md",
+    "skills/doc-ray-graphql-maximizer/scripts/list_documents.py",
     "src/doc_ray/entrypoints/api/schema.py",
     "src/doc_ray/entrypoints/api/query.py",
     "src/doc_ray/entrypoints/api/mutation.py",
@@ -89,10 +90,12 @@ EXPECTED_DOCUMENT_FIELDS = {
 
 
 def skill_root() -> Path:
+    """Return the root directory of this skill package."""
     return Path(__file__).resolve().parents[1]
 
 
 def repo_root(explicit: Path | None = None) -> Path:
+    """Resolve the Doc-Ray repository root."""
     if explicit is not None:
         return explicit.resolve()
     env_root = os.environ.get("DOCRAY_REPO_ROOT")
@@ -106,10 +109,12 @@ def repo_root(explicit: Path | None = None) -> Path:
 
 
 def read_text(path: Path) -> str:
+    """Read UTF-8 text from *path*."""
     return path.read_text(encoding="utf-8")
 
 
 def check_package_metadata(root: Path, errors: list[str]) -> None:
+    """Validate SemVer package metadata and documentation pointers."""
     version_path = root / "VERSION"
     if not version_path.exists():
         errors.append("missing VERSION")
@@ -129,6 +134,7 @@ def check_package_metadata(root: Path, errors: list[str]) -> None:
 
 
 def schema_digest(root: Path) -> dict[str, object]:
+    """Run the bundled schema digest script and return its JSON output."""
     script = skill_root() / "scripts" / "schema_digest.py"
     env = dict(os.environ)
     env["DOCRAY_REPO_ROOT"] = str(root)
@@ -143,6 +149,7 @@ def schema_digest(root: Path) -> dict[str, object]:
 
 
 def check_repo_structure(root: Path, errors: list[str]) -> None:
+    """Validate the Doc-Ray files the skill depends on still exist."""
     missing = [rel for rel in REQUIRED_PATHS if not (root / rel).exists()]
     errors.extend(f"missing required Doc-Ray path: {rel}" for rel in missing)
     app_text = read_text(root / "src/doc_ray/entrypoints/api/app.py")
@@ -153,6 +160,7 @@ def check_repo_structure(root: Path, errors: list[str]) -> None:
 
 
 def require_text(path: Path, needles: list[str], errors: list[str], label: str) -> None:
+    """Require every string in *needles* to appear in *path*."""
     text = read_text(path)
     missing = [needle for needle in needles if needle not in text]
     if missing:
@@ -160,6 +168,7 @@ def require_text(path: Path, needles: list[str], errors: list[str], label: str) 
 
 
 def check_auth_visibility_contract(root: Path, errors: list[str]) -> None:
+    """Validate source anchors for the API/webapp/RLS visibility model."""
     require_text(
         root / "src/doc_ray/entrypoints/api/security.py",
         [
@@ -197,6 +206,7 @@ def check_auth_visibility_contract(root: Path, errors: list[str]) -> None:
 
 
 def check_schema(root: Path, errors: list[str], warnings: list[str]) -> None:
+    """Validate the live Strawberry schema fields used by this skill."""
     digest = schema_digest(root)
     queries = set(digest.get("root_queries", []))
     mutations = set(digest.get("root_mutations", []))
@@ -214,7 +224,9 @@ def check_schema(root: Path, errors: list[str], warnings: list[str]) -> None:
     new_queries = sorted(queries - EXPECTED_QUERIES)
     new_mutations = sorted(mutations - EXPECTED_MUTATIONS)
     if new_queries:
-        warnings.append(f"schema has new Query fields not yet described by skill: {', '.join(new_queries)}")
+        warnings.append(
+            f"schema has new Query fields not yet described by skill: {', '.join(new_queries)}"
+        )
     if new_mutations:
         warnings.append(
             f"schema has new Mutation fields not yet described by skill: {', '.join(new_mutations)}"
@@ -222,6 +234,7 @@ def check_schema(root: Path, errors: list[str], warnings: list[str]) -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Run the drift checker."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--repo-root", type=Path, default=None)
     parser.add_argument("--json", action="store_true", help="Emit machine-readable result.")

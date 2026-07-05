@@ -1,6 +1,6 @@
 # Doc-Ray GraphQL Maximizer
 
-Version: `0.1.1`
+Version: `0.1.2`
 
 Repo-local skill for helping AI agents extract maximum value from Doc-Ray's
 GraphQL API. It teaches agents to inspect the live schema, query the corpus with
@@ -8,6 +8,15 @@ evidence-preserving fields, use pagination and job polling correctly, distinguis
 mentions from canonical identities, and validate API assumptions against the
 current source tree. It also teaches agents to distinguish "no corpus" from
 "no rows visible to this API principal" under Doc-Ray's RLS/auth model.
+
+For direct corpus inventory, use the deterministic helper instead of composing
+ad hoc curl/Python snippets:
+
+```bash
+python3 skills/doc-ray-graphql-maximizer/scripts/list_documents.py \
+  --env-file .env \
+  --auth first-configured-token
+```
 
 ## Install or Update
 

@@ -33,6 +33,18 @@ boolean/env-shape check rather than dumping `DOCRAY_API_TOKENS`.
 
 Start broad, then narrow.
 
+For a direct "list all documents" request, prefer the deterministic helper over
+handwritten shell snippets:
+
+```bash
+python3 skills/doc-ray-graphql-maximizer/scripts/list_documents.py \
+  --env-file .env \
+  --auth first-configured-token
+```
+
+Use `--json` when downstream tooling needs structured output. Use
+`--auth anonymous` when proving anonymous/RLS visibility.
+
 ```graphql
 query Docs($limit: Int!, $after: String) {
   documents(limit: $limit, after: $after) {
@@ -59,8 +71,9 @@ citable sentence-level evidence.
 If `documents` returns `[]`, classify the result before answering.
 
 1. Confirm the API is alive and ready with `/health` and `/readyz`.
-2. Record whether the GraphQL request was anonymous or authenticated. If a token
-   is available, re-run the same query with bearer or `X-DocRay-API-Token` auth.
+2. Record whether the GraphQL request was anonymous or authenticated. Use
+   `scripts/list_documents.py --auth anonymous` and, if a token is available,
+   re-run with `--auth first-configured-token`.
 3. If the webapp or operator says documents exist, compare visibility layers:
    - GraphQL anonymous: `docray_api` with empty `app.principal_id`.
    - GraphQL token: `docray_api` with mapped principal id and scopes.

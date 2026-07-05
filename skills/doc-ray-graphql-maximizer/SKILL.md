@@ -48,6 +48,12 @@ missing, what needs curation, and what follow-up query or job unlocks more value
 4. Choose the smallest query set that preserves evidence. Prefer fields that
    return IDs, cursors, titles, surfaces, spans, statuses, and error/result
    payloads.
+5. For "list all documents", use the bundled script instead of ad hoc curl or
+   Python one-liners:
+   - Anonymous: `python3 skills/doc-ray-graphql-maximizer/scripts/list_documents.py`
+   - Authenticated from repo `.env`: `python3 skills/doc-ray-graphql-maximizer/scripts/list_documents.py --env-file .env --auth first-configured-token`
+   - The script performs health/readiness checks, paginates all documents, and
+     never prints token values.
 
 ## Operating Rules
 
@@ -105,5 +111,7 @@ planning a multi-step exploration. It includes query templates for:
 - `scripts/check_doc_ray_drift.py`: verify the skill package and its bundled
   assumptions against the live Doc-Ray checkout: required API files, schema root
   fields, package README/CHANGELOG, and SemVer metadata.
+- `scripts/list_documents.py`: list all GraphQL-visible documents with health
+  checks, pagination, safe token loading, and table/JSON output.
 - `scripts/schema_digest.py`: print a compact live schema digest for task-time
   planning.

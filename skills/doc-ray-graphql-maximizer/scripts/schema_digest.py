@@ -20,7 +20,8 @@ def _repo_root() -> Path:
             if (candidate / "src" / "doc_ray" / "entrypoints" / "api" / "schema.py").exists():
                 return candidate
     raise RuntimeError(
-        "Could not locate the doc-ray checkout. Run this from the repo root or set DOCRAY_REPO_ROOT."
+        "Could not locate the doc-ray checkout. Run this from the repo root or set "
+        "DOCRAY_REPO_ROOT."
     )
 
 
@@ -71,6 +72,7 @@ def _digest() -> dict[str, object]:
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Run the schema digest command."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--json", action="store_true", help="Emit JSON instead of Markdown.")
     args = parser.parse_args(argv)

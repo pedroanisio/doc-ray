@@ -5,6 +5,16 @@ All notable changes to `doc-ray-graphql-maximizer` are recorded here.
 The format follows Keep a Changelog conventions and the skill uses Semantic
 Versioning through the repo-local `VERSION` file.
 
+## [0.1.2] - 2026-07-05
+
+### Fixed
+
+- Added `list_documents.py` so common corpus inventory uses a deterministic
+  helper with health checks, pagination, safe token loading, and table/JSON
+  output instead of brittle ad hoc commands.
+- Updated the skill and playbook to route "list all documents" through the
+  bundled helper.
+
 ## [0.1.1] - 2026-07-05
 
 ### Fixed
