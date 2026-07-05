@@ -15,6 +15,8 @@ Unidecode==1.4.*
 # KB clients (adapters/wikidata, adapters/wikipedia) and the webapp's GraphQL
 # write path — previously only transitive, now a direct dependency.
 httpx==0.28.*
+# Flask browser (webapp/) — local corpus reader and operator UI.
+Flask==3.1.*
 # Frontier entity resolver (adapters/resolver_claude) — worker-only, lazy-imported.
 anthropic==0.113.*
 

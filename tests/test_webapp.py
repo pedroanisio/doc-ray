@@ -75,6 +75,8 @@ def _fake_health_q(s: str):
 def _fake_workflow_q(s: str):
     if "FROM seed_suggestion WHERE document_id" in s:
         return []
+    if "FROM jobs WHERE document_id" in s and "kind = 'annotate'" in s:
+        return [{"status": "succeeded"}]
     if "FROM jobs WHERE document_id" in s:
         return [
             {
@@ -315,6 +317,62 @@ def test_document_plain_mode_has_no_word_spans(client):
     assert 'class="w ' not in html
 
 
+def test_document_reader_renders_markdown_blocks_with_annotations(client, monkeypatch):
+    full_text = "# Chapter One\n- said hello"
+
+    def markdown_q(sql, params=()):
+        s = _norm(sql)
+        if "sen.ordinal, sen.text" in s:
+            return [
+                {"ordinal": 0, "text": "# Chapter One", "ss": 0, "se": 13},
+                {"ordinal": 1, "text": "- said hello", "ss": 14, "se": 26},
+            ]
+        if "FROM lexeme_occurrences o" in s and "sp.char_start >=" in s:
+            return [{"a": 16, "b": 20, "uid": LEX_UID, "lemma": "say", "pos": "VERB"}]
+        return fake_q(sql, params)
+
+    def markdown_q1(sql, params=()):
+        if "substring(full_text FROM" in _norm(sql):
+            return {"t": full_text}
+        return fake_q1(sql, params)
+
+    monkeypatch.setattr(webapp, "q", markdown_q)
+    monkeypatch.setattr(webapp, "q1", markdown_q1)
+
+    html = client.get(f"/doc/{DOC_ID}").get_data(as_text=True)
+
+    assert '<h2 class="reader-heading h1">' in html
+    assert "Chapter One" in html
+    assert '<ul class="reader-list">' in html
+    assert "# Chapter One" not in html
+    assert "- said hello" not in html
+    assert 'class="w p-VERB"' in html
+    assert f"/lexeme/{LEX_UID}" in html
+
+
+def test_document_unannotated_reader_explains_queued_annotation(client, monkeypatch):
+    def unannotated_q(sql, params=()):
+        s = _norm(sql)
+        if "GROUP BY l.pos" in s:
+            return []
+        if "l.pos = 'VERB'" in s and "GROUP BY l.uid, l.lemma" in s:
+            return []
+        if "FROM lexeme_occurrences o" in s and "sp.char_start >=" in s:
+            return []
+        if "FROM jobs WHERE document_id" in s and "kind = 'annotate'" in s:
+            return [{"status": "queued"}]
+        return fake_q(sql, params)
+
+    monkeypatch.setattr(webapp, "q", unannotated_q)
+
+    html = client.get(f"/doc/{DOC_ID}").get_data(as_text=True)
+
+    assert "has extracted text, but annotation has" in html
+    assert "not finished yet" in html
+    assert "annotation job is queued" in html
+    assert "The plain text is readable now" in html
+
+
 def test_document_pagination_math(client):
     # 120 sentences / 40 per page -> 3 pages; page 2 offers prev and next.
     html = client.get(f"/doc/{DOC_ID}?page=2").get_data(as_text=True)
@@ -453,6 +511,53 @@ def test_seeding_screen_signposts_workflow_and_confirms_seed(client):
     assert "Seeded rows enter the shared canonical registry" in normalized
     assert "confirm(" in html
     assert "Seed approved rows permanently?" in html
+
+
+# --- job status ------------------------------------------------------------
+
+
+def test_job_status_humanizes_success_outcome(client):
+    html = client.get("/job/job-1").get_data(as_text=True)
+
+    assert "Upload and ingest" in html
+    assert "Completed" in html
+    assert "The document was uploaded and registered." in html
+    assert "&gt;ingest&lt;" not in html
+    assert "{&#39;document_id&#39;" not in html
+
+
+def test_job_status_humanizes_failed_outcome(client, monkeypatch):
+    failed_job = {
+        "id": "job-failed",
+        "kind": "annotate",
+        "status": "failed",
+        "document_id": DOC_ID,
+        "error": 'ValueError("unsupported language")',
+        "result": None,
+        "created_at": datetime(2026, 7, 4, 12, 0),
+        "finished_at": datetime(2026, 7, 4, 12, 1),
+    }
+
+    def failed_q(sql, params=()):
+        if "FROM jobs WHERE document_id" in _norm(sql):
+            return [failed_job]
+        return fake_q(sql, params)
+
+    def failed_q1(sql, params=()):
+        if "FROM jobs WHERE id" in _norm(sql):
+            return failed_job
+        return fake_q1(sql, params)
+
+    monkeypatch.setattr(webapp, "q", failed_q)
+    monkeypatch.setattr(webapp, "q1", failed_q1)
+
+    html = client.get("/job/job-failed").get_data(as_text=True)
+
+    assert "Annotate text did not finish." in html
+    assert "unsupported language." in html
+    assert "Restart annotation after the worker or input issue is fixed." in html
+    assert "Needs attention" in html
+    assert "ValueError" not in html
 
 
 # --- operator health -------------------------------------------------------

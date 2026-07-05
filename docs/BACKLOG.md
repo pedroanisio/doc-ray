@@ -63,7 +63,7 @@ had shipped but were still marked `parked`/`ready`.
 | BL-001 | OCR pass for image-only PDFs | extraction | feature | parked | M | high | shared |
 | BL-002 | Math fidelity: recover equations as LaTeX via opt-in ML backend | extraction | feature | parked | L | medium | shared |
 | BL-003 | Calibrate heading-detection thresholds per corpus | extraction | tech-debt | parked | S | low | mine |
-| BL-004 | Render Markdown in the reading pane | webapp | feature | parked | S | medium | mine |
+| BL-004 | Render Markdown in the reading pane | webapp | feature | done | S | medium | mine |
 | BL-005 | Full-document scroll view + solo-POS focus mode | webapp | feature | parked | M | low | mine |
 | BL-006 | Materialize the remaining NLP annotation layers | nlp | feature | parked | XL | medium | concurrent |
 | BL-007 | Verification layer for ML/LLM annotator output (PALS's Law) | nlp | infra | parked | M | high | shared |
@@ -91,8 +91,8 @@ had shipped but were still marked `parked`/`ready`.
 | BL-029 | Define domain jargon across the webapp | webapp | feature | parked | M | medium | shared |
 | BL-030 | Seeding screen: workflow signposting and Seed confirmation guardrail | webapp | feature | done | S | medium | shared |
 | BL-031 | Disclose that corpus search is a literal substring match | webapp | feature | done | XS | medium | shared |
-| BL-032 | Humanize pipeline/job status outcomes and failures | webapp | tech-debt | parked | M | medium | shared |
-| BL-033 | Reader: 'not yet annotated' empty state | webapp | feature | parked | S | low | shared |
+| BL-032 | Humanize pipeline/job status outcomes and failures | webapp | tech-debt | done | M | medium | shared |
+| BL-033 | Reader: 'not yet annotated' empty state | webapp | feature | done | S | low | shared |
 | BL-034 | Group admin/destructive nav items away from reading | webapp | tech-debt | done | XS | low | shared |
 | BL-035 | De-emphasize raw ULIDs in user-facing tables | webapp | tech-debt | parked | XS | low | shared |
 | BL-036 | Extend the reader's tooltip pattern to POS chips and status pills | webapp | feature | parked | S | low | shared |

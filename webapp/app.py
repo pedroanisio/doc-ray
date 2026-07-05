@@ -18,14 +18,17 @@ import os
 
 import psycopg
 from flask import Flask, g, render_template, request
-from markupsafe import Markup, escape
 from psycopg import sql
 from psycopg.rows import dict_row
 
 try:
+    from webapp.job_view import decorate_job_rows
     from webapp.operator_health import build_operator_health, require_operator_health
+    from webapp.reader_blocks import annotate_html, latest_annotation_state
 except ModuleNotFoundError:  # pragma: no cover - direct ``python webapp/app.py`` path.
+    from job_view import decorate_job_rows
     from operator_health import build_operator_health, require_operator_health
+    from reader_blocks import annotate_html, latest_annotation_state
 
 DATABASE_URL = os.environ.get("DATABASE_URL", "postgresql://docray:docray@localhost:5455/docray")
 
@@ -147,56 +150,6 @@ def gql(query: str, variables: dict | None = None) -> dict:
     return body["data"]
 
 
-# --- annotation rendering --------------------------------------------------
-
-_POS_SIGIL_SPEC = (
-    "NOUN:N PROPN:PN VERB:V ADJ:J ADV:R PRON:PR NUM:# DET:D "
-    "ADP:P CCONJ:C SCONJ:S PART:T AUX:A PUNCT:. SYM:* X:X INTJ:I"
-)
-_POS_SIGILS = dict(item.split(":") for item in _POS_SIGIL_SPEC.split())
-
-
-def _pos_sigil(pos: str) -> str:
-    """Return the compact visible POS marker used as a non-color cue."""
-    return _POS_SIGILS.get(pos, (pos[:2] or "?").upper())
-
-
-def annotate_html(text: str, occs: list[dict]) -> Markup:
-    """Overlay POS-tagged, clickable word spans onto a raw text slice.
-
-    ``occs`` are dicts with ``rel_start``/``rel_end`` (offsets into *text*),
-    ``uid``, ``lemma``, ``pos``. Text between words (spaces, punctuation) is
-    emitted verbatim so the passage reads normally with its words annotated.
-    """
-    out: list = []
-    cur = 0
-    for o in sorted(occs, key=lambda x: x["rel_start"]):
-        a, b = o["rel_start"], o["rel_end"]
-        if a < cur or a >= b or b > len(text):  # skip overlaps / out of range
-            continue
-        out.append(escape(text[cur:a]))
-        word = text[a:b]
-        pos = str(o["pos"])
-        lemma = str(o["lemma"])
-        out.append(
-            Markup(
-                '<a class="w p-{pos}" href="/lexeme/{uid}" data-t="{tip}" '
-                'data-pos="{pos}" aria-label="{aria}">'
-                '<span class="pos-sigil" aria-hidden="true">{cue}</span>{w}</a>'
-            ).format(
-                pos=pos,
-                uid=o["uid"],
-                tip=f"{lemma} · {pos}",
-                aria=f"{word}, lemma {lemma}, part of speech {pos}",
-                cue=_pos_sigil(pos),
-                w=word,
-            )
-        )
-        cur = b
-    out.append(escape(text[cur:]))
-    return Markup("").join(out)
-
-
 # --- routes ----------------------------------------------------------------
 
 
@@ -231,14 +184,7 @@ def operator_health():
 
 @app.route("/doc/<uuid:doc_id>")
 def document(doc_id):
-    """Render a single document with metadata, POS stats, and annotated sentences.
-
-    Args:
-        doc_id: The UUID of the document to display.
-
-    Returns:
-        The rendered document page, or a 404 tuple when the document is unknown.
-    """
+    """Render a single document with metadata, POS stats, and annotated sentences."""
     doc = q1("SELECT * FROM documents WHERE id = %s", (str(doc_id),))
     if not doc:
         return ("Document not found", 404)
@@ -275,7 +221,6 @@ def document(doc_id):
         """,
         (str(doc_id),),
     )
-
     per_page = 40
     page = max(1, request.args.get("page", 1, type=int))
     annotate = request.args.get("annotate", "1") != "0"
@@ -336,6 +281,7 @@ def document(doc_id):
         pages=pages,
         n_sent=n_sent,
         annotate=annotate,
+        annotation_state=latest_annotation_state(q, doc_id),
     )
 
 
@@ -439,8 +385,9 @@ def job_status(job_id):
     active = job["status"] in ("queued", "running") or any(
         j["status"] in ("queued", "running") for j in cascade
     )
+    job_rows = decorate_job_rows(cascade or [job])
     return render_template(
-        "job.html", job=job, cascade=cascade, doc=doc, doc_id=doc_id, active=active
+        "job.html", job=job, jobs=job_rows, doc=doc, doc_id=doc_id, active=active
     )
 
 

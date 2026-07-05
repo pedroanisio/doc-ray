@@ -108,6 +108,9 @@ overlaid:
 
 - **Header pills** — language, type, character count, pages, status, and the
   **domain seeding →** link to the curation screen (§3).
+- **Structured text** — Markdown heading markers (`#`, `##`, `###`) and bullet
+  markers (`-`) render as reader headings and lists instead of raw extraction
+  syntax.
 - **Annotated text** — every analyzed word is underlined in its part-of-speech
   color and also carries a compact POS sigil plus an accessible label, so the
   annotation is not color-only. Hover a word for its lemma and POS; click it to
@@ -119,8 +122,9 @@ overlaid:
 - **Rail** — POS distribution for the document and its 15 most frequent verbs,
   each linked to its lexeme page.
 
-If a document shows no annotation, it has been ingested but not yet annotated —
-see §4.
+If a document shows no annotation, the reader now states whether annotation is
+queued/running or has not run yet. The extracted text remains readable while the
+overlay is absent; see §4 for how the pipeline runs annotation.
 
 ### 2.4 Domain seeding (`/doc/<id>/seeding`)
 

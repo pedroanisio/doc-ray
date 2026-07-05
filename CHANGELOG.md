@@ -22,6 +22,12 @@ doc-ray carries **one global version** covering both the application package
 ## [Unreleased]
 
 ### Added
+- **Reader and job-status polish** (OpenAI GPT-5 via Codex) —
+  the reader now renders extracted Markdown headings and lists as structured
+  blocks while preserving inline POS annotation links, explains
+  not-yet-annotated documents in place, and the pipeline status page now maps
+  raw job kinds/results/errors to human labels, outcome summaries, and recovery
+  actions, closing `BL-004`, `BL-032`, and `BL-033`.
 - **Webapp orientation and guardrails** (OpenAI GPT-5 via Codex) —
   the corpus landing page now states the ingest -> annotate -> curate value
   proposition, the seeding screen shows its workflow and confirms permanent

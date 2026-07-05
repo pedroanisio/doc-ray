@@ -128,7 +128,7 @@ items:
       in the reader while preserving the annotation overlay and column measure.
     category:     "webapp"
     type:         "feature"
-    status:       "parked"
+    status:       "done"
     complexity:   "S"
     priority:     "medium"
     rationale:    "Raw `#`/`-` markers in the literary reading view are a visible UX regression against the structured text."
@@ -139,7 +139,7 @@ items:
       - "docs/BACKLOG.md"
       - "webapp/"
     owner:        "mine"
-    source:       "docs/BACKLOG.md — Web app (render Markdown in the reader)."
+    source:       "docs/BACKLOG.md — Web app (render Markdown in the reader); completed with styled heading/list blocks that preserve inline annotation links."
     tags:         ["reader", "markdown", "ux"]
 
   - id:          "BL-005"
@@ -993,7 +993,7 @@ items:
       and 'pipeline finished -> open X' guidance (job.html:44-47) are good; keep them.
     category:     "webapp"
     type:         "tech-debt"
-    status:       "parked"
+    status:       "done"
     complexity:   "M"
     priority:     "medium"
     rationale:    "The post-upload moment is peak user anxiety; raw dicts and exception reprs make success look uncertain and failure cryptic."
@@ -1003,7 +1003,7 @@ items:
     references:
       - "webapp/templates/job.html"
     owner:        "shared"
-    source:       "Session finding 2026-07-04: webapp UX/UI audit (finding M4)."
+    source:       "Session finding 2026-07-04: webapp UX/UI audit (finding M4); completed with presentation helpers that map raw jobs to human labels, outcomes, and recovery actions."
     tags:         ["job-status", "error-states", "microcopy", "ux"]
 
   - id:          "BL-033"
@@ -1017,7 +1017,7 @@ items:
       annotation runs.
     category:     "webapp"
     type:         "feature"
-    status:       "parked"
+    status:       "done"
     complexity:   "S"
     priority:     "low"
     rationale:    "A blank annotation overlay looks broken; the manual explains this but the screen does not."
@@ -1027,7 +1027,7 @@ items:
     references:
       - "webapp/templates/document.html"
     owner:        "shared"
-    source:       "Session finding 2026-07-04: webapp UX/UI audit (finding L1)."
+    source:       "Session finding 2026-07-04: webapp UX/UI audit (finding L1); completed with an in-reader not-annotated state that distinguishes queued/running annotation from absent annotation."
     tags:         ["reader", "empty-state", "annotation", "ux"]
 
   - id:          "BL-034"

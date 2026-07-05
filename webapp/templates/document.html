@@ -35,9 +35,24 @@
   .reader { max-width:96ch; font-family:var(--serif); font-size:1.24rem; line-height:1.9;
             font-optical-sizing:auto; }
   .reader p { margin:0 0 .5rem; position:relative; padding-left:3rem; }
-  .reader p:hover .ord { color:var(--accent); }
+  .reader p:hover .ord,
+  .reader-heading:hover .ord,
+  .reader-list li:hover .ord { color:var(--accent); }
   .reader .ord { position:absolute; left:0; top:.62em; font-family:var(--mono); font-size:.58rem;
     color:var(--ink-faint); font-variant-numeric:tabular-nums; }
+  .reader-heading { position:relative; padding-left:3rem; margin:1.7rem 0 .7rem;
+    font-family:var(--serif); line-height:1.25; color:var(--ink); }
+  .reader-heading.h1 { font-size:1.7rem; font-weight:600; }
+  .reader-heading.h2 { font-size:1.45rem; font-weight:600; }
+  .reader-heading.h3 { font-size:1.25rem; font-weight:600; color:var(--ink-soft); }
+  .reader-heading .ord { top:.45em; }
+  .reader-list { margin:.2rem 0 .85rem 0; padding:0; list-style:none; }
+  .reader-list li { position:relative; padding-left:4.2rem; margin:.22rem 0; }
+  .reader-list li::before { content:""; position:absolute; left:3.05rem; top:.85em;
+    width:.36rem; height:.36rem; border-radius:50%; background:var(--accent); }
+  .reader-note { margin:0 0 1.2rem; padding:.85rem 1rem; border:1px solid var(--line);
+    border-left:3px solid var(--accent); background:var(--panel); color:var(--ink-soft);
+    font-family:var(--sans); font-size:.9rem; line-height:1.5; }
   .w { color:inherit; text-decoration:none; border-bottom:2px solid var(--c);
        padding-bottom:1px; position:relative; transition:background .12s; cursor:pointer; }
   .w.p-NOUN { border-bottom-style:solid; }
@@ -102,8 +117,28 @@
     </div>
 
     <div class="reader {{ 'plain' if not annotate }}" id="reader">
+      {% if annotate and n_sent and not pos %}
+        <div class="reader-note">
+          This document has extracted text, but annotation has
+          {% if annotation_state in ['queued', 'running'] %}not finished yet. The annotation job is {{ annotation_state }}.{% else %}not run yet.{% endif %}
+          The plain text is readable now; the POS overlay appears after annotation completes.
+        </div>
+      {% endif %}
       {% for s in sentences %}
-        <p><span class="ord">{{ s.ordinal }}</span>{% if annotate and s.html is defined %}{{ s.html }}{% else %}{{ s.text }}{% endif %}</p>
+        {% set raw_text = s.text or '' %}
+        {% set has_html = annotate and s.html is defined %}
+        {% set rendered = (s.html|string) if has_html else '' %}
+        {% if raw_text.startswith('### ') %}
+          <h4 class="reader-heading h3"><span class="ord">{{ s.ordinal }}</span>{% if has_html %}{{ rendered[4:]|safe }}{% else %}{{ raw_text[4:] }}{% endif %}</h4>
+        {% elif raw_text.startswith('## ') %}
+          <h3 class="reader-heading h2"><span class="ord">{{ s.ordinal }}</span>{% if has_html %}{{ rendered[3:]|safe }}{% else %}{{ raw_text[3:] }}{% endif %}</h3>
+        {% elif raw_text.startswith('# ') %}
+          <h2 class="reader-heading h1"><span class="ord">{{ s.ordinal }}</span>{% if has_html %}{{ rendered[2:]|safe }}{% else %}{{ raw_text[2:] }}{% endif %}</h2>
+        {% elif raw_text.startswith('- ') %}
+          <ul class="reader-list"><li><span class="ord">{{ s.ordinal }}</span>{% if has_html %}{{ rendered[2:]|safe }}{% else %}{{ raw_text[2:] }}{% endif %}</li></ul>
+        {% else %}
+          <p><span class="ord">{{ s.ordinal }}</span>{% if has_html %}{{ s.html }}{% else %}{{ raw_text }}{% endif %}</p>
+        {% endif %}
       {% endfor %}
       <div class="pager">
         {% if page > 1 %}<a href="?page={{ page-1 }}&annotate={{ 1 if annotate else 0 }}">← prev</a>{% endif %}
