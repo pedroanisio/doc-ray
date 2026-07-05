@@ -15,8 +15,17 @@ from typing import Any, cast
 import strawberry
 from strawberry.scalars import JSON
 
+from doc_ray.adapters import persistence_layers_read as layer_read
 from doc_ray.adapters import persistence_read as read
 from doc_ray.entrypoints.api.context import RequestContext
+from doc_ray.entrypoints.api.layer_types import (
+    AnnotationRun,
+    Chunk,
+    CorefChain,
+    DependencyEdge,
+    EntityLink,
+    Token,
+)
 
 #: Resolver info parametrised with our context (satisfies mypy disallow-any-generics).
 Info = strawberry.Info[RequestContext, None]
@@ -40,6 +49,7 @@ class Sentence:
     text: str
     char_start: int
     char_end: int
+    cursor: str
 
     @classmethod
     def from_row(cls, row: Row) -> Sentence:
@@ -50,6 +60,7 @@ class Sentence:
             text=row["text"],
             char_start=row["char_start"],
             char_end=row["char_end"],
+            cursor=row.get("cursor") or "",
         )
 
 
@@ -92,6 +103,7 @@ class EntityMention:
     text: str
     char_start: int
     char_end: int
+    cursor: str
 
     @classmethod
     def from_row(cls, row: Row) -> EntityMention:
@@ -104,6 +116,7 @@ class EntityMention:
             text=row.get("text") or "",
             char_start=row["char_start"],
             char_end=row["char_end"],
+            cursor=row.get("cursor") or "",
         )
 
 
@@ -114,6 +127,7 @@ class EntityFrequency:
     text: str
     entity_type: str
     count: int
+    cursor: str
 
     @classmethod
     def from_row(cls, row: Row) -> EntityFrequency:
@@ -122,6 +136,7 @@ class EntityFrequency:
             text=row.get("text") or "",
             entity_type=row["entity_type"],
             count=int(row["count"]),
+            cursor=row.get("cursor") or "",
         )
 
 
@@ -148,6 +163,7 @@ class Document:
     license: str | None
     created_at: datetime
     updated_at: datetime | None
+    cursor: str
 
     @classmethod
     def from_row(cls, row: Row) -> Document:
@@ -175,6 +191,7 @@ class Document:
             license=row.get("license"),
             created_at=row["created_at"],
             updated_at=row.get("updated_at"),
+            cursor=row.get("cursor") or str(row["id"]),
         )
 
     @strawberry.field
@@ -209,7 +226,7 @@ class Document:
         info: Info,
         entity_type: str | None = None,
         limit: int = 100,
-        offset: int = 0,
+        after: str | None = None,
     ) -> list[EntityMention]:
         """Resolve a bounded page of this document's named-entity mentions."""
         ctx = info.context
@@ -218,16 +235,18 @@ class Document:
             document_id=str(self.id),
             entity_type=entity_type,
             limit=ctx.page_size(limit),
-            offset=offset,
+            after=after,
         )
         return [EntityMention.from_row(r) for r in rows]
 
     @strawberry.field
-    async def sentences(self, info: Info, limit: int = 40, offset: int = 0) -> list[Sentence]:
+    async def sentences(
+        self, info: Info, limit: int = 40, after: str | None = None
+    ) -> list[Sentence]:
         """Resolve a bounded page of the document's sentences."""
         ctx = info.context
         rows = await read.list_sentences(
-            ctx.conn, str(self.id), limit=ctx.page_size(limit), offset=offset
+            ctx.conn, str(self.id), limit=ctx.page_size(limit), after=after
         )
         return [Sentence.from_row(r) for r in rows]
 
@@ -236,6 +255,68 @@ class Document:
         """Resolve the document's provenance trail."""
         rows = await read.get_provenance(info.context.conn, str(self.id))
         return [ProvenanceEvent.from_row(r) for r in rows]
+
+    @strawberry.field
+    async def annotation_runs(
+        self, info: Info, limit: int = 50, after: str | None = None
+    ) -> list[AnnotationRun]:
+        """Resolve bounded annotation runs for this document."""
+        ctx = info.context
+        rows = await layer_read.list_annotation_runs(
+            ctx.conn, str(self.id), limit=ctx.page_size(limit), after=after
+        )
+        return [AnnotationRun.from_row(r) for r in rows]
+
+    @strawberry.field
+    async def tokens(self, info: Info, limit: int = 100, after: str | None = None) -> list[Token]:
+        """Resolve bounded token rows with morphology for this document."""
+        ctx = info.context
+        rows = await layer_read.list_tokens(
+            ctx.conn, str(self.id), limit=ctx.page_size(limit), after=after
+        )
+        return [Token.from_row(r) for r in rows]
+
+    @strawberry.field
+    async def dependencies(
+        self, info: Info, limit: int = 100, after: str | None = None
+    ) -> list[DependencyEdge]:
+        """Resolve bounded dependency edges for this document."""
+        ctx = info.context
+        rows = await layer_read.list_dependencies(
+            ctx.conn, str(self.id), limit=ctx.page_size(limit), after=after
+        )
+        return [DependencyEdge.from_row(r) for r in rows]
+
+    @strawberry.field
+    async def chunks(self, info: Info, limit: int = 100, after: str | None = None) -> list[Chunk]:
+        """Resolve bounded shallow chunks for this document."""
+        ctx = info.context
+        rows = await layer_read.list_chunks(
+            ctx.conn, str(self.id), limit=ctx.page_size(limit), after=after
+        )
+        return [Chunk.from_row(r) for r in rows]
+
+    @strawberry.field
+    async def coref_chains(
+        self, info: Info, limit: int = 50, after: str | None = None
+    ) -> list[CorefChain]:
+        """Resolve bounded coreference chains for this document."""
+        ctx = info.context
+        rows = await layer_read.list_coref_chains(
+            ctx.conn, str(self.id), limit=ctx.page_size(limit), after=after
+        )
+        return [CorefChain.from_row(r) for r in rows]
+
+    @strawberry.field
+    async def entity_links(
+        self, info: Info, limit: int = 100, after: str | None = None
+    ) -> list[EntityLink]:
+        """Resolve bounded entity-link rows for this document."""
+        ctx = info.context
+        rows = await layer_read.list_entity_links(
+            ctx.conn, str(self.id), limit=ctx.page_size(limit), after=after
+        )
+        return [EntityLink.from_row(r) for r in rows]
 
 
 @strawberry.type
@@ -250,6 +331,7 @@ class LexemeOccurrence:
     pre: str
     hit: str
     post: str
+    cursor: str
 
     @classmethod
     def from_row(cls, row: Row) -> LexemeOccurrence:
@@ -263,6 +345,7 @@ class LexemeOccurrence:
             pre=row.get("pre") or "",
             hit=row.get("hit") or "",
             post=row.get("post") or "",
+            cursor=row.get("cursor") or "",
         )
 
 
@@ -275,6 +358,7 @@ class Lexeme:
     pos: str
     lemma: str
     uses: int | None
+    cursor: str
 
     @classmethod
     def from_row(cls, row: Row) -> Lexeme:
@@ -285,6 +369,7 @@ class Lexeme:
             pos=row["pos"],
             lemma=row["lemma"],
             uses=row.get("uses"),
+            cursor=row.get("cursor") or str(row["uid"]),
         )
 
     @strawberry.field
@@ -293,12 +378,12 @@ class Lexeme:
         info: Info,
         document_id: strawberry.ID | None = None,
         limit: int = 80,
-        offset: int = 0,
+        after: str | None = None,
     ) -> list[LexemeOccurrence]:
         """Resolve a bounded page of this lexeme's occurrences.
 
-        Pass ``documentId`` to scope to one document, and ``offset`` to page
-        past the page-size cap.
+        Pass ``documentId`` to scope to one document, and ``after`` to request
+        the next keyset page.
         """
         ctx = info.context
         rows = await read.lexeme_kwic(
@@ -306,7 +391,7 @@ class Lexeme:
             str(self.uid),
             document_id=str(document_id) if document_id is not None else None,
             limit=ctx.page_size(limit),
-            offset=offset,
+            after=after,
         )
         return [LexemeOccurrence.from_row(r) for r in rows]
 
@@ -327,6 +412,7 @@ class SentenceHit:
     pre: str
     hit: str
     post: str
+    cursor: str
 
     @classmethod
     def from_row(cls, row: Row) -> SentenceHit:
@@ -340,6 +426,7 @@ class SentenceHit:
             pre=row.get("pre") or "",
             hit=row.get("hit") or "",
             post=row.get("post") or "",
+            cursor=row.get("cursor") or "",
         )
 
 
@@ -371,6 +458,7 @@ class Job:
     document_id: strawberry.ID | None
     error: str | None
     result: JSON | None
+    cursor: str
 
     @classmethod
     def from_row(cls, row: Row) -> Job:
@@ -384,6 +472,7 @@ class Job:
             document_id=strawberry.ID(str(doc)) if doc is not None else None,
             error=row.get("error"),
             result=cast(JSON, res) if res is not None else None,
+            cursor=row.get("cursor") or str(row["id"]),
         )
 
 

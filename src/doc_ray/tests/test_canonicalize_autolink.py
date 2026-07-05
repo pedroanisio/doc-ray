@@ -18,7 +18,10 @@ from doc_ray.domain.ulid import new_ulid_str
 
 _MIGRATIONS = Path(__file__).resolve().parents[3] / "db" / "migrations"
 _FILES = ("021_canonical.sql", "022_form_index.sql", "023_resolution.sql")
-_TEXT = "Elena founded a startup in Berlin."  # 'Elena' = [0,5), 'Berlin' = [27,33)
+_PLACE = "Autolinkberg"
+_TEXT = f"Elena founded a startup in {_PLACE}."
+_PLACE_START = _TEXT.index(_PLACE)
+_PLACE_END = _PLACE_START + len(_PLACE)
 
 
 def _connect_or_skip():
@@ -41,13 +44,13 @@ def test_autolink_links_known_and_leaves_residue():
     canon: list[int] = []
     try:
         cid = store.create_canonical(
-            conn, preferred="Berlin", entity_type="PLACE", wikidata_id="Q-al-berlin"
+            conn, preferred=_PLACE, entity_type="PLACE", wikidata_id="Q-al-autolinkberg"
         )
         canon.append(cid)
         store.upsert_form(
             conn,
-            form_norm=form_norm("Berlin"),
-            form_surface="Berlin",
+            form_norm=form_norm(_PLACE),
+            form_surface=_PLACE,
             canonical_id=cid,
             form_type="name",
         )
@@ -55,7 +58,7 @@ def test_autolink_links_known_and_leaves_residue():
         doc_id = _itdb.make_doc(conn, _TEXT)
         docs.append(doc_id)
         aid = _itdb.make_annotation(conn, doc_id, "ner", "test")
-        berlin_span = _itdb.span_of(conn, doc_id, 27, 33)
+        berlin_span = _itdb.span_of(conn, doc_id, _PLACE_START, _PLACE_END)
         elena_span = _itdb.span_of(conn, doc_id, 0, 5)
         berlin_m, elena_m = new_ulid_str(), new_ulid_str()
         conn.execute(

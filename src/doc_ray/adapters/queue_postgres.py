@@ -120,6 +120,7 @@ async def list_async(
     *,
     document_id: str | None = None,
     limit: int = 20,
+    after: str | None = None,
 ) -> list[dict[str, Any]]:
     """Return recent job rows, newest first (optionally scoped to one document).
 
@@ -129,10 +130,13 @@ async def list_async(
     cur = await conn.execute(
         "SELECT id, kind, status, document_id, error, result "
         "FROM jobs WHERE (%s::uuid IS NULL OR document_id = %s) "
-        "ORDER BY id DESC LIMIT %s",
-        (document_id, document_id, limit),
+        "AND (%s::ulid IS NULL OR id < %s::ulid) ORDER BY id DESC LIMIT %s",
+        (document_id, document_id, after, after, limit),
     )
-    return await cur.fetchall()
+    rows = await cur.fetchall()
+    for row in rows:
+        row["cursor"] = str(row["id"])
+    return rows
 
 
 def heartbeat(conn: psycopg.Connection[Any], job_id: str, *, worker_id: str) -> bool:

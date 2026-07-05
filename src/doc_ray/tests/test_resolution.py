@@ -22,7 +22,10 @@ from doc_ray.ports.resolver import Candidate, Resolution, ResolutionKind
 
 _MIGRATIONS = Path(__file__).resolve().parents[3] / "db" / "migrations"
 _FILES = ("021_canonical.sql", "022_form_index.sql", "023_resolution.sql")
-_TEXT = "Elena founded a startup in Berlin."  # 'Elena' = [0,5), 'Berlin' = [27,33)
+_PLACE = "Resolutionberg"
+_TEXT = f"Elena founded a startup in {_PLACE}."
+_PLACE_START = _TEXT.index(_PLACE)
+_PLACE_END = _PLACE_START + len(_PLACE)
 
 
 class _StubResolver:
@@ -57,7 +60,10 @@ def _seed_doc_with_mentions(conn):
     doc_id = _itdb.make_doc(conn, _TEXT)
     aid = _itdb.make_annotation(conn, doc_id, "ner", "test")
     elena, berlin = new_ulid_str(), new_ulid_str()
-    for mid, (s, e), etype in ((elena, (0, 5), "PER"), (berlin, (27, 33), "GPE")):
+    for mid, (s, e), etype in (
+        (elena, (0, 5), "PER"),
+        (berlin, (_PLACE_START, _PLACE_END), "GPE"),
+    ):
         span = _itdb.span_of(conn, doc_id, s, e)
         conn.execute(
             "INSERT INTO entity_mention (id, annotation_id, span_id, entity_type) "
@@ -88,7 +94,7 @@ def test_new_entity_commits_and_closes_the_flywheel():
                     new_preferred="Elena Fischer",
                     harvested_aliases=("E. Fischer",),
                 ),
-                # 'Berlin' scripted to abstain -> must land in review, not links.
+                # The place mention abstains -> must land in review, not links.
             }
         )
         outcome = resolve_residue(conn, stub, doc_id, result.residue)
@@ -216,13 +222,13 @@ def test_select_at_threshold_commits_and_writes_back_the_surface_alias():
     canon: list[int] = []
     try:
         cid = store.create_canonical(
-            conn, preferred="Berlin", entity_type="PLACE", wikidata_id="Q-res-berlin-2"
+            conn, preferred=_PLACE, entity_type="PLACE", wikidata_id="Q-res-resolutionberg-2"
         )
         canon.append(cid)
         store.upsert_form(
             conn,
-            form_norm=form_norm("Berlin"),
-            form_surface="Berlin",
+            form_norm=form_norm(_PLACE),
+            form_surface=_PLACE,
             canonical_id=cid,
             form_type="name",
             confidence=0.5,  # below AUTO_LINK_THRESHOLD -> residue with candidates
@@ -231,16 +237,16 @@ def test_select_at_threshold_commits_and_writes_back_the_surface_alias():
         docs.append(doc_id)
 
         result = autolink_document(conn, doc_id)
-        berlin_res = next(r for r in result.residue if r.surface == "Berlin")
+        berlin_res = next(r for r in result.residue if r.surface == _PLACE)
 
         stub = _StubResolver(
-            {"Berlin": Resolution(kind=ResolutionKind.SELECT, canonical_id=cid, confidence=0.95)}
+            {_PLACE: Resolution(kind=ResolutionKind.SELECT, canonical_id=cid, confidence=0.95)}
         )
         outcome = resolve_residue(conn, stub, doc_id, [berlin_res])
         assert (outcome.linked, outcome.created, outcome.review) == (1, 0, 0)
         assert store.canonical_for_mention(conn, berlin_m) == cid  # committed
 
-        blocking = candidates_for_form(conn, "Berlin")
+        blocking = candidates_for_form(conn, _PLACE)
         assert blocking.auto_link_id == cid
     finally:
         for d in docs:
@@ -258,13 +264,13 @@ def test_low_confidence_select_goes_to_review_not_link():
         # Seed a canonical WITH a low-confidence form so Stage 2 yields a candidate
         # but no auto-link; the stub then selects it below the commit threshold.
         cid = store.create_canonical(
-            conn, preferred="Berlin", entity_type="PLACE", wikidata_id="Q-res-berlin"
+            conn, preferred=_PLACE, entity_type="PLACE", wikidata_id="Q-res-resolutionberg"
         )
         canon.append(cid)
         store.upsert_form(
             conn,
-            form_norm=form_norm("Berlin"),
-            form_surface="Berlin",
+            form_norm=form_norm(_PLACE),
+            form_surface=_PLACE,
             canonical_id=cid,
             form_type="name",
             confidence=0.5,  # below AUTO_LINK_THRESHOLD -> residue with candidates
@@ -273,11 +279,11 @@ def test_low_confidence_select_goes_to_review_not_link():
         docs.append(doc_id)
 
         result = autolink_document(conn, doc_id)
-        berlin_res = next(r for r in result.residue if r.surface == "Berlin")
+        berlin_res = next(r for r in result.residue if r.surface == _PLACE)
         assert [c.canonical_id for c in berlin_res.candidates] == [cid]
 
         stub = _StubResolver(
-            {"Berlin": Resolution(kind=ResolutionKind.SELECT, canonical_id=cid, confidence=0.4)}
+            {_PLACE: Resolution(kind=ResolutionKind.SELECT, canonical_id=cid, confidence=0.4)}
         )
         outcome = resolve_residue(conn, stub, doc_id, [berlin_res])
         assert (outcome.linked, outcome.created, outcome.review) == (0, 0, 1)

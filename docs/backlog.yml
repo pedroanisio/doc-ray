@@ -27,6 +27,20 @@
 # opt-in Tesseract/PyMuPDF OCR path, ML/LLM-style resolver output passes a shared
 # verification port before mapping, and the GraphQL read adapter contract is
 # guarded by resolver-boundary tests. BL-009 remains open for cursor pagination.
+#
+# 2026-07-05: added BL-039..BL-046 from a Postgres/RDBMS domain gap-analysis
+# (a session first learned Postgres/RDBMS practice from doc-ray's own ingested
+# EDB "PostgreSQL Essentials v16" course + Clean Code ch.9, then audited
+# doc-ray's own Postgres usage against it). BL-039/BL-046 also close out
+# GitHub issues #2/#3, whose backlog entry had stalled on a blocked
+# .agent-tasks task since 2026-07-04. Also amended BL-017 with confirming
+# evidence (HNSW indexes provisioned but unqueried) found during the same pass.
+#
+# 2026-07-05: completed BL-009, BL-017, BL-021, and BL-012. GraphQL list reads
+# now use keyset cursors, persisted NLP/canonicalization layers have bounded
+# adapter-backed read fields, and the RLS trust boundary now distinguishes
+# trusted API principal assertion from per-principal database LOGIN roles. Also
+# reconciled stale BL-035 YAML status to the already-rendered done state.
 # =====================================================================
 
 disclaimer: |
@@ -37,9 +51,9 @@ disclaimer: |
 metadata:
   schema_version:   "1.0.0"
   generated_by:     "Claude Sonnet 5 via Claude Code (merge of Claude Opus 4.8 backlog + OpenAI Codex improvement-proposal candidates)"
-  generated_on:     "2026-07-04"
+  generated_on:     "2026-07-05"
   system_of_record: "docs/backlog.yml"
-  total_items:      38
+  total_items:      46
 
 items:
 
@@ -282,7 +296,7 @@ items:
       pagination, plus BL-017's new nested list fields, remain open.
     category:     "security"
     type:         "feature"
-    status:       "in-progress"
+    status:       "done"
     complexity:   "M"
     priority:     "high"
     rationale:    "An unbounded GraphQL surface is a denial-of-service and data-exfiltration risk."
@@ -296,7 +310,7 @@ items:
       - "src/doc_ray/entrypoints/api/schema.py"
       - "src/doc_ray/entrypoints/api/query.py"
     owner:        "concurrent"
-    source:       "engineering_decisions.yml D-008.k1 (grep-verified: QueryDepthLimiter + MaxTokensLimiter present in schema.py; offset-based params confirmed in query.py, 2026-07-04)."
+    source:       "engineering_decisions.yml D-008.k1 (grep-verified: QueryDepthLimiter + MaxTokensLimiter present in schema.py, 2026-07-04). Completed 2026-07-05 with cursor-bearing GraphQL list rows and keyset `after` arguments replacing offset pagination on the API read surface."
     tags:         ["graphql", "security", "pagination"]
 
   # =============================== OPS ==================================
@@ -378,7 +392,7 @@ items:
       role; the per-principal LOGIN-role note there is a comment, not code.
     category:     "security"
     type:         "feature"
-    status:       "parked"
+    status:       "done"
     complexity:   "L"
     priority:     "medium"
     rationale:    "The session-GUC principal is only a trust-boundary assumption; direct-SQL access breaks tenant isolation."
@@ -390,9 +404,10 @@ items:
     references:
       - "engineering_decisions.yml — D-010 (RLS; API sets the principal)"
       - "db/migrations/018_rbac.sql"
+      - "db/migrations/030_principal_login_roles.sql"
       - "webapp/app.py"
     owner:        "shared"
-    source:       "Session RLS operational notes — trust boundary of the app-tier-asserted principal."
+    source:       "Session RLS operational notes — trust boundary of the app-tier-asserted principal. Completed 2026-07-05 with principals.db_role, docray_api trusted assertion, docray_create_principal_login(), and direct-SQL impersonation regression coverage."
     tags:         ["rls", "rbac", "multi-tenant", "trust-boundary"]
 
   # ========================= TESTING / TOOLING ==========================
@@ -550,9 +565,19 @@ items:
       read-adapter functions: annotationRuns, tokens, syntax, corefChains,
       entityLinks, canonical, canonicalForms — embedding/similarity fields
       postponed until baseline layer reads are stable.
+
+      2026-07-05 addendum (Postgres/RDBMS domain gap-analysis): confirmed the
+      pgvector side of this concretely — idx_embedding_hnsw and
+      idx_canonical_embedding_hnsw (012_embeddings.sql, 021_canonical.sql) are
+      both provisioned with default HNSW build parameters (m/ef_construction
+      unset) and no `<=>`/`<->`/`<#>` similarity query was found anywhere
+      reachable from persistence_read.py/query.py/loaders.py. When the
+      embedding/similarity fields here are picked up, revisit those HNSW
+      parameters against the real corpus size rather than accepting pgvector
+      defaults unexamined.
     category:     "api"
     type:         "feature"
-    status:       "parked"
+    status:       "done"
     complexity:   "L"
     priority:     "high"
     rationale:    "The GraphQL API currently exposes a narrow document/sentence/lexeme/entity slice of a richer relational NLP graph."
@@ -560,15 +585,20 @@ items:
       - "New list fields are bounded and covered by GraphQL tests."
       - "Resolvers contain no inline SQL."
       - "Query complexity/depth limits cover the new nested fields."
+      - "HNSW build parameters (m/ef_construction) are reviewed against actual corpus size before the embedding/similarity fields ship, not left on pgvector defaults."
     dependencies: ["BL-016", "BL-009"]
     related_decisions: ["D-001", "D-002", "D-008"]
     references:
       - "src/doc_ray/entrypoints/api/query.py"
       - "src/doc_ray/entrypoints/api/types.py"
       - "src/doc_ray/adapters/persistence_read.py"
+      - "src/doc_ray/adapters/persistence_layers_read.py"
+      - "src/doc_ray/entrypoints/api/layer_types.py"
+      - "db/migrations/012_embeddings.sql"
+      - "db/migrations/021_canonical.sql"
     owner:        "concurrent"
-    source:       "docs/doc_ray_improvement_proposal.md BL-017 — API surface does not expose persisted NLP layers, 2026-07-04."
-    tags:         ["graphql", "api", "nlp", "read-model"]
+    source:       "docs/doc_ray_improvement_proposal.md BL-017 — API surface did not expose persisted NLP layers, 2026-07-04. Completed 2026-07-05 for baseline annotation runs, tokens/morphology, dependency syntax, chunks, coreference chains, and entity links through bounded GraphQL fields backed by persistence_layers_read; embedding/similarity reads remain deliberately postponed per the item text and HNSW addendum."
+    tags:         ["graphql", "api", "nlp", "read-model", "pgvector", "hnsw"]
 
   - id:          "BL-018"
     title:        "spaCy annotation provenance"
@@ -681,7 +711,7 @@ items:
       abstained mentions) are still unbuilt — status remains accurate as-is.
     category:     "api"
     type:         "feature"
-    status:       "parked"
+    status:       "done"
     complexity:   "M"
     priority:     "high"
     rationale:    "Canonicalization has constrained internal logic, but clients cannot fully inspect the registry/review state without direct SQL or job JSON."
@@ -694,10 +724,11 @@ items:
     references:
       - "docs/canonicalization_pipeline.md"
       - "src/doc_ray/adapters/canonical_store.py"
+      - "src/doc_ray/adapters/persistence_canonical_read.py"
       - "src/doc_ray/application/jobs.py"
       - "webapp/app.py"
     owner:        "concurrent"
-    source:       "docs/doc_ray_improvement_proposal.md BL-021 — canonicalization workflow lacks first-class read surfaces, 2026-07-04."
+    source:       "docs/doc_ray_improvement_proposal.md BL-021 — canonicalization workflow lacked first-class read surfaces, 2026-07-04. Completed 2026-07-05 as the API-contract-first/read-only slice: canonical, canonicalSearch, canonical forms, unresolvedMentions, resolutionReview, and entityLinks are queryable without direct SQL or job JSON."
     tags:         ["canonicalization", "review", "graphql", "human-in-the-loop"]
 
   - id:          "BL-022"
@@ -772,7 +803,7 @@ items:
       rates, annotation coverage, and review acceptance/rejection rates.
     category:     "nlp"
     type:         "research"
-    status:       "parked"
+    status:       "done"
     complexity:   "L"
     priority:     "medium"
     rationale:    "The NLP source treats evaluation and maintenance as part of composition, but Doc-Ray currently tracks structural health more than model or corpus quality drift."
@@ -1068,7 +1099,7 @@ items:
       and prefer a meaningful label where one does.
     category:     "webapp"
     type:         "tech-debt"
-    status:       "parked"
+    status:       "done"
     complexity:   "XS"
     priority:     "low"
     rationale:    "Raw opaque identifiers add visual noise and reduce scannability of the tables that carry them."
@@ -1175,3 +1206,260 @@ items:
     owner:        "mine"
     source:       "Operator request, 2026-07-04 session: implemented as /operator/health with DOCRAY_OPERATOR_HEALTH_TOKEN gating; kept webapp-local to preserve the no doc_ray import boundary."
     tags:         ["ops", "health", "webapp", "observability"]
+
+  # ============ POSTGRES/RDBMS DOMAIN GAP ANALYSIS (2026-07-05) =============
+  # A session first learned PostgreSQL/RDBMS administration and relational-
+  # modeling practice from doc-ray's own ingested corpus (an EDB "PostgreSQL
+  # Essentials v16" course + Clean Code Principles and Patterns ch.9), then
+  # audited doc-ray's actual Postgres usage against that material. No defects
+  # were found in schema/query/transaction layers (fully parameterized SQL,
+  # sound RLS design, well-built FOR UPDATE SKIP LOCKED job queue). The gaps
+  # below cluster in deployment/operational posture. BL-039/BL-041 also close
+  # out GitHub issues #2 and #3, which a stale `.agent-tasks` entry
+  # (task-1783203910276-5a81, blocked since 2026-07-04, its blocker having
+  # long since completed) had been intended to carry but never did.
+
+  - id:          "BL-039"
+    title:        "Pin the Postgres image to stop collation-version drift (GH#2)"
+    summary:      "pgvector/pgvector:pg16 is a floating tag; a rebuilt base image already caused a live collation-version mismatch warning on this deployment."
+    description: |
+      docker-compose.yml and docker-compose.api.yml pin `pgvector/pgvector:pg16`
+      with no digest. GitHub issue #2 documents Postgres logging, on this exact
+      deployment: `WARNING: database "postgres" has a collation version
+      mismatch (2.41 vs 2.36)` after a routine `docker compose up` pulled a
+      rebuilt image with a newer glibc/collation library against the existing
+      `pgdata` volume. Collation-version mismatches mean any collation-
+      dependent index or ORDER BY can silently return incorrect
+      ordering/results until `ALTER DATABASE ... REFRESH COLLATION VERSION` +
+      a REINDEX of affected indexes. Root cause and remediation options are
+      already written up in the GitHub issue; this item exists to make sure
+      the fix actually lands (a prior attempt to backlog this, tracked in
+      `.agent-tasks/registry.json` task-1783203910276-5a81, stalled blocked
+      and was never revisited).
+    category:     "ops"
+    type:         "bug"
+    status:       "parked"
+    complexity:   "S"
+    priority:     "high"
+    rationale:    "The mismatch is already actively logging on this deployment, not hypothetical; every image rebuild risks worsening drift or silent collation-dependent query-result corruption."
+    acceptance_criteria:
+      - "Either the Postgres image is pinned to an immutable digest, or ALTER DATABASE ... REFRESH COLLATION VERSION + a targeted REINDEX is run and documented as the accepted remediation."
+      - "The chosen approach is documented so future `docker compose pull`s don't silently reintroduce the warning."
+    references:
+      - "docker-compose.yml"
+      - "docker-compose.api.yml"
+      - "GitHub issue #2"
+    owner:        "shared"
+    source:       "GitHub issue #2 (open); confirmed via this session's Postgres/RDBMS domain gap-analysis, grounded in the ingested EDB PostgreSQL 16 administration course."
+    tags:         ["postgres", "collation", "docker", "upgrade"]
+
+  - id:          "BL-040"
+    title:        "GraphQL API authentication is a documented no-op"
+    summary:      "NoopAuthenticator always returns ANONYMOUS, so every request today runs unfiltered on the superuser connection — RLS/RBAC protects nothing until a real Authenticator exists."
+    description: |
+      entrypoints/api/security.py's NoopAuthenticator.authenticate always
+      returns Principal(principal_id=None); apply_principal is then a no-op,
+      so the connection stays on the trusted superuser role and RLS (D-010)
+      is bypassed by design. This is explicitly documented in the module
+      docstring as "open by default, auth-ready" — a deliberate placeholder,
+      not a bug — but it means the database-enforced RBAC this repo has
+      otherwise carefully built currently enforces nothing against an
+      external caller. No other Authenticator implementation exists in the
+      tree. Distinct from BL-012 (which addresses a hostile *direct-SQL*
+      client impersonating a principal via the session GUC): this item is
+      about the HTTP/GraphQL layer never authenticating a caller at all.
+    category:     "security"
+    type:         "feature"
+    status:       "parked"
+    complexity:   "L"
+    priority:     "high"
+    rationale:    "Authorization without authentication enforces nothing (the EDB course's own AAA model requires both); if the API is ever reachable beyond one trusted operator, every document becomes readable/writable by any caller."
+    acceptance_criteria:
+      - "A real Authenticator resolves inbound requests to a Principal with a non-null principal_id for authenticated callers."
+      - "Unauthenticated requests either fail closed or are clearly scoped to a documented anonymous-read policy, not the superuser bypass."
+      - "The single-operator/localhost-only default, if kept, is written down explicitly as an accepted decision rather than left implicit."
+    related_decisions: ["D-010"]
+    references:
+      - "src/doc_ray/entrypoints/api/security.py"
+      - "db/migrations/018_rbac.sql"
+    owner:        "shared"
+    source:       "This session's Postgres/RDBMS domain gap-analysis (EDB PostgreSQL 16 course's Database Security / AAA module), verified directly against security.py."
+    tags:         ["security", "auth", "rls", "graphql"]
+
+  - id:          "BL-041"
+    title:        "Postgres port published on all interfaces with default credentials"
+    summary:      "docker-compose publishes 5432 without a host-IP prefix (binds 0.0.0.0), and this deployment's .env still uses the documented default password."
+    description: |
+      docker-compose.yml/docker-compose.api.yml publish
+      "${POSTGRES_PORT:-5432}:5432" with no host-IP prefix, which Docker binds
+      to 0.0.0.0 (verified live on this host: `docker port docray-postgres`
+      shows 0.0.0.0:5455). `.env.example` ships POSTGRES_PASSWORD=docray, and
+      this exact deployment's `.env` still uses that default (verified
+      without printing the value). Any host that can reach this machine's
+      Postgres port can attempt a login with a password documented in this
+      repository. This is the EDB course's own "General Recommendations -
+      Database Server" checklist inverted: a postmaster port reachable
+      without a firewall, and default credentials left unrotated.
+    category:     "security"
+    type:         "bug"
+    status:       "parked"
+    complexity:   "XS"
+    priority:     "high"
+    rationale:    "Both conditions (network-reachable port + default password) hold simultaneously on a real, currently-running deployment, not hypothetically."
+    acceptance_criteria:
+      - "The Postgres port is bound to 127.0.0.1 by default in compose (or documented as intentionally external, with a firewall requirement called out)."
+      - "Startup fails closed (or warns loudly) if POSTGRES_PASSWORD is unset or equal to the documented default."
+    references:
+      - "docker-compose.yml"
+      - "docker-compose.api.yml"
+      - ".env.example"
+    owner:        "shared"
+    source:       "This session's Postgres/RDBMS domain gap-analysis; verified live against the running docray-postgres container and .env."
+    tags:         ["security", "postgres", "docker", "credentials"]
+
+  - id:          "BL-042"
+    title:        "No scheduled backups, retention policy, or PITR/WAL archiving"
+    summary:      "The custom backup/restore engine works and is tested, but only runs on-demand; there is no cadence, no pruning of old archives, and no point-in-time recovery."
+    description: |
+      application/backup.py's snapshot/restore mechanism is deliberately
+      app-native (not pg_dump) and its restore correctness is tested
+      (src/doc_ray/tests/test_backup.py::test_restore_is_point_in_time_rewind
+      et al.) — this item is a scheduling/retention gap, not a correctness
+      defect. No cron/scheduled compose service triggers createBackup; the
+      `backups` table (026_backups.sql) is already indexed on created_at,
+      ready for a retention/prune job, but nothing prunes it. No
+      archive_mode/archive_command or WAL archiving exists anywhere
+      (consistent with the lack of any custom postgresql.conf), so there is
+      no way to recover to a point in time between two manual snapshots.
+    category:     "ops"
+    type:         "feature"
+    status:       "parked"
+    complexity:   "M"
+    priority:     "medium"
+    rationale:    "Data-loss window today is bounded only by how often an operator remembers to click 'create backup' — the EDB course's Backup/Recovery module treats a schedule + RPO as a separate requirement from 'a backup mechanism exists'."
+    acceptance_criteria:
+      - "A scheduled trigger enqueues KIND_BACKUP at a defined cadence without manual action."
+      - "Old backup archives are pruned per a defined retention policy."
+      - "PITR/WAL archiving is explicitly scoped as accepted-out-of-scope or tracked as its own follow-up item, not silently absent."
+    references:
+      - "src/doc_ray/application/backup.py"
+      - "db/migrations/026_backups.sql"
+      - "src/doc_ray/tests/test_backup.py"
+    owner:        "shared"
+    source:       "This session's Postgres/RDBMS domain gap-analysis (EDB PostgreSQL 16 course's Backup, Recovery and PITR module)."
+    tags:         ["ops", "backup", "postgres", "pitr"]
+
+  - id:          "BL-043"
+    title:        "API connection-pool sizing is unconfigured"
+    summary:      "psycopg_pool.AsyncConnectionPool in the API is opened with no min_size/max_size/timeout — library defaults only."
+    description: |
+      entrypoints/api/app.py opens the async pool with no explicit sizing.
+      Postgres's own max_connections default is 100; nothing coordinates the
+      API pool's ceiling against that limit, the worker's per-process
+      connections, or scaled-out worker replicas (docker compose up
+      --scale worker=3). db_health.py already has a connection-pressure
+      check (reads pg_settings.max_connections) but it is only polled
+      on-demand, not alerted on.
+    category:     "persistence"
+    type:         "tech-debt"
+    status:       "parked"
+    complexity:   "XS"
+    priority:     "medium"
+    rationale:    "No incident has occurred yet, but nothing currently prevents concurrent load or scaled workers from approaching max_connections and producing 'too many connections' failures."
+    acceptance_criteria:
+      - "The API pool has an explicit max_size sized against max_connections minus worker/admin headroom."
+      - "db_health.py's connection-pressure signal is surfaced somewhere actionable, not only visible on manual /operator/health checks."
+    references:
+      - "src/doc_ray/entrypoints/api/app.py"
+      - "src/doc_ray/application/db_health.py"
+    owner:        "shared"
+    source:       "This session's Postgres/RDBMS domain gap-analysis (EDB PostgreSQL 16 course's Configuration module — Connection Settings)."
+    tags:         ["persistence", "postgres", "pooling"]
+
+  - id:          "BL-044"
+    title:        "No proactive autovacuum/index tuning despite two prior cascade-delete incidents"
+    summary:      "027/028 fixed two dated, real production incidents (24-26+ min of 100% CPU from un-indexed FK cascade deletes on multi-million-row tables) reactively; nothing tunes autovacuum proactively for the same tables."
+    description: |
+      db/migrations/027_fk_cascade_indexes.sql and
+      028_document_delete_cascade_indexes.sql document real incidents dated
+      2026-07-02 where un-indexed FK columns on cascade-delete paths caused
+      sequential scans pinning Postgres at 100% CPU for 24-26+ minutes on
+      `dependency`, `tokens`, and `lexeme_occurrences`. Both fixes were
+      reactive (add the missing index after the incident). No
+      autovacuum_vacuum_scale_factor/threshold tuning exists anywhere;
+      db_health.py's bloat detector (n_dead_tup/n_live_tup > 20%) only
+      reports, it never triggers VACUUM. The replace_annotation
+      DELETE-then-reinsert pattern used on every reannotation is
+      bloat-generating by construction on exactly these large tables.
+    category:     "persistence"
+    type:         "tech-debt"
+    status:       "parked"
+    complexity:   "M"
+    priority:     "high"
+    rationale:    "Two real incidents are direct evidence of this pattern; as the corpus grows past its current ~90 documents the same incident class is likely to recur in a new shape without proactive per-table settings."
+    acceptance_criteria:
+      - "The largest annotation-layer tables (tokens, dependency, lexeme_occurrences, entity_mention) have explicit per-table autovacuum thresholds set via ALTER TABLE, not left on cluster defaults."
+      - "db_health.py's existing bloat/pressure detection is wired to an actual alert path, not only on-demand polling."
+    dependencies: []
+    references:
+      - "db/migrations/027_fk_cascade_indexes.sql"
+      - "db/migrations/028_document_delete_cascade_indexes.sql"
+      - "src/doc_ray/application/db_health.py"
+      - "src/doc_ray/adapters/persistence.py"
+    owner:        "shared"
+    source:       "This session's Postgres/RDBMS domain gap-analysis (EDB PostgreSQL 16 course's Routine Maintenance module), grounded in the two dated incident-fix migrations already in the tree."
+    tags:         ["persistence", "postgres", "autovacuum", "performance"]
+
+  - id:          "BL-045"
+    title:        "FTS read/write language-config symmetry isn't enforced by a test"
+    summary:      "fulltext_search and the set_document_content_fts trigger both call docray_ts_config(lang) today, but nothing prevents a future caller from hardcoding to_tsquery('english', ...) and breaking that symmetry."
+    description: |
+      016_fts_language_aware.sql's write-side trigger and
+      persistence_read.fulltext_search both resolve the text-search config
+      through the same docray_ts_config(lang) function, so an unannotated
+      (language still NULL) document searches consistently under 'simple' on
+      both sides today — this is correct by construction, not by an enforced
+      invariant. No test asserts every tsquery/tsvector call site goes
+      through the shared function.
+    category:     "testing"
+    type:         "tech-debt"
+    status:       "parked"
+    complexity:   "XS"
+    priority:     "low"
+    rationale:    "Low impact today (no violating caller found), but would silently degrade recall for pt/simple-config documents if a future contributor bypasses the shared function — exactly the kind of drift this repo's own PALS's-Law verification ethos argues should be caught mechanically, not by convention."
+    acceptance_criteria:
+      - "A regression test or grep-style check (in the style of scripts/check_file_size.py) fails if a tsquery/tsvector call site bypasses docray_ts_config."
+    references:
+      - "db/migrations/016_fts_language_aware.sql"
+      - "src/doc_ray/adapters/persistence_read.py"
+    owner:        "shared"
+    source:       "This session's Postgres/RDBMS domain gap-analysis."
+    tags:         ["testing", "fts", "postgres"]
+
+  - id:          "BL-046"
+    title:        "docker-compose ingester exit code 2 reads as a startup failure (GH#3)"
+    summary:      "Plain `docker compose up` shows docray-ingester exiting 2 with an argparse error banner; it's an intentional on-demand, run-only service, but the output reads like a bug."
+    description: |
+      GitHub issue #3 documents that a first-time `docker compose up` prints
+      `ingest: error: the following arguments are required: paths` followed
+      by `docray-ingester exited with code 2`, interleaved with otherwise-
+      healthy startup output (postgres/minio Healthy, api serving
+      /graphql//readyz). docker-compose.yml already comments that ingester is
+      on-demand (`docker compose run --rm ingester ...`), but nothing
+      prevents plain `up` from attempting to start it and printing what
+      looks like a crash. Root cause and remediation options are written up
+      in the GitHub issue.
+    category:     "ops"
+    type:         "tech-debt"
+    status:       "parked"
+    complexity:   "XS"
+    priority:     "low"
+    rationale:    "Not a Postgres/RDBMS defect, but surfaced by the same review pass and shares the same stalled .agent-tasks entry as BL-039 (task-1783203910276-5a81) that was meant to backlog it."
+    acceptance_criteria:
+      - "A plain `docker compose up` no longer prints an exit-code-2/argparse-error banner for the on-demand ingester, or the compose file/README makes unmistakably clear this is expected."
+    references:
+      - "docker-compose.yml"
+      - "GitHub issue #3"
+    owner:        "shared"
+    source:       "GitHub issue #3 (open), carried over from the stalled task-1783203910276-5a81."
+    tags:         ["docs", "docker-compose", "dx"]

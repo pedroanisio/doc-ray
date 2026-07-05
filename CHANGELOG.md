@@ -146,6 +146,24 @@ doc-ray carries **one global version** covering both the application package
   nonsense words identically to real ones), decoupling the test from
   corpus size entirely.
 
+## [1.5.0] - 2026-07-05
+
+### Added
+- **Keyset GraphQL pagination and layer-aware read surfaces** (OpenAI GPT-5 via Codex) —
+  GraphQL list fields now page with returned cursors instead of offset
+  arguments, and documents expose bounded annotation-run, token, dependency,
+  chunk, coreference, and entity-link reads through adapter-backed resolvers,
+  closing `BL-009` and `BL-017`.
+- **Canonical registry and review read surfaces** (OpenAI GPT-5 via Codex) —
+  the API now exposes canonical registry search, canonical forms, unresolved
+  mentions, and resolution-review rows without direct SQL or job JSON
+  inspection, closing `BL-021`.
+- **Principal LOGIN-role isolation** (OpenAI GPT-5 via Codex) —
+  migration 030 adds per-principal database-role binding and moves trusted API
+  `app.principal_id` assertion to `docray_api`, so a `docray_client` direct-SQL
+  actor cannot impersonate another principal by setting a GUC. Migration 031
+  bumps the unified schema/package version to `1.5.0`, closing `BL-012`.
+
 ## [1.4.0] - 2026-07-04
 
 A minor, backward-compatible release spanning two threads of work: **corpus
@@ -294,5 +312,6 @@ surface consistent from here on.
 - Upload ingestion no longer leaks the temporary scratch filename into a document's
   `title` / `original_filename`; the uploaded name and explicit `title` are preserved.
 
+[1.5.0]: https://semver.org/spec/v2.0.0.html
 [1.4.0]: https://semver.org/spec/v2.0.0.html
 [1.3.0]: https://semver.org/spec/v2.0.0.html

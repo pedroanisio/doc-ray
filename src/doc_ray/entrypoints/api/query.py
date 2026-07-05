@@ -9,9 +9,15 @@ from __future__ import annotations
 
 import strawberry
 
+from doc_ray.adapters import persistence_canonical_read as canonical_read
 from doc_ray.adapters import persistence_read as read
 from doc_ray.adapters import queue_postgres as queue
 from doc_ray.adapters import seed_suggestion_store as seeds
+from doc_ray.entrypoints.api.canonical_types import (
+    CanonicalEntity,
+    ResolutionReview,
+    UnresolvedMention,
+)
 from doc_ray.entrypoints.api.types import (
     Document,
     DocumentHit,
@@ -37,10 +43,12 @@ class Query:
         return __version__
 
     @strawberry.field
-    async def documents(self, info: Info, limit: int = 50, offset: int = 0) -> list[Document]:
+    async def documents(
+        self, info: Info, limit: int = 50, after: str | None = None
+    ) -> list[Document]:
         """Return a bounded page of document summaries."""
         ctx = info.context
-        rows = await read.list_documents(ctx.conn, limit=ctx.page_size(limit), offset=offset)
+        rows = await read.list_documents(ctx.conn, limit=ctx.page_size(limit), after=after)
         return [Document.from_row(r) for r in rows]
 
     @strawberry.field
@@ -56,11 +64,11 @@ class Query:
         term: str,
         document_id: strawberry.ID | None = None,
         limit: int = 100,
-        offset: int = 0,
+        after: str | None = None,
     ) -> list[SentenceHit]:
         """Return sentence hits for *term* (bounded page).
 
-        Pass ``documentId`` to search within one document, and ``offset`` to
+        Pass ``documentId`` to search within one document, and ``after`` to
         enumerate all matches for a common term page by page.
         """
         ctx = info.context
@@ -69,7 +77,7 @@ class Query:
             term,
             document_id=str(document_id) if document_id is not None else None,
             limit=ctx.page_size(limit),
-            offset=offset,
+            after=after,
         )
         return [SentenceHit.from_row(r) for r in rows]
 
@@ -95,7 +103,7 @@ class Query:
         lang: str | None = None,
         document_id: strawberry.ID | None = None,
         limit: int = 100,
-        offset: int = 0,
+        after: str | None = None,
     ) -> list[Lexeme]:
         """Return a bounded page of filtered lexemes.
 
@@ -111,7 +119,7 @@ class Query:
             lang=lang,
             document_id=str(document_id) if document_id is not None else None,
             limit=ctx.page_size(limit),
-            offset=offset,
+            after=after,
         )
         return [Lexeme.from_row(r) for r in rows]
 
@@ -122,7 +130,7 @@ class Query:
         document_id: strawberry.ID | None = None,
         entity_type: str | None = None,
         limit: int = 100,
-        offset: int = 0,
+        after: str | None = None,
     ) -> list[EntityMention]:
         """Return named-entity mentions (NER layer), filterable by document and type."""
         ctx = info.context
@@ -131,7 +139,7 @@ class Query:
             document_id=str(document_id) if document_id is not None else None,
             entity_type=entity_type,
             limit=ctx.page_size(limit),
-            offset=offset,
+            after=after,
         )
         return [EntityMention.from_row(r) for r in rows]
 
@@ -142,6 +150,7 @@ class Query:
         document_id: strawberry.ID | None = None,
         entity_type: str | None = None,
         limit: int = 100,
+        after: str | None = None,
     ) -> list[EntityFrequency]:
         """Return entity mention frequencies — the character/place/org table."""
         ctx = info.context
@@ -150,6 +159,7 @@ class Query:
             document_id=str(document_id) if document_id is not None else None,
             entity_type=entity_type,
             limit=ctx.page_size(limit),
+            after=after,
         )
         return [EntityFrequency.from_row(r) for r in rows]
 
@@ -161,7 +171,11 @@ class Query:
 
     @strawberry.field
     async def jobs(
-        self, info: Info, document_id: strawberry.ID | None = None, limit: int = 20
+        self,
+        info: Info,
+        document_id: strawberry.ID | None = None,
+        limit: int = 20,
+        after: str | None = None,
     ) -> list[Job]:
         """Return recent jobs, newest first — a document's pipeline progress view."""
         import uuid
@@ -173,7 +187,9 @@ class Query:
                 doc = str(uuid.UUID(str(document_id)))
             except ValueError:  # not a document id -> no jobs, not a DB error
                 return []
-        rows = await queue.list_async(ctx.conn, document_id=doc, limit=ctx.page_size(limit))
+        rows = await queue.list_async(
+            ctx.conn, document_id=doc, limit=ctx.page_size(limit), after=after
+        )
         return [Job.from_row(r) for r in rows]
 
     @strawberry.field
@@ -185,3 +201,51 @@ class Query:
             info.context.conn, str(document_id), status=status
         )
         return [SeedSuggestion.from_row(r) for r in rows]
+
+    @strawberry.field
+    async def canonical(self, info: Info, id: int) -> CanonicalEntity | None:
+        """Return one canonical registry entity by numeric id."""
+        row = await canonical_read.get_canonical(info.context.conn, id)
+        return CanonicalEntity.from_row(row) if row is not None else None
+
+    @strawberry.field
+    async def canonical_search(
+        self, info: Info, q: str = "", limit: int = 50, after: str | None = None
+    ) -> list[CanonicalEntity]:
+        """Search canonical entities by preferred label, Wikidata id, or form."""
+        ctx = info.context
+        rows = await canonical_read.search_canonical(
+            ctx.conn, q, limit=ctx.page_size(limit), after=after
+        )
+        return [CanonicalEntity.from_row(r) for r in rows]
+
+    @strawberry.field
+    async def unresolved_mentions(
+        self, info: Info, document_id: strawberry.ID, limit: int = 100, after: str | None = None
+    ) -> list[UnresolvedMention]:
+        """Return entity mentions in a document that lack a canonical link."""
+        ctx = info.context
+        rows = await canonical_read.list_unresolved_mentions(
+            ctx.conn, str(document_id), limit=ctx.page_size(limit), after=after
+        )
+        return [UnresolvedMention.from_row(r) for r in rows]
+
+    @strawberry.field
+    async def resolution_review(
+        self,
+        info: Info,
+        document_id: strawberry.ID | None = None,
+        status: str | None = None,
+        limit: int = 100,
+        after: str | None = None,
+    ) -> list[ResolutionReview]:
+        """Return resolution-review rows, optionally scoped by document and status."""
+        ctx = info.context
+        rows = await canonical_read.list_resolution_review(
+            ctx.conn,
+            document_id=str(document_id) if document_id is not None else None,
+            status=status,
+            limit=ctx.page_size(limit),
+            after=after,
+        )
+        return [ResolutionReview.from_row(r) for r in rows]

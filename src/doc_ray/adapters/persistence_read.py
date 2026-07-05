@@ -18,6 +18,8 @@ from typing import Any
 
 import psycopg
 
+from doc_ray.adapters.read_cursors import decode_cursor, encode_cursor
+
 Row = dict[str, Any]
 _AConn = psycopg.AsyncConnection[Row]
 
@@ -96,18 +98,19 @@ async def get_document(conn: _AConn, document_id: str) -> Row | None:
     return document
 
 
-async def list_documents(conn: _AConn, *, limit: int = 50, offset: int = 0) -> list[Row]:
+async def list_documents(conn: _AConn, *, limit: int = 50, after: str | None = None) -> list[Row]:
     """Return document summary rows (with child counts), newest first.
 
     Args:
         conn: Async database connection.
         limit: Maximum number of documents to return.
-        offset: Number of documents to skip (paging).
+        after: Optional keyset cursor returned by the previous page.
 
     Returns:
         Summary rows with ``n_sentences`` and ``n_provenance`` counts.
     """
-    return await _rows(
+    cursor = decode_cursor(after, "documents")
+    rows = await _rows(
         conn,
         """
         SELECT d.id, d.title, d.original_filename AS filename, d.doc_type, d.language,
@@ -116,15 +119,26 @@ async def list_documents(conn: _AConn, *, limit: int = 50, offset: int = 0) -> l
                (SELECT count(*) FROM document_provenance p WHERE p.document_id = d.id)
                    AS n_provenance
         FROM documents d
+        WHERE (%(after_created)s::timestamptz IS NULL
+               OR d.created_at < %(after_created)s::timestamptz
+               OR (d.created_at = %(after_created)s::timestamptz
+                   AND d.id > %(after_id)s::uuid))
         ORDER BY d.created_at DESC, d.id
-        LIMIT %s OFFSET %s
+        LIMIT %(limit)s
         """,
-        (limit, offset),
+        {
+            "limit": limit,
+            "after_created": cursor["created_at"] if cursor else None,
+            "after_id": cursor["id"] if cursor else None,
+        },
     )
+    for row in rows:
+        row["cursor"] = encode_cursor("documents", created_at=row["created_at"], id=row["id"])
+    return rows
 
 
 async def list_sentences(
-    conn: _AConn, document_id: str, *, limit: int | None = None, offset: int = 0
+    conn: _AConn, document_id: str, *, limit: int | None = None, after: str | None = None
 ) -> list[Row]:
     """Return a document's sentences (with span offsets) in ordinal order.
 
@@ -132,21 +146,32 @@ async def list_sentences(
         conn: Async database connection.
         document_id: UUID of the owning document.
         limit: Optional cap on the number of sentences returned.
-        offset: Number of sentences to skip (paging).
+        after: Optional keyset cursor returned by the previous page.
 
     Returns:
         Rows of ``{id, ordinal, text, char_start, char_end}``.
     """
+    cursor = decode_cursor(after, "sentences")
     sql = (
         "SELECT s.id, s.ordinal, s.text, sp.char_start, sp.char_end "
         "FROM sentences s JOIN spans sp ON sp.id = s.span_id "
-        "WHERE s.document_id = %s ORDER BY s.ordinal"
+        "WHERE s.document_id = %(doc)s "
+        "AND (%(after_ord)s::int IS NULL OR s.ordinal > %(after_ord)s::int "
+        "     OR (s.ordinal = %(after_ord)s::int AND s.id > %(after_id)s::ulid)) "
+        "ORDER BY s.ordinal, s.id"
     )
-    params: tuple[Any, ...] = (document_id,)
+    params: dict[str, Any] = {
+        "doc": document_id,
+        "after_ord": cursor["ordinal"] if cursor else None,
+        "after_id": cursor["id"] if cursor else None,
+    }
     if limit is not None:
-        sql += " LIMIT %s OFFSET %s"
-        params = (document_id, limit, offset)
-    return await _rows(conn, sql, params)
+        sql += " LIMIT %(limit)s"
+        params["limit"] = limit
+    rows = await _rows(conn, sql, params)
+    for row in rows:
+        row["cursor"] = encode_cursor("sentences", ordinal=row["ordinal"], id=row["id"])
+    return rows
 
 
 async def get_provenance(conn: _AConn, document_id: str) -> list[Row]:
@@ -280,7 +305,7 @@ async def list_lexemes(
     lang: str | None = None,
     document_id: str | None = None,
     limit: int = 100,
-    offset: int = 0,
+    after: str | None = None,
 ) -> list[Row]:
     """Return lexemes filtered by lemma substring / pos / lang, busiest first.
 
@@ -292,18 +317,21 @@ async def list_lexemes(
         document_id: When set, restrict to lexemes occurring in this document —
             ``uses`` then counts occurrences in that document only, not the corpus.
         limit: Maximum rows to return.
-        offset: Rows to skip (paging).
+        after: Optional keyset cursor returned by the previous page.
 
     Returns:
         Rows of ``{uid, lang, pos, lemma, uses}`` ordered by use count then lemma.
     """
+    cursor = decode_cursor(after, "lexemes")
     params: dict[str, Any] = {
         "q": q or "",
         "qpat": f"%{q}%" if q else "",
         "pos": pos or "",
         "lang": lang or "",
         "limit": limit,
-        "offset": offset,
+        "after_uses": cursor["uses"] if cursor else None,
+        "after_lemma": cursor["lemma"] if cursor else None,
+        "after_uid": cursor["uid"] if cursor else None,
     }
     if document_id is None:
         joins = "LEFT JOIN lexeme_occurrences o ON o.lexeme_uid = l.uid"
@@ -315,9 +343,10 @@ async def list_lexemes(
             "AND ann.document_id = %(doc)s::uuid"
         )
         params["doc"] = document_id
-    return await _rows(
+    rows = await _rows(
         conn,
         f"""
+        WITH ranked AS (
         SELECT l.uid, l.lang, l.pos, l.lemma, count(o.lexeme_uid) AS uses
         FROM lexemes l
         {joins}
@@ -325,11 +354,22 @@ async def list_lexemes(
           AND (%(pos)s = '' OR l.pos = %(pos)s)
           AND (%(lang)s = '' OR l.lang = %(lang)s)
         GROUP BY l.uid, l.lang, l.pos, l.lemma
-        ORDER BY uses DESC, l.lemma
-        LIMIT %(limit)s OFFSET %(offset)s
+        )
+        SELECT * FROM ranked
+        WHERE (%(after_uses)s::bigint IS NULL OR uses < %(after_uses)s::bigint
+               OR (uses = %(after_uses)s::bigint AND lemma > %(after_lemma)s)
+               OR (uses = %(after_uses)s::bigint AND lemma = %(after_lemma)s
+                   AND uid > %(after_uid)s))
+        ORDER BY uses DESC, lemma, uid
+        LIMIT %(limit)s
         """,
         params,
     )
+    for row in rows:
+        row["cursor"] = encode_cursor(
+            "lexemes", uses=int(row["uses"]), lemma=row["lemma"], uid=row["uid"]
+        )
+    return rows
 
 
 async def lexeme_kwic(
@@ -338,7 +378,7 @@ async def lexeme_kwic(
     *,
     document_id: str | None = None,
     limit: int = 80,
-    offset: int = 0,
+    after: str | None = None,
 ) -> list[Row]:
     """Return keyword-in-context occurrences for a lexeme.
 
@@ -350,15 +390,16 @@ async def lexeme_kwic(
         uid: Lexeme uid.
         document_id: When set, only occurrences in this document.
         limit: Maximum occurrences to return.
-        offset: Occurrences to skip (paging past the page-size cap).
+        after: Optional keyset cursor returned by the previous page.
 
     Returns:
         Rows of ``{doc_id, title, char_start, surface, kwic, pre, hit, post}``.
     """
+    cursor = decode_cursor(after, "lexeme-occurrences")
     rows = await _rows(
         conn,
         """
-        SELECT d.id AS doc_id, d.title, s.char_start,
+        SELECT d.id AS doc_id, d.title, s.char_start, o.annotation_id, o.span_id,
                substring(c.full_text FROM greatest(s.char_start - 45, 0) + 1
                          FOR (s.char_end - s.char_start) + 90) AS kwic,
                substring(c.full_text FROM s.char_start + 1
@@ -370,13 +411,35 @@ async def lexeme_kwic(
         JOIN document_content c ON c.document_id = d.id
         WHERE o.lexeme_uid = %(uid)s
           AND (%(doc)s::uuid IS NULL OR a.document_id = %(doc)s::uuid)
-        ORDER BY d.title, s.char_start
-        LIMIT %(limit)s OFFSET %(offset)s
+          AND (%(after_title)s::text IS NULL OR d.title > %(after_title)s
+               OR (d.title = %(after_title)s AND s.char_start > %(after_start)s::int)
+               OR (d.title = %(after_title)s AND s.char_start = %(after_start)s::int
+                   AND o.annotation_id > %(after_annotation)s::ulid)
+               OR (d.title = %(after_title)s AND s.char_start = %(after_start)s::int
+                   AND o.annotation_id = %(after_annotation)s::ulid
+                   AND o.span_id > %(after_span)s::uuid))
+        ORDER BY d.title, s.char_start, o.annotation_id, o.span_id
+        LIMIT %(limit)s
         """,
-        {"uid": uid, "doc": document_id, "limit": limit, "offset": offset},
+        {
+            "uid": uid,
+            "doc": document_id,
+            "limit": limit,
+            "after_title": cursor["title"] if cursor else None,
+            "after_start": cursor["char_start"] if cursor else None,
+            "after_annotation": cursor["annotation_id"] if cursor else None,
+            "after_span": cursor["span_id"] if cursor else None,
+        },
     )
     for r in rows:
         r["pre"], r["hit"], r["post"] = _split_kwic(r["kwic"] or "", r["surface"] or "")
+        r["cursor"] = encode_cursor(
+            "lexeme-occurrences",
+            title=r["title"],
+            char_start=r["char_start"],
+            annotation_id=r["annotation_id"],
+            span_id=r["span_id"],
+        )
     return rows
 
 
@@ -391,7 +454,7 @@ async def search_sentences(
     *,
     document_id: str | None = None,
     limit: int = 100,
-    offset: int = 0,
+    after: str | None = None,
 ) -> list[Row]:
     """Return sentences containing *term* (case-insensitive substring).
 
@@ -400,23 +463,38 @@ async def search_sentences(
         term: Substring to match against sentence text.
         document_id: When set, only sentences of this document.
         limit: Maximum sentences to return.
-        offset: Sentences to skip (paging past the page-size cap).
+        after: Optional keyset cursor returned by the previous page.
 
     Returns:
         Rows of ``{id, doc_id, title, ordinal, text, pre, hit, post}`` — ``id`` is
         the sentence ULID, so hits are citable without a second round-trip.
     """
+    cursor = decode_cursor(after, "sentence-search")
     rows = await _rows(
         conn,
         "SELECT s.id, d.id AS doc_id, d.title, s.ordinal, s.text "
         "FROM sentences s JOIN documents d ON d.id = s.document_id "
         "WHERE s.text ILIKE %(pat)s "
         "  AND (%(doc)s::uuid IS NULL OR s.document_id = %(doc)s::uuid) "
-        "ORDER BY d.title, s.ordinal LIMIT %(limit)s OFFSET %(offset)s",
-        {"pat": f"%{term}%", "doc": document_id, "limit": limit, "offset": offset},
+        "  AND (%(after_title)s::text IS NULL OR d.title > %(after_title)s "
+        "       OR (d.title = %(after_title)s AND s.ordinal > %(after_ord)s::int) "
+        "       OR (d.title = %(after_title)s AND s.ordinal = %(after_ord)s::int "
+        "           AND s.id > %(after_id)s::ulid)) "
+        "ORDER BY d.title, s.ordinal, s.id LIMIT %(limit)s",
+        {
+            "pat": f"%{term}%",
+            "doc": document_id,
+            "limit": limit,
+            "after_title": cursor["title"] if cursor else None,
+            "after_ord": cursor["ordinal"] if cursor else None,
+            "after_id": cursor["id"] if cursor else None,
+        },
     )
     for r in rows:
         r["pre"], r["hit"], r["post"] = _split_kwic(r["text"], term)
+        r["cursor"] = encode_cursor(
+            "sentence-search", title=r["title"], ordinal=r["ordinal"], id=r["id"]
+        )
     return rows
 
 
@@ -441,7 +519,7 @@ async def list_entities(
     document_id: str | None = None,
     entity_type: str | None = None,
     limit: int = 100,
-    offset: int = 0,
+    after: str | None = None,
 ) -> list[Row]:
     """Return named-entity mentions with their surface text and span offsets.
 
@@ -450,27 +528,39 @@ async def list_entities(
         document_id: When set, only mentions in this document.
         entity_type: Exact type filter (``PERSON`` / ``ORG`` / ``GPE`` / ...), or ``None``.
         limit: Maximum mentions to return.
-        offset: Mentions to skip (paging).
+        after: Optional keyset cursor returned by the previous page.
 
     Returns:
         Rows of ``{id, doc_id, title, entity_type, text, char_start, char_end}``
         in document order.
     """
-    return await _rows(
+    cursor = decode_cursor(after, "entities")
+    rows = await _rows(
         conn,
         "SELECT em.id, a.document_id AS doc_id, d.title, em.entity_type, "
         "       sp.char_start, sp.char_end, "
         "       substring(c.full_text FROM sp.char_start + 1 "
         "                 FOR sp.char_end - sp.char_start) AS text "
         + _ENTITY_FROM
-        + "ORDER BY d.title, sp.char_start LIMIT %(limit)s OFFSET %(offset)s",
+        + "AND (%(after_title)s::text IS NULL OR d.title > %(after_title)s "
+        + "     OR (d.title = %(after_title)s AND sp.char_start > %(after_start)s::int) "
+        + "     OR (d.title = %(after_title)s AND sp.char_start = %(after_start)s::int "
+        + "         AND em.id > %(after_id)s::ulid)) "
+        + "ORDER BY d.title, sp.char_start, em.id LIMIT %(limit)s",
         {
             "doc": document_id,
             "etype": entity_type or "",
             "limit": limit,
-            "offset": offset,
+            "after_title": cursor["title"] if cursor else None,
+            "after_start": cursor["char_start"] if cursor else None,
+            "after_id": cursor["id"] if cursor else None,
         },
     )
+    for row in rows:
+        row["cursor"] = encode_cursor(
+            "entities", title=row["title"], char_start=row["char_start"], id=row["id"]
+        )
+    return rows
 
 
 async def entity_frequency(
@@ -479,6 +569,7 @@ async def entity_frequency(
     document_id: str | None = None,
     entity_type: str | None = None,
     limit: int = 100,
+    after: str | None = None,
 ) -> list[Row]:
     """Return entity mention frequencies (character/place/org tables).
 
@@ -490,19 +581,43 @@ async def entity_frequency(
         document_id: When set, count within this document only.
         entity_type: Exact type filter, or ``None`` for all types.
         limit: Maximum distinct (text, type) rows to return.
+        after: Optional keyset cursor returned by the previous page.
 
     Returns:
         Rows of ``{text, entity_type, count}`` ordered by descending count.
     """
-    return await _rows(
+    cursor = decode_cursor(after, "entity-frequency")
+    rows = await _rows(
         conn,
+        "WITH ranked AS ("
         "SELECT substring(c.full_text FROM sp.char_start + 1 "
         "                 FOR sp.char_end - sp.char_start) AS text, "
         "       em.entity_type, count(*) AS count "
         + _ENTITY_FROM
-        + "GROUP BY text, em.entity_type ORDER BY count DESC, text LIMIT %(limit)s",
-        {"doc": document_id, "etype": entity_type or "", "limit": limit},
+        + "GROUP BY text, em.entity_type) "
+        + "SELECT * FROM ranked "
+        + "WHERE (%(after_count)s::bigint IS NULL OR count < %(after_count)s::bigint "
+        + "       OR (count = %(after_count)s::bigint AND text > %(after_text)s) "
+        + "       OR (count = %(after_count)s::bigint AND text = %(after_text)s "
+        + "           AND entity_type > %(after_type)s)) "
+        + "ORDER BY count DESC, text, entity_type LIMIT %(limit)s",
+        {
+            "doc": document_id,
+            "etype": entity_type or "",
+            "limit": limit,
+            "after_count": cursor["count"] if cursor else None,
+            "after_text": cursor["text"] if cursor else None,
+            "after_type": cursor["entity_type"] if cursor else None,
+        },
     )
+    for row in rows:
+        row["cursor"] = encode_cursor(
+            "entity-frequency",
+            count=int(row["count"]),
+            text=row["text"],
+            entity_type=row["entity_type"],
+        )
+    return rows
 
 
 async def fulltext_search(conn: _AConn, query: str, *, limit: int = 25) -> list[Row]:

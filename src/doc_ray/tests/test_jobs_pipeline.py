@@ -407,6 +407,7 @@ def test_handle_backup_requires_an_object_store():
 
 def test_handle_backup_delegates_to_backup_module(qconn, monkeypatch):
     conn, created = qconn
+    from doc_ray import __version__
     from doc_ray.application.jobs import HANDLERS
 
     summary = {
@@ -416,7 +417,7 @@ def test_handle_backup_delegates_to_backup_module(qconn, monkeypatch):
         "table_rows": 7,
         "blob_count": 2,
         "doc_count": 1,
-        "schema_version": "1.4.0",
+        "schema_version": __version__,
         "blob_bytes": 99,
     }
     seen = {}

@@ -41,9 +41,9 @@ def test_unique_high_confidence_autolinks():
     conn = _connect_or_skip()
     created: list[int] = []
     try:
-        cid = _seed(conn, "Berlin", "PLACE", ["Berlin"], "Q-cg-berlin")
+        cid = _seed(conn, "Candidateberg", "PLACE", ["Candidateberg"], "Q-cg-candidateberg")
         created.append(cid)
-        blk = candidates_for_form(conn, "berlin")  # form_norm folds case
+        blk = candidates_for_form(conn, "candidateberg")  # form_norm folds case
         assert blk.auto_link_id == cid
         assert len(blk.candidates) == 1
     finally:

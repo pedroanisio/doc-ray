@@ -116,7 +116,7 @@ class ReadRepository(Protocol):
         ...
 
     async def list_documents(
-        self, conn: psycopg.AsyncConnection[Row], *, limit: int = 50, offset: int = 0
+        self, conn: psycopg.AsyncConnection[Row], *, limit: int = 50, after: str | None = None
     ) -> list[Row]:
         """Return document summary rows (with counts) newest-first."""
         ...
@@ -127,7 +127,7 @@ class ReadRepository(Protocol):
         document_id: str,
         *,
         limit: int | None = None,
-        offset: int = 0,
+        after: str | None = None,
     ) -> list[Row]:
         """Return a document's sentences (with span offsets) in ordinal order."""
         ...
@@ -181,7 +181,7 @@ class ReadRepository(Protocol):
         lang: str | None = None,
         document_id: str | None = None,
         limit: int = 100,
-        offset: int = 0,
+        after: str | None = None,
     ) -> list[Row]:
         """Return lexemes filtered by lemma substring / pos / lang, busiest-first."""
         ...
@@ -193,7 +193,7 @@ class ReadRepository(Protocol):
         *,
         document_id: str | None = None,
         limit: int = 80,
-        offset: int = 0,
+        after: str | None = None,
     ) -> list[Row]:
         """Return keyword-in-context occurrences (pre/hit/post) for a lexeme."""
         ...
@@ -205,7 +205,7 @@ class ReadRepository(Protocol):
         *,
         document_id: str | None = None,
         limit: int = 100,
-        offset: int = 0,
+        after: str | None = None,
     ) -> list[Row]:
         """Return sentences containing *term* (case-insensitive substring)."""
         ...
@@ -217,7 +217,7 @@ class ReadRepository(Protocol):
         document_id: str | None = None,
         entity_type: str | None = None,
         limit: int = 100,
-        offset: int = 0,
+        after: str | None = None,
     ) -> list[Row]:
         """Return named-entity mentions, optionally scoped by document and type."""
         ...
@@ -229,6 +229,7 @@ class ReadRepository(Protocol):
         document_id: str | None = None,
         entity_type: str | None = None,
         limit: int = 100,
+        after: str | None = None,
     ) -> list[Row]:
         """Return entity mention frequencies, optionally scoped by document and type."""
         ...

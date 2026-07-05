@@ -55,7 +55,7 @@ disclaimer:
 |---|---|---|---|
 | **Domain** | `doc_ray.domain` | `pdf_layout` (layout→Markdown), `sentences` (segmentation), `lexemes` (identity, tokenization, `RuleAnalyzer`, language detection), `ulid` (value object), `provenance` (events) | stdlib only |
 | **Ports** | `doc_ray.ports` | `TextExtractor`, `ObjectStore`, `Repository`, `Annotator`, `ModelOutputVerifier` — `Protocol` contracts | domain |
-| **Adapters** | `doc_ray.adapters` | `extraction` (PyMuPDF + opt-in OCR + pypdf + txt/html/epub/docx), `persistence` (Postgres/psycopg), `object_store` (MinIO/boto3), `annotation` / `annotation_spacy`, `export`, `wikidata` / `wikipedia` (canonical-entity KB resolution), `queue_postgres` (`FOR UPDATE SKIP LOCKED` job queue) | domain, ports |
+| **Adapters** | `doc_ray.adapters` | `extraction` (PyMuPDF + opt-in OCR + pypdf + txt/html/epub/docx), `persistence` (Postgres/psycopg), `persistence_read` / `persistence_layers_read` / `persistence_canonical_read` (bounded async GraphQL read models), `object_store` (MinIO/boto3), `annotation` / `annotation_spacy`, `export`, `wikidata` / `wikipedia` (canonical-entity KB resolution), `queue_postgres` (`FOR UPDATE SKIP LOCKED` job queue) | domain, ports |
 | **Application** | `doc_ray.application` | `pipeline` (ingest use case), `reannotate`, `reextract`, `verification` (shared ML/LLM output gate), `jobs` (worker dispatch + payload-carried pipeline-chain automation), `term_scan` / `canonicalize` / `resolution` / `seed_suggest` / `canonical_seed` (entity canonicalization — see below), `backup` (corpus snapshot & restore), `corpus_health`, `db_health` (instance health), `db_analyzer` (multi-engine structure + data profiling) | ports, adapters, domain |
 | **Entrypoints** | `doc_ray.entrypoints` | `cli`; `api` (GraphQL, Strawberry) and `worker` — the async-read / sync-write split every mutation runs through (see below); `migrate`, `export`, `annotate(_spacy)`, `reannotate`, `reextract`; the diagnostics CLIs `corpus_health` / `db_health` / `db_analyze` | application |
 | **Config** | `doc_ray.config` | env-driven `Config` (shared kernel) | stdlib |
@@ -72,13 +72,14 @@ disclaimer:
 ## API, worker, and the job queue
 
 `entrypoints.api` is a Strawberry GraphQL app: reads resolve directly against
-an async read adapter; every write **enqueues a job** onto a Postgres-backed
-queue (`adapters.queue_postgres`, `FOR UPDATE SKIP LOCKED`, heartbeat +
-exponential-backoff retry) and returns that job's status — never a
-synchronous result. `entrypoints.worker` is the sync process that claims and
-dispatches jobs (`application.jobs.run_once`, kind → handler); it runs
-blocking work (spaCy, KB network calls, the Anthropic frontier resolver, the
-backup/restore engine) off the API's event loop.
+an async read adapter with bounded keyset pagination (`after` cursors, never
+unbounded offsets); every write **enqueues a job** onto a Postgres-backed queue
+(`adapters.queue_postgres`, `FOR UPDATE SKIP LOCKED`, heartbeat +
+exponential-backoff retry) and returns that job's status — never a synchronous
+result. `entrypoints.worker` is the sync process that claims and dispatches jobs
+(`application.jobs.run_once`, kind → handler); it runs blocking work (spaCy, KB
+network calls, the Anthropic frontier resolver, the backup/restore engine) off
+the API's event loop.
 
 A job's payload can carry a `chain`: on success, `run_once` enqueues the next
 kind for the same document with the remaining chain before returning —
@@ -102,6 +103,22 @@ resolver (Claude), whose adapter validates every verdict against the offered
 candidate set (PALS — see `CLAUDE.md`) before anything commits; ambiguous or
 low-confidence verdicts land in `resolution_review` for a human. Full design:
 [`canonicalization_pipeline.md`](canonicalization_pipeline.md).
+
+The GraphQL surface exposes this as read-side contract, not as direct database
+mutation: `canonical`, `canonicalSearch`, `unresolvedMentions`, and
+`resolutionReview` give operators the registry and review queues; document-level
+fields expose annotation runs, tokens with features, dependencies, chunks,
+coreference chains, and entity links from the persisted NLP layers.
+
+## Access-control boundary
+
+The API tier is trusted to assert the current principal only while running as
+`docray_api`, a `NOLOGIN` member of `docray_client`. Hostile direct-SQL access is
+bound to per-principal `LOGIN` roles created by `docray_create_principal_login()`
+and stored on `principals.db_role`; those roles inherit the RLS-limited
+`docray_client` capability but cannot impersonate another principal by setting
+`app.principal_id`. The `docray` owner remains the trusted batch/admin writer
+and bypasses RLS by design.
 
 ## Ports & their adapters
 

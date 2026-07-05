@@ -171,8 +171,8 @@ def test_document_bibliographic_and_token_count(pg):
     asyncio.run(check())
 
 
-def test_search_sentences_id_offset_and_document_filter(pg):
-    """searchSentences carries a stable id, filters by documentId, and pages by offset."""
+def test_search_sentences_id_cursor_and_document_filter(pg):
+    """searchSentences carries a stable id, filters by documentId, and pages by cursor."""
     conn, doc_id = _seed_text(pg, "Winston walked. Winston paused. Winston left.")
     schema = build_schema()
 
@@ -189,7 +189,7 @@ def test_search_sentences_id_offset_and_document_filter(pg):
 
             allhits = await schema.execute(
                 'query($id:ID!){ searchSentences(term:"Winston", documentId:$id) '
-                "{ id ordinal documentId } }",
+                "{ id ordinal documentId cursor } }",
                 variable_values={"id": str(doc_id)},
                 context_value=ctx,
             )
@@ -200,9 +200,9 @@ def test_search_sentences_id_offset_and_document_filter(pg):
             assert hits[0]["id"] == by_ord[hits[0]["ordinal"]]  # stable sentence id, no round-trip
 
             page = await schema.execute(
-                'query($id:ID!){ searchSentences(term:"Winston", documentId:$id, '
-                "offset:1, limit:1){ ordinal } }",
-                variable_values={"id": str(doc_id)},
+                'query($id:ID!,$after:String!){ searchSentences(term:"Winston", documentId:$id, '
+                "after:$after, limit:1){ ordinal } }",
+                variable_values={"id": str(doc_id), "after": hits[0]["cursor"]},
                 context_value=ctx,
             )
             assert page.errors is None, page.errors

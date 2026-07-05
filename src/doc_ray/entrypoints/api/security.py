@@ -17,9 +17,11 @@ from typing import Any, Protocol, runtime_checkable
 import psycopg
 from fastapi import Request
 
-# RLS client role created by migration 018_rbac.sql. Fixed literal (never user
-# input), so interpolating it into SET ROLE is injection-safe.
-_CLIENT_ROLE = "docray_client"
+# Trusted API role created by migration 030. Fixed literal (never user input),
+# so interpolating it into SET ROLE is injection-safe. Direct SQL users inherit
+# from docray_client under their own LOGIN role instead; only docray_api may
+# assert app.principal_id.
+_CLIENT_ROLE = "docray_api"
 
 
 @dataclass(frozen=True)

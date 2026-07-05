@@ -125,14 +125,14 @@ def test_webapp_document_reads_share_reader_table_shape(monkeypatch):
     _assert_fragments_in_both(
         web_sql,
         read.list_sentences,
-        (
-            "FROM sentences",
-            "JOIN spans sp ON sp.id =",
-            "WHERE",
-            "document_id = %s",
-            "ORDER BY",
-            "ordinal",
-        ),
+            (
+                "FROM sentences",
+                "JOIN spans sp ON sp.id =",
+                "WHERE",
+                "document_id =",
+                "ORDER BY",
+                "ordinal",
+            ),
     )
 
 
@@ -142,16 +142,16 @@ def test_webapp_lexeme_index_reads_share_reader_table_shape(monkeypatch):
     _assert_fragments_in_both(
         web_sql,
         read.list_lexemes,
-        (
-            "FROM lexemes l",
-            "LEFT JOIN lexeme_occurrences o ON o.lexeme_uid = l.uid",
+            (
+                "FROM lexemes l",
+                "LEFT JOIN lexeme_occurrences o ON o.lexeme_uid = l.uid",
             "l.lemma ILIKE",
             "l.pos =",
-            "l.lang =",
-            "GROUP BY l.uid, l.lang, l.pos, l.lemma",
-            "ORDER BY uses DESC, l.lemma",
-        ),
-    )
+                "l.lang =",
+                "GROUP BY l.uid, l.lang, l.pos, l.lemma",
+                "ORDER BY uses DESC",
+            ),
+        )
 
 
 def test_webapp_lexeme_kwic_reads_share_reader_table_shape(monkeypatch):

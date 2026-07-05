@@ -69,6 +69,25 @@ opaque identifiers.
 `BL-008` with opt-in image-only PDF OCR, a shared ML/LLM output verification
 port, and GraphQL read-adapter contract tests that keep SQL out of resolvers.
 
+**2026-07-05 Postgres/RDBMS domain gap-analysis:** added `BL-039`-`BL-046`. A
+session first learned PostgreSQL administration and relational-modeling
+practice from doc-ray's own ingested corpus (an EDB "PostgreSQL Essentials
+v16" course + *Clean Code Principles and Patterns* ch.9), then audited
+doc-ray's own Postgres usage against that material. No defects were found in
+the schema/query/transaction layers; the gaps found are deployment/operational
+posture — default credentials on a published port, a no-op API authenticator,
+no backup schedule/PITR, unconfigured connection pooling, and reactive-only
+autovacuum tuning. `BL-039`/`BL-046` also close out GitHub issues #2/#3, whose
+backlog entry had stalled on a blocked `.agent-tasks` task since 2026-07-04.
+Also amended `BL-017` with confirming evidence (pgvector HNSW indexes
+provisioned but unqueried).
+
+**2026-07-05 API and security surfaces:** completed `BL-009`, `BL-017`,
+`BL-021`, and `BL-012` with keyset GraphQL pagination, bounded NLP-layer and
+canonical/review read fields, and database-authenticated per-principal LOGIN
+role isolation. Also reconciled `BL-035`'s YAML status to the existing rendered
+done state.
+
 ## Items
 
 | ID | Item | Category | Type | Status | Cx | Priority | Owner |
@@ -81,19 +100,19 @@ port, and GraphQL read-adapter contract tests that keep SQL out of resolvers.
 | BL-006 | Materialize the remaining NLP annotation layers | nlp | feature | parked | XL | medium | concurrent |
 | BL-007 | Verification layer for ML/LLM annotator output (PALS's Law) | nlp | infra | done | M | high | shared |
 | BL-008 | Complete the GraphQL (Strawberry) driving adapter | api | feature | done | L | medium | concurrent |
-| BL-009 | GraphQL safety: depth/complexity limits + keyset pagination | security | feature | in-progress | M | high | concurrent |
+| BL-009 | GraphQL safety: depth/complexity limits + keyset pagination | security | feature | done | M | high | concurrent |
 | BL-010 | Background jobs via a Postgres queue (FOR UPDATE SKIP LOCKED) | ops | feature | done | L | medium | concurrent |
 | BL-011 | jobs table + sync worker runtime | persistence | feature | done | M | medium | concurrent |
-| BL-012 | Per-principal LOGIN roles for hostile-direct-SQL isolation | security | feature | parked | L | medium | shared |
+| BL-012 | Per-principal LOGIN roles for hostile-direct-SQL isolation | security | feature | done | L | medium | shared |
 | BL-013 | Raise package coverage from 57% to the 90% gate | testing | tech-debt | done | L | high | shared |
 | BL-014 | Fix 14 E501 line-length errors in gen_data_dictionary.py | tooling | tech-debt | done | XS | low | concurrent |
 | BL-015 | Fix test_migrate row_factory KeyError against the live DB | persistence | bug | done | S | high | concurrent |
 | BL-016 | NLP capability matrix and drift guard | docs | infra | done | S | high | shared |
-| BL-017 | Layer-aware GraphQL read model | api | feature | parked | L | high | concurrent |
+| BL-017 | Layer-aware GraphQL read model | api | feature | done | L | high | concurrent |
 | BL-018 | spaCy annotation provenance | nlp | infra | done | M | high | shared |
 | BL-019 | Annotation output validation | nlp | infra | done | M | high | shared |
 | BL-020 | Shared read surface or parity tests | api | tech-debt | done | M | high | shared |
-| BL-021 | Canonicalization and review API surfaces | api | feature | parked | M | high | concurrent |
+| BL-021 | Canonicalization and review API surfaces | api | feature | done | M | high | concurrent |
 | BL-022 | Annotation language and model capability registry | nlp | infra | done | S | medium | shared |
 | BL-023 | Operator health surfaces | ops | feature | done | M | medium | shared |
 | BL-024 | Evaluation and drift artifacts | nlp | research | parked | L | medium | shared |
@@ -111,6 +130,14 @@ port, and GraphQL read-adapter contract tests that keep SQL out of resolvers.
 | BL-036 | Extend the reader's tooltip pattern to POS chips and status pills | webapp | feature | done | S | low | shared |
 | BL-037 | Accessibility: part-of-speech is conveyed by color alone | webapp | bug | done | S | medium | shared |
 | BL-038 | Webapp operator page: surface corpus_health / db_health in the UI | ops | feature | done | M | medium | mine |
+| BL-039 | Pin the Postgres image to stop collation-version drift (GH#2) | ops | bug | parked | S | high | shared |
+| BL-040 | GraphQL API authentication is a documented no-op | security | feature | parked | L | high | shared |
+| BL-041 | Postgres port published on all interfaces with default credentials | security | bug | parked | XS | high | shared |
+| BL-042 | No scheduled backups, retention policy, or PITR/WAL archiving | ops | feature | parked | M | medium | shared |
+| BL-043 | API connection-pool sizing is unconfigured | persistence | tech-debt | parked | XS | medium | shared |
+| BL-044 | No proactive autovacuum/index tuning despite two prior cascade-delete incidents | persistence | tech-debt | parked | M | high | shared |
+| BL-045 | FTS read/write language-config symmetry isn't enforced by a test | testing | tech-debt | parked | XS | low | shared |
+| BL-046 | docker-compose ingester exit code 2 reads as a startup failure (GH#3) | ops | tech-debt | parked | XS | low | shared |
 
 See [`backlog.yml`](backlog.yml) for each item's full description, rationale,
 acceptance criteria, dependencies, related decisions (`D-###`), and references.

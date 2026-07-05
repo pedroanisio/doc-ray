@@ -81,7 +81,7 @@ def test_apply_and_reset_principal_switch_roles(pg):
                 "SELECT current_user AS u, current_setting('app.principal_id') AS p"
             )
             got = await cur.fetchone()
-            assert got["u"] == "docray_client" and got["p"] == principal.principal_id
+            assert got["u"] == "docray_api" and got["p"] == principal.principal_id
             await reset_principal(aconn, principal)
             cur = await aconn.execute("SELECT current_user AS u")
             got = await cur.fetchone()

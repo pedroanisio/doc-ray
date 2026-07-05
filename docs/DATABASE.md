@@ -1,6 +1,6 @@
 # doc-ray — Database ERD & Data Dictionary
 
-**Schema version `1.4.0`** (SemVer) · 29 migrations applied
+**Schema version `1.5.0`** (SemVer) · 31 migrations applied
 
 > Generated from the live schema by `scripts/gen_data_dictionary.py`. Do not edit by hand — re-run the generator.
 
@@ -788,10 +788,14 @@ by RLS keyed on these (see §Access control).
 | `external_subject` | text | yes |  |  |  |
 | `disabled_at` | timestamp with time zone | yes |  |  |  |
 | `created_at` | timestamp with time zone |  |  | `now()` |  |
+| `db_role` | name | yes | UQ |  | Per-principal LOGIN role for direct-SQL RLS isolation. |
 
 - **Primary key:** (id)
 - **Unique:** UNIQUE (display_name)
+- **Unique:** UNIQUE (db_role)
 - **Check:** CHECK ((kind = ANY (ARRAY['human'::text, 'service'::text])))
+- **Check:** CHECK ((db_role IS NULL OR db_role NOT IN ('docray'::name, 'docray_client'::name, 'docray_api'::name)))
+- **Index** `principals_db_role_key`: public.principals USING btree (db_role)
 - **Index** `principals_display_name_key`: public.principals USING btree (display_name)
 
 #### `roles`
@@ -980,11 +984,11 @@ holds any `document_acl` row on it, and may **write** iff *admin* or holds an
 **Enforcement.** RLS is `ENABLE`d (not `FORCE`) on 33 tables. The `docray`
 role is a **superuser and table owner**, so it **bypasses RLS** — the ingest
 pipeline and admin tooling use it as the trusted batch writer. End-user / API
-traffic must run as the non-superuser role **`docray_client`** (`SET ROLE
-docray_client`) and set the principal per transaction:
+traffic must run as the non-superuser role **`docray_api`** (`SET ROLE
+docray_api`) and set the principal per transaction:
 
 ```sql
-SET ROLE docray_client;
+SET ROLE docray_api;
 SET app.principal_id = '<principal uuid>';
 ```
 
@@ -998,13 +1002,15 @@ stays cheap. Reads use a `FOR SELECT` policy only; writes use separate
 `FOR INSERT/UPDATE/DELETE` policies (with `WITH CHECK`) so they never
 contaminate read plans.
 
-**Trust boundary.** The principal comes from a session GUC the connecting role
-can set, so this is safe only when the DB client is the trusted app tier. A
-client able to run arbitrary SQL as `docray_client` could impersonate any
-principal; hostile direct access would need per-principal `LOGIN` roles keyed
-on `current_user`. The derived views (`lexeme_occurrence_detail`,
-`lexeme_forms`, `lexeme_keys`) are set `security_invoker = true` so they inherit
-the caller's RLS instead of the owner's bypass.
+**Trust boundary.** The principal GUC is honored only for `docray_api`, the
+trusted app-tier role. Direct SQL users are isolated with per-principal
+`LOGIN` roles recorded in `principals.db_role` and created with
+`docray_create_principal_login(principal, role_name, password)`. Those roles
+inherit `docray_client` and are mapped by authenticated database identity, so
+setting `app.principal_id` cannot impersonate a different principal. The
+derived views (`lexeme_occurrence_detail`, `lexeme_forms`, `lexeme_keys`) are
+set `security_invoker = true` so they inherit the caller's RLS instead of the
+owner's bypass.
 
 
 ## 9. Migration history
@@ -1040,4 +1046,5 @@ the caller's RLS instead of the owner's bypass.
 | 027 | `027_fk_cascade_indexes.sql` | index the annotations delete-cascade FK paths |
 | 028 | `028_document_delete_cascade_indexes.sql` | index the document delete-cascade FK paths |
 | 029 | `029_schema_version_1_4_0.sql` | advance the schema SemVer to 1.4.0 |
-
+| 030 | `030_principal_login_roles.sql` | per-principal LOGIN roles, `docray_api` trusted GUC role, and direct-SQL impersonation guard |
+| 031 | `031_schema_version_1_5_0.sql` | advance the schema SemVer to 1.5.0 |
