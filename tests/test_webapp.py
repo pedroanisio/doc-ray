@@ -380,6 +380,46 @@ def test_document_pagination_math(client):
     assert "prev" in html and "next" in html
 
 
+def test_document_full_scroll_view_disables_sentence_pager(client, monkeypatch):
+    sentence_queries = []
+
+    def full_q(sql, params=()):
+        s = _norm(sql)
+        if "sen.ordinal, sen.text" in s:
+            sentence_queries.append(s)
+            return [
+                {"ordinal": 0, "text": "First sentence.", "ss": 0, "se": 15},
+                {"ordinal": 119, "text": "Last sentence.", "ss": 16, "se": 30},
+            ]
+        if "FROM lexeme_occurrences o" in s and "sp.char_start >=" in s:
+            return []
+        return fake_q(sql, params)
+
+    def full_q1(sql, params=()):
+        if "substring(full_text FROM" in _norm(sql):
+            return {"t": "First sentence. Last sentence."}
+        return fake_q1(sql, params)
+
+    monkeypatch.setattr(webapp, "q", full_q)
+    monkeypatch.setattr(webapp, "q1", full_q1)
+
+    html = client.get(f"/doc/{DOC_ID}?view=all").get_data(as_text=True)
+
+    assert "Full document" in html
+    assert "Last sentence." in html
+    assert '<div class="pager">' not in html
+    assert sentence_queries and " LIMIT " not in sentence_queries[0]
+
+
+def test_document_reader_has_solo_pos_focus_controls(client):
+    html = client.get(f"/doc/{DOC_ID}").get_data(as_text=True)
+
+    assert 'id="pos-focus"' in html
+    assert '<option value="VERB">VERB</option>' in html
+    assert 'reader.classList.add("solo-" + focus)' in html
+    assert ".reader.solo-VERB .w:not(.p-VERB)" in html
+
+
 def test_document_missing_returns_404(client):
     assert client.get(f"/doc/{MISSING_ID}").status_code == 404
 
@@ -406,10 +446,18 @@ def test_annotate_html_wraps_words_preserves_gaps_and_escapes():
 
 def test_lexemes_index_renders_and_filters(client):
     html = client.get("/lexemes?pos=VERB&lang=en").get_data(as_text=True)
-    assert "say" in html and LEX_UID in html
+    assert "say" in html
     assert "496" in html
     # the selected filter values are reflected in the form
     assert 'value="VERB"' in html or ">VERB<" in html
+
+
+def test_lexemes_index_does_not_foreground_raw_identity(client):
+    html = client.get("/lexemes?pos=VERB&lang=en").get_data(as_text=True)
+
+    assert "<th>Identity</th>" not in html
+    assert f">{LEX_UID}<" not in html
+    assert f'href="/lexeme/{LEX_UID}"' in html
 
 
 def test_lexemes_empty_state(client, monkeypatch):
@@ -547,6 +595,15 @@ def test_job_status_humanizes_success_outcome(client):
     assert "The document was uploaded and registered." in html
     assert "&gt;ingest&lt;" not in html
     assert "{&#39;document_id&#39;" not in html
+
+
+def test_job_status_table_does_not_foreground_raw_job_id(client):
+    html = client.get("/job/job-1").get_data(as_text=True)
+
+    assert "<th>job</th>" not in html
+    assert "<th>step</th>" in html
+    assert ">job-1<" not in html
+    assert "Job reference" in html
 
 
 def test_job_status_humanizes_failed_outcome(client, monkeypatch):

@@ -22,6 +22,12 @@ doc-ray carries **one global version** covering both the application package
 ## [Unreleased]
 
 ### Added
+- **Reader scroll, POS focus, and PDF heading calibration** (OpenAI GPT-5 via Codex) —
+  the PyMuPDF layout path now accepts corpus-specific heading thresholds through
+  `DOCRAY_PDF_HEADING_*` environment overrides, the document reader can switch
+  to a continuous full-document scroll with single-POS focus, and Lexicon/job
+  tables no longer foreground opaque identifiers, closing `BL-003`, `BL-005`,
+  and `BL-035`.
 - **Operator health contract and webapp definitions** (OpenAI GPT-5 via Codex) —
   `/operator/health.json` now exposes an admin-gated `operator-health.v1`
   payload, POS chips and status pills share keyboard/touch-accessible

@@ -88,8 +88,10 @@ Shows every background job attached to the uploaded document — ingest,
 annotate, canonicalize, and anything run later — with live status pills. The
 page refreshes itself every 3 seconds while anything is queued or running and
 stops when the pipeline finishes, linking to the document and its
-domain-seeding screen. Note the table lists *all* of the document's jobs, so
-later re-runs and seeding jobs appear here too.
+domain-seeding screen. The table uses numbered steps for scanning; the raw job
+reference remains available as row metadata without dominating the page. Note
+the table lists *all* of the document's jobs, so later re-runs and seeding jobs
+appear here too.
 
 ### 2.2 Documents (`/`)
 
@@ -103,8 +105,8 @@ call-to-action instead of an unexplained empty table.
 
 ### 2.3 Document reader (`/doc/<id>`)
 
-The reader shows the document 40 sentences per page with its lexical annotation
-overlaid:
+The reader shows the document either 40 sentences per page or as one continuous
+full-document scroll view, with its lexical annotation overlaid:
 
 - **Header pills** — language, type, character count, pages, status, and the
   **domain seeding →** link to the curation screen (§3).
@@ -116,7 +118,10 @@ overlaid:
   annotation is not color-only. Hover a word for its lemma and POS; click it to
   open that lexeme's page. Sentence ordinals appear in the margin.
 - **Legend chips** — click a POS chip (NOUN, VERB, …) to mute/unmute that class
-  in the overlay, isolating what you care about.
+  in the overlay. Use the POS focus control to highlight exactly one selected
+  part of speech while dimming the rest.
+- **Pages / Full document** — switch between the default paginated reader and a
+  continuous `?view=all` scroll with no sentence pager.
 - **Plain mode** — the annotate/plain toggle (`?annotate=0`) renders the text
   without the overlay.
 - **Rail** — POS distribution for the document and its 15 most frequent verbs,
@@ -135,7 +140,8 @@ Covered in full in §3.
 
 The corpus vocabulary. Filter by lemma substring, part of speech, and language;
 rows are ordered by how often each lexeme occurs corpus-wide (100 per page).
-Click a lemma for its detail page.
+Click a lemma for its detail page. The table uses the lemma as the meaningful
+identity instead of foregrounding the opaque lexeme key.
 
 ### 2.6 Lexeme detail (`/lexeme/<uid>`)
 

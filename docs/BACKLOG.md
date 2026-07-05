@@ -60,15 +60,20 @@ had shipped but were still marked `parked`/`ready`.
 `BL-029`, and `BL-036` with an admin-gated operator-health JSON contract,
 shared accessible tooltip affordances, and in-app glossary/page definitions.
 
+**2026-07-05 reader and extraction calibration:** completed `BL-003`, `BL-005`,
+and `BL-035` with env-tunable PDF heading thresholds, full-document reader
+mode, single-POS focus, and user-facing tables that no longer foreground raw
+opaque identifiers.
+
 ## Items
 
 | ID | Item | Category | Type | Status | Cx | Priority | Owner |
 |----|------|----------|------|--------|----|----------|-------|
 | BL-001 | OCR pass for image-only PDFs | extraction | feature | parked | M | high | shared |
 | BL-002 | Math fidelity: recover equations as LaTeX via opt-in ML backend | extraction | feature | parked | L | medium | shared |
-| BL-003 | Calibrate heading-detection thresholds per corpus | extraction | tech-debt | parked | S | low | mine |
+| BL-003 | Calibrate heading-detection thresholds per corpus | extraction | tech-debt | done | S | low | mine |
 | BL-004 | Render Markdown in the reading pane | webapp | feature | done | S | medium | mine |
-| BL-005 | Full-document scroll view + solo-POS focus mode | webapp | feature | parked | M | low | mine |
+| BL-005 | Full-document scroll view + solo-POS focus mode | webapp | feature | done | M | low | mine |
 | BL-006 | Materialize the remaining NLP annotation layers | nlp | feature | parked | XL | medium | concurrent |
 | BL-007 | Verification layer for ML/LLM annotator output (PALS's Law) | nlp | infra | parked | M | high | shared |
 | BL-008 | Complete the GraphQL (Strawberry) driving adapter | api | feature | parked | L | medium | concurrent |
@@ -98,7 +103,7 @@ shared accessible tooltip affordances, and in-app glossary/page definitions.
 | BL-032 | Humanize pipeline/job status outcomes and failures | webapp | tech-debt | done | M | medium | shared |
 | BL-033 | Reader: 'not yet annotated' empty state | webapp | feature | done | S | low | shared |
 | BL-034 | Group admin/destructive nav items away from reading | webapp | tech-debt | done | XS | low | shared |
-| BL-035 | De-emphasize raw ULIDs in user-facing tables | webapp | tech-debt | parked | XS | low | shared |
+| BL-035 | De-emphasize raw ULIDs in user-facing tables | webapp | tech-debt | done | XS | low | shared |
 | BL-036 | Extend the reader's tooltip pattern to POS chips and status pills | webapp | feature | done | S | low | shared |
 | BL-037 | Accessibility: part-of-speech is conveyed by color alone | webapp | bug | done | S | medium | shared |
 | BL-038 | Webapp operator page: surface corpus_health / db_health in the UI | ops | feature | done | M | medium | mine |

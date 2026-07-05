@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% import "_terms.html" as terms %}
-{% block title %}job {{ job.id }} · doc·ray{% endblock %}
+{% block title %}Pipeline status · doc·ray{% endblock %}
 {% block head %}{% if active %}<meta http-equiv="refresh" content="3">{% endif %}{% endblock %}
 {% block body %}
 <style>
@@ -38,10 +38,10 @@
 {% endif %}
 
 <table class="jobs">
-  <tr><th>job</th><th>kind</th><th>status</th><th>outcome</th></tr>
+  <tr><th>step</th><th>kind</th><th>status</th><th>outcome</th></tr>
   {% for j in jobs %}
   <tr>
-    <td style="font-family:var(--mono); font-size:.68rem;">{{ j.id }}</td>
+    <td class="hint" title="Job reference: {{ j.id }}">#{{ loop.index }}</td>
     <td>{{ j.kind_label }}</td>
     <td>{{ terms.status_pill(j.status, j.status_label, 'st st-' ~ j.status) }}</td>
     <td class="res">

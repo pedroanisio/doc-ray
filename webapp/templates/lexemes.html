@@ -25,7 +25,7 @@
 <div class="card">
   <table>
     <thead><tr>
-      <th>Lemma</th><th>POS</th><th>Lang</th><th>Identity</th><th class="num">Uses</th>
+      <th>Lemma</th><th>POS</th><th>Lang</th><th class="num">Uses</th>
     </tr></thead>
     <tbody>
     {% for l in rows %}
@@ -34,11 +34,10 @@
           <a href="{{ url_for('lexeme', uid=l.uid) }}" style="color:var(--c)">{{ l.lemma }}</a></td>
         <td>{{ terms.pos_pill(l.pos, 'pill', 'color:var(--c); border-color:var(--c)') }}</td>
         <td><span class="pill lang">{{ l.lang }}</span></td>
-        <td class="mono" style="color:var(--ink-faint); font-size:.72rem">{{ l.uid }}</td>
         <td class="num">{{ "{:,}".format(l.uses) }}</td>
       </tr>
     {% else %}
-      <tr><td colspan="5" class="lede">No lexemes match.</td></tr>
+      <tr><td colspan="4" class="lede">No lexemes match.</td></tr>
     {% endfor %}
     </tbody>
   </table>

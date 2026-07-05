@@ -25,6 +25,9 @@
     padding:.42rem .85rem; color:var(--ink-soft); }
   .seg a:hover { text-decoration:none; color:var(--ink); }
   .seg a.on { background:var(--accent); color:var(--accent-ink); }
+  #pos-focus { max-width:11rem; padding:.42rem .55rem; border:1px solid var(--line);
+    border-radius:4px; background:var(--panel); color:var(--ink); font-family:var(--mono);
+    font-size:.68rem; text-transform:uppercase; }
   .legend { display:flex; gap:.35rem; flex-wrap:wrap; }
   .chip { font-family:var(--mono); font-size:.64rem; letter-spacing:.05em; cursor:pointer;
     padding:.2rem .5rem; border:1px solid var(--line); border-radius:999px; color:var(--ink-soft);
@@ -82,6 +85,17 @@
   .reader.off-FUNC .p-CCONJ,.reader.off-FUNC .p-SCONJ,.reader.off-FUNC .p-PART,
   .reader.off-FUNC .p-AUX,.reader.off-FUNC .p-PUNCT,.reader.off-FUNC .p-SYM,.reader.off-FUNC .p-X
     { border-bottom-color:transparent; }
+  .reader.solo-NOUN .w:not(.p-NOUN),.reader.solo-PROPN .w:not(.p-PROPN),
+  .reader.solo-VERB .w:not(.p-VERB),.reader.solo-ADJ .w:not(.p-ADJ),
+  .reader.solo-ADV .w:not(.p-ADV),.reader.solo-PRON .w:not(.p-PRON),
+  .reader.solo-NUM .w:not(.p-NUM),.reader.solo-DET .w:not(.p-DET),
+  .reader.solo-ADP .w:not(.p-ADP),.reader.solo-CCONJ .w:not(.p-CCONJ),
+  .reader.solo-SCONJ .w:not(.p-SCONJ),.reader.solo-PART .w:not(.p-PART),
+  .reader.solo-AUX .w:not(.p-AUX),.reader.solo-PUNCT .w:not(.p-PUNCT),
+  .reader.solo-SYM .w:not(.p-SYM),.reader.solo-X .w:not(.p-X),
+  .reader.solo-INTJ .w:not(.p-INTJ) {
+    opacity:.24; border-bottom-color:transparent; filter:saturate(.45);
+  }
 </style>
 
 <p class="kicker"><a href="{{ url_for('documents') }}">← Corpus</a></p>
@@ -107,16 +121,24 @@
   <section class="main">
     <div class="reader-controls">
       <div class="seg">
-        <a href="?page={{ page }}&annotate=1" class="{{ 'on' if annotate }}">Annotated</a>
-        <a href="?page={{ page }}&annotate=0" class="{{ 'on' if not annotate }}">Plain</a>
+        <a href="?page={{ page }}&view={{ 'all' if full_view else 'page' }}&annotate=1" class="{{ 'on' if annotate }}">Annotated</a>
+        <a href="?page={{ page }}&view={{ 'all' if full_view else 'page' }}&annotate=0" class="{{ 'on' if not annotate }}">Plain</a>
+      </div>
+      <div class="seg">
+        <a href="?page={{ page }}&annotate={{ 1 if annotate else 0 }}" class="{{ 'on' if not full_view }}">Pages</a>
+        <a href="?view=all&annotate={{ 1 if annotate else 0 }}" class="{{ 'on' if full_view }}">Full document</a>
       </div>
       {% if annotate %}
+      <select id="pos-focus" aria-label="Focus one part of speech">
+        <option value="">All POS</option>
+        {% for p in pos %}<option value="{{ p.pos }}">{{ p.pos }}</option>{% endfor %}
+      </select>
       <div class="legend" id="legend">
         {% for p in pos %}
           {{ terms.pos_pill(p.pos, 'chip') }}
         {% endfor %}
       </div>
-      <span class="kicker">click a tag to mute · hover a word for its lemma</span>
+      <span class="kicker">focus one tag, click tags to mute · hover a word for its lemma</span>
       {% endif %}
     </div>
 
@@ -144,11 +166,13 @@
           <p><span class="ord">{{ s.ordinal }}</span>{% if has_html %}{{ s.html }}{% else %}{{ raw_text }}{% endif %}</p>
         {% endif %}
       {% endfor %}
-      <div class="pager">
-        {% if page > 1 %}<a href="?page={{ page-1 }}&annotate={{ 1 if annotate else 0 }}">← prev</a>{% endif %}
-        <span>{{ page }} / {{ pages }}</span>
-        {% if page < pages %}<a href="?page={{ page+1 }}&annotate={{ 1 if annotate else 0 }}">next →</a>{% endif %}
-      </div>
+      {% if not full_view %}
+        <div class="pager">
+          {% if page > 1 %}<a href="?page={{ page-1 }}&annotate={{ 1 if annotate else 0 }}">← prev</a>{% endif %}
+          <span>{{ page }} / {{ pages }}</span>
+          {% if page < pages %}<a href="?page={{ page+1 }}&annotate={{ 1 if annotate else 0 }}">next →</a>{% endif %}
+        </div>
+      {% endif %}
     </div>
   </section>
 
@@ -190,6 +214,16 @@
       reader.classList.toggle('off-' + key);
     });
   });
+  var focusControl = document.getElementById('pos-focus');
+  if (focusControl) {
+    focusControl.addEventListener('change', function () {
+      reader.className = reader.className.replace(/\bsolo-[A-Z]+\b/g, '').trim();
+      var focus = focusControl.value;
+      if (focus) {
+        reader.classList.add("solo-" + focus);
+      }
+    });
+  }
 </script>
 {% endblock %}
 {% endblock %}

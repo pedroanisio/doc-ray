@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import re
 from collections import Counter, defaultdict
+from dataclasses import dataclass
 from typing import Any
 
 _BULLET_RE = re.compile(r"^\s*(?:[•‣◦·▪]\s*|[*\-–—]\s+)")
@@ -31,6 +32,26 @@ _SENT_END = tuple(".!?;:,")
 # C0 control characters except tab/newline/carriage-return. NUL in particular
 # cannot be stored in a PostgreSQL text column, so it must never reach the DB.
 _CONTROL_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f]")
+
+
+@dataclass(frozen=True)
+class HeadingThresholds:
+    """Corpus-tunable thresholds for PDF line classification."""
+
+    level1_ratio: float = 1.5
+    level2_ratio: float = 1.25
+    level3_ratio: float = 1.1
+    bold_max_words: int = 10
+
+    def __post_init__(self) -> None:
+        """Validate monotonic heading ratios and bold-heading bounds."""
+        if not (self.level1_ratio >= self.level2_ratio >= self.level3_ratio > 0):
+            raise ValueError("heading ratios must satisfy level1 >= level2 >= level3 > 0")
+        if self.bold_max_words < 1:
+            raise ValueError("bold_max_words must be at least 1")
+
+
+DEFAULT_HEADING_THRESHOLDS = HeadingThresholds()
 
 
 def sanitize_text(text: str) -> str:
@@ -68,16 +89,17 @@ def line_text(spans: list[dict[str, Any]], space_ratio: float = 0.2) -> str:
 # --- typographic classification -------------------------------------------
 
 
-def heading_level(size: float, body: float) -> int:
+def heading_level(size: float, body: float, thresholds: HeadingThresholds | None = None) -> int:
     """Heading level 1–3 from size relative to body text; 0 if not a heading."""
     if body <= 0:
         return 0
+    thresholds = thresholds or DEFAULT_HEADING_THRESHOLDS
     r = size / body
-    if r >= 1.5:
+    if r >= thresholds.level1_ratio:
         return 1
-    if r >= 1.25:
+    if r >= thresholds.level2_ratio:
         return 2
-    if r >= 1.1:
+    if r >= thresholds.level3_ratio:
         return 3
     return 0
 
@@ -92,16 +114,23 @@ def strip_bullet(text: str) -> str:
     return _BULLET_RE.sub("", text, count=1).strip()
 
 
-def classify_line(text: str, size: float, bold: bool, body: float) -> tuple[str, int]:
+def classify_line(
+    text: str,
+    size: float,
+    bold: bool,
+    body: float,
+    thresholds: HeadingThresholds | None = None,
+) -> tuple[str, int]:
     """Classify a line as ('heading', level) | ('list', 0) | ('para', 0)."""
     t = text.strip()
     if is_bullet(t):
         return ("list", 0)
-    lvl = heading_level(size, body)
+    thresholds = thresholds or DEFAULT_HEADING_THRESHOLDS
+    lvl = heading_level(size, body, thresholds)
     if lvl:
         return ("heading", lvl)
     # A short, bold line that doesn't read like a sentence is a heading.
-    if bold and t and len(t.split()) <= 10 and t[-1] not in _SENT_END:
+    if bold and t and len(t.split()) <= thresholds.bold_max_words and t[-1] not in _SENT_END:
         return ("heading", 3)
     return ("para", 0)
 
@@ -185,12 +214,15 @@ def _mostly_bold(spans: list[dict[str, Any]]) -> bool:
     return bold * 2 >= total
 
 
-def block_markdown(block: dict[str, Any], body: float) -> str:
+def block_markdown(
+    block: dict[str, Any], body: float, thresholds: HeadingThresholds | None = None
+) -> str:
     """Render one block as a Markdown paragraph, heading, or bullet list.
 
     Args:
         block: The block dict to render.
         body: The body font size, used to classify heading levels.
+        thresholds: Optional corpus-specific heading thresholds.
 
     Returns:
         The Markdown for the block, or an empty string if it has no text.
@@ -199,7 +231,7 @@ def block_markdown(block: dict[str, Any], body: float) -> str:
     for ln in block["lines"]:
         text = line_text(ln["spans"])
         size = max((sp["size"] for sp in ln["spans"]), default=body)
-        kind, lvl = classify_line(text, size, _mostly_bold(ln["spans"]), body)
+        kind, lvl = classify_line(text, size, _mostly_bold(ln["spans"]), body, thresholds)
         if text:
             infos.append((kind, lvl, text))
     if not infos:
@@ -216,12 +248,17 @@ def block_markdown(block: dict[str, Any], body: float) -> str:
     return para
 
 
-def to_markdown(blocks: list[dict[str, Any]], body: float | None = None) -> str:
+def to_markdown(
+    blocks: list[dict[str, Any]],
+    body: float | None = None,
+    thresholds: HeadingThresholds | None = None,
+) -> str:
     """Assemble blocks into a Markdown document, structure preserved.
 
     Args:
         blocks: The block dicts to assemble.
         body: The body font size; inferred from ``blocks`` if omitted.
+        thresholds: Optional corpus-specific heading thresholds.
 
     Returns:
         The Markdown document, or an empty string if there is no content.
@@ -229,6 +266,6 @@ def to_markdown(blocks: list[dict[str, Any]], body: float | None = None) -> str:
     blocks = strip_marginals(blocks)
     if body is None:
         body = body_size(blocks) or 10.0
-    parts = [block_markdown(b, body) for b in blocks]
+    parts = [block_markdown(b, body, thresholds) for b in blocks]
     md = "\n\n".join(p for p in parts if p)
     return sanitize_text(md.strip() + "\n") if md else ""

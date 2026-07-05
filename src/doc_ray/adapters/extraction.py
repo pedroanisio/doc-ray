@@ -9,9 +9,11 @@ PyMuPDF is unavailable or errors on a file.
 from __future__ import annotations
 
 import io
+import os
 import posixpath
 import re as _re
 import zipfile
+from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
 from html.parser import HTMLParser as _HTMLParser
 from typing import Any
@@ -39,6 +41,34 @@ class Extracted:
 
 
 # --- PyMuPDF: layout-aware, structured Markdown ----------------------------
+
+
+def _env_float(env: Mapping[str, str], name: str, default: float) -> float:
+    raw = env.get(name)
+    return default if raw is None or raw == "" else float(raw)
+
+
+def _env_int(env: Mapping[str, str], name: str, default: int) -> int:
+    raw = env.get(name)
+    return default if raw is None or raw == "" else int(raw)
+
+
+def pdf_heading_thresholds_from_env(
+    env: Mapping[str, str] | None = None,
+) -> pdf_layout.HeadingThresholds:
+    """Load corpus-specific PDF heading thresholds from environment variables."""
+    source = os.environ if env is None else env
+    defaults = pdf_layout.DEFAULT_HEADING_THRESHOLDS
+    return pdf_layout.HeadingThresholds(
+        level1_ratio=_env_float(source, "DOCRAY_PDF_HEADING_L1_RATIO", defaults.level1_ratio),
+        level2_ratio=_env_float(source, "DOCRAY_PDF_HEADING_L2_RATIO", defaults.level2_ratio),
+        level3_ratio=_env_float(source, "DOCRAY_PDF_HEADING_L3_RATIO", defaults.level3_ratio),
+        bold_max_words=_env_int(
+            source,
+            "DOCRAY_PDF_HEADING_BOLD_MAX_WORDS",
+            defaults.bold_max_words,
+        ),
+    )
 
 
 def _spans_of_line(line: dict[str, Any]) -> list[dict[str, Any]]:
@@ -95,7 +125,8 @@ def extract_pdf_pymupdf(data: bytes, fallback_title: str) -> Extracted:
             if lines:
                 blocks.append({"lines": lines})
 
-    full_text = pdf_layout.to_markdown(blocks)
+    thresholds = pdf_heading_thresholds_from_env()
+    full_text = pdf_layout.to_markdown(blocks, thresholds=thresholds)
     meta = doc.metadata or {}
     return Extracted(
         doc_type="pdf",
@@ -110,6 +141,12 @@ def extract_pdf_pymupdf(data: bytes, fallback_title: str) -> Extracted:
             "pdf_producer": meta.get("producer"),
             "pdf_creator": meta.get("creator"),
             "pdf_subject": meta.get("subject"),
+            "pdf_heading_thresholds": {
+                "level1_ratio": thresholds.level1_ratio,
+                "level2_ratio": thresholds.level2_ratio,
+                "level3_ratio": thresholds.level3_ratio,
+                "bold_max_words": thresholds.bold_max_words,
+            },
         },
     )
 

@@ -232,14 +232,22 @@ def document(doc_id):
     )
     per_page = 40
     page = max(1, request.args.get("page", 1, type=int))
+    full_view = request.args.get("view") == "all"
     annotate = request.args.get("annotate", "1") != "0"
     n_sent = q1("SELECT count(*) n FROM sentences WHERE document_id = %s", (str(doc_id),))["n"]
-    sentences = q(
+    sentence_sql = (
         "SELECT sen.ordinal, sen.text, sp.char_start AS ss, sp.char_end AS se "
         "FROM sentences sen JOIN spans sp ON sp.id = sen.span_id "
-        "WHERE sen.document_id = %s ORDER BY sen.ordinal LIMIT %s OFFSET %s",
-        (str(doc_id), per_page, (page - 1) * per_page),
+        "WHERE sen.document_id = %s ORDER BY sen.ordinal"
     )
+    if full_view:
+        sentences = q(sentence_sql, (str(doc_id),))
+        page = 1
+    else:
+        sentences = q(
+            f"{sentence_sql} LIMIT %s OFFSET %s",
+            (str(doc_id), per_page, (page - 1) * per_page),
+        )
 
     if annotate and sentences:
         lo = min(s["ss"] for s in sentences)
@@ -288,6 +296,7 @@ def document(doc_id):
         sentences=sentences,
         page=page,
         pages=pages,
+        full_view=full_view,
         n_sent=n_sent,
         annotate=annotate,
         annotation_state=latest_annotation_state(q, doc_id),

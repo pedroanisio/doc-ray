@@ -102,7 +102,7 @@ items:
       so calibration can proceed safely — expose thresholds as tunable inputs.
     category:     "extraction"
     type:         "tech-debt"
-    status:       "parked"
+    status:       "done"
     complexity:   "S"
     priority:     "low"
     rationale:    "Spurious headings distort the document/physical-structure layer and the reader outline."
@@ -114,7 +114,7 @@ items:
       - "src/doc_ray/domain/pdf_layout.py"
       - "tests/test_pdf_layout.py"
     owner:        "mine"
-    source:       "docs/BACKLOG.md — Extraction/ingestion (heading-threshold tuning)."
+    source:       "docs/BACKLOG.md — Extraction/ingestion (heading-threshold tuning); completed with HeadingThresholds and DOCRAY_PDF_HEADING_* env overrides for the PyMuPDF adapter."
     tags:         ["headings", "layout", "calibration"]
 
   # ============================== WEB APP ===============================
@@ -151,7 +151,7 @@ items:
       part-of-speech across the document.
     category:     "webapp"
     type:         "feature"
-    status:       "parked"
+    status:       "done"
     complexity:   "M"
     priority:     "low"
     rationale:    "Current reader is paginated per document unit; long-form reading and single-POS study are unsupported."
@@ -162,7 +162,7 @@ items:
       - "docs/BACKLOG.md"
       - "webapp/"
     owner:        "mine"
-    source:       "docs/BACKLOG.md — Web app (infinite-scroll + solo-POS)."
+    source:       "docs/BACKLOG.md — Web app (infinite-scroll + solo-POS); completed with view=all continuous reading and a POS focus control that dims non-selected tags."
     tags:         ["reader", "ux", "annotation"]
 
   # =============================== NLP ==================================
@@ -1073,7 +1073,7 @@ items:
       - "webapp/templates/lexemes.html"
       - "webapp/templates/job.html"
     owner:        "shared"
-    source:       "Session finding 2026-07-04: webapp UX/UI audit (finding L3)."
+    source:       "Session finding 2026-07-04: webapp UX/UI audit (finding L3); completed by removing the Lexicon identity column and replacing visible job ids with numbered steps plus non-prominent references."
     tags:         ["tables", "readability", "ux"]
 
   - id:          "BL-036"
