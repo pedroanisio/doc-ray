@@ -27,6 +27,8 @@ jobs:
         run: mypy src
       - name: Net-LOC cap (D-015)
         run: python scripts/check_file_size.py src/doc_ray webapp scripts
+      - name: Doc-Ray GraphQL skill drift gate
+        run: python3 skills/doc-ray-graphql-maximizer/scripts/check_doc_ray_drift.py
       - name: Validate engineering decisions (D-016)
         run: |
           python engineering/schema/scripts/validate_decisions.py engineering_decisions.yml

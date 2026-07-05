@@ -34,6 +34,13 @@ repos:
         pass_filenames: false
         always_run: true
 
+      - id: doc-ray-graphql-skill-drift
+        name: Doc-Ray GraphQL skill drift gate
+        entry: python3 skills/doc-ray-graphql-maximizer/scripts/check_doc_ray_drift.py
+        language: system
+        pass_filenames: false
+        always_run: true
+
       - id: validate-decisions
         name: engineering_decisions.yml valid — D-016
         entry: python engineering/schema/scripts/validate_decisions.py engineering_decisions.yml

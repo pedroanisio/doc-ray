@@ -1,0 +1,4 @@
+interface:
+  display_name: "Doc-Ray GraphQL Maximizer"
+  short_description: "Explore Doc-Ray GraphQL with auth/RLS awareness"
+  default_prompt: "Use $doc-ray-graphql-maximizer to plan and run a high-value, auth-aware exploration of the Doc-Ray GraphQL API."

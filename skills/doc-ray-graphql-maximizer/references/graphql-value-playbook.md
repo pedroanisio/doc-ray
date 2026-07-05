@@ -1,0 +1,282 @@
+# GraphQL Value Playbook
+
+Use this reference after `SKILL.md` has triggered and the task needs concrete
+queries, workflows, or API-development checks.
+
+## Endpoint and Auth
+
+- GraphQL route: `http://localhost:${API_PORT:-8000}/graphql`.
+- Liveness: `/health`.
+- Dependency readiness: `/readyz`.
+- Backup download proxy: `/backups/{backup_id}/download`.
+- Auth: bearer token or `X-DocRay-API-Token`, mapped by `DOCRAY_API_TOKENS`.
+- Anonymous requests may be allowed locally but are RLS-scoped through
+  `docray_api` with no `app.principal_id`.
+- The Flask webapp can show a larger corpus than anonymous GraphQL when
+  `DOCRAY_PRINCIPAL_ID` is unset, because the webapp's local/dev connection
+  bypasses RLS. Treat that as an operator surface, not proof that anonymous API
+  reads should see the same rows.
+
+Minimal curl shape:
+
+```bash
+curl -sS http://localhost:8000/graphql \
+  -H 'content-type: application/json' \
+  -H "X-DocRay-API-Token: $DOCRAY_API_TOKEN" \
+  --data '{"query":"{ version }"}'
+```
+
+Never print configured token values. To check whether auth is available, use a
+boolean/env-shape check rather than dumping `DOCRAY_API_TOKENS`.
+
+## Discovery Workflow
+
+Start broad, then narrow.
+
+```graphql
+query Docs($limit: Int!, $after: String) {
+  documents(limit: $limit, after: $after) {
+    id title docType language status pageCount charCount sentenceCount
+    tokenCount authors tags cursor
+  }
+}
+```
+
+```graphql
+query Find($q: String!) {
+  fullTextSearch(query: $q, limit: 10) { documentId title rank }
+  searchSentences(term: $q, limit: 10) {
+    id documentId title ordinal pre hit post cursor
+  }
+}
+```
+
+Use `fullTextSearch` to find relevant documents. Use `searchSentences` for
+citable sentence-level evidence.
+
+### Empty Corpus Diagnostic
+
+If `documents` returns `[]`, classify the result before answering.
+
+1. Confirm the API is alive and ready with `/health` and `/readyz`.
+2. Record whether the GraphQL request was anonymous or authenticated. If a token
+   is available, re-run the same query with bearer or `X-DocRay-API-Token` auth.
+3. If the webapp or operator says documents exist, compare visibility layers:
+   - GraphQL anonymous: `docray_api` with empty `app.principal_id`.
+   - GraphQL token: `docray_api` with mapped principal id and scopes.
+   - Webapp with no `DOCRAY_PRINCIPAL_ID`: local/dev superuser passthrough that
+     bypasses RLS.
+4. Use read-only SQL only for troubleshooting, and label it as database/operator
+   evidence rather than API evidence:
+
+```sql
+SELECT id, title, doc_type, language, status, page_count, char_count
+FROM documents
+ORDER BY created_at DESC;
+
+SET ROLE docray_api;
+SELECT current_user,
+       current_setting('app.principal_id', true) AS principal,
+       count(*) AS visible_documents
+FROM documents;
+RESET ROLE;
+
+SELECT p.id, p.display_name, p.kind, r.name AS role
+FROM principals p
+LEFT JOIN principal_roles pr ON pr.principal_id = p.id
+LEFT JOIN roles r ON r.id = pr.role_id
+ORDER BY p.created_at, p.display_name;
+
+SELECT document_id, principal_id, permission
+FROM document_acl
+ORDER BY document_id, principal_id, permission;
+```
+
+Conclusion rule: report "no documents visible to this GraphQL caller" unless an
+authenticated/admin GraphQL query or RLS-aware SQL check proves the corpus is
+actually empty.
+
+## Document Drill-Down
+
+Use this after choosing a document ID.
+
+```graphql
+query DocumentEvidence($id: ID!, $limit: Int!, $after: String) {
+  document(id: $id) {
+    id title docType language status error originalFilename sourceUri
+    pageCount charCount byteSize contentSha256 createdAt updatedAt
+    authors tags metadata { key value }
+    provenance { id kind tool toolVersion occurredAt actor note params }
+    sentences(limit: $limit, after: $after) {
+      id ordinal text charStart charEnd cursor
+    }
+    annotationRuns(limit: 20) { id layer tool toolVersion createdAt cursor }
+  }
+}
+```
+
+For annotation layers:
+
+```graphql
+query Layers($id: ID!, $limit: Int!, $after: String) {
+  document(id: $id) {
+    tokens(limit: $limit, after: $after) {
+      id ordinal surface upos xpos lexemeUid charStart charEnd
+      features { feature value }
+      cursor
+    }
+    dependencies(limit: $limit, after: $after) {
+      annotationId dependentTokenId headTokenId deprel cursor
+    }
+    chunks(limit: $limit, after: $after) {
+      id annotationId chunkType surface charStart charEnd cursor
+    }
+    corefChains(limit: 20) {
+      id annotationId mentions { spanId surface } cursor
+    }
+    entityLinks(limit: $limit, after: $after) {
+      mentionId scheme kbId confidence entityType surface charStart charEnd cursor
+    }
+  }
+}
+```
+
+Value rule: return spans and surfaces together. Spans let another agent verify
+or reconstruct context; surfaces make the answer readable.
+
+## Lexeme and KWIC Analysis
+
+```graphql
+query Lexemes($q: String, $pos: String, $doc: ID, $after: String) {
+  lexemes(q: $q, pos: $pos, documentId: $doc, limit: 25, after: $after) {
+    uid lang pos lemma uses cursor
+    occurrences(documentId: $doc, limit: 5) {
+      documentId title charStart surface pre hit post cursor
+    }
+  }
+}
+```
+
+Use lexeme UIDs when tracking a concept across documents. Use occurrence
+snippets when the answer needs human-inspectable evidence.
+
+## Entity and Canonicalization Workflow
+
+Entity mentions are observed spans. Canonical entities are resolved identities.
+Keep them separate.
+
+```graphql
+query Entities($doc: ID, $type: String) {
+  entityFrequency(documentId: $doc, entityType: $type, limit: 50) {
+    text entityType count cursor
+  }
+  entities(documentId: $doc, entityType: $type, limit: 50) {
+    id documentId title entityType text charStart charEnd cursor
+  }
+}
+```
+
+```graphql
+query CanonicalWork($doc: ID!, $q: String!) {
+  canonicalSearch(q: $q, limit: 10) {
+    id preferred entityType wikidataId description
+    forms { formSurface lang formType confidence occurrences }
+    cursor
+  }
+  unresolvedMentions(documentId: $doc, limit: 25) {
+    mentionId surface entityType charStart charEnd cursor
+  }
+  resolutionReview(documentId: $doc, limit: 25) {
+    id mentionId status confidence reason candidates
+    proposedCanonical { id preferred entityType wikidataId }
+    cursor
+  }
+}
+```
+
+For domain seeding:
+
+```graphql
+query SeedAudit($doc: ID!) {
+  seedSuggestions(documentId: $doc) {
+    id term occurrences source qid label description entityType status
+  }
+}
+```
+
+High-value output includes wrong-identity risk: surface, proposed QID/label,
+description, and why it should be approved or rejected.
+
+## Write and Job Workflows
+
+Use mutations only when requested. Every mutation either returns a job or, for
+seed decisions, a row count.
+
+```graphql
+mutation Upload($file: Upload!, $title: String, $pipeline: Boolean!) {
+  ingestDocument(file: $file, title: $title, pipeline: $pipeline) {
+    id kind status documentId error result
+  }
+}
+```
+
+Pipeline defaults to:
+
+1. ingest;
+2. annotate;
+3. semantic enrichment;
+4. canonicalize.
+
+Operational mutations:
+
+```graphql
+mutation Ops($doc: ID!) {
+  annotateDocument(documentId: $doc) { id kind status }
+  semanticEnrichDocument(documentId: $doc) { id kind status }
+  canonicalizeDocument(documentId: $doc, resolve: false) { id kind status }
+}
+```
+
+Resolver cost rule: `canonicalizeDocument(resolve: true)` can invoke frontier
+resolution for residue; keep it explicit.
+
+Seed curation:
+
+```graphql
+mutation Curate($approve: [ID!], $reject: [ID!], $doc: ID!) {
+  decideSeeds(approveIds: $approve, rejectIds: $reject)
+  seedApproved(documentId: $doc) { id kind status }
+}
+```
+
+Job polling:
+
+```graphql
+query Job($id: ID!, $doc: ID) {
+  job(id: $id) { id kind status documentId error result }
+  jobs(documentId: $doc, limit: 20) {
+    id kind status documentId error result cursor
+  }
+}
+```
+
+Terminal statuses are the only completion evidence. Follow up with the relevant
+read query to prove the desired artifact landed.
+
+## API Development Checks
+
+When extending GraphQL:
+
+1. Add or update read-adapter functions before resolver logic when possible.
+2. Keep resolvers thin: clamp page size through `ctx.page_size(limit)`, delegate
+   to adapters, map rows to types.
+3. Add cursor pagination for list fields.
+4. Preserve RLS/auth expectations; writes call `_require_write`.
+5. Add focused tests:
+   - `src/doc_ray/tests/test_api_contract.py` for surface contracts.
+   - `src/doc_ray/tests/test_api.py` for general read behavior.
+   - `src/doc_ray/tests/test_api_layers.py` for annotation layers.
+   - `src/doc_ray/tests/test_api_canonical_surfaces.py` for canonicalization.
+   - `src/doc_ray/tests/test_api_pipeline.py` for mutation/job workflows.
+6. Re-run `python skills/doc-ray-graphql-maximizer/scripts/schema_digest.py`
+   and include changed fields in the final evidence.
