@@ -62,9 +62,9 @@ def test_snapshot_run_records_distributions_and_fact_citations(pg):
         )
     mention_id = new_ulid_str()
     conn.execute(
-        "INSERT INTO entity_mention (id, annotation_id, span_id, entity_type) "
-        "VALUES (%s, %s, %s, 'PER')",
-        (mention_id, annotation_id, tokens[-1]["span_id"]),
+        "INSERT INTO entity_mention (id, annotation_id, span_id, entity_type, surface) "
+        "VALUES (%s, %s, %s, 'PER', %s)",
+        (mention_id, annotation_id, tokens[-1]["span_id"], tokens[-1]["surface"]),
     )
 
     result = ev.create_evaluation_run(

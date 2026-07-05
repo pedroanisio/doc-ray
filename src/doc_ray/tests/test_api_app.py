@@ -110,6 +110,7 @@ def test_config_reads_api_pool_and_auth_settings(monkeypatch):
     monkeypatch.setenv("DOCRAY_API_POOL_MIN_SIZE", "2")
     monkeypatch.setenv("DOCRAY_API_POOL_MAX_SIZE", "9")
     monkeypatch.setenv("DOCRAY_API_POOL_TIMEOUT", "3.5")
+    monkeypatch.setenv("DOCRAY_API_STATEMENT_TIMEOUT_MS", "5000")
     monkeypatch.setenv("DOCRAY_API_TOKENS", f"tok={principal_id}:read")
     monkeypatch.setenv("DOCRAY_API_ALLOW_ANONYMOUS", "false")
 
@@ -118,29 +119,39 @@ def test_config_reads_api_pool_and_auth_settings(monkeypatch):
     assert cfg.api_pool_min_size == 2
     assert cfg.api_pool_max_size == 9
     assert cfg.api_pool_timeout == 3.5
+    assert cfg.api_statement_timeout_ms == 5000
     assert cfg.api_tokens == {"tok": (principal_id, frozenset({"read"}))}
     assert cfg.api_allow_anonymous is False
+
+
+def test_config_defaults_statement_timeout_to_fifteen_seconds(monkeypatch):
+    monkeypatch.delenv("DOCRAY_API_STATEMENT_TIMEOUT_MS", raising=False)
+
+    assert Config.from_env().api_statement_timeout_ms == 15_000
+
+
+class _FakePool:
+    """Records constructor kwargs; never opened (lifespan is not entered here)."""
+
+    def __init__(self, dsn, *, open, kwargs, min_size, max_size, timeout):
+        self.dsn = dsn
+        self.open_arg = open
+        self.kwargs = kwargs
+        self.min_size = min_size
+        self.max_size = max_size
+        self.timeout = timeout
+
+    async def open(self):  # pragma: no cover - lifespan is not entered
+        raise AssertionError("not used")
+
+    async def close(self):  # pragma: no cover - lifespan is not entered
+        raise AssertionError("not used")
 
 
 def test_create_app_passes_explicit_pool_bounds(monkeypatch):
     import doc_ray.entrypoints.api.app as api_app
 
-    class FakePool:
-        def __init__(self, dsn, *, open, kwargs, min_size, max_size, timeout):
-            self.dsn = dsn
-            self.open_arg = open
-            self.kwargs = kwargs
-            self.min_size = min_size
-            self.max_size = max_size
-            self.timeout = timeout
-
-        async def open(self):  # pragma: no cover - lifespan is not entered
-            raise AssertionError("not used")
-
-        async def close(self):  # pragma: no cover - lifespan is not entered
-            raise AssertionError("not used")
-
-    monkeypatch.setattr(api_app, "AsyncConnectionPool", FakePool)
+    monkeypatch.setattr(api_app, "AsyncConnectionPool", _FakePool)
 
     cfg = replace(_cfg(), api_pool_min_size=2, api_pool_max_size=8, api_pool_timeout=4.0)
     app = create_app(cfg)
@@ -148,6 +159,17 @@ def test_create_app_passes_explicit_pool_bounds(monkeypatch):
     assert app.state.pool.min_size == 2
     assert app.state.pool.max_size == 8
     assert app.state.pool.timeout == 4.0
+
+
+def test_create_app_configures_statement_timeout(monkeypatch):
+    import doc_ray.entrypoints.api.app as api_app
+
+    monkeypatch.setattr(api_app, "AsyncConnectionPool", _FakePool)
+
+    cfg = replace(_cfg(), api_statement_timeout_ms=7500)
+    app = create_app(cfg)
+
+    assert app.state.pool.kwargs["options"] == "-c statement_timeout=7500"
 
 
 def test_apply_and_reset_principal_switch_roles(pg):
@@ -462,7 +484,11 @@ def test_ingest_document_upload_mutation(pg):
             cur = await aconn.execute("SELECT payload FROM jobs")
             payload = (await cur.fetchone())["payload"]
             assert payload["original_filename"] == "upload-test.txt"
-            assert payload["chain"] == ["annotate", "canonicalize"]  # default pipeline:true
+            assert payload["chain"] == [
+                "annotate",
+                "semantic_enrich",
+                "canonicalize",
+            ]  # default pipeline:true
         finally:
             await aconn.close()
 

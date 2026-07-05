@@ -205,7 +205,7 @@ def test_annotate_job_surfaces_annotation_validation_failure(qconn, monkeypatch)
     created.append(job_id)
 
     def corrupt_entities(self, doc, span_map):
-        return [("entity-from-elsewhere", "foreign-span-id", "PERSON")], {}
+        return [("entity-from-elsewhere", "foreign-span-id", "PERSON", "Elsewhere")], {}
 
     monkeypatch.setattr(SpacyAnnotator, "_build_entities", corrupt_entities)
     try:

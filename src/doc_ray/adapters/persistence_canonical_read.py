@@ -92,12 +92,10 @@ async def list_unresolved_mentions(
         conn,
         """
         SELECT em.id AS mention_id, em.entity_type, sp.char_start, sp.char_end,
-               substring(c.full_text FROM sp.char_start + 1
-                         FOR sp.char_end - sp.char_start) AS surface
+               em.surface AS surface
         FROM entity_mention em
         JOIN annotations a ON a.id = em.annotation_id
         JOIN spans sp ON sp.id = em.span_id
-        JOIN document_content c ON c.document_id = a.document_id
         LEFT JOIN entity_link el ON el.mention_id = em.id AND el.scheme = 'canonical'
         WHERE a.document_id = %(doc)s::uuid AND el.mention_id IS NULL
           AND (%(after_start)s::int IS NULL OR sp.char_start > %(after_start)s::int

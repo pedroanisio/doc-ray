@@ -6,7 +6,9 @@ the object store (so a store the API cannot reach is surfaced as HTTP 503 / an
 ``unhealthy`` container, not a cryptic error at the first upload).
 An :class:`~psycopg_pool.AsyncConnectionPool` is opened on startup and closed on
 shutdown; each request borrows one connection, binds the authenticated principal to
-it (so RLS applies), and returns it — resetting the role — on the way out.
+it (so RLS applies), and returns it — resetting the role — on the way out. Every
+pooled connection carries a Postgres ``statement_timeout`` (``api_statement_timeout_ms``)
+so a single unbounded query cannot monopolize a backend indefinitely.
 """
 
 from __future__ import annotations
@@ -89,7 +91,11 @@ def create_app(cfg: Config | None = None, authenticator: Authenticator | None = 
         min_size=settings.api_pool_min_size,
         max_size=settings.api_pool_max_size,
         timeout=settings.api_pool_timeout,
-        kwargs={"row_factory": dict_row, "autocommit": True},
+        kwargs={
+            "row_factory": dict_row,
+            "autocommit": True,
+            "options": f"-c statement_timeout={settings.api_statement_timeout_ms}",
+        },
     )
 
     @asynccontextmanager

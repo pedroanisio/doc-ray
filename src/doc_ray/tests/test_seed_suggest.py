@@ -57,15 +57,15 @@ def sg_env():
     # three 'flombard' mentions + one DATE mention ('daily'); offsets derived, not hand-counted
     for start, end in offsets("flombard"):
         conn.execute(
-            "INSERT INTO entity_mention (id, annotation_id, span_id, entity_type) "
-            "VALUES (%s,%s,%s,'ORG')",
-            (new_ulid_str(), ann, add_span(start, end)),
+            "INSERT INTO entity_mention (id, annotation_id, span_id, entity_type, surface) "
+            "VALUES (%s,%s,%s,'ORG',%s)",
+            (new_ulid_str(), ann, add_span(start, end), _TEXT[start:end]),
         )
     ((dstart, dend),) = offsets("daily")
     conn.execute(
-        "INSERT INTO entity_mention (id, annotation_id, span_id, entity_type) "
-        "VALUES (%s,%s,%s,'DATE')",
-        (new_ulid_str(), ann, add_span(dstart, dend)),
+        "INSERT INTO entity_mention (id, annotation_id, span_id, entity_type, surface) "
+        "VALUES (%s,%s,%s,'DATE',%s)",
+        (new_ulid_str(), ann, add_span(dstart, dend), _TEXT[dstart:dend]),
     )
     # noun lexeme 'vantiquark' with three occurrences
     conn.execute(

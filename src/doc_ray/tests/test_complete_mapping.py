@@ -284,7 +284,7 @@ def test_spacy_annotation_validation_failure_leaves_no_visible_run(monkeypatch, 
     created.append(doc_id)
 
     def corrupt_entities(self, doc, span_map):
-        return [("entity-from-elsewhere", "foreign-span-id", "PERSON")], {}
+        return [("entity-from-elsewhere", "foreign-span-id", "PERSON", "Elsewhere")], {}
 
     monkeypatch.setattr(SpacyAnnotator, "_build_entities", corrupt_entities)
     with pytest.raises(AnnotationValidationError, match="unknown entity span"):

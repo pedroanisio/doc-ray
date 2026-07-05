@@ -120,13 +120,12 @@ async def list_chunks(
     cursor = decode_cursor(after, "chunks")
     rows = await _rows(
         conn,
-        f"""
+        """
         SELECT ch.id, ch.annotation_id, ch.chunk_type, sp.char_start, sp.char_end,
-               {_span_surface_sql()} AS surface
+               ch.surface AS surface
         FROM chunk ch
         JOIN annotations a ON a.id = ch.annotation_id
         JOIN spans sp ON sp.id = ch.span_id
-        JOIN document_content c ON c.document_id = a.document_id
         WHERE a.document_id = %(doc)s::uuid
           AND (%(after_start)s::int IS NULL OR sp.char_start > %(after_start)s::int
                OR (sp.char_start = %(after_start)s::int AND ch.id > %(after_id)s::ulid))
@@ -182,14 +181,13 @@ async def list_entity_links(
     cursor = decode_cursor(after, "entity-links")
     rows = await _rows(
         conn,
-        f"""
+        """
         SELECT em.id AS mention_id, el.scheme, el.kb_id, el.confidence, em.entity_type,
-               sp.char_start, sp.char_end, {_span_surface_sql()} AS surface
+               sp.char_start, sp.char_end, em.surface AS surface
         FROM entity_link el
         JOIN entity_mention em ON em.id = el.mention_id
         JOIN annotations a ON a.id = em.annotation_id
         JOIN spans sp ON sp.id = em.span_id
-        JOIN document_content c ON c.document_id = a.document_id
         WHERE a.document_id = %(doc)s::uuid
           AND (%(after_start)s::int IS NULL OR sp.char_start > %(after_start)s::int
                OR (sp.char_start = %(after_start)s::int AND em.id > %(after_mention)s::ulid)

@@ -27,6 +27,7 @@ class JobStatus(str, Enum):
 # kinds the worker's dispatch table understands today.
 KIND_INGEST = "ingest"
 KIND_ANNOTATE = "annotate"
+KIND_SEMANTIC_ENRICH = "semantic_enrich"
 KIND_REANNOTATE = "reannotate"
 KIND_DELETE = "delete"
 KIND_SEED_CANONICAL = "seed_canonical"

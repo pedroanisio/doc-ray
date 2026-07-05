@@ -76,6 +76,10 @@ class Config:
         api_pool_min_size: Minimum async API pool size.
         api_pool_max_size: Maximum async API pool size.
         api_pool_timeout: Seconds to wait for an API pool connection.
+        api_statement_timeout_ms: Postgres ``statement_timeout`` applied to every
+            pooled API connection, in milliseconds. Caps how long any single
+            query can run so an unbounded read (e.g. a corpus-wide aggregation)
+            fails fast instead of monopolizing a backend indefinitely.
         api_tokens: API bearer-token map to principal ids and scopes.
         api_allow_anonymous: Whether unauthenticated API requests get anonymous
             RLS-scoped read access instead of HTTP 401.
@@ -94,6 +98,7 @@ class Config:
     api_pool_min_size: int = 1
     api_pool_max_size: int = 10
     api_pool_timeout: float = 10.0
+    api_statement_timeout_ms: int = 15_000
     api_tokens: ApiTokenMap = field(default_factory=dict)
     api_allow_anonymous: bool = True
     backup_schedule_seconds: int = 86_400
@@ -121,6 +126,7 @@ class Config:
             api_pool_min_size=_env_int("DOCRAY_API_POOL_MIN_SIZE", 1),
             api_pool_max_size=_env_int("DOCRAY_API_POOL_MAX_SIZE", 10),
             api_pool_timeout=_env_float("DOCRAY_API_POOL_TIMEOUT", 10.0),
+            api_statement_timeout_ms=_env_int("DOCRAY_API_STATEMENT_TIMEOUT_MS", 15_000),
             api_tokens=_parse_api_tokens(os.environ.get("DOCRAY_API_TOKENS")),
             api_allow_anonymous=_env_bool("DOCRAY_API_ALLOW_ANONYMOUS", True),
             backup_schedule_seconds=_env_int("DOCRAY_BACKUP_SCHEDULE_SECONDS", 86_400),

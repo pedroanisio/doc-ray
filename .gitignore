@@ -11,3 +11,5 @@ docs/reports/
 books/
 static/fixtures/
 .mcp.json
+docs/concept/
+docs/deploy-digitalocean.md

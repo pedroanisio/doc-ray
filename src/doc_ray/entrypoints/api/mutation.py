@@ -28,14 +28,15 @@ from doc_ray.domain.jobs import (
     KIND_RESTORE,
     KIND_SEED_APPROVED,
     KIND_SEED_SUGGEST,
+    KIND_SEMANTIC_ENRICH,
 )
 from doc_ray.entrypoints.api.context import RequestContext
 from doc_ray.entrypoints.api.types import Info, Job
 
-#: The default post-ingest pipeline: Stage-1 annotation, then deterministic
-#: canonicalization. The frontier resolver is never chained — LLM cost stays an
-#: explicit request (D-018).
-_PIPELINE_CHAIN = [KIND_ANNOTATE, KIND_CANONICALIZE]
+#: The default post-ingest pipeline: Stage-1 annotation, deterministic semantic
+#: enrichment, then deterministic canonicalization. The frontier resolver is never
+#: chained — LLM cost stays an explicit request (D-018).
+_PIPELINE_CHAIN = [KIND_ANNOTATE, KIND_SEMANTIC_ENRICH, KIND_CANONICALIZE]
 
 
 def _require_write(ctx: RequestContext) -> None:
@@ -83,6 +84,16 @@ class Mutation:
         _require_write(ctx)
         job_id = await queue.enqueue_async(
             ctx.conn, KIND_ANNOTATE, {"lang": lang}, document_id=str(document_id)
+        )
+        return await _job_status(ctx, job_id)
+
+    @strawberry.mutation
+    async def semantic_enrich_document(self, info: Info, document_id: strawberry.ID) -> Job:
+        """Enqueue deterministic semantic enrichment for a document."""
+        ctx = info.context
+        _require_write(ctx)
+        job_id = await queue.enqueue_async(
+            ctx.conn, KIND_SEMANTIC_ENRICH, {}, document_id=str(document_id)
         )
         return await _job_status(ctx, job_id)
 

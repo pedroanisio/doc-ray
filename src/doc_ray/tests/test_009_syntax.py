@@ -32,7 +32,7 @@ DEPS = [
 
 def test_tables_exist(pg):
     conn, _ = pg
-    assert {"id", "annotation_id", "span_id", "chunk_type"} <= _cols(conn, "chunk")
+    assert {"id", "annotation_id", "span_id", "chunk_type", "surface"} <= _cols(conn, "chunk")
     assert {"id", "annotation_id", "parent_id", "label", "span_id"} <= _cols(conn, "constituent")
     assert {"annotation_id", "dependent_token_id", "head_token_id", "deprel"} <= _cols(
         conn, "dependency"
@@ -120,19 +120,22 @@ def test_constituency_tree_nests(pg):
 
 
 def test_chunks_carry_type_and_span(pg):
+    """chunk.surface is a plain column — no document_content join needed to read it.
+
+    Regression guard for the entity_frequency/chunks incident: reads must never
+    again reconstruct surface text via substring(full_text) at query time.
+    """
     conn, reg = pg
     doc_id, ann, toks = _setup_tokens(conn, reg, "chunk", "test/chunker")
     start = _itdb.EXAMPLE.index("a startup")
     np_span = _itdb.span_of(conn, doc_id, start, start + len("a startup"))
     conn.execute(
-        "INSERT INTO chunk (id, annotation_id, span_id, chunk_type) VALUES (%s,%s,%s,%s)",
-        (new_ulid_str(), ann, np_span, "NP"),
+        "INSERT INTO chunk (id, annotation_id, span_id, chunk_type, surface) "
+        "VALUES (%s,%s,%s,%s,%s)",
+        (new_ulid_str(), ann, np_span, "NP", "a startup"),
     )
     row = conn.execute(
-        "SELECT ch.chunk_type, substring(c.full_text FROM sp.char_start+1 FOR sp.char_end-sp.char_start) txt "
-        "FROM chunk ch JOIN spans sp ON sp.id=ch.span_id "
-        "JOIN annotations a ON a.id=ch.annotation_id "
-        "JOIN document_content c ON c.document_id=a.document_id WHERE ch.annotation_id=%s",
+        "SELECT chunk_type, surface FROM chunk WHERE annotation_id=%s",
         (ann,),
     ).fetchone()
-    assert row["chunk_type"] == "NP" and row["txt"] == "a startup"
+    assert row["chunk_type"] == "NP" and row["surface"] == "a startup"

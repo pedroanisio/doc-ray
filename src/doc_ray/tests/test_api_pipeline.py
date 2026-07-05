@@ -40,6 +40,7 @@ def api_env():
 
 
 def _client(principal_id: str):
+    import _itdb
     from fastapi.testclient import TestClient
 
     from doc_ray.config import Config
@@ -47,6 +48,7 @@ def _client(principal_id: str):
 
     cfg = replace(
         Config.from_env(),
+        database_url=_itdb.DB_URL,
         api_tokens={"test-token": (principal_id, frozenset({"read", "write"}))},
         api_allow_anonymous=False,
     )
@@ -84,6 +86,14 @@ def test_mutations_enqueue_and_jobs_query_lists_them(api_env):
         )["canonicalizeDocument"]
         assert can["kind"] == "canonicalize"
         job_ids.append(can["id"])
+
+        sem = _gql(
+            client,
+            "mutation($d: ID!) { semanticEnrichDocument(documentId: $d) { id kind } }",
+            {"d": doc_id},
+        )["semanticEnrichDocument"]
+        assert sem["kind"] == "semantic_enrich"
+        job_ids.append(sem["id"])
 
         listed = _gql(
             client,

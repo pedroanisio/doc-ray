@@ -18,24 +18,32 @@ def _cols(conn, table):
     }
 
 
-def _mention(conn, ann, span_id, etype):
+def _mention(conn, ann, span_id, etype, surface):
     mid = new_ulid_str()
     conn.execute(
-        "INSERT INTO entity_mention (id, annotation_id, span_id, entity_type) VALUES (%s,%s,%s,%s)",
-        (mid, ann, span_id, etype),
+        "INSERT INTO entity_mention (id, annotation_id, span_id, entity_type, surface) "
+        "VALUES (%s,%s,%s,%s,%s)",
+        (mid, ann, span_id, etype, surface),
     )
     return mid
 
 
 def test_tables_exist(pg):
     conn, _ = pg
-    assert {"id", "annotation_id", "span_id", "entity_type"} <= _cols(conn, "entity_mention")
+    assert {"id", "annotation_id", "span_id", "entity_type", "surface"} <= _cols(
+        conn, "entity_mention"
+    )
     assert {"mention_id", "scheme", "kb_id", "confidence"} <= _cols(conn, "entity_link")
     assert {"id", "annotation_id", "document_id"} <= _cols(conn, "coref_chain")
     assert {"chain_id", "span_id"} <= _cols(conn, "coref_mention")
 
 
 def test_ner_mentions_and_types(pg):
+    """The surface text is a plain column read — no document_content join needed.
+
+    Regression guard for the entity_frequency/list_entities incident: reads must
+    never again reconstruct surface text via substring(full_text) at query time.
+    """
     conn, reg = pg
     doc_id = _itdb.make_doc(conn, _itdb.EXAMPLE)
     reg.append(doc_id)
@@ -43,15 +51,12 @@ def test_ner_mentions_and_types(pg):
     elena = _itdb.span_of(conn, doc_id, 0, 5)  # "Elena"
     b = _itdb.EXAMPLE.index("Berlin")
     berlin = _itdb.span_of(conn, doc_id, b, b + 6)  # "Berlin"
-    _mention(conn, ann, elena, "PER")
-    _mention(conn, ann, berlin, "GPE")
+    _mention(conn, ann, elena, "PER", "Elena")
+    _mention(conn, ann, berlin, "GPE", "Berlin")
     got = {
-        r["entity_type"]: r["txt"]
+        r["entity_type"]: r["surface"]
         for r in conn.execute(
-            "SELECT m.entity_type, substring(c.full_text FROM sp.char_start+1 FOR sp.char_end-sp.char_start) txt "
-            "FROM entity_mention m JOIN spans sp ON sp.id=m.span_id "
-            "JOIN annotations a ON a.id=m.annotation_id "
-            "JOIN document_content c ON c.document_id=a.document_id WHERE m.annotation_id=%s",
+            "SELECT entity_type, surface FROM entity_mention WHERE annotation_id=%s",
             (ann,),
         ).fetchall()
     }
@@ -64,8 +69,10 @@ def test_entity_link_and_nil_is_absence(pg):
     reg.append(doc_id)
     ann = _itdb.make_annotation(conn, doc_id, "ner", "test/nel")
     b = _itdb.EXAMPLE.index("Berlin")
-    berlin = _mention(conn, ann, _itdb.span_of(conn, doc_id, b, b + 6), "GPE")
-    elena = _mention(conn, ann, _itdb.span_of(conn, doc_id, 0, 5), "PER")  # fictional -> NIL
+    berlin = _mention(conn, ann, _itdb.span_of(conn, doc_id, b, b + 6), "GPE", "Berlin")
+    elena = _mention(
+        conn, ann, _itdb.span_of(conn, doc_id, 0, 5), "PER", "Elena"
+    )  # fictional -> NIL
     conn.execute(
         "INSERT INTO entity_link (mention_id, scheme, kb_id, confidence) "
         "VALUES (%s,'wikidata','Q64',0.99)",
@@ -88,7 +95,7 @@ def test_entity_link_unique_per_scheme(pg):
     doc_id = _itdb.make_doc(conn, _itdb.EXAMPLE)
     reg.append(doc_id)
     ann = _itdb.make_annotation(conn, doc_id, "ner", "test/nel2")
-    m = _mention(conn, ann, _itdb.span_of(conn, doc_id, 0, 5), "PER")
+    m = _mention(conn, ann, _itdb.span_of(conn, doc_id, 0, 5), "PER", "Elena")
     conn.execute(
         "INSERT INTO entity_link (mention_id, scheme, kb_id) VALUES (%s,'wikidata','Q1')", (m,)
     )

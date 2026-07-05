@@ -66,9 +66,9 @@ def _seed_doc_with_mentions(conn):
     ):
         span = _itdb.span_of(conn, doc_id, s, e)
         conn.execute(
-            "INSERT INTO entity_mention (id, annotation_id, span_id, entity_type) "
-            "VALUES (%s, %s, %s, %s)",
-            (mid, aid, span, etype),
+            "INSERT INTO entity_mention (id, annotation_id, span_id, entity_type, surface) "
+            "VALUES (%s, %s, %s, %s, %s)",
+            (mid, aid, span, etype, _TEXT[s:e]),
         )
     return doc_id, elena, berlin
 
@@ -175,7 +175,8 @@ def test_non_referential_types_never_reach_the_frontier():
     try:
         import _itdb
 
-        doc_id = _itdb.make_doc(conn, "Two pigs met on Sunday. Elena watched.")
+        text = "Two pigs met on Sunday. Elena watched."
+        doc_id = _itdb.make_doc(conn, text)
         docs.append(doc_id)
         aid = _itdb.make_annotation(conn, doc_id, "ner", "test")
         specs = [((0, 3), "CARDINAL"), ((16, 22), "DATE"), ((24, 29), "PER")]
@@ -184,9 +185,9 @@ def test_non_referential_types_never_reach_the_frontier():
             span = _itdb.span_of(conn, doc_id, s, e)
             mid = new_ulid_str()
             conn.execute(
-                "INSERT INTO entity_mention (id, annotation_id, span_id, entity_type) "
-                "VALUES (%s, %s, %s, %s)",
-                (mid, aid, span, etype),
+                "INSERT INTO entity_mention (id, annotation_id, span_id, entity_type, surface) "
+                "VALUES (%s, %s, %s, %s, %s)",
+                (mid, aid, span, etype, text[s:e]),
             )
             mention_ids.append(mid)
 

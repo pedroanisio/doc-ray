@@ -30,6 +30,7 @@ from doc_ray.domain.jobs import (
     KIND_SEED_APPROVED,
     KIND_SEED_CANONICAL,
     KIND_SEED_SUGGEST,
+    KIND_SEMANTIC_ENRICH,
     Job,
 )
 from doc_ray.ports.object_store import ObjectStore
@@ -131,6 +132,17 @@ def handle_annotate(
             (lang, job.document_id, lang),
         )
     return info
+
+
+def handle_semantic_enrich(
+    conn: psycopg.Connection[Any], store: ObjectStore | None, job: Job
+) -> dict[str, Any]:
+    """Run deterministic discourse/time/sentiment/embedding enrichment."""
+    from doc_ray.application import semantic_enrichment
+
+    if job.document_id is None:
+        raise RuntimeError("semantic_enrich requires a document_id")
+    return semantic_enrichment.annotate_document(conn, job.document_id)
 
 
 def handle_seed_canonical(
@@ -280,6 +292,7 @@ def handle_restore(
 
 HANDLERS: dict[str, Handler] = {
     KIND_ANNOTATE: handle_annotate,
+    KIND_SEMANTIC_ENRICH: handle_semantic_enrich,
     KIND_REANNOTATE: handle_reannotate,
     KIND_DELETE: handle_delete,
     KIND_INGEST: handle_ingest,

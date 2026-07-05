@@ -62,14 +62,14 @@ def test_autolink_links_known_and_leaves_residue():
         elena_span = _itdb.span_of(conn, doc_id, 0, 5)
         berlin_m, elena_m = new_ulid_str(), new_ulid_str()
         conn.execute(
-            "INSERT INTO entity_mention (id, annotation_id, span_id, entity_type) "
-            "VALUES (%s, %s, %s, 'GPE')",
-            (berlin_m, aid, berlin_span),
+            "INSERT INTO entity_mention (id, annotation_id, span_id, entity_type, surface) "
+            "VALUES (%s, %s, %s, 'GPE', %s)",
+            (berlin_m, aid, berlin_span, _PLACE),
         )
         conn.execute(
-            "INSERT INTO entity_mention (id, annotation_id, span_id, entity_type) "
-            "VALUES (%s, %s, %s, 'PER')",
-            (elena_m, aid, elena_span),
+            "INSERT INTO entity_mention (id, annotation_id, span_id, entity_type, surface) "
+            "VALUES (%s, %s, %s, 'PER', %s)",
+            (elena_m, aid, elena_span, _TEXT[0:5]),
         )
 
         result = autolink_document(conn, doc_id)

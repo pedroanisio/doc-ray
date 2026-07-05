@@ -794,3 +794,33 @@ def test_get_conn_is_superuser_passthrough_without_principal(monkeypatch):
     with webapp.app.test_request_context():
         webapp.get_conn()
     assert fake.calls == []  # no SET ROLE / set_config
+
+
+# ---------------------------------------------------------------------------
+# Database-unavailable error page: psycopg.OperationalError must not reach
+# the raw Werkzeug debugger (connection refused, bad credentials, etc).
+# ---------------------------------------------------------------------------
+
+
+def test_database_unavailable_renders_graceful_page_not_a_traceback(monkeypatch):
+    def _raise(*_a, **_k):
+        raise webapp.psycopg.OperationalError(
+            'connection failed: FATAL:  password authentication failed for user "docray"'
+        )
+
+    monkeypatch.setattr(webapp.psycopg, "connect", _raise)
+    monkeypatch.setattr(webapp, "PRINCIPAL_ID", None)
+    # TESTING=True (the shared `client` fixture's default) makes Flask
+    # propagate non-HTTP exceptions for the test runner to see directly,
+    # which is right for most tests but is exactly what we're overriding
+    # here: this test wants the *production* behavior of the errorhandler.
+    webapp.app.config.update(TESTING=False)
+    try:
+        resp = webapp.app.test_client().get("/backups")
+    finally:
+        webapp.app.config.update(TESTING=True)
+    body = resp.get_data(as_text=True)
+    assert resp.status_code == 503
+    assert "Can't reach the database" in body
+    assert "password authentication failed" in body  # actionable detail, not swallowed
+    assert "Traceback" not in body and "Werkzeug Debugger" not in body

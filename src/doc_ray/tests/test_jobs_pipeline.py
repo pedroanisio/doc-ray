@@ -345,9 +345,9 @@ def test_handle_canonicalize_resolve_true_invokes_frontier_resolver(qconn, monke
         (doc_id,),
     ).fetchone()["id"]
     conn.execute(
-        "INSERT INTO entity_mention (id, annotation_id, span_id, entity_type) "
-        "VALUES (%s,%s,%s,'ORG')",
-        (new_ulid_str(), ann, span),
+        "INSERT INTO entity_mention (id, annotation_id, span_id, entity_type, surface) "
+        "VALUES (%s,%s,%s,'ORG',%s)",
+        (new_ulid_str(), ann, span, text[0:10]),
     )
     seen = {}
     monkeypatch.setattr("doc_ray.adapters.resolver_claude.ClaudeResolver", lambda: "stub-resolver")

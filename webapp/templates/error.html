@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block title %}database unavailable · doc·ray{% endblock %}
+{% block body %}
+<p class="kicker">Service unavailable</p>
+<h1>Can't reach the database</h1>
+<p class="lede" style="max-width:40rem">
+  doc-ray couldn't open a connection to Postgres. This usually means the
+  database container isn't running, or its credentials no longer match
+  this app's configuration.
+</p>
+
+<div class="card">
+  <p class="hint" style="margin-top:0">What to check</p>
+  <ul style="margin:.4rem 0 0; padding-left:1.2rem; color:var(--ink-soft)">
+    <li>Is the Postgres container up? <span class="mono">docker compose ps</span></li>
+    <li>Does <span class="mono">DATABASE_URL</span> match the current <span class="mono">POSTGRES_PASSWORD</span>?</li>
+    <li>Is the port reachable from where this app is running?</li>
+  </ul>
+</div>
+
+{% if detail %}
+<p class="hint">Connection error</p>
+<div class="errbox" style="white-space:pre-wrap">{{ detail }}</div>
+{% endif %}
+
+<p class="hint"><a href="{{ url_for('documents') }}">Try again</a></p>
+{% endblock %}

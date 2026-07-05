@@ -29,7 +29,7 @@ addressed by character spans, each run is scoped by `(document, layer, tool)`.
 | **spaCy** | `python -m doc_ray.entrypoints.annotate_spacy --all` | `tokens` (+UPOS/XPOS/lemma link), `token_feature`, `chunk`, `dependency`, `entity_mention`, `coref_chain/mention` | 3, 5, 6, 7, 8, 10, 11, 13 |
 | **Term scan** | worker job `canonicalize` (`application/term_scan.py`) | `entity_mention` (`layer=term`) for registry-known vocabulary NER never tags | 11 (deterministic) |
 | **Entity canonicalization** | `seed_suggest`/`seed_approved`/`canonicalize` worker jobs, or the webapp's `/doc/<id>/seeding` screen | `canonical`, `form_index`, `entity_link` (`scheme=canonical`), `resolution_review` | 12 |
-| **Semantic enrichment** | `python -m doc_ray.entrypoints.annotate_semantic --all` | `discourse_relation`, `timex`, `event`, `sentiment`, `embedding` (hash-BoW, pgvector) | 17, 18, 19, 20 |
+| **Semantic enrichment** | `python -m doc_ray.entrypoints.annotate_semantic --all`, GraphQL `semanticEnrichDocument`, or worker job `semantic_enrich` | `discourse_relation`, `timex`, `event`, `sentiment`, `embedding` (hash-BoW, pgvector) | 17, 18, 19, 20 |
 | **Export** | `python -m doc_ray.entrypoints.export --filename <f>` | (read-back) full JSON record | — |
 | **Reannotate (spaCy)** | `python -m doc_ray.entrypoints.reannotate --all` | re-runs the spaCy layer for stored documents | 6–11 |
 | **Roundtrip** | `python scripts/roundtrip.py <pdf> <json>` | (verify) reproduces source | — |
@@ -45,6 +45,8 @@ export DATABASE_URL='postgresql://docray:docray@localhost:5455/docray'
 python -m doc_ray.entrypoints.annotate        --all   # rule lexemes
 python -m doc_ray.entrypoints.annotate_spacy  --all   # tokens/POS/morph/deps/NER/chunks/coref
 python -m doc_ray.entrypoints.annotate_semantic --all  # discourse/time/sentiment/embeddings
+# The default GraphQL upload pipeline also queues:
+# ingest -> annotate -> semantic_enrich -> canonicalize
 
 # 3. showcase report
 docker compose exec -T postgres psql -U docray -d docray -f - < scripts/showcase.sql

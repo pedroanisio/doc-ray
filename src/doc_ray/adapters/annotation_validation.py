@@ -12,8 +12,8 @@ from doc_ray.adapters.annotation_capabilities import (
 TokenRow = tuple[str, str, str | None, int, str | None, str, str]
 FeatureRow = tuple[str, str, str]
 DependencyRow = tuple[str, str | None, str]
-EntityRow = tuple[str, str, str]
-ChunkRow = tuple[str, str, str]
+EntityRow = tuple[str, str, str, str]
+ChunkRow = tuple[str, str, str, str]
 LexemeOccurrenceRow = tuple[str, str]
 
 
@@ -197,7 +197,7 @@ def _validate_span_rows(
     failures: list[str],
 ) -> None:
     """Validate rows whose second tuple field is a span id."""
-    for row_id, span_id, _label in rows:
+    for row_id, span_id, _label, _surface in rows:
         if span_id not in span_ids:
             failures.append(f"unknown {row_name} span {span_id!r} for row {row_id!r}")
 

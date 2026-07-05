@@ -244,8 +244,8 @@ def test_scan_document_skips_spans_already_covered_by_ner(scan_env):
         (doc_id,),
     ).fetchone()["id"]
     conn.execute(
-        "INSERT INTO entity_mention (id, annotation_id, span_id, entity_type) "
-        "VALUES (%s,%s,%s,'MISC')",
+        "INSERT INTO entity_mention (id, annotation_id, span_id, entity_type, surface) "
+        "VALUES (%s,%s,%s,'MISC','florqin')",
         (new_ulid_str(), ann, span),
     )
 

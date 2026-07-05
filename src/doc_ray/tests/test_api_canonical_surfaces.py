@@ -44,8 +44,9 @@ def test_graphql_exposes_canonical_registry_and_review_residue(pg):
     ann = _itdb.make_annotation(conn, doc_id, "ner", "test")
     mention_id = new_ulid_str()
     conn.execute(
-        "INSERT INTO entity_mention (id, annotation_id, span_id, entity_type) VALUES (%s,%s,%s,'PERSON')",
-        (mention_id, ann, _itdb.span_of(conn, doc_id, 0, 5)),
+        "INSERT INTO entity_mention (id, annotation_id, span_id, entity_type, surface) "
+        "VALUES (%s,%s,%s,'PERSON',%s)",
+        (mention_id, ann, _itdb.span_of(conn, doc_id, 0, 5), "Elena"),
     )
     review_id = new_ulid_str()
     conn.execute(

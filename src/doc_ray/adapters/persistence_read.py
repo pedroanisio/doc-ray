@@ -507,7 +507,6 @@ _ENTITY_FROM = """
     JOIN annotations a      ON a.id = em.annotation_id
     JOIN spans sp           ON sp.id = em.span_id
     JOIN documents d        ON d.id = a.document_id
-    JOIN document_content c ON c.document_id = a.document_id
     WHERE (%(doc)s::uuid IS NULL OR a.document_id = %(doc)s::uuid)
       AND (%(etype)s = '' OR em.entity_type = %(etype)s)
 """
@@ -538,9 +537,7 @@ async def list_entities(
     rows = await _rows(
         conn,
         "SELECT em.id, a.document_id AS doc_id, d.title, em.entity_type, "
-        "       sp.char_start, sp.char_end, "
-        "       substring(c.full_text FROM sp.char_start + 1 "
-        "                 FOR sp.char_end - sp.char_start) AS text "
+        "       sp.char_start, sp.char_end, em.surface AS text "
         + _ENTITY_FROM
         + "AND (%(after_title)s::text IS NULL OR d.title > %(after_title)s "
         + "     OR (d.title = %(after_title)s AND sp.char_start > %(after_start)s::int) "
@@ -590,9 +587,7 @@ async def entity_frequency(
     rows = await _rows(
         conn,
         "WITH ranked AS ("
-        "SELECT substring(c.full_text FROM sp.char_start + 1 "
-        "                 FOR sp.char_end - sp.char_start) AS text, "
-        "       em.entity_type, count(*) AS count "
+        "SELECT em.surface AS text, em.entity_type, count(*) AS count "
         + _ENTITY_FROM
         + "GROUP BY text, em.entity_type) "
         + "SELECT * FROM ranked "

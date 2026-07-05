@@ -42,13 +42,15 @@ def test_graphql_exposes_persisted_nlp_layers(pg):
         (ann, tokens[0]["id"], tokens[1]["id"]),
     )
     conn.execute(
-        "INSERT INTO chunk (id, annotation_id, span_id, chunk_type) VALUES (%s, %s, %s, 'NP')",
-        (new_ulid_str(), ann, tokens[0]["span_id"]),
+        "INSERT INTO chunk (id, annotation_id, span_id, chunk_type, surface) "
+        "VALUES (%s, %s, %s, 'NP', %s)",
+        (new_ulid_str(), ann, tokens[0]["span_id"], tokens[0]["surface"]),
     )
     mention_id = new_ulid_str()
     conn.execute(
-        "INSERT INTO entity_mention (id, annotation_id, span_id, entity_type) VALUES (%s,%s,%s,'PERSON')",
-        (mention_id, ann, tokens[0]["span_id"]),
+        "INSERT INTO entity_mention (id, annotation_id, span_id, entity_type, surface) "
+        "VALUES (%s,%s,%s,'PERSON',%s)",
+        (mention_id, ann, tokens[0]["span_id"], tokens[0]["surface"]),
     )
     conn.execute(
         "INSERT INTO entity_link (mention_id, scheme, kb_id, confidence) VALUES (%s,'wikidata','Q1',0.9)",

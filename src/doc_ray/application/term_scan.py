@@ -237,10 +237,18 @@ def scan_document(conn: _Conn, document_id: str, *, langs: tuple[str, ...] = (""
             conn, document_id, [(h.char_start, h.char_end) for h in hits]
         )
         with conn.cursor() as cur:
-            copy_sql = "COPY entity_mention (id, annotation_id, span_id, entity_type) FROM STDIN"
+            copy_sql = (
+                "COPY entity_mention (id, annotation_id, span_id, entity_type, surface) FROM STDIN"
+            )
             with cur.copy(copy_sql) as cp:
                 for h in hits:
                     cp.write_row(
-                        (new_ulid_str(), ann, span_map[(h.char_start, h.char_end)], h.entity_type)
+                        (
+                            new_ulid_str(),
+                            ann,
+                            span_map[(h.char_start, h.char_end)],
+                            h.entity_type,
+                            h.surface,
+                        )
                     )
     return len(hits)

@@ -200,9 +200,10 @@ command must read PDF bytes on stdin and emit JSON containing LaTeX-bearing
 `full_text`. Output without explicit LaTeX equation markup is rejected before it
 can be persisted.
 
-Optional deterministic semantic enrichment for the schema-backed discourse,
-temporal/event, sentiment, and embedding layers is available after token
-annotation:
+Deterministic semantic enrichment for the schema-backed discourse, temporal/event,
+sentiment, and embedding layers runs in the default upload pipeline after token
+annotation and before canonicalization. Operators can also queue it explicitly via
+GraphQL `semanticEnrichDocument` or run it from the host:
 
 ```bash
 python -m doc_ray.entrypoints.annotate_semantic --all

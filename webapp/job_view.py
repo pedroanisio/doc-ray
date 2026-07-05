@@ -9,6 +9,7 @@ from typing import Any
 KIND_LABELS = {
     "ingest": "Upload and ingest",
     "annotate": "Annotate text",
+    "semantic_enrich": "Enrich semantics",
     "canonicalize": "Curate domain entities",
     "backup": "Create backup",
     "restore": "Restore backup",
@@ -26,6 +27,7 @@ STATUS_LABELS = {
 SUCCESS_MESSAGES = {
     "ingest": "The document was uploaded and registered.",
     "annotate": "The document text was annotated.",
+    "semantic_enrich": "Semantic enrichment completed.",
     "canonicalize": "Domain entity curation completed.",
     "backup": "The backup was created.",
     "restore": "The backup was restored.",
@@ -36,6 +38,7 @@ SUCCESS_MESSAGES = {
 NEXT_ACTIONS = {
     "ingest": "Check the file and upload it again after fixing the problem.",
     "annotate": "Restart annotation after the worker or input issue is fixed.",
+    "semantic_enrich": "Restart semantic enrichment after the worker or input issue is fixed.",
     "canonicalize": "Review the seeding inputs, then retry curation.",
     "backup": "Check storage access and retry the backup.",
     "restore": "Check the selected backup and storage access before retrying.",

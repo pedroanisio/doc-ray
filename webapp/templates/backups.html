@@ -6,9 +6,9 @@
   .field { margin:1rem 0; display:flex; gap:.7rem; align-items:center; flex-wrap:wrap; }
   .field input[type=text] { flex:1; min-width:220px; padding:.55rem .7rem; font-size:.95rem;
     background:var(--panel); color:var(--ink); border:1px solid var(--line); border-radius:4px; }
-  .hint { font-size:.82rem; color:var(--ink-faint); margin-top:.2rem; }
-  .errbox { font-family:var(--mono); font-size:.72rem; padding:.5rem .8rem;
-    border:1px solid var(--accent); border-radius:4px; color:var(--accent); margin:.8rem 0; }
+  /* This page's status chip is a distinct design (rounded rect, not the
+     shared pill in design-system.css) — kept local rather than forced to
+     match job.html/seeding.html's .st. */
   .st { font-family:var(--mono); font-size:.68rem; letter-spacing:.06em; text-transform:uppercase;
     padding:.08rem .5rem; border-radius:3px; border:1px solid var(--line); }
   .st.available { color:var(--pos-num); border-color:color-mix(in srgb,var(--pos-num) 45%,var(--line)); }
@@ -20,7 +20,6 @@
   .rowacts a { border:1px solid var(--line); color:var(--ink-soft); }
   .rowacts a:hover { border-color:var(--accent); color:var(--accent); text-decoration:none; }
   .danger { background:transparent; color:var(--accent); border:1px solid var(--accent); }
-  .muted { color:var(--ink-faint); font-size:.85rem; }
 </style>
 
 <h1>Backups</h1>

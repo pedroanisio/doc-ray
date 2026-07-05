@@ -26,12 +26,13 @@ source_schema:         "db/migrations"
 # migration 029 for the backup catalogue, to 1.5.0 by migration 031 for
 # principal LOGIN-role isolation, to 1.6.0 by migration 033 for API-role
 # runtime grants, to 1.7.0 by migration 035 for scheduled backup retention and
-# annotation-table autovacuum tuning, then to 1.8.0 by migration 037 for
-# evaluation/drift artifacts). Kept in lockstep with doc_ray.__version__ by
-# scripts/check_version_consistency.py.
-source_schema_version: "1.8.0"
+# annotation-table autovacuum tuning, to 1.8.0 by migration 037 for
+# evaluation/drift artifacts, then to 1.9.0 by migration 039 for the
+# entity_mention/chunk surface denormalization). Kept in lockstep with
+# doc_ray.__version__ by scripts/check_version_consistency.py.
+source_schema_version: "1.9.0"
 target_engine:         "PostgreSQL 16"
-total_decisions:       16
+total_decisions:       17
 
 decisions:
 
@@ -697,3 +698,90 @@ decisions:
             command:     "python engineering/schema/scripts/validate_decisions.py engineering_decisions.yml"
             expect:
               exit:      0
+
+  - id:                 "D-017"
+    title:              "Denormalize mention/chunk surface text; cap read-query runtime"
+    version_introduced: "1.9.0"
+    category:           "performance"
+    decision: |
+      entity_mention and chunk each carry a surface column, populated once at
+      annotation write time (adapters/annotation_spacy.py, application/term_scan.py)
+      and backfilled by migration 038. Reads (entity_frequency, list_entities,
+      list_chunks, list_entity_links, list_unresolved_mentions) select this column
+      directly instead of recovering it via substring(document_content.full_text,
+      ...) at query time. Every pooled API connection also carries a Postgres
+      statement_timeout (DOCRAY_API_STATEMENT_TIMEOUT_MS, default 15000ms).
+    rationale: |
+      entity_frequency and list_entities extracted mention surface text via a
+      substring() join against document_content for every row. A GROUP BY blocks
+      LIMIT pushdown, so calling entityFrequency/entities without a documentId (a
+      schema-permitted, unremarkable call shape) forced Postgres to extract and
+      group a substring of the full document text for every mention in the entire
+      corpus before returning anything — an unbounded, TOAST-detoasting scan. This
+      pegged every core across 8 parallel backends for 7-17 minutes each in the
+      live corpus. Denormalizing surface text at write time removes the
+      document_content join from these reads entirely; statement_timeout is a
+      second, independent guardrail so any future unbounded query fails in seconds
+      instead of monopolizing a backend indefinitely.
+    decision_status:    "accepted"
+    decision_date:      "2026-07-05"
+    owner:              ["pedroanisio@faz.ai"]
+    scope_path:
+      - "db/migrations/038_entity_mention_chunk_surface.sql"
+      - "db/migrations/039_schema_version_1_9_0.sql"
+      - "src/doc_ray/adapters/persistence_read.py"
+      - "src/doc_ray/adapters/persistence_layers_read.py"
+      - "src/doc_ray/adapters/persistence_canonical_read.py"
+      - "src/doc_ray/adapters/annotation_spacy.py"
+      - "src/doc_ray/adapters/annotation_validation.py"
+      - "src/doc_ray/application/term_scan.py"
+      - "src/doc_ray/config.py"
+      - "src/doc_ray/entrypoints/api/app.py"
+    claims:
+      - claim_id:    "D-017.k1"
+        claim_text:  "entity_mention and chunk carry a NOT NULL surface column populated at write time."
+        auditable:   true
+        status:      "populated"
+        declared_checks_count: 1
+        checks:
+          - check_id:    "D-017.k1.c1"
+            description: "Migration 038 adds and backfills entity_mention.surface and chunk.surface."
+            check_kind:  "grep"
+            severity:    "error"
+            context:     "workspace"
+            path:        "db/migrations/038_entity_mention_chunk_surface.sql"
+            pattern:     "ALTER COLUMN surface SET NOT NULL"
+            expect:
+              present:   true
+
+      - claim_id:    "D-017.k2"
+        claim_text:  "entity_frequency, list_entities, list_chunks, list_entity_links, and list_unresolved_mentions never rejoin document_content."
+        auditable:   true
+        status:      "populated"
+        declared_checks_count: 1
+        checks:
+          - check_id:    "D-017.k2.c1"
+            description: "The structural regression test enforcing this passes."
+            check_kind:  "shell"
+            severity:    "error"
+            context:     "ci"
+            side_effects: "reads"
+            command:     "pytest src/doc_ray/tests/test_api_contract.py::test_entity_and_chunk_reads_never_rejoin_document_content -q"
+            expect:
+              exit:      0
+
+      - claim_id:    "D-017.k3"
+        claim_text:  "Every pooled API connection carries a configurable Postgres statement_timeout."
+        auditable:   true
+        status:      "populated"
+        declared_checks_count: 1
+        checks:
+          - check_id:    "D-017.k3.c1"
+            description: "Config exposes api_statement_timeout_ms, read from DOCRAY_API_STATEMENT_TIMEOUT_MS."
+            check_kind:  "grep"
+            severity:    "error"
+            context:     "workspace"
+            path:        "src/doc_ray/config.py"
+            pattern:     "DOCRAY_API_STATEMENT_TIMEOUT_MS"
+            expect:
+              present:   true

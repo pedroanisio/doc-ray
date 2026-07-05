@@ -282,9 +282,15 @@ def test_entities_query_document_field_and_frequency(pg):
 
     def ent(start: int, sub: str, etype: str) -> None:
         conn.execute(
-            "INSERT INTO entity_mention (id, annotation_id, span_id, entity_type) "
-            "VALUES (%s,%s,%s,%s)",
-            (new_ulid_str(), ann, _itdb.span_of(conn, doc_id, start, start + len(sub)), etype),
+            "INSERT INTO entity_mention (id, annotation_id, span_id, entity_type, surface) "
+            "VALUES (%s,%s,%s,%s,%s)",
+            (
+                new_ulid_str(),
+                ann,
+                _itdb.span_of(conn, doc_id, start, start + len(sub)),
+                etype,
+                sub,
+            ),
         )
 
     w1 = txt.index("Winston")

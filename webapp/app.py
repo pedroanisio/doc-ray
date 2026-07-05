@@ -312,6 +312,26 @@ def _upload_too_large(_exc):
     return redirect(url_for("upload_form", error=f"file exceeds the {limit_mb} MB upload limit"))
 
 
+@app.errorhandler(psycopg.OperationalError)
+def _database_unavailable(exc: psycopg.OperationalError):
+    """Render a graceful page instead of leaking the raw Werkzeug debugger.
+
+    ``OperationalError`` covers both "server unreachable" and "authentication
+    failed" — anything meaning the connection itself couldn't be established,
+    as opposed to a query-level bug. Unhandled, this would otherwise surface
+    a full interactive traceback (and, in debug mode, a code-execution
+    console) to whoever hits any DB-touching route.
+
+    Args:
+        exc: The connection failure raised by ``psycopg.connect``.
+
+    Returns:
+        A rendered error page with a 503 status.
+    """
+    app.logger.error("database connection failed: %s", exc)
+    return render_template("error.html", detail=str(exc)), 503
+
+
 @app.route("/upload")
 def upload_form():
     """Render the document upload form (EPUB, PDF, TXT, MD, DOCX)."""

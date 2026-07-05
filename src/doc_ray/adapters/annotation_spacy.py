@@ -262,7 +262,8 @@ class SpacyAnnotator:
 
         ent_rows, coref = self._build_entities(doc, span_map)
         chunk_rows = [
-            (new_ulid_str(), span_map[(c.start_char, c.end_char)], "NP") for c in doc.noun_chunks
+            (new_ulid_str(), span_map[(c.start_char, c.end_char)], "NP", c.text)
+            for c in doc.noun_chunks
         ]
 
         # Lexeme layer (real POS) — the projection the webapp reads. One pass,
@@ -321,13 +322,13 @@ class SpacyAnnotator:
         self,
         doc: SpacyDoc,
         span_map: dict[tuple[int, int], str],
-    ) -> tuple[list[tuple[str, str, str]], dict[str, list[str]]]:
+    ) -> tuple[list[tuple[str, str, str, str]], dict[str, list[str]]]:
         """Build entity-mention rows and the string-match coref chains."""
-        ent_rows: list[tuple[str, str, str]] = []
+        ent_rows: list[tuple[str, str, str, str]] = []
         ent_by_key: dict[str, list[str]] = {}
         for e in doc.ents:
             mid = new_ulid_str()
-            ent_rows.append((mid, span_map[(e.start_char, e.end_char)], e.label_))
+            ent_rows.append((mid, span_map[(e.start_char, e.end_char)], e.label_, e.text))
             if e.label_ in ("PERSON", "PER", "ORG", "GPE", "LOC"):
                 ent_by_key.setdefault(e.text.strip().casefold(), []).append(
                     span_map[(e.start_char, e.end_char)]
@@ -343,8 +344,8 @@ class SpacyAnnotator:
         tokens: list[TokenRow],
         feats: list[tuple[str, str, str]],
         deps: list[DepRow],
-        ents: list[tuple[str, str, str]],
-        chunks: list[tuple[str, str, str]],
+        ents: list[tuple[str, str, str, str]],
+        chunks: list[tuple[str, str, str, str]],
     ) -> None:
         """COPY the token/feature/dependency/entity/chunk layers into place."""
         tokens_sql = (
@@ -367,14 +368,16 @@ class SpacyAnnotator:
                     cp.write_row((ann, dep, head, rel))
         if ents:
             with cur.copy(
-                "COPY entity_mention (id, annotation_id, span_id, entity_type) FROM STDIN"
+                "COPY entity_mention (id, annotation_id, span_id, entity_type, surface) FROM STDIN"
             ) as cp:
-                for mid, span, typ in ents:
-                    cp.write_row((mid, ann, span, typ))
+                for mid, span, typ, surface in ents:
+                    cp.write_row((mid, ann, span, typ, surface))
         if chunks:
-            with cur.copy("COPY chunk (id, annotation_id, span_id, chunk_type) FROM STDIN") as cp:
-                for cid, span, typ in chunks:
-                    cp.write_row((cid, ann, span, typ))
+            with cur.copy(
+                "COPY chunk (id, annotation_id, span_id, chunk_type, surface) FROM STDIN"
+            ) as cp:
+                for cid, span, typ, surface in chunks:
+                    cp.write_row((cid, ann, span, typ, surface))
 
     def _write(
         self,
@@ -385,8 +388,8 @@ class SpacyAnnotator:
         tokens: list[TokenRow],
         feats: list[tuple[str, str, str]],
         deps: list[DepRow],
-        ents: list[tuple[str, str, str]],
-        chunks: list[tuple[str, str, str]],
+        ents: list[tuple[str, str, str, str]],
+        chunks: list[tuple[str, str, str, str]],
         coref: dict[str, list[str]],
         lex_occ: list[tuple[str, str]] | None = None,
         lex_tool: str | None = None,
