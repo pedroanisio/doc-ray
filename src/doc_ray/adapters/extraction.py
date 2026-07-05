@@ -13,16 +13,38 @@ import os
 import posixpath
 import re as _re
 import zipfile
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
 from dataclasses import dataclass, field, replace
 from html.parser import HTMLParser as _HTMLParser
-from typing import Any
+from typing import Any, Protocol
 from xml.etree import ElementTree as ET
 
 import pypdf
 from pypdf import PdfReader
 
 from doc_ray.domain import pdf_layout
+
+
+class _PyMuPDFRect(Protocol):
+    height: float
+
+
+class _PyMuPDFPage(Protocol):
+    rect: _PyMuPDFRect
+
+    def get_textpage_ocr(self, *, language: str) -> object:
+        """Return a PyMuPDF OCR text page."""
+        ...
+
+    def get_text(self, option: str, **kwargs: object) -> Mapping[str, Any]:
+        """Return PyMuPDF text extraction output."""
+        ...
+
+
+class _PyMuPDFDocument(Protocol):
+    def __iter__(self) -> Iterator[_PyMuPDFPage]:
+        """Iterate over PyMuPDF pages."""
+        ...
 
 
 @dataclass
@@ -53,6 +75,12 @@ def _env_int(env: Mapping[str, str], name: str, default: int) -> int:
     return default if raw is None or raw == "" else int(raw)
 
 
+def pdf_ocr_enabled_from_env(env: Mapping[str, str] | None = None) -> bool:
+    """Return whether image-only PDF OCR is explicitly enabled."""
+    source = os.environ if env is None else env
+    return source.get("DOCRAY_PDF_OCR", "").strip().lower() in {"1", "true", "yes", "on"}
+
+
 def pdf_heading_thresholds_from_env(
     env: Mapping[str, str] | None = None,
 ) -> pdf_layout.HeadingThresholds:
@@ -69,6 +97,12 @@ def pdf_heading_thresholds_from_env(
             defaults.bold_max_words,
         ),
     )
+
+
+def pdf_ocr_language_from_env(env: Mapping[str, str] | None = None) -> str:
+    """Return the Tesseract language code used by the PyMuPDF OCR backend."""
+    source = os.environ if env is None else env
+    return source.get("DOCRAY_PDF_OCR_LANGUAGE", "eng").strip() or "eng"
 
 
 def _spans_of_line(line: dict[str, Any]) -> list[dict[str, Any]]:
@@ -88,23 +122,20 @@ def _spans_of_line(line: dict[str, Any]) -> list[dict[str, Any]]:
     return spans
 
 
-def extract_pdf_pymupdf(data: bytes, fallback_title: str) -> Extracted:
-    """Extract a PDF into layout-aware Markdown using PyMuPDF.
-
-    Args:
-        data: Raw PDF bytes.
-        fallback_title: Title to use when the PDF has no title metadata.
-
-    Returns:
-        The extracted document with structured Markdown text.
-    """
-    import fitz
-
-    doc = fitz.open(stream=data, filetype="pdf")
+def _blocks_from_pages(
+    doc: _PyMuPDFDocument, *, ocr: bool = False, language: str = "eng"
+) -> list[dict[str, Any]]:
+    """Extract simplified text blocks from a PyMuPDF document."""
     blocks: list[dict[str, Any]] = []
     for pageno, page in enumerate(doc):
         page_h = page.rect.height
-        for b in page.get_text("dict").get("blocks", []):
+        textpage = page.get_textpage_ocr(language=language) if ocr else None
+        page_dict = (
+            page.get_text("dict", textpage=textpage)
+            if textpage is not None
+            else page.get_text("dict")
+        )
+        for b in page_dict.get("blocks", []):
             if b.get("type", 0) != 0:  # 0 = text block; skip images
                 continue
             lines = []
@@ -124,9 +155,32 @@ def extract_pdf_pymupdf(data: bytes, fallback_title: str) -> Extracted:
                 )
             if lines:
                 blocks.append({"lines": lines})
+    return blocks
 
+
+def extract_pdf_pymupdf(data: bytes, fallback_title: str) -> Extracted:
+    """Extract a PDF into layout-aware Markdown using PyMuPDF.
+
+    Args:
+        data: Raw PDF bytes.
+        fallback_title: Title to use when the PDF has no title metadata.
+
+    Returns:
+        The extracted document with structured Markdown text.
+    """
+    import fitz
+
+    doc = fitz.open(stream=data, filetype="pdf")
     thresholds = pdf_heading_thresholds_from_env()
+    blocks = _blocks_from_pages(doc)
     full_text = pdf_layout.to_markdown(blocks, thresholds=thresholds)
+    ocr_enabled = pdf_ocr_enabled_from_env()
+    ocr_applied = False
+    if not full_text.strip() and ocr_enabled:
+        language = pdf_ocr_language_from_env()
+        blocks = _blocks_from_pages(doc, ocr=True, language=language)
+        full_text = pdf_layout.to_markdown(blocks, thresholds=thresholds)
+        ocr_applied = bool(full_text.strip())
     meta = doc.metadata or {}
     return Extracted(
         doc_type="pdf",
@@ -135,12 +189,15 @@ def extract_pdf_pymupdf(data: bytes, fallback_title: str) -> Extracted:
         page_count=doc.page_count,
         full_text=full_text,
         content_type="application/pdf",
-        extractor="pymupdf",
+        extractor="pymupdf+ocr" if ocr_applied else "pymupdf",
         extractor_version=str(getattr(fitz, "version", ("?",))[0]),
         metadata={
             "pdf_producer": meta.get("producer"),
             "pdf_creator": meta.get("creator"),
             "pdf_subject": meta.get("subject"),
+            "ocr_enabled": ocr_enabled,
+            "ocr_applied": ocr_applied,
+            "ocr_language": pdf_ocr_language_from_env() if ocr_enabled else None,
             "pdf_heading_thresholds": {
                 "level1_ratio": thresholds.level1_ratio,
                 "level2_ratio": thresholds.level2_ratio,

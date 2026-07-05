@@ -9,11 +9,22 @@ persistence, and annotation be swapped without touching the domain.
     ObjectStore     <- adapters.object_store (MinIO / S3)
     Repository      <- adapters.persistence  (Postgres via psycopg)
     Annotator       <- domain.lexemes.RuleAnalyzer / adapters.annotation_spacy.SpacyAnnotator
+    ModelOutputVerifier <- app/adapters verification gates for ML/LLM output
 """
 
 from doc_ray.ports.annotator import Annotator
 from doc_ray.ports.object_store import ObjectStore
 from doc_ray.ports.repository import Repository
 from doc_ray.ports.text_extractor import ExtractedText, TextExtractor
+from doc_ray.ports.verification import ModelOutputVerifier, VerificationIssue, VerificationResult
 
-__all__ = ["Annotator", "ObjectStore", "Repository", "ExtractedText", "TextExtractor"]
+__all__ = [
+    "Annotator",
+    "ObjectStore",
+    "Repository",
+    "ExtractedText",
+    "TextExtractor",
+    "ModelOutputVerifier",
+    "VerificationIssue",
+    "VerificationResult",
+]

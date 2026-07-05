@@ -24,9 +24,12 @@ from __future__ import annotations
 
 import math
 import os
+from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any, cast
 
+from doc_ray.application.verification import ModelOutputVerificationError, verify_model_output
 from doc_ray.ports.resolver import Candidate, Resolution, ResolutionKind
+from doc_ray.ports.verification import VerificationIssue, VerificationResult
 
 if TYPE_CHECKING:
     # Typing only — the SDK itself is imported lazily in ClaudeResolver.__init__ so
@@ -61,6 +64,60 @@ _SYSTEM = (
     "unsure. Never invent identifiers. Report harvested alternate surface forms "
     "you observed for the entity (aliases), and a confidence in [0, 1]."
 )
+
+
+class CandidateResolutionVerifier:
+    """Verify one raw resolver verdict against the offered candidate set."""
+
+    name = "candidate-resolution.v1"
+
+    def __init__(self, candidates: list[Candidate]) -> None:
+        """Store the candidate set that constrains any SELECT verdict."""
+        self._candidate_ids = {c.canonical_id for c in candidates}
+
+    def verify(
+        self, output: Mapping[str, Any], *, context: Mapping[str, Any] | None = None
+    ) -> VerificationResult:
+        """Reject malformed verdicts before application code consumes them."""
+        issues: list[VerificationIssue] = []
+        verdict = output.get("verdict")
+        if verdict not in {k.value for k in ResolutionKind}:
+            issues.append(VerificationIssue("unknown-verdict", "verdict is not allowed", "verdict"))
+        confidence = output.get("confidence")
+        if isinstance(confidence, bool) or not isinstance(confidence, (int, float)):
+            issues.append(
+                VerificationIssue("invalid-confidence", "confidence must be numeric", "confidence")
+            )
+        aliases = output.get("aliases", [])
+        if aliases is not None and not isinstance(aliases, list):
+            issues.append(VerificationIssue("invalid-aliases", "aliases must be a list", "aliases"))
+        if verdict == ResolutionKind.SELECT.value:
+            cid = output.get("canonical_id")
+            if isinstance(cid, bool) or not isinstance(cid, int):
+                issues.append(
+                    VerificationIssue("invalid-canonical-id", "canonical_id must be an int")
+                )
+            elif cid not in self._candidate_ids:
+                issues.append(
+                    VerificationIssue(
+                        "canonical-id-not-offered",
+                        "canonical_id was not in the offered candidate set",
+                        "canonical_id",
+                    )
+                )
+        if verdict == ResolutionKind.NEW.value:
+            preferred = output.get("new_preferred")
+            if not isinstance(preferred, str) or not preferred.strip():
+                issues.append(
+                    VerificationIssue(
+                        "missing-new-preferred",
+                        "new_entity verdict requires a preferred name",
+                        "new_preferred",
+                    )
+                )
+        if issues:
+            return VerificationResult.failed(self.name, issues)
+        return VerificationResult.passed(self.name)
 
 
 def build_tool(candidates: list[Candidate]) -> dict[str, Any]:
@@ -270,4 +327,8 @@ class ClaudeResolver:
         )
         block = next((b for b in response.content if b.type == "tool_use"), None)
         raw = block.input if block is not None and isinstance(block.input, dict) else {}
-        return to_resolution(raw, candidates)
+        try:
+            verified = verify_model_output(raw, CandidateResolutionVerifier(candidates))
+        except ModelOutputVerificationError:
+            return Resolution(kind=ResolutionKind.ABSTAIN, confidence=0.0)
+        return to_resolution(dict(verified), candidates)

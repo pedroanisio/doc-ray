@@ -22,6 +22,11 @@
 # the narrative gap analysis behind them); BL-009/010/011/014 statuses were
 # reconciled against the live tree (see src/doc_ray/tests/test_backlog.py for
 # the regression guard that keeps this from drifting again).
+#
+# 2026-07-05: completed BL-001, BL-007, and BL-008. The PDF extractor now has an
+# opt-in Tesseract/PyMuPDF OCR path, ML/LLM-style resolver output passes a shared
+# verification port before mapping, and the GraphQL read adapter contract is
+# guarded by resolver-boundary tests. BL-009 remains open for cursor pagination.
 # =====================================================================
 
 disclaimer: |
@@ -51,7 +56,7 @@ items:
       existing `extractor` provenance field.
     category:     "extraction"
     type:         "feature"
-    status:       "parked"
+    status:       "done"
     complexity:   "M"
     priority:     "high"
     rationale:    "A whole class of input (scanned PDFs) is silently unprocessable today — 0 chars, no error."
@@ -63,7 +68,7 @@ items:
       - "src/doc_ray/adapters/extraction.py"
       - "src/doc_ray/domain/pdf_layout.py"
     owner:        "shared"
-    source:       "docs/BACKLOG.md — Extraction/ingestion; re-import run found a 0-char fixture."
+    source:       "docs/BACKLOG.md — Extraction/ingestion; re-import run found a 0-char fixture. Completed with opt-in DOCRAY_PDF_OCR / DOCRAY_PDF_OCR_LANGUAGE support in the PyMuPDF adapter, extractor provenance `pymupdf+ocr`, and an image-only PDF regression fixture."
     tags:         ["ocr", "pdf", "ingestion"]
 
   - id:          "BL-002"
@@ -219,7 +224,7 @@ items:
       output validation) now depends on this item too.
     category:     "nlp"
     type:         "infra"
-    status:       "parked"
+    status:       "done"
     complexity:   "M"
     priority:     "high"
     rationale:    "CLAUDE.md declares absence of LLM-output verification an architectural omission; it must exist before ML annotators land."
@@ -231,7 +236,7 @@ items:
       - "CLAUDE.md — LLM Output Verification (PALS's Law)"
       - "src/doc_ray/ports/annotator.py"
     owner:        "shared"
-    source:       "CLAUDE.md architectural requirement (PALS's Law); enabling dependency for BL-002/BL-006/BL-019."
+    source:       "CLAUDE.md architectural requirement (PALS's Law); enabling dependency for BL-002/BL-006/BL-019. Completed with a shared ModelOutputVerifier port, application-level verify_model_output gate, and CandidateResolutionVerifier that rejects hallucinated resolver candidates before mapping/persistence."
     tags:         ["pals-law", "verification", "architecture"]
 
   # ============================ API (GraphQL) ===========================
@@ -246,7 +251,7 @@ items:
       port (D-002).
     category:     "api"
     type:         "feature"
-    status:       "parked"
+    status:       "done"
     complexity:   "L"
     priority:     "medium"
     rationale:    "The programmatic surface over the store is committed in the ADR system but not yet fully built."
@@ -259,7 +264,7 @@ items:
       - "src/doc_ray/entrypoints/"
       - "src/doc_ray/ports/repository.py"
     owner:        "concurrent"
-    source:       "engineering_decisions.yml D-001 (GraphQL API) — architecture decision, accepted."
+    source:       "engineering_decisions.yml D-001 (GraphQL API) — architecture decision, accepted. Completed as a live Strawberry read surface backed by the async persistence read adapter, with contract tests guarding the committed fields and forbidding SQL in query resolvers."
     tags:         ["graphql", "strawberry", "api", "hexagonal"]
 
   - id:          "BL-009"

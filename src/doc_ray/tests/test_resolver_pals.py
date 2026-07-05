@@ -6,7 +6,12 @@ hallucinated id must never survive into a committed link.
 
 from __future__ import annotations
 
-from doc_ray.adapters.resolver_claude import build_tool, to_resolution
+from doc_ray.adapters.resolver_claude import (
+    CandidateResolutionVerifier,
+    build_tool,
+    to_resolution,
+)
+from doc_ray.application.verification import ModelOutputVerificationError, verify_model_output
 from doc_ray.ports.resolver import Candidate, ResolutionKind
 
 CANDS = [
@@ -137,3 +142,20 @@ def test_junk_proposed_type_is_dropped_not_fatal():
     )
     assert res.kind is ResolutionKind.NEW  # the verdict survives
     assert res.new_entity_type is None  # the junk type does not
+
+
+def test_candidate_resolution_verifier_rejects_hallucinated_ids_before_mapping():
+    verifier = CandidateResolutionVerifier(CANDS)
+
+    result = verifier.verify({"verdict": "select", "canonical_id": 12345, "confidence": 0.99})
+
+    assert result.ok is False
+    assert result.issues[0].code == "canonical-id-not-offered"
+    try:
+        verify_model_output(
+            {"verdict": "select", "canonical_id": 12345, "confidence": 0.99}, verifier
+        )
+    except ModelOutputVerificationError as exc:
+        assert exc.result.issues[0].code == "canonical-id-not-offered"
+    else:  # pragma: no cover - defensive
+        raise AssertionError("hallucinated candidate id was accepted")

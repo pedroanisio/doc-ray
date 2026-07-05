@@ -65,18 +65,22 @@ and `BL-035` with env-tunable PDF heading thresholds, full-document reader
 mode, single-POS focus, and user-facing tables that no longer foreground raw
 opaque identifiers.
 
+**2026-07-05 extraction/API verification:** completed `BL-001`, `BL-007`, and
+`BL-008` with opt-in image-only PDF OCR, a shared ML/LLM output verification
+port, and GraphQL read-adapter contract tests that keep SQL out of resolvers.
+
 ## Items
 
 | ID | Item | Category | Type | Status | Cx | Priority | Owner |
 |----|------|----------|------|--------|----|----------|-------|
-| BL-001 | OCR pass for image-only PDFs | extraction | feature | parked | M | high | shared |
+| BL-001 | OCR pass for image-only PDFs | extraction | feature | done | M | high | shared |
 | BL-002 | Math fidelity: recover equations as LaTeX via opt-in ML backend | extraction | feature | parked | L | medium | shared |
 | BL-003 | Calibrate heading-detection thresholds per corpus | extraction | tech-debt | done | S | low | mine |
 | BL-004 | Render Markdown in the reading pane | webapp | feature | done | S | medium | mine |
 | BL-005 | Full-document scroll view + solo-POS focus mode | webapp | feature | done | M | low | mine |
 | BL-006 | Materialize the remaining NLP annotation layers | nlp | feature | parked | XL | medium | concurrent |
-| BL-007 | Verification layer for ML/LLM annotator output (PALS's Law) | nlp | infra | parked | M | high | shared |
-| BL-008 | Complete the GraphQL (Strawberry) driving adapter | api | feature | parked | L | medium | concurrent |
+| BL-007 | Verification layer for ML/LLM annotator output (PALS's Law) | nlp | infra | done | M | high | shared |
+| BL-008 | Complete the GraphQL (Strawberry) driving adapter | api | feature | done | L | medium | concurrent |
 | BL-009 | GraphQL safety: depth/complexity limits + keyset pagination | security | feature | in-progress | M | high | concurrent |
 | BL-010 | Background jobs via a Postgres queue (FOR UPDATE SKIP LOCKED) | ops | feature | done | L | medium | concurrent |
 | BL-011 | jobs table + sync worker runtime | persistence | feature | done | M | medium | concurrent |

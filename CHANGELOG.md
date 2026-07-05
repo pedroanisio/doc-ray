@@ -22,6 +22,12 @@ doc-ray carries **one global version** covering both the application package
 ## [Unreleased]
 
 ### Added
+- **OCR fallback, resolver verification, and GraphQL read contracts** (OpenAI GPT-5 via Codex) —
+  image-only PDFs can now opt into PyMuPDF/Tesseract OCR through
+  `DOCRAY_PDF_OCR`, ML/LLM-style candidate-resolution output is verified before
+  mapping, and the Strawberry read surface has contract tests proving resolver
+  fields delegate through the read adapter instead of embedding SQL, closing
+  `BL-001`, `BL-007`, and `BL-008`.
 - **Reader scroll, POS focus, and PDF heading calibration** (OpenAI GPT-5 via Codex) —
   the PyMuPDF layout path now accepts corpus-specific heading thresholds through
   `DOCRAY_PDF_HEADING_*` environment overrides, the document reader can switch

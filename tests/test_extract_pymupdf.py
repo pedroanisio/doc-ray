@@ -26,6 +26,18 @@ def _make_pdf() -> bytes:
     return doc.tobytes()
 
 
+def _make_image_only_pdf() -> bytes:
+    source = fitz.open()
+    page = source.new_page(width=500, height=250)
+    page.insert_text((60, 100), "SCANNED OCR TEXT", fontsize=30)
+    pixmap = page.get_pixmap(dpi=200)
+
+    image_doc = fitz.open()
+    image_page = image_doc.new_page(width=500, height=250)
+    image_page.insert_image(image_page.rect, pixmap=pixmap)
+    return image_doc.tobytes()
+
+
 def test_pymupdf_extractor_recovers_structure_and_strips_footer():
     ex = extract.extract_pdf_pymupdf(_make_pdf(), fallback_title="synthetic")
     md = ex.full_text
@@ -61,3 +73,23 @@ def test_pdf_heading_thresholds_are_loaded_from_environment(monkeypatch):
     assert thresholds.level2_ratio == 1.6
     assert thresholds.level3_ratio == 1.35
     assert thresholds.bold_max_words == 4
+
+
+def test_image_only_pdf_ocr_is_disabled_by_default(monkeypatch):
+    monkeypatch.delenv("DOCRAY_PDF_OCR", raising=False)
+
+    ex = extract.extract_pdf_pymupdf(_make_image_only_pdf(), fallback_title="scan")
+
+    assert ex.full_text == ""
+    assert ex.extractor == "pymupdf"
+    assert ex.metadata["ocr_applied"] is False
+
+
+def test_image_only_pdf_uses_opt_in_ocr(monkeypatch):
+    monkeypatch.setenv("DOCRAY_PDF_OCR", "1")
+
+    ex = extract.extract_pdf_pymupdf(_make_image_only_pdf(), fallback_title="scan")
+
+    assert "SCANNED OCR TEXT" in ex.full_text
+    assert ex.extractor == "pymupdf+ocr"
+    assert ex.metadata["ocr_applied"] is True
