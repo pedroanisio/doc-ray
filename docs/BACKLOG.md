@@ -116,6 +116,8 @@ live backlog after these three.
 
 **2026-07-05 overlay feature, corrected for format coverage:** the design above was PDF-only; corrected after being told the corpus also ingests docx/html and should consider pptx/svg. Verified live: `.pptx` and `.svg` have zero extraction code or dependency anywhere in the tree today (format-support gaps, not overlay-scope questions — added `BL-084`, `BL-085`); `docx`/`html`/`epub` extraction already exists but captures no positional/DOM data at all (`extract_docx` is paragraph-text-only; the HTML/EPUB path discards the DOM), and none of the three have a PDF-style fixed page to rasterize, so they need a DOM/markup-highlighting approach instead of `BL-076`-`BL-082`'s render-page-then-draw-bbox model (added `BL-086`). `BL-084`/`BL-085` land ingestion only; `BL-087` (parked on both) extends the bbox-overlay pattern to PPTX (real per-slide shape coordinates via python-pptx) and SVG (native vector coordinates, no rasterization needed at all) once each format can be ingested. `BL-076`, `BL-079`, `BL-081`, and `BL-082` were retitled/re-scoped in place to state "(PDF)" explicitly rather than imply their approach generalizes.
 
+**2026-07-05 full ingest feature design (pptx/svg + docx/html/epub structural parity):** added `BL-088`-`BL-093`, a from-scratch design (not overlay-scope) for production-ready multi-format ingestion, decomposed into hardening / new-format extraction / existing-format structural parity / test-coverage-drift-guard. Verified live: `extract_docx` (`extraction.py:511-518`) discards `python-docx`'s already-available `paragraph.style.name` ("Heading 1", "List Bullet", ...) entirely, and `_HTMLText` (`extraction.py:387-423`, reused by EPUB) flattens `h1`-`h6`/`li`/`p`/`div` identically to a bare newline — both are confirmed, currently-shipping structural-information losses, not hypothetical gaps (`BL-091`, `BL-092`). Separately, EPUB's zip/XML parsing (`extraction.py:445-491`) has no decompressed-size cap and no entity-expansion hardening today — a real, live gap against an already-accepted format, sequenced to land once, shared, before PPTX (also zip+XML) and SVG (raw XML) would otherwise copy the same unguarded pattern a third and fourth time (`BL-088`, `high`/`ready`, blocking `BL-089`/`BL-090`). `BL-089` (PPTX) and `BL-090` (SVG) are the new-format extractors themselves, each deriving Markdown heading/list structure from real format-native structure (placeholder type + paragraph level for PPTX; font-size/weight for SVG) rather than PDF's inference heuristic. `BL-093` is a coverage drift-guard (every `_EXTRACTORS` entry must have a golden-fixture test), mirroring the `BL-047`/`BL-052` precedent, rather than one-off per-format test tasks.
+
 ## Items
 
 | ID | Item | Category | Type | Status | Cx | Priority | Owner |
@@ -207,6 +209,12 @@ live backlog after these three.
 | BL-085 | Extraction support for SVG | extraction | feature | parked | S | low | shared |
 | BL-086 | Overlay strategy for non-paginated formats (docx/html/epub): highlight in a rendered view of the original markup | webapp | feature | parked | L | low | shared |
 | BL-087 | Overlay support for PPTX/SVG once ingested (slide/vector-native positioning) | webapp | feature | parked | M | low | shared |
+| BL-088 | Harden zip/XML parsing against decompression-bomb and entity-expansion attacks | security | bug | ready | M | high | shared |
+| BL-089 | Extraction support for PPTX: text and structure from slide/placeholder data | extraction | feature | parked | M | medium | shared |
+| BL-090 | Extraction support for SVG: text and structure from font-size/weight classification | extraction | feature | parked | S | medium | shared |
+| BL-091 | DOCX: reconstruct heading/list structure from paragraph styles | extraction | tech-debt | parked | S | medium | shared |
+| BL-092 | HTML/EPUB: reconstruct heading/list structure instead of flattening all block tags | extraction | tech-debt | parked | M | medium | shared |
+| BL-093 | Format-extraction coverage guard: every registered extractor has a golden-fixture test | testing | infra | parked | XS | medium | shared |
 
 See [`backlog.yml`](backlog.yml) for each item's full description, rationale,
 acceptance criteria, dependencies, related decisions (`D-###`), and references.

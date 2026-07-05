@@ -83,7 +83,7 @@ metadata:
   generated_by:     "Claude Sonnet 5 via Claude Code (merge of Claude Opus 4.8 backlog + OpenAI Codex improvement-proposal candidates)"
   generated_on:     "2026-07-05"
   system_of_record: "docs/backlog.yml"
-  total_items:      87
+  total_items:      93
 
 items:
 
@@ -2810,3 +2810,210 @@ items:
     owner:        "shared"
     source:       "User correction 2026-07-05: 'document can also be docx, html, pptx, svgs'; see BL-084/BL-085."
     tags:         ["webapp", "overlay", "pptx", "svg"]
+
+  - id:          "BL-088"
+    title:        "Harden zip/XML parsing against decompression-bomb and entity-expansion attacks"
+    summary:      "DOCX and EPUB are already zip+XML containers parsed via stdlib zipfile/ElementTree with no decompressed-size cap and no entity-expansion hardening (extraction.py:445-491 reads zip members and calls ET.fromstring with neither guard). This is a live gap today, not a hypothetical one introduced by adding PPTX/SVG — but PPTX (also zip+XML) and SVG (raw XML) would otherwise replicate the same unguarded pattern a third and fourth time."
+    description: |
+      Confirmed live: `_epub_spine`/`extract_epub` (extraction.py:445-491)
+      call `zf.read(...)` and `ET.fromstring(...)` with no cap on
+      decompressed size and no defusedxml/entity-resolution hardening
+      anywhere in the file. Stdlib ElementTree does not fetch external
+      entities but is vulnerable to internal-entity expansion
+      (billion-laughs/quadratic blowup) — a small uploaded file can expand
+      to exhaust memory/CPU before any exception is raised, which no
+      amount of "catch the exception and mark the job failed" handling
+      downstream can prevent (the existing ingest failure-recording
+      contract only helps once an exception is actually raised — a
+      resource-exhaustion attack doesn't necessarily raise one in time).
+
+      This item adds, once, at a shared layer: (a) a decompressed-size cap
+      enforced while reading zip members (docx/epub/pptx all use
+      zipfile), and (b) a hardened XML parse path (defusedxml, or
+      manually disabling entity resolution) reused by epub/svg/pptx's XML
+      parsing. Landing this once, shared, is deliberately sequenced before
+      BL-089/BL-090 so the two new format extractors are built on the
+      hardened primitive rather than copying today's unguarded EPUB
+      pattern a second and third time.
+    category:     "security"
+    type:         "bug"
+    status:       "ready"
+    complexity:   "M"
+    priority:     "high"
+    rationale:    "This is a real, currently-exploitable gap against formats already accepted from untrusted uploads (docx, epub) — not a future-state risk being pre-empted. Fixing it once, shared, before adding two more zip/XML-based formats (pptx, svg) is cheaper and safer than fixing it four times or not at all."
+    acceptance_criteria:
+      - "Reading any zip member (docx, epub, and later pptx) enforces a maximum decompressed size, rejecting the file with a clear error rather than reading an unbounded amount into memory."
+      - "XML parsing (epub's OPF/spine documents, and later svg/pptx's XML parts) uses a hardened parser (e.g. defusedxml) or explicitly disables entity resolution, verified by a test that a billion-laughs-style fixture is rejected rather than expanded."
+      - "Existing docx/epub extraction behavior is unchanged for well-formed, non-malicious input — this is a guard, not a rewrite of the extraction logic."
+    dependencies: []
+    references:
+      - "src/doc_ray/adapters/extraction.py"
+    owner:        "shared"
+    source:       "Feature request 2026-07-05: design production-ready ingestion for pptx/svg and audit docx/html/epub; verified live that EPUB's zip/XML parsing has no decompression-bomb or entity-expansion guard today, and that this would otherwise be copied into two new formats rather than fixed."
+    tags:         ["security", "extraction", "hardening", "zip-bomb", "xxe"]
+
+  - id:          "BL-089"
+    title:        "Extraction support for PPTX: text and structure from slide/placeholder data"
+    summary:      "PPTX is not ingestable today (confirmed: zero pptx code in extraction.py, python-pptx not installed). Unlike PDF, PowerPoint files carry explicit structure — placeholder type (title vs body/content) and per-paragraph indent/bullet level — so extraction can emit clean heading/list Markdown directly from that structure instead of a font-size heuristic."
+    description: |
+      python-pptx exposes, per slide, shapes with a placeholder type
+      (title/body/content/etc.) and, per paragraph within a text frame, a
+      `.level` attribute for bullet/indent depth. This lets a PPTX
+      extractor emit "# "/"## " for title placeholders and "- " for
+      bulleted paragraphs directly from that explicit structure — the
+      same Markdown vocabulary pdf_layout.py already produces from PDF's
+      font-size/bold heuristic ("#"*level + " ", "- "), but derived from
+      real structure instead of inference. One slide is the natural
+      page-equivalent (relevant later for BL-087's overlay work, not
+      required by this item).
+
+      Register the new extractor in extraction.py's _EXTRACTORS dispatch
+      table (mirroring extract_docx's optional-import guard for an
+      uninstalled library), record doc_type='pptx' and the appropriate
+      content_type, and confirm the webapp upload path accepts .pptx
+      end-to-end (form, job, resulting document row) rather than only
+      wiring the extraction function in isolation.
+    category:     "extraction"
+    type:         "feature"
+    status:       "parked"
+    complexity:   "M"
+    priority:     "medium"
+    rationale:    "Named directly in the request ('document can also be ... pptx'), confirmed absent (no code, no dependency) rather than merely unverified, and a natural extension of the same structural-Markdown approach the reader now depends on for PDF."
+    acceptance_criteria:
+      - "A .pptx upload extracts slide text (title, body/content placeholders, and speaker notes if present) into full_text, structured as Markdown headings/lists from placeholder type and paragraph level rather than flat concatenated text."
+      - "python-pptx is added as an explicit, version-pinned dependency, guarded the same optional-import way extract_docx guards python-docx."
+      - "doc_type='pptx' is recorded and the upload form/route accepts .pptx end-to-end, from webapp upload through job processing to a queryable document row."
+      - "Builds on BL-088's hardened zip/XML parsing rather than a fresh unguarded zipfile.ZipFile/parser call."
+    dependencies: ["BL-088"]
+    references:
+      - "src/doc_ray/adapters/extraction.py"
+      - "src/doc_ray/domain/pdf_layout.py"
+    owner:        "shared"
+    source:       "Feature request 2026-07-05: full ingest feature design for pptx/svg; verified python-pptx exposes placeholder type and paragraph.level, confirmed neither pptx code nor the python-pptx dependency exists today."
+    tags:         ["extraction", "pptx", "format-support", "structure"]
+
+  - id:          "BL-090"
+    title:        "Extraction support for SVG: text and structure from font-size/weight classification"
+    summary:      "SVG is not ingestable today (confirmed: zero svg code anywhere in src/, no SVG-specific dependency). SVG <text>/<tspan> elements commonly carry font-size/font-weight (attribute or inline style=), so a heading_level-style classifier — the same ratio-based approach pdf_layout.py already uses for PDF — is structurally applicable here too."
+    description: |
+      Parse the SVG's XML tree (stdlib ElementTree via BL-088's hardened
+      parse path, matching the pattern EPUB already uses rather than
+      adding a new dependency) and pull text content from <text>/<tspan>
+      nodes. Classify heading-vs-body text from declared
+      font-size/font-weight relative to the SVG's most common (body) text
+      size, mirroring pdf_layout.heading_level's ratio-based
+      classification (pdf_layout.py:92-104) adapted to SVG's
+      directly-declared sizes rather than PDF's derived-from-rendering
+      sizes.
+
+      Register the extractor in _EXTRACTORS, record doc_type='svg', and
+      confirm upload acceptance end-to-end, matching BL-089's wiring
+      expectations.
+    category:     "extraction"
+    type:         "feature"
+    status:       "parked"
+    complexity:   "S"
+    priority:     "medium"
+    rationale:    "Named directly in the request ('document can also be ... svgs'), confirmed absent, and structurally the easiest of the new formats: SVG needs no new heavyweight dependency (stdlib ElementTree, already used for EPUB, suffices) and its font-size/weight data is declared directly rather than inferred."
+    acceptance_criteria:
+      - "A .svg upload extracts <text>/<tspan> content into full_text, with heading-like text (by font-size/weight ratio) emitted as Markdown headings rather than flat text."
+      - "doc_type='svg' is recorded and the upload form/route accepts .svg end-to-end."
+      - "Uses BL-088's hardened XML parse path rather than raw ElementTree.fromstring on untrusted input."
+    dependencies: ["BL-088"]
+    references:
+      - "src/doc_ray/adapters/extraction.py"
+      - "src/doc_ray/domain/pdf_layout.py"
+    owner:        "shared"
+    source:       "Feature request 2026-07-05: full ingest feature design for pptx/svg; verified no svg code or dependency exists today, and that SVG text elements commonly declare font-size/weight the same way PDF spans do."
+    tags:         ["extraction", "svg", "format-support", "structure"]
+
+  - id:          "BL-091"
+    title:        "DOCX: reconstruct heading/list structure from paragraph styles"
+    summary:      "extract_docx (extraction.py:511-518) joins every paragraph's raw text with no structural distinction at all — python-docx already exposes paragraph.style.name ('Heading 1', 'Heading 2', 'List Bullet', 'List Number'), unused anywhere in the codebase, that would let DOCX get the same #/##/- Markdown structure PDF now reconstructs."
+    description: |
+      Confirmed live (python-docx 1.2.0, installed): Paragraph.style.name
+      returns exactly the style names Word itself assigns on headings and
+      list paragraphs. Nothing in extraction.py reads it today —
+      extract_docx discards it entirely, so every DOCX document loses all
+      heading/list structure at ingest, the same class of information
+      loss the reader work earlier this session fixed for PDF's
+      font-size-derived structure (see
+      reader_blocks.split_structural_blocks and pdf_layout.to_markdown).
+      This item maps DOCX's *explicit* style names onto the same
+      "#"*level/"- " Markdown vocabulary, which is more reliable than
+      PDF's heuristic since Word records the author's actual intent
+      rather than an inferred font-size ratio.
+    category:     "extraction"
+    type:         "tech-debt"
+    status:       "parked"
+    complexity:   "S"
+    priority:     "medium"
+    rationale:    "This is a currently-real, currently-shipping information loss for an already-supported format, not a hypothetical gap — every DOCX document ingested today silently loses heading/list structure that Word itself recorded and python-docx already exposes for free."
+    acceptance_criteria:
+      - "extract_docx reads paragraph.style.name and emits '#'/'##'/'###' for Heading 1/2/3-style paragraphs and '- ' for List Bullet/List Number-style paragraphs, instead of flat joined text."
+      - "Paragraphs with no recognized heading/list style are emitted as plain paragraph text, unchanged from today's behavior."
+      - "A test ingests a DOCX fixture with at least one heading and one bulleted list and asserts the resulting full_text contains the corresponding Markdown markers."
+    dependencies: []
+    references:
+      - "src/doc_ray/adapters/extraction.py"
+      - "src/doc_ray/domain/pdf_layout.py"
+    owner:        "shared"
+    source:       "Feature request 2026-07-05: audit docx/html/epub for structural-extraction gaps while designing pptx/svg ingestion; verified python-docx already exposes paragraph.style.name unused by extract_docx."
+    tags:         ["extraction", "docx", "structure", "tech-debt"]
+
+  - id:          "BL-092"
+    title:        "HTML/EPUB: reconstruct heading/list structure instead of flattening all block tags"
+    summary:      "_HTMLText (extraction.py:387-423) treats h1-h6, li, p, div, br, tr all identically as a bare newline break — headings and list items are indistinguishable in extracted text. EPUB reuses this same stripper per spine document (extraction.py:468-491), so the gap affects both formats via one shared code path."
+    description: |
+      Confirmed live: handle_starttag/handle_endtag both just append "\n"
+      for any tag in the _BREAK set (extraction.py:391, 399-411) with
+      zero per-tag distinction, and handle_data appends raw text
+      unconditionally outside _SKIP tags (script/style/head/title). This
+      item extends _HTMLText to emit "#"*level for h1-h6 and "- " for li
+      under ul/ol, reusing the same Markdown vocabulary
+      pdf_layout.py/BL-091 produce, so the text-only formats (html, epub)
+      plus docx (BL-091) and pdf all converge on one structural
+      vocabulary the reader already understands.
+    category:     "extraction"
+    type:         "tech-debt"
+    status:       "parked"
+    complexity:   "M"
+    priority:     "medium"
+    rationale:    "Confirmed live total flattening, not a partial gap — h1 and a bare div produce identically-shaped output today. Because EPUB extraction is built directly on this same HTML stripper, fixing it once fixes both formats."
+    acceptance_criteria:
+      - "_HTMLText emits '#'-per-level for h1-h6 open tags and '- ' for li elements (nested under ul or ol), instead of a bare newline break for every block tag."
+      - "Existing plain-paragraph/div/br/tr handling is otherwise unchanged."
+      - "A test ingests an HTML fixture with headings and a list and an EPUB fixture with the same, asserting both produce the corresponding Markdown markers in full_text."
+    dependencies: []
+    references:
+      - "src/doc_ray/adapters/extraction.py"
+    owner:        "shared"
+    source:       "Feature request 2026-07-05: audit docx/html/epub for structural-extraction gaps while designing pptx/svg ingestion; verified _HTMLText flattens all block tags identically with no heading/list distinction."
+    tags:         ["extraction", "html", "epub", "structure", "tech-debt"]
+
+  - id:          "BL-093"
+    title:        "Format-extraction coverage guard: every registered extractor has a golden-fixture test"
+    summary:      "A drift guard, not a per-feature test task: assert that every extension key in extraction.py's _EXTRACTORS dispatch table has a corresponding golden-fixture regression test, so a future format (or a structural change like BL-091/BL-092) can't land or silently regress without one — mirroring the BL-047/BL-052 drift-gate pattern already established in this backlog."
+    description: |
+      tests/test_extract_formats.py already exercises each currently-
+      registered extractor individually; this item adds the guard the
+      other direction — introspect _EXTRACTORS' keys and assert a
+      fixture/test exists for each, so adding BL-089 (pptx) or BL-090
+      (svg) without a matching test is a test failure, not a silent gap,
+      and the same applies to any format added after this lands.
+    category:     "testing"
+    type:         "infra"
+    status:       "parked"
+    complexity:   "XS"
+    priority:     "medium"
+    rationale:    "The backlog already treats this class of guard as valuable precedent (BL-047 drift-gates generated docs, BL-052 test-enforces the hexagonal import direction) — extraction format coverage is the same shape of problem: a registration a test suite can silently fall behind."
+    acceptance_criteria:
+      - "A test enumerates extraction.py's _EXTRACTORS keys and fails if any extension lacks a corresponding fixture-backed test in test_extract_formats.py."
+      - "The guard passes today against the five currently-registered formats before any of BL-089/BL-090 land."
+    dependencies: []
+    references:
+      - "src/doc_ray/adapters/extraction.py"
+      - "tests/test_extract_formats.py"
+    owner:        "shared"
+    source:       "Feature request 2026-07-05: full ingest feature design for pptx/svg, decomposed to include a durable test-coverage component rather than one-off tests per format."
+    tags:         ["testing", "extraction", "drift-guard"]
