@@ -44,11 +44,27 @@ class Query:
 
     @strawberry.field
     async def documents(
-        self, info: Info, limit: int = 50, after: str | None = None
+        self,
+        info: Info,
+        limit: int = 50,
+        after: str | None = None,
+        doc_type: str | None = None,
+        status: str | None = None,
+        tags: list[str] | None = None,
     ) -> list[Document]:
-        """Return a bounded page of document summaries."""
+        """Return a bounded page of document summaries, optionally filtered.
+
+        ``tags`` matches a document that has any of the given tags (OR semantics).
+        """
         ctx = info.context
-        rows = await read.list_documents(ctx.conn, limit=ctx.page_size(limit), after=after)
+        rows = await read.list_documents(
+            ctx.conn,
+            limit=ctx.page_size(limit),
+            after=after,
+            doc_type=doc_type,
+            status=status,
+            tags=tags,
+        )
         return [Document.from_row(r) for r in rows]
 
     @strawberry.field

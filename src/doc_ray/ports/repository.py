@@ -116,9 +116,16 @@ class ReadRepository(Protocol):
         ...
 
     async def list_documents(
-        self, conn: psycopg.AsyncConnection[Row], *, limit: int = 50, after: str | None = None
+        self,
+        conn: psycopg.AsyncConnection[Row],
+        *,
+        limit: int = 50,
+        after: str | None = None,
+        doc_type: str | None = None,
+        status: str | None = None,
+        tags: list[str] | None = None,
     ) -> list[Row]:
-        """Return document summary rows (with counts) newest-first."""
+        """Return document summary rows (with counts) newest-first, optionally filtered."""
         ...
 
     async def list_sentences(

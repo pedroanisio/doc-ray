@@ -273,6 +273,32 @@ def test_home_states_product_value_proposition(client):
     assert "auditable research corpus" in normalized
 
 
+def test_home_paginates_and_shows_next_link(client, monkeypatch):
+    captured = {}
+
+    def paginated_q(sql, params=()):
+        s = _norm(sql)
+        if "FROM documents d" in s and "ORDER BY d.char_count" in s:
+            captured["params"] = params
+            return [dict(_DOC, n_sentences=6002, tools="spacy/en_core_web_sm")] * 50
+        return fake_q(sql, params)
+
+    monkeypatch.setattr(webapp, "q", paginated_q)
+
+    html = client.get("/?page=2").get_data(as_text=True)
+
+    assert captured["params"]["offset"] == 50
+    assert captured["params"]["limit"] == 50
+    assert 'href="?page=1"' in html  # prev
+    assert 'href="?page=3"' in html  # a full page implies a next page
+
+
+def test_home_last_page_has_no_next_link(client):
+    # The default fixture returns a single row: fewer than a full page.
+    html = client.get("/").get_data(as_text=True)
+    assert "next →" not in html
+
+
 def test_header_groups_reading_and_admin_navigation(client):
     html = client.get("/").get_data(as_text=True)
     normalized = _norm(html)
@@ -493,6 +519,33 @@ def test_search_highlights_the_term(client):
     html = client.get("/search?q=Winston").get_data(as_text=True)
     assert "<mark>Winston</mark>" in html
     assert "Big Brother" in html
+
+
+def test_search_paginates_and_shows_next_link(client, monkeypatch):
+    captured = {}
+    row = {"doc_id": DOC_ID, "title": "orwell1984", "ordinal": 3, "text": "Winston loved Big Brother."}
+
+    def paginated_q(sql, params=()):
+        s = _norm(sql)
+        if "FROM sentences s" in s and "ILIKE" in s:
+            captured["params"] = params
+            return [dict(row) for _ in range(100)]
+        return fake_q(sql, params)
+
+    monkeypatch.setattr(webapp, "q", paginated_q)
+
+    html = client.get("/search?q=Winston&page=2").get_data(as_text=True)
+
+    assert captured["params"]["offset"] == 100
+    assert captured["params"]["limit"] == 100
+    assert 'href="?q=Winston&page=1"' in html
+    assert 'href="?q=Winston&page=3"' in html
+
+
+def test_search_last_page_has_no_next_link(client):
+    # The default fixture returns a single row: fewer than a full page.
+    html = client.get("/search?q=Winston").get_data(as_text=True)
+    assert "next →" not in html
 
 
 def test_search_discloses_literal_substring_semantics(client):

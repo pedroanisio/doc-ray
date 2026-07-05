@@ -53,5 +53,12 @@
     {% endfor %}
     </tbody>
   </table>
+  {% if rows %}
+  <div class="pager">
+    {% if page > 1 %}<a href="?page={{ page-1 }}">← prev</a>{% endif %}
+    <span>page {{ page }}</span>
+    {% if has_next %}<a href="?page={{ page+1 }}">next →</a>{% endif %}
+  </div>
+  {% endif %}
 </div>
 {% endblock %}

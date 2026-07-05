@@ -184,7 +184,9 @@ def gql(query: str, variables: dict | None = None) -> dict:
 
 @app.route("/")
 def documents():
-    """Render the corpus landing page: all documents plus corpus-wide totals."""
+    """Render the corpus landing page: a paginated document list plus corpus-wide totals."""
+    per_page = 50
+    page = max(1, request.args.get("page", 1, type=int))
     rows = q(
         """
         SELECT d.id, d.title, d.doc_type, d.language, d.char_count, d.page_count,
@@ -193,7 +195,9 @@ def documents():
                   FROM annotations a WHERE a.document_id = d.id) AS tools
         FROM documents d
         ORDER BY d.char_count DESC NULLS LAST
-        """
+        LIMIT %(limit)s OFFSET %(offset)s
+        """,
+        {"limit": per_page, "offset": (page - 1) * per_page},
     )
     totals = q1(
         "SELECT (SELECT count(*) FROM documents) docs, "
@@ -201,7 +205,9 @@ def documents():
         "(SELECT count(*) FROM lexemes) lexemes, "
         "(SELECT count(*) FROM lexeme_occurrences) occ"
     )
-    return render_template("documents.html", rows=rows, totals=totals)
+    return render_template(
+        "documents.html", rows=rows, totals=totals, page=page, has_next=len(rows) == per_page
+    )
 
 
 @app.route("/operator/health")
@@ -645,21 +651,25 @@ def lexeme(uid):
 def search():
     """Render full-text sentence search results for the ``q`` query parameter."""
     term = request.args.get("q", "", type=str).strip()
+    per_page = 100
+    page = max(1, request.args.get("page", 1, type=int))
     rows = []
+    has_next = False
     if term:
         rows = q(
             """
             SELECT d.id AS doc_id, d.title, s.ordinal, s.text
             FROM sentences s JOIN documents d ON d.id = s.document_id
-            WHERE s.text ILIKE %s
-            ORDER BY d.title, s.ordinal LIMIT 100
+            WHERE s.text ILIKE %(term)s
+            ORDER BY d.title, s.ordinal LIMIT %(limit)s OFFSET %(offset)s
             """,
-            (f"%{term}%",),
+            {"term": f"%{term}%", "limit": per_page, "offset": (page - 1) * per_page},
         )
+        has_next = len(rows) == per_page
         for r in rows:
             pre, _, post = r["text"].partition(term)
             r["pre"], r["hit"], r["post"] = pre, (term if _ else ""), post
-    return render_template("search.html", term=term, rows=rows)
+    return render_template("search.html", term=term, rows=rows, page=page, has_next=has_next)
 
 
 # --- backup / restore --------------------------------------------------------

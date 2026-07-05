@@ -2020,7 +2020,7 @@ items:
       from scratch.
     category:     "api"
     type:         "tech-debt"
-    status:       "parked"
+    status:       "done"
     complexity:   "S"
     priority:     "medium"
     rationale:    "A growing corpus will make the main document list and search results unusable without a pager, and the documents query can't yet be filtered by the metadata fields (doc_type, status, tags) it already stores."
@@ -2036,7 +2036,7 @@ items:
     owner:        "shared"
     related_decisions:
       - "D-008"
-    source:       "Session finding 2026-07-05: document-surface UX/data-management capability audit (parallel webapp-UI and GraphQL/persistence reviews against 9 claimed product gaps)."
+    source:       "Session finding 2026-07-05: document-surface UX/data-management capability audit (parallel webapp-UI and GraphQL/persistence reviews against 9 claimed product gaps). Implemented 2026-07-05 in worktree doc-mgmt-lane: webapp/app.py's documents()/search() routes now page with LIMIT/OFFSET + a prev/next pager (webapp's own established convention, per lexemes()/document()'s sentence reader — not a keyset cursor, which is GraphQL-only infrastructure); the documents GraphQL query and persistence_read.list_documents gained doc_type/status/tags filter arguments (OR semantics across multiple tags)."
     tags:         ["api", "webapp", "pagination", "filtering"]
 
   - id:          "BL-064"
