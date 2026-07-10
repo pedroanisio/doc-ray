@@ -1837,7 +1837,7 @@ items:
       edit is attributable and reversible.
     category:     "api"
     type:         "feature"
-    status:       "parked"
+    status:       "done"
     complexity:   "M"
     priority:     "high"
     rationale:    "This is the foundational gap: lifecycle states, bulk actions, AI-suggested refinements, and operator correction (BL-059/BL-060/BL-061/BL-062) all need a mutation surface to write to, and none currently exists."
@@ -1853,7 +1853,7 @@ items:
     related_decisions:
       - "D-001"
       - "D-010"
-    source:       "Session finding 2026-07-05: document-surface UX/data-management capability audit (parallel webapp-UI and GraphQL/persistence reviews against 9 claimed product gaps)."
+    source:       "Session finding 2026-07-05: document-surface UX/data-management capability audit (parallel webapp-UI and GraphQL/persistence reviews against 9 claimed product gaps). Implemented 2026-07-10 in worktree doc-mgmt-lane: migration 043 adds documents.description + the document_metadata_history table (RLS-scoped like document_provenance); persistence.update_document_metadata applies the edit and records one history row per changed field via the new update_metadata job kind (D-004/D-005's job-queue write pattern, matching every mutation but decide_seeds); updateDocumentMetadata enqueues it, documentMetadataHistory reads it back; the document page gained an inline edit form and a change-history card. Schema bumped to 1.10.0 (migration 044)."
     tags:         ["api", "webapp", "metadata", "audit-log"]
 
   - id:          "BL-059"

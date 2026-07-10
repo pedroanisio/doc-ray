@@ -36,6 +36,7 @@ KIND_SEED_APPROVED = "seed_approved"
 KIND_CANONICALIZE = "canonicalize"
 KIND_BACKUP = "backup"
 KIND_RESTORE = "restore"
+KIND_UPDATE_METADATA = "update_metadata"
 
 
 @dataclass(frozen=True)

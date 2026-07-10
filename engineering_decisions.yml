@@ -27,10 +27,11 @@ source_schema:         "db/migrations"
 # principal LOGIN-role isolation, to 1.6.0 by migration 033 for API-role
 # runtime grants, to 1.7.0 by migration 035 for scheduled backup retention and
 # annotation-table autovacuum tuning, to 1.8.0 by migration 037 for
-# evaluation/drift artifacts, then to 1.9.0 by migration 039 for the
-# entity_mention/chunk surface denormalization). Kept in lockstep with
-# doc_ray.__version__ by scripts/check_version_consistency.py.
-source_schema_version: "1.9.0"
+# evaluation/drift artifacts, to 1.9.0 by migration 039 for the
+# entity_mention/chunk surface denormalization, then to 1.10.0 by migration 044
+# for editable document metadata + change history (BL-058). Kept in lockstep
+# with doc_ray.__version__ by scripts/check_version_consistency.py.
+source_schema_version: "1.10.0"
 target_engine:         "PostgreSQL 16"
 total_decisions:       17
 

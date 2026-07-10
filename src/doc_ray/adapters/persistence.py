@@ -432,3 +432,87 @@ def insert_document(
                         param_rows,
                     )
     return str(doc_id)
+
+
+def update_document_metadata(
+    conn: DictConnection,
+    document_id: str,
+    *,
+    title: str | None = None,
+    description: str | None = None,
+    tags: list[str] | None = None,
+    actor: str | None = None,
+) -> list[str]:
+    """Edit a document's title/description/tags, recording one history row per change.
+
+    Only fields actually passed (not ``None``) are considered; a field whose new
+    value equals its current value is not treated as a change (no-op, no history
+    row). ``tags``, when passed, fully replaces the document's tag set.
+
+    Args:
+        conn: Open database connection.
+        document_id: The document to edit.
+        title: New title, or ``None`` to leave unchanged.
+        description: New description, or ``None`` to leave unchanged.
+        tags: New complete tag set, or ``None`` to leave unchanged.
+        actor: Caller-supplied label recorded on each history row.
+
+    Returns:
+        The list of field names actually changed (a subset of
+        ``["title", "description", "tags"]``), in that order.
+
+    Raises:
+        ValueError: If *document_id* does not name an existing document.
+    """
+    from doc_ray.domain.ulid import new_ulid_str
+
+    changed: list[str] = []
+    with conn.transaction():
+        current = conn.execute(
+            "SELECT title, description FROM documents WHERE id = %s FOR UPDATE",
+            (document_id,),
+        ).fetchone()
+        if current is None:
+            raise ValueError(f"no such document: {document_id}")
+        current_tags = None
+        if tags is not None:
+            current_tags = sorted(
+                r["tag"]
+                for r in conn.execute(
+                    "SELECT t.tag FROM document_tags dt JOIN tags t ON t.id = dt.tag_id "
+                    "WHERE dt.document_id = %s",
+                    (document_id,),
+                ).fetchall()
+            )
+
+        def _record(field: str, old_value: str | None, new_value: str | None) -> None:
+            conn.execute(
+                "INSERT INTO document_metadata_history "
+                "(id, document_id, field, old_value, new_value, actor) "
+                "VALUES (%s, %s, %s, %s, %s, %s)",
+                (new_ulid_str(), document_id, field, old_value, new_value, actor),
+            )
+            changed.append(field)
+
+        if title is not None and title != current["title"]:
+            _record("title", current["title"], title)
+            conn.execute("UPDATE documents SET title = %s WHERE id = %s", (title, document_id))
+
+        if description is not None and description != current["description"]:
+            _record("description", current["description"], description)
+            conn.execute(
+                "UPDATE documents SET description = %s WHERE id = %s", (description, document_id)
+            )
+
+        if tags is not None:
+            new_tags = sorted({t for t in tags if t})
+            if new_tags != current_tags:
+                _record("tags", ", ".join(current_tags or []), ", ".join(new_tags))
+                conn.execute("DELETE FROM document_tags WHERE document_id = %s", (document_id,))
+                for tag in new_tags:
+                    conn.execute(
+                        "INSERT INTO document_tags (document_id, tag_id) VALUES (%s, %s) "
+                        "ON CONFLICT DO NOTHING",
+                        (document_id, _tag_id(conn, tag)),
+                    )
+    return changed

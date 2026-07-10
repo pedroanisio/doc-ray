@@ -399,6 +399,76 @@ def test_document_unannotated_reader_explains_queued_annotation(client, monkeypa
     assert "The plain text is readable now" in html
 
 
+def test_document_page_shows_metadata_edit_form(client):
+    html = client.get(f"/doc/{DOC_ID}").get_data(as_text=True)
+    assert f'action="/doc/{DOC_ID}/metadata"' in html
+    assert 'name="title" value="orwell1984"' in html
+    assert 'name="tags"' in html and 'name="description"' in html
+
+
+def test_document_page_shows_metadata_edit_history(client, monkeypatch):
+    def with_history(sql, params=()):
+        s = _norm(sql)
+        if "FROM document_metadata_history" in s:
+            return [
+                {
+                    "field": "title",
+                    "old_value": "Old Title",
+                    "new_value": "orwell1984",
+                    "changed_at": datetime(2026, 7, 5, 12, 0),
+                    "actor": "tester",
+                }
+            ]
+        return fake_q(sql, params)
+
+    monkeypatch.setattr(webapp, "q", with_history)
+
+    html = client.get(f"/doc/{DOC_ID}").get_data(as_text=True)
+
+    assert "Edit history" in html
+    assert "changed" in html and "title" in html
+    assert "Old Title" in html and "tester" in html
+
+
+def test_document_metadata_update_calls_mutation_and_redirects(client, monkeypatch):
+    captured = {}
+
+    def fake_gql(query, variables=None):
+        captured["query"] = query
+        captured["variables"] = variables
+        return {"updateDocumentMetadata": {"id": DOC_ID}}
+
+    monkeypatch.setattr(webapp, "gql", fake_gql)
+
+    resp = client.post(
+        f"/doc/{DOC_ID}/metadata",
+        data={"title": "New Title", "description": "A summary.", "tags": "a, b"},
+    )
+
+    assert resp.status_code == 302
+    assert f"/doc/{DOC_ID}" in resp.headers["Location"]
+    assert "metadata_queued=1" in resp.headers["Location"]
+    assert "updateDocumentMetadata" in captured["query"]
+    assert captured["variables"] == {
+        "id": DOC_ID,
+        "title": "New Title",
+        "description": "A summary.",
+        "tags": ["a", "b"],
+    }
+
+
+def test_document_metadata_update_error_redirects_with_message(client, monkeypatch):
+    def raising_gql(query, variables=None):
+        raise RuntimeError("permission denied")
+
+    monkeypatch.setattr(webapp, "gql", raising_gql)
+
+    resp = client.post(f"/doc/{DOC_ID}/metadata", data={"title": "New Title"})
+
+    assert resp.status_code == 302
+    assert "metadata_error=permission+denied" in resp.headers["Location"]
+
+
 def test_document_pagination_math(client):
     # 120 sentences / 40 per page -> 3 pages; page 2 offers prev and next.
     html = client.get(f"/doc/{DOC_ID}?page=2").get_data(as_text=True)

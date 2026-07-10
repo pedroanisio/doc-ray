@@ -218,6 +218,27 @@ doc-ray carries **one global version** covering both the application package
   nonsense words identically to real ones), decoupling the test from
   corpus size entirely.
 
+## [1.10.0] - 2026-07-10
+
+### Added
+- **Editable document metadata (title/description/tags) with a change-history
+  audit trail** (Claude Sonnet 5 via Claude Code, BL-058) — documents were
+  write-once at ingest: no mutation or webapp route could rename a document
+  or fix a wrong title, add a description, or correct a tag afterward.
+  `documents` gains a `description` column and a new append-only
+  `document_metadata_history` table (migration 043), RLS-scoped and
+  read-granted like `document_provenance`; the `updateDocumentMetadata`
+  GraphQL mutation enqueues an `update_metadata` job that applies the edit
+  and records one history row per changed field. The webapp's document page
+  gains an edit form and a change-history view. Schema `1.10.0`.
+- **Document list pagination + query filters** (Claude Sonnet 5 via Claude
+  Code, BL-063) — the corpus landing page fetched every document unbounded
+  and `/search` hard-capped at 100 results with no way to see more. Both now
+  page with a prev/next pager, matching the webapp's own established
+  convention (`lexemes()`, the `/doc/<id>` sentence reader). The `documents`
+  GraphQL query and `persistence_read.list_documents` gained `doc_type`/
+  `status`/`tags` filter arguments alongside the existing keyset cursor.
+
 ## [1.9.0] - 2026-07-05
 
 ### Fixed

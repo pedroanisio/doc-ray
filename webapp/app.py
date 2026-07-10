@@ -334,6 +334,11 @@ def document(doc_id):
                 s["blocks"] = render_plain_blocks(body, blocks)
 
     pages = max(1, -(-n_sent // per_page))
+    metadata_history = q(
+        "SELECT field, old_value, new_value, changed_at, actor "
+        "FROM document_metadata_history WHERE document_id = %s ORDER BY id DESC",
+        (str(doc_id),),
+    )
     return render_template(
         "document.html",
         doc=doc,
@@ -348,7 +353,51 @@ def document(doc_id):
         n_sent=n_sent,
         annotate=annotate,
         annotation_state=latest_annotation_state(q, doc_id),
+        metadata_history=metadata_history,
+        metadata_error=request.args.get("metadata_error"),
+        metadata_queued=request.args.get("metadata_queued"),
     )
+
+
+@app.route("/doc/<uuid:doc_id>/metadata", methods=["POST"])
+def document_metadata_update(doc_id):
+    """Submit a title/description/tags edit via the GraphQL mutation (BL-058).
+
+    The webapp never writes to the corpus directly — this proxies to
+    ``updateDocumentMetadata``, the one write path, the same way
+    ``upload_submit``/``backups_create`` proxy their writes.
+    """
+    from flask import redirect, url_for
+
+    title = (request.form.get("title") or "").strip() or None
+    description = (request.form.get("description") or "").strip() or None
+    tags_raw = request.form.get("tags")
+    tags = [t.strip() for t in tags_raw.split(",") if t.strip()] if tags_raw is not None else None
+
+    variables: dict = {"id": str(doc_id)}
+    if title is not None:
+        variables["title"] = title
+    if description is not None:
+        variables["description"] = description
+    if tags is not None:
+        variables["tags"] = tags
+
+    mutation = """
+        mutation($id: ID!, $title: String, $description: String, $tags: [String!]) {
+          updateDocumentMetadata(documentId: $id, title: $title, description: $description, tags: $tags) {
+            id
+          }
+        }
+    """
+    try:
+        gql(mutation, variables)
+    except Exception as exc:
+        return redirect(url_for("document", doc_id=doc_id, metadata_error=str(exc)))
+    # The edit is enqueued, not applied synchronously (D-004/D-005: writes
+    # never happen in the request) — the worker typically catches up within
+    # WORKER_POLL_SECONDS (5s by default); flag that on the redirect rather
+    # than let the reloaded page look like the edit silently did nothing.
+    return redirect(url_for("document", doc_id=doc_id, metadata_queued=1))
 
 
 @app.errorhandler(413)

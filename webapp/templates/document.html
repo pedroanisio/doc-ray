@@ -122,6 +122,23 @@
     {% if authors %}<span style="color:var(--ink-soft)">&nbsp; by {{ authors|join(", ") }}</span>{% endif %}
     {% for t in tags %}<span class="pill">{{ t }}</span>{% endfor %}
   </div>
+  {% if doc.description %}<p class="lede" style="margin-top:.6rem">{{ doc.description }}</p>{% endif %}
+  {% if metadata_queued %}
+    <div class="notice">Edit queued — the worker applies it within a few seconds; reload to see it.</div>
+  {% endif %}
+  {% if metadata_error %}
+    <div class="errbox">Couldn't queue that edit: {{ metadata_error }}</div>
+  {% endif %}
+  <details style="margin-top:.6rem">
+    <summary class="kicker" style="cursor:pointer">Edit title, description, tags</summary>
+    <form method="post" action="{{ url_for('document_metadata_update', doc_id=doc.id) }}"
+          class="filters" style="margin-top:.7rem; align-items:flex-start">
+      <input type="text" name="title" value="{{ doc.title }}" placeholder="title" style="min-width:16rem">
+      <input type="text" name="description" value="{{ doc.description or '' }}" placeholder="description" style="min-width:20rem">
+      <input type="text" name="tags" value="{{ tags|join(', ') }}" placeholder="tags, comma-separated" style="min-width:14rem">
+      <button type="submit">Save</button>
+    </form>
+  </details>
 </div>
 
 <div class="docgrid">
@@ -209,6 +226,20 @@
       {% else %}<span class="lede">—</span>{% endfor %}
       </div>
     </div>
+    {% if metadata_history %}
+    <div class="card">
+      <h2 style="margin-top:0">Edit history</h2>
+      <div style="display:grid; gap:.55rem">
+        {% for h in metadata_history %}
+          <div style="font-size:.82rem; line-height:1.45">
+            <span class="mono" style="color:var(--ink-faint)">{{ h.changed_at.strftime('%Y-%m-%d %H:%M') }}</span>
+            &nbsp;changed <b>{{ h.field }}</b>{% if h.actor %} by {{ h.actor }}{% endif %}<br>
+            <span style="color:var(--ink-faint)">{{ h.old_value or '—' }}</span> &rarr; {{ h.new_value or '—' }}
+          </div>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
   </aside>
 </div>
 

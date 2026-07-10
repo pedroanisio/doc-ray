@@ -225,6 +225,25 @@ async def get_provenance(conn: _AConn, document_id: str) -> list[Row]:
     return events
 
 
+async def get_metadata_history(conn: _AConn, document_id: str) -> list[Row]:
+    """Return a document's title/description/tags edit history, oldest first (BL-058).
+
+    Args:
+        conn: Async database connection.
+        document_id: UUID of the owning document.
+
+    Returns:
+        Change rows (``field``, ``old_value``, ``new_value``, ``changed_at``,
+        ``actor``), in ULID (== time) order.
+    """
+    return await _rows(
+        conn,
+        "SELECT id, document_id, field, old_value, new_value, changed_at, actor "
+        "FROM document_metadata_history WHERE document_id = %s ORDER BY id",
+        (document_id,),
+    )
+
+
 # --------------------------------------------------------------------------
 # Batched by-document readers (feed the API DataLoaders; avoid N+1)
 # --------------------------------------------------------------------------

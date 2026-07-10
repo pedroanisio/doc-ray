@@ -145,6 +145,12 @@ class ReadRepository(Protocol):
         """Return a document's provenance events (params reassembled) in order."""
         ...
 
+    async def get_metadata_history(
+        self, conn: psycopg.AsyncConnection[Row], document_id: str
+    ) -> list[Row]:
+        """Return a document's title/description/tags edit history, oldest first."""
+        ...
+
     async def authors_by_documents(
         self, conn: psycopg.AsyncConnection[Row], document_ids: list[str]
     ) -> dict[str, list[str]]:

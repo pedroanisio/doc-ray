@@ -21,6 +21,7 @@ from doc_ray.entrypoints.api.canonical_types import (
 from doc_ray.entrypoints.api.types import (
     Document,
     DocumentHit,
+    DocumentMetadataChange,
     EntityFrequency,
     EntityMention,
     Info,
@@ -72,6 +73,14 @@ class Query:
         """Return the document with *id*, or ``None`` if it does not exist."""
         row = await read.get_document(info.context.conn, str(id))
         return Document.from_row(row) if row is not None else None
+
+    @strawberry.field
+    async def document_metadata_history(
+        self, info: Info, document_id: strawberry.ID
+    ) -> list[DocumentMetadataChange]:
+        """Return a document's title/description/tags edit history, oldest first."""
+        rows = await read.get_metadata_history(info.context.conn, str(document_id))
+        return [DocumentMetadataChange.from_row(r) for r in rows]
 
     @strawberry.field
     async def search_sentences(

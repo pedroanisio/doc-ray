@@ -157,6 +157,7 @@ class Document:
     content_sha256: str | None
     source_uri: str | None
     original_filename: str | None
+    description: str | None
     subtitle: str | None
     publisher: str | None
     published_on: date | None
@@ -185,6 +186,7 @@ class Document:
             content_sha256=row.get("content_sha256"),
             source_uri=row.get("source_uri"),
             original_filename=row.get("original_filename") or row.get("filename"),
+            description=row.get("description"),
             subtitle=row.get("subtitle"),
             publisher=row.get("publisher"),
             published_on=row.get("published_on"),
@@ -509,4 +511,35 @@ class SeedSuggestion:
             description=row.get("description"),
             entity_type=row.get("entity_type"),
             status=row["status"],
+        )
+
+
+@strawberry.type
+class DocumentMetadataChange:
+    """One edit to a document's title/description/tags (BL-058 audit trail).
+
+    Distinct from ``document_provenance`` (pipeline/ingest events, exposed
+    separately) — this is the record of direct edits to a document's own
+    descriptive metadata via ``updateDocumentMetadata``.
+    """
+
+    id: strawberry.ID
+    document_id: strawberry.ID
+    field: str
+    old_value: str | None
+    new_value: str | None
+    changed_at: datetime
+    actor: str | None
+
+    @classmethod
+    def from_row(cls, row: Row) -> DocumentMetadataChange:
+        """Build a ``DocumentMetadataChange`` from a history-table row."""
+        return cls(
+            id=strawberry.ID(str(row["id"])),
+            document_id=strawberry.ID(str(row["document_id"])),
+            field=row["field"],
+            old_value=row.get("old_value"),
+            new_value=row.get("new_value"),
+            changed_at=row["changed_at"],
+            actor=row.get("actor"),
         )

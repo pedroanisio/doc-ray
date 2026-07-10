@@ -85,3 +85,57 @@ def test_reannotate_and_delete_enqueue(pg):
             await aconn.close()
 
     asyncio.run(check())
+
+
+def test_update_document_metadata_enqueues_and_history_reads_back(pg):
+    """updateDocumentMetadata enqueues a job (BL-058); documentMetadataHistory reads it."""
+    doc_id = _seed(pg)
+    conn, _created = pg
+    schema = build_schema()
+
+    async def check():
+        aconn = await _aconn()
+        try:
+            ctx = RequestContext(conn=aconn, principal=WRITE_PRINCIPAL, loaders=Loaders(aconn))
+            result = await schema.execute(
+                'mutation ($id: ID!) { updateDocumentMetadata(documentId: $id, '
+                'title: "Renamed", tags: ["reviewed"]) { id kind status documentId } }',
+                variable_values={"id": doc_id},
+                context_value=ctx,
+            )
+            assert result.errors is None, result.errors
+            job = result.data["updateDocumentMetadata"]
+            assert job["kind"] == "update_metadata"
+            assert job["status"] == "queued"
+            assert job["documentId"] == doc_id
+
+            # Apply synchronously (a worker would normally do this) so the
+            # history read-surface has something to read back.
+            from doc_ray.application.jobs import handle_update_metadata
+            from doc_ray.domain.jobs import Job as DomainJob
+
+            handle_update_metadata(
+                conn,
+                None,
+                DomainJob(
+                    id="0" * 26,
+                    kind="update_metadata",
+                    status="queued",
+                    document_id=doc_id,
+                    payload={"title": "Renamed", "tags": ["reviewed"]},
+                ),
+            )
+
+            history = await schema.execute(
+                "query ($id: ID!) { documentMetadataHistory(documentId: $id) "
+                "{ field oldValue newValue } }",
+                variable_values={"id": doc_id},
+                context_value=ctx,
+            )
+            assert history.errors is None, history.errors
+            fields = {h["field"] for h in history.data["documentMetadataHistory"]}
+            assert fields == {"title", "tags"}
+        finally:
+            await aconn.close()
+
+    asyncio.run(check())

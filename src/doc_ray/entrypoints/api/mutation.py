@@ -29,6 +29,7 @@ from doc_ray.domain.jobs import (
     KIND_SEED_APPROVED,
     KIND_SEED_SUGGEST,
     KIND_SEMANTIC_ENRICH,
+    KIND_UPDATE_METADATA,
 )
 from doc_ray.entrypoints.api.context import RequestContext
 from doc_ray.entrypoints.api.types import Info, Job
@@ -73,6 +74,35 @@ class Mutation:
         ctx = info.context
         _require_write(ctx)
         job_id = await queue.enqueue_async(ctx.conn, KIND_DELETE, {}, document_id=str(document_id))
+        return await _job_status(ctx, job_id)
+
+    @strawberry.mutation
+    async def update_document_metadata(
+        self,
+        info: Info,
+        document_id: strawberry.ID,
+        title: str | None = None,
+        description: str | None = None,
+        tags: list[str] | None = None,
+    ) -> Job:
+        """Enqueue an edit to a document's title/description/tags; returns the job.
+
+        Only the fields passed are changed; each actually-changed field is
+        recorded in ``documentMetadataHistory``. Tags, when passed, fully
+        replace the document's current tag set.
+        """
+        ctx = info.context
+        _require_write(ctx)
+        payload: dict[str, Any] = {"actor": ctx.principal.principal_id}
+        if title is not None:
+            payload["title"] = title
+        if description is not None:
+            payload["description"] = description
+        if tags is not None:
+            payload["tags"] = list(tags)
+        job_id = await queue.enqueue_async(
+            ctx.conn, KIND_UPDATE_METADATA, payload, document_id=str(document_id)
+        )
         return await _job_status(ctx, job_id)
 
     @strawberry.mutation

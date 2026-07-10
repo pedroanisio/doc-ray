@@ -120,6 +120,8 @@ live backlog after these three.
 
 **2026-07-05 doc-management/webapp-UX lane, BL-063 landed:** implemented in worktree `doc-mgmt-lane`. `webapp/app.py`'s `documents()` and `search()` routes now page with `LIMIT`/`OFFSET` and a prev/next pager, matching the webapp's own established convention (`lexemes()`, `document()`'s sentence reader) rather than the GraphQL-only keyset-cursor machinery. The `documents` GraphQL query and `persistence_read.list_documents` gained `doc_type`/`status`/`tags` filter arguments (`tags` matches any-of, not all-of); `ReadRepository.list_documents`'s port signature was updated to match, keeping `test_read_surface_parity` green. New tests: two webapp pagination tests (`test_home_paginates_and_shows_next_link`, `test_search_paginates_and_shows_next_link`, plus their last-page counterparts) and one live-DB GraphQL filter test (`test_documents_filters_by_doc_type_status_and_tags`).
 
+**2026-07-10 doc-management/webapp-UX lane, BL-058 landed:** implemented in worktree `doc-mgmt-lane`, schema bumped to `1.10.0` (migration 043 adds `documents.description` + the RLS-scoped `document_metadata_history` table; migration 044 bumps the version). Metadata edits go through the same job-queue write pattern as every mutation but `decide_seeds` (D-004/D-005) — a new `update_metadata` job kind, dispatched to `persistence.update_document_metadata`, which applies only the fields passed and records one history row per field that actually changed (a same-value edit is a no-op, no history row). `updateDocumentMetadata` enqueues it; `documentMetadataHistory` reads the trail back; the document page gained an inline edit form (pre-filled, collapsed by default) and a change-history card in the sidebar, with a "queued" notice on the redirect since the edit isn't applied synchronously. New tests across the stack: `persistence.update_document_metadata` behavior via the job handler (`test_handle_update_metadata_*`), a GraphQL enqueue-then-read-back test, and four webapp tests (form pre-fill, history rendering, successful redirect with the right mutation variables, and the error path).
+
 ## Items
 
 | ID | Item | Category | Type | Status | Cx | Priority | Owner |
@@ -181,7 +183,7 @@ live backlog after these three.
 | BL-055 | Add index-health / corruption monitoring (amcheck + checksums) | ops | infra | parked | M | medium | shared |
 | BL-056 | Document thumbnails and visual previews | webapp | feature | parked | L | medium | shared |
 | BL-057 | Document collections: manual and rule-based smart collections | webapp | feature | parked | L | medium | shared |
-| BL-058 | Editable document metadata (rename, description, tags) with an audit log | api | feature | parked | M | high | shared |
+| BL-058 | Editable document metadata (rename, description, tags) with an audit log | api | feature | done | M | high | shared |
 | BL-059 | Document lifecycle states beyond ingestion status (archive, soft-delete, restore) | persistence | feature | parked | L | high | shared |
 | BL-060 | Bulk actions for documents (tag, archive, move, delete) | api | feature | parked | M | medium | shared |
 | BL-061 | AI-suggested document metadata refinements (titles, tags, duplicates, grouping) | nlp | feature | parked | M | medium | shared |
