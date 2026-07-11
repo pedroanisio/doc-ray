@@ -32,6 +32,7 @@ snapshot; it is <strong>destructive</strong>.</p>
 
 <div class="card">
   <form method="post" action="{{ url_for('backups_create') }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <div class="field">
       <input type="text" name="note" placeholder="note (optional) — e.g. before re-ingest">
       <button>Create backup</button>
@@ -63,6 +64,7 @@ snapshot; it is <strong>destructive</strong>.</p>
           <form method="post" action="{{ url_for('backups_restore', backup_id=r.id) }}"
                 onsubmit="return confirm('Restore the ENTIRE corpus to this snapshot? This overwrites all current data. Continue?');"
                 style="margin:0">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <button class="danger" type="submit">Restore</button>
           </form>
         {% endif %}

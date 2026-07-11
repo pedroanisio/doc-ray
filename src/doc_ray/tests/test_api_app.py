@@ -7,6 +7,7 @@ never enqueues onto the real queue another worker could claim.
 from __future__ import annotations
 
 import asyncio
+import io
 import json
 from dataclasses import replace
 from uuid import uuid4
@@ -15,8 +16,12 @@ import _itdb
 import psycopg
 import pytest
 from fastapi import HTTPException
+from fastapi.testclient import TestClient
 from psycopg.rows import dict_row
+from starlette.datastructures import Headers, UploadFile
 
+import doc_ray.entrypoints.api.app as api_app
+from doc_ray.adapters.object_store import ObjectStore
 from doc_ray.config import Config
 from doc_ray.entrypoints.api.app import create_app
 from doc_ray.entrypoints.api.context import RequestContext
@@ -51,8 +56,6 @@ def _cfg() -> Config:
 
 
 def test_app_serves_health_and_graphql():
-    from fastapi.testclient import TestClient
-
     app = create_app(_cfg())
     with TestClient(app) as client:  # context manager runs the lifespan (pool open/close)
         health = client.get("/health").json()
@@ -66,24 +69,14 @@ def test_app_serves_health_and_graphql():
         assert isinstance(body["data"]["documents"], list)
 
 
-def test_graphiql_disabled_by_default(pg):
-    # BL-108: an anonymous caller (the default) must not get an interactive
-    # schema explorer for free reconnaissance.
-    from fastapi.testclient import TestClient
-
-    app = create_app(replace(_cfg(), api_debug=False))
+@pytest.mark.parametrize(("debug", "expected_status"), [(False, 404), (True, 200)])
+def test_graphiql_gated_by_debug_flag(pg, debug, expected_status):
+    # BL-108: an anonymous caller (the default, debug=False) must not get an
+    # interactive schema explorer for free reconnaissance.
+    app = create_app(replace(_cfg(), api_debug=debug))
     with TestClient(app) as client:
         r = client.get("/graphql", headers={"accept": "text/html"})
-        assert r.status_code == 404
-
-
-def test_graphiql_enabled_with_debug_opt_in(pg):
-    from fastapi.testclient import TestClient
-
-    app = create_app(replace(_cfg(), api_debug=True))
-    with TestClient(app) as client:
-        r = client.get("/graphql", headers={"accept": "text/html"})
-        assert r.status_code == 200
+        assert r.status_code == expected_status
 
 
 def test_noop_authenticator_returns_anonymous():
@@ -169,8 +162,6 @@ class _FakePool:
 
 
 def test_create_app_passes_explicit_pool_bounds(monkeypatch):
-    import doc_ray.entrypoints.api.app as api_app
-
     monkeypatch.setattr(api_app, "AsyncConnectionPool", _FakePool)
 
     cfg = replace(_cfg(), api_pool_min_size=2, api_pool_max_size=8, api_pool_timeout=4.0)
@@ -182,8 +173,6 @@ def test_create_app_passes_explicit_pool_bounds(monkeypatch):
 
 
 def test_create_app_configures_statement_timeout(monkeypatch):
-    import doc_ray.entrypoints.api.app as api_app
-
     monkeypatch.setattr(api_app, "AsyncConnectionPool", _FakePool)
 
     cfg = replace(_cfg(), api_statement_timeout_ms=7500)
@@ -459,8 +448,6 @@ def test_ingest_upload_transport_accepts_multipart():
     the object store or enqueuing a job. Mirrors ``test_app_serves_health_and_graphql``
     (needs the live DB the pool opens on startup).
     """
-    from fastapi.testclient import TestClient
-
     app = create_app(_cfg())
     with TestClient(app) as client:  # context manager runs the lifespan (pool open/close)
         resp = client.post(
@@ -477,13 +464,7 @@ def test_ingest_upload_transport_accepts_multipart():
 
 def test_ingest_document_upload_mutation(pg):
     """The upload mutation stores the blob (real MinIO) and enqueues on the shadow queue."""
-    import io
-
-    from starlette.datastructures import Headers, UploadFile
-
     try:  # skip when MinIO is not running — the blob PUT is real
-        from doc_ray.adapters.object_store import ObjectStore
-
         ObjectStore(Config.from_env()).ensure_bucket()
     except Exception as exc:
         pytest.skip(f"object store unreachable: {exc}")
@@ -515,11 +496,7 @@ def test_ingest_document_upload_mutation(pg):
             cur = await aconn.execute("SELECT payload FROM jobs")
             payload = (await cur.fetchone())["payload"]
             assert payload["original_filename"] == "upload-test.txt"
-            assert payload["chain"] == [
-                "annotate",
-                "semantic_enrich",
-                "canonicalize",
-            ]  # default pipeline:true
+            assert payload["chain"] == ["annotate", "semantic_enrich", "canonicalize"]
         finally:
             await aconn.close()
 
@@ -528,13 +505,7 @@ def test_ingest_document_upload_mutation(pg):
 
 def test_ingest_document_upload_mutation_pipeline_false_skips_chain(pg):
     """``pipeline: false`` must ingest-only — no chain in the enqueued payload."""
-    import io
-
-    from starlette.datastructures import Headers, UploadFile
-
     try:  # skip when MinIO is not running — the blob PUT is real
-        from doc_ray.adapters.object_store import ObjectStore
-
         ObjectStore(Config.from_env()).ensure_bucket()
     except Exception as exc:
         pytest.skip(f"object store unreachable: {exc}")

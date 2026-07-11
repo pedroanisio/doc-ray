@@ -13,11 +13,13 @@ or simply:
 
 from __future__ import annotations
 
+import hmac
 import json
 import os
+import secrets
 
 import psycopg
-from flask import Flask, g, jsonify, render_template, request
+from flask import Flask, g, jsonify, render_template, request, session
 from psycopg import sql
 from psycopg.rows import dict_row
 
@@ -47,6 +49,37 @@ app = Flask(__name__)
 # the request size here so an oversized POST is rejected at the front door.
 app.config["MAX_CONTENT_LENGTH"] = int(os.environ.get("DOCRAY_MAX_UPLOAD_MB", "200")) * 1024 * 1024
 app.add_url_rule("/help", "help_page", lambda: render_template("help.html"))
+# Signs the session cookie that carries the CSRF token below; stable for the life
+# of one process even when unset (dev-only — set explicitly for a real deployment).
+app.secret_key = os.environ.get("DOCRAY_WEBAPP_SECRET_KEY") or secrets.token_hex(32)
+
+
+def _csrf_token() -> str:
+    """Return this session's CSRF token, minting one on first use."""
+    token = session.get("_csrf_token")
+    if not token:
+        token = secrets.token_hex(32)
+        session["_csrf_token"] = token
+    return token
+
+
+app.jinja_env.globals["csrf_token"] = _csrf_token
+
+
+@app.before_request
+def _require_csrf_token():
+    """Reject any state-changing request without this session's CSRF token (BL-103).
+
+    Runs before every route body, so a form field is the only way in — no
+    per-route opt-in to forget. Same-origin `<form>` posts are the only state
+    change the webapp performs (no JS fetch/XHR writes exist), so this alone
+    covers every mutating route without an Origin/Referer check.
+    """
+    if request.method in ("POST", "PUT", "PATCH", "DELETE"):
+        sent = request.form.get("csrf_token", "")
+        expected = session.get("_csrf_token", "")
+        if not expected or not hmac.compare_digest(sent, expected):
+            return "missing or invalid CSRF token", 400
 
 
 # --- per-request DB connection --------------------------------------------

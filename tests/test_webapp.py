@@ -7,6 +7,7 @@ template rendering (POS bars, KWIC highlighting, pagination, 404s, empty states)
 
 from __future__ import annotations
 
+import re
 from datetime import datetime
 
 import pytest
@@ -880,3 +881,66 @@ def test_backups_download_propagates_upstream_401_not_500(client, monkeypatch):
     monkeypatch.setattr(httpx.Client, "send", lambda _self, _r, **_k: _FakeUpstreamResponse(401))
     resp = client.get("/backups/some-id/download")
     assert resp.status_code == 401
+
+
+# --- CSRF protection (BL-103) -----------------------------------------------
+
+
+def _csrf_token_from(html: str) -> str:
+    m = re.search(r'name="csrf_token" value="([^"]+)"', html)
+    assert m, "no csrf_token hidden field found in rendered form"
+    return m.group(1)
+
+
+@pytest.mark.parametrize(
+    ("path", "get_path"),
+    [
+        ("/upload", "/upload"),
+        (f"/doc/{DOC_ID}/seeding", f"/doc/{DOC_ID}/seeding"),
+        ("/backups", "/backups"),
+        ("/backups/some-id/restore", "/backups"),
+    ],
+)
+def test_post_without_csrf_token_is_rejected(client, monkeypatch, path, get_path):
+    """A state-changing POST with no token never reaches the route body (BL-103)."""
+    import httpx
+
+    calls = []
+    monkeypatch.setattr(webapp, "gql", lambda *a, **k: calls.append((a, k)) or {})
+    monkeypatch.setattr(httpx, "post", lambda *a, **k: calls.append((a, k)) or None)
+    client.get(get_path)  # establish a session so a missing/blank token is the only variable
+    resp = client.post(path, data={})
+    assert resp.status_code == 400
+    assert not calls
+
+
+def test_post_with_wrong_csrf_token_is_rejected(client):
+    client.get("/backups")
+    resp = client.post("/backups", data={"note": "x", "csrf_token": "not-the-real-token"})
+    assert resp.status_code == 400
+
+
+def test_post_with_valid_csrf_token_creates_backup(client, monkeypatch):
+    calls = []
+    monkeypatch.setattr(
+        webapp, "gql", lambda *a, **k: calls.append((a, k)) or {"createBackup": {"id": "job-1"}}
+    )
+    html = client.get("/backups").get_data(as_text=True)
+    token = _csrf_token_from(html)
+    resp = client.post("/backups", data={"note": "x", "csrf_token": token})
+    assert resp.status_code == 302
+    assert calls
+
+
+def test_post_with_valid_csrf_token_dispatches_seeding_action(client, monkeypatch):
+    calls = []
+    monkeypatch.setattr(
+        webapp, "gql", lambda *a, **k: calls.append((a, k)) or {"suggestSeeds": {"id": "job-1"}}
+    )
+    html = client.get(f"/doc/{DOC_ID}/seeding").get_data(as_text=True)
+    token = _csrf_token_from(html)
+    resp = client.post(
+        f"/doc/{DOC_ID}/seeding", data={"action": "mine", "csrf_token": token}
+    )
+    assert resp.status_code == 302
+    assert calls
