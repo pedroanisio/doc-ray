@@ -114,10 +114,14 @@ def create_app(cfg: Config | None = None, authenticator: Authenticator | None = 
     # transport rejects ``multipart/form-data`` with HTTP 400 before the resolver runs,
     # which silently breaks the ``ingestDocument`` upload mutation. Enable it and keep a
     # handle on the router so the wiring stays introspectable.
+    # ``graphql_ide`` defaults to Strawberry's built-in GraphiQL explorer; gated behind
+    # the same DOCRAY_API_DEBUG opt-in as schema-level introspection (BL-108) so an
+    # anonymous caller (the default) can't load an interactive schema browser either.
     graphql_router = GraphQLRouter(
-        build_schema(),
+        build_schema(debug=settings.api_debug),
         context_getter=_get_context,
         multipart_uploads_enabled=True,
+        graphql_ide="graphiql" if settings.api_debug else None,
     )
     app.state.graphql_router = graphql_router
     app.include_router(graphql_router, prefix="/graphql")

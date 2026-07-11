@@ -68,6 +68,34 @@ def test_depth_limit_rejects_deep_queries():
     asyncio.run(check())
 
 
+def test_introspection_disabled_by_default():
+    # Validation-time rule, same as the depth limiter above: no DB needed.
+    schema = build_schema()
+
+    async def check():
+        result = await schema.execute(
+            "{ __schema { queryType { name } } }", context_value=None
+        )
+        assert result.errors, "expected introspection to be disabled by default (BL-108)"
+        assert "introspection" in str(result.errors[0]).lower()
+
+    asyncio.run(check())
+
+
+def test_introspection_allowed_with_debug_enabled():
+    # The explicit opt-in (mirrors DOCRAY_API_DEBUG) still allows schema exploration.
+    schema = build_schema(debug=True)
+
+    async def check():
+        result = await schema.execute(
+            "{ __schema { queryType { name } } }", context_value=None
+        )
+        assert result.errors is None, result.errors
+        assert result.data["__schema"]["queryType"]["name"] == "Query"
+
+    asyncio.run(check())
+
+
 def test_documents_and_document(pg):
     doc_id = _seed(pg)
     schema = build_schema()

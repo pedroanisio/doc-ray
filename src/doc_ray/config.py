@@ -83,6 +83,13 @@ class Config:
         api_tokens: API bearer-token map to principal ids and scopes.
         api_allow_anonymous: Whether unauthenticated API requests get anonymous
             RLS-scoped read access instead of HTTP 401.
+        api_debug: Whether GraphQL introspection and the GraphiQL IDE are
+            enabled (BL-108). False in production by default: an anonymous
+            caller should not be able to enumerate the schema, including
+            admin-only mutation shapes, for free reconnaissance.
+        max_upload_bytes: Maximum accepted upload size in bytes, shared by the
+            webapp's Flask route and the GraphQL ``ingestDocument`` mutation
+            (BL-098) so both upload paths enforce the same ceiling.
         backup_schedule_seconds: Seconds between scheduled backup enqueue attempts.
         backup_retention_count: Number of newest backup archives always retained.
         backup_retention_days: Age threshold for pruning archives outside the
@@ -101,6 +108,8 @@ class Config:
     api_statement_timeout_ms: int = 15_000
     api_tokens: ApiTokenMap = field(default_factory=dict)
     api_allow_anonymous: bool = True
+    api_debug: bool = False
+    max_upload_bytes: int = 200 * 1024 * 1024
     backup_schedule_seconds: int = 86_400
     backup_retention_count: int = 7
     backup_retention_days: int = 30
@@ -129,6 +138,8 @@ class Config:
             api_statement_timeout_ms=_env_int("DOCRAY_API_STATEMENT_TIMEOUT_MS", 15_000),
             api_tokens=_parse_api_tokens(os.environ.get("DOCRAY_API_TOKENS")),
             api_allow_anonymous=_env_bool("DOCRAY_API_ALLOW_ANONYMOUS", True),
+            api_debug=_env_bool("DOCRAY_API_DEBUG", False),
+            max_upload_bytes=_env_int("DOCRAY_MAX_UPLOAD_MB", 200) * 1024 * 1024,
             backup_schedule_seconds=_env_int("DOCRAY_BACKUP_SCHEDULE_SECONDS", 86_400),
             backup_retention_count=_env_int("DOCRAY_BACKUP_RETENTION_COUNT", 7),
             backup_retention_days=_env_int("DOCRAY_BACKUP_RETENTION_DAYS", 30),

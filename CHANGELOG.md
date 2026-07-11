@@ -21,6 +21,30 @@ doc-ray carries **one global version** covering both the application package
 
 ## [Unreleased]
 
+### Security
+- **GraphQL introspection/GraphiQL gated; ingestDocument upload size capped;
+  EPUB/DOCX zip-bomb + entity-expansion hardening** (Claude Sonnet 5 via
+  Claude Code) — three findings from the 2026-07-10 full-codebase gap
+  analysis (BL-108, BL-098, BL-088), following BL-094/BL-064:
+  - `entrypoints/api/schema.py`'s `build_schema` disables introspection
+    (Strawberry's `DisableIntrospection`) unless the new `DOCRAY_API_DEBUG`
+    opts in; `entrypoints/api/app.py` gates the GraphiQL IDE the same way
+    (`graphql_ide=None` outside debug, so it 404s). Previously an anonymous
+    caller (the default) could enumerate the entire schema, including
+    admin-only mutation argument shapes, for free reconnaissance.
+  - `ingestDocument` now reads its upload in bounded chunks against a new
+    `Config.max_upload_bytes` (`DOCRAY_MAX_UPLOAD_MB` — the same knob the
+    webapp's Flask route already enforced), rejecting an oversized upload
+    before the full body is ever buffered in API process memory. Previously
+    unbounded.
+  - `adapters/extraction.py`'s XML parser (`ET`) now aliases
+    `defusedxml.ElementTree` instead of stdlib, rejecting DOCTYPE/entity
+    payloads outright; a new `_check_zip_bomb_bounds` helper (configurable
+    via `DOCRAY_EXTRACT_MAX_UNCOMPRESSED_MB`, default 500 MiB) rejects a
+    zip whose declared uncompressed size is disproportionate to its
+    compressed size before `extract_epub`/`extract_docx` read any member.
+    Previously EPUB/DOCX had neither guard.
+
 ### Added
 - **Doc-hygiene audit fixes + drift regression tests** (Claude Sonnet 5 via
   Claude Code) — README's quick-start referenced a removed fixture

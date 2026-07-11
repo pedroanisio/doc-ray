@@ -82,6 +82,30 @@ async def _require_admin(ctx: RequestContext) -> None:
         raise PermissionError("this mutation requires an admin principal")
 
 
+_UPLOAD_CHUNK_BYTES = 1024 * 1024
+
+
+async def _read_upload_bounded(upload: UploadFile, max_bytes: int) -> bytes:
+    """Read *upload* in bounded chunks, rejecting it once it exceeds *max_bytes* (BL-098).
+
+    Reading in chunks — rather than a single ``upload.read()`` — means an
+    oversized upload is rejected before its full body is ever buffered in
+    process memory, regardless of whether the client sent an accurate
+    Content-Length header.
+    """
+    chunks: list[bytes] = []
+    total = 0
+    while True:
+        chunk = await upload.read(_UPLOAD_CHUNK_BYTES)
+        if not chunk:
+            break
+        total += len(chunk)
+        if total > max_bytes:
+            raise ValueError(f"upload exceeds the {max_bytes}-byte limit")
+        chunks.append(chunk)
+    return b"".join(chunks)
+
+
 async def _job_status(ctx: RequestContext, job_id: str) -> Job:
     """Load the freshly-enqueued job's status row and map it to a GraphQL Job."""
     row = await queue.status_async(ctx.conn, job_id)
@@ -234,7 +258,8 @@ class Mutation:
         to a fully linked document with no further calls. The blob is stored
         content-addressed (``sha[:2]/sha.ext``) before enqueuing so the worker
         can read it back; the object store's ``put`` (blocking boto3) runs off
-        the event loop.
+        the event loop. The upload is capped at ``DOCRAY_MAX_UPLOAD_MB`` (BL-098),
+        the same ceiling the webapp's Flask route already enforces.
         """
         import anyio
 
@@ -243,15 +268,16 @@ class Mutation:
 
         ctx = info.context
         _require_write(ctx)
+        settings = Config.from_env()
         # The Upload scalar resolves to a Starlette UploadFile at runtime.
         upload = cast(UploadFile, file)
-        data = await upload.read()
+        data = await _read_upload_bounded(upload, settings.max_upload_bytes)
         sha = hashlib.sha256(data).hexdigest()
         filename = upload.filename
         ext = Path(filename).suffix if filename else ""
         key = f"{sha[:2]}/{sha}{ext}"
 
-        store = ObjectStore(Config.from_env())
+        store = ObjectStore(settings)
         await anyio.to_thread.run_sync(store.put, key, data, "application/octet-stream")
 
         payload: dict[str, Any] = {

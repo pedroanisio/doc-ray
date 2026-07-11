@@ -146,6 +146,24 @@ produce no durable trace today). Deduped against all 93 prior items before
 writing; none duplicate `BL-009`/`023`/`038`/`039`-`046`/`049`/`055`/`058`/
 `059`/`064`/`065`-`075`.
 
+**2026-07-11 security-hardening pass:** completed `BL-108`, `BL-098`, and
+`BL-088` (`BL-094` landed separately just before this pass). `BL-108`:
+`build_schema` now takes a `debug` param that appends Strawberry's
+`DisableIntrospection` extension unless `DOCRAY_API_DEBUG` opts in, and
+`entrypoints/api/app.py` threads `settings.api_debug` into both `build_schema`
+and the router's `graphql_ide` (`None` outside debug, so GraphiQL 404s instead
+of rendering) — an anonymous caller can no longer enumerate the schema.
+`BL-098`: `ingestDocument` now reads the upload in bounded chunks via a new
+`Config.max_upload_bytes`/`DOCRAY_MAX_UPLOAD_MB` (the same knob the webapp's
+Flask route already enforced), rejecting an oversized upload before the full
+body is ever buffered. `BL-088`: `extraction.py`'s `ET` now aliases
+`defusedxml.ElementTree` instead of stdlib (rejects DOCTYPE/entity payloads
+outright), and a new `_check_zip_bomb_bounds` helper — configurable via
+`DOCRAY_EXTRACT_MAX_UNCOMPRESSED_MB` — sums a zip's declared uncompressed size
+before `extract_epub`/`extract_docx` read any member, both reusable as-is once
+`BL-089`/`BL-090` add PPTX/SVG. All three verified end-to-end against the
+live dev stack (real Postgres + MinIO), not just schema-level unit tests.
+
 ## Items
 
 | ID | Item | Category | Type | Status | Cx | Priority | Owner |
@@ -237,7 +255,7 @@ writing; none duplicate `BL-009`/`023`/`038`/`039`-`046`/`049`/`055`/`058`/
 | BL-085 | Extraction support for SVG | extraction | feature | parked | S | low | shared |
 | BL-086 | Overlay strategy for non-paginated formats (docx/html/epub): highlight in a rendered view of the original markup | webapp | feature | parked | L | low | shared |
 | BL-087 | Overlay support for PPTX/SVG once ingested (slide/vector-native positioning) | webapp | feature | parked | M | low | shared |
-| BL-088 | Harden zip/XML parsing against decompression-bomb and entity-expansion attacks | security | bug | ready | M | high | shared |
+| BL-088 | Harden zip/XML parsing against decompression-bomb and entity-expansion attacks | security | bug | done | M | high | shared |
 | BL-089 | Extraction support for PPTX: text and structure from slide/placeholder data | extraction | feature | parked | M | medium | shared |
 | BL-090 | Extraction support for SVG: text and structure from font-size/weight classification | extraction | feature | parked | S | medium | shared |
 | BL-091 | DOCX: reconstruct heading/list structure from paragraph styles | extraction | tech-debt | parked | S | medium | shared |
@@ -247,7 +265,7 @@ writing; none duplicate `BL-009`/`023`/`038`/`039`-`046`/`049`/`055`/`058`/
 | BL-095 | Duplicate re-upload silently downgrades a document's stored Content-Type | persistence | bug | ready | XS | low | shared |
 | BL-096 | No read-side integrity verification despite content_sha256 being threaded for exactly that purpose | persistence | tech-debt | parked | S | medium | shared |
 | BL-097 | deleteDocument never deletes the document's blob — permanent storage leak | persistence | bug | ready | S | medium | shared |
-| BL-098 | ingestDocument has no upload size cap — unbounded memory buffering | security | bug | ready | S | high | shared |
+| BL-098 | ingestDocument has no upload size cap — unbounded memory buffering | security | bug | done | S | high | shared |
 | BL-099 | No encryption enforcement for object storage, at rest or in transit | security | tech-debt | parked | M | medium | shared |
 | BL-100 | Worker detects crashed jobs but not hung ones — no execution timeout | ops | bug | parked | M | medium | shared |
 | BL-101 | Worker's outer poll loop has no resilience to a dropped DB connection | ops | bug | ready | S | medium | shared |
@@ -257,7 +275,7 @@ writing; none duplicate `BL-009`/`023`/`038`/`039`-`046`/`049`/`055`/`058`/
 | BL-105 | No rate limiting on expensive webapp routes (search, upload) | security | tech-debt | parked | M | medium | shared |
 | BL-106 | Upload extension is client-controlled and unchecked before the blob is stored | security | bug | ready | S | medium | shared |
 | BL-107 | Operator health token travels via URL query string, not a header | security | bug | ready | XS | medium | shared |
-| BL-108 | GraphQL introspection and GraphiQL are enabled with no production gating | security | bug | ready | XS | high | shared |
+| BL-108 | GraphQL introspection and GraphiQL are enabled with no production gating | security | bug | done | XS | high | shared |
 | BL-109 | GraphQL write-mutation arguments lack the bounds every read resolver enforces | security | bug | ready | S | medium | shared |
 | BL-110 | Malformed UUID arguments leak raw Postgres exception text to GraphQL clients | api | bug | ready | S | medium | shared |
 | BL-111 | The app's own Docker base image floats on a mutable tag, unlike Postgres | ops | tech-debt | ready | XS | medium | shared |

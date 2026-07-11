@@ -84,7 +84,7 @@ exclude = "(^|/)(\\.repo|engineering/schema|\\.venv|tests)/"
 [[tool.mypy.overrides]]
 # Third-party libraries without bundled type stubs (incl. optional python-docx).
 module = ["psycopg.*", "boto3.*", "botocore.*", "fitz.*", "pypdf.*", "spacy.*",
-          "strawberry.*", "docx", "docx.*"]
+          "strawberry.*", "docx", "docx.*", "defusedxml", "defusedxml.*"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]

@@ -20,9 +20,9 @@ from collections.abc import Iterator, Mapping
 from dataclasses import dataclass, field, replace
 from html.parser import HTMLParser as _HTMLParser
 from typing import Any, Protocol
-from xml.etree import ElementTree as ET
 
 import pypdf
+from defusedxml import ElementTree as ET
 from pypdf import PdfReader
 
 from doc_ray.domain import pdf_layout
@@ -442,6 +442,28 @@ def extract_html(data: bytes, fallback_title: str) -> Extracted:
     )
 
 
+def _max_zip_uncompressed_bytes() -> int:
+    raw = os.environ.get("DOCRAY_EXTRACT_MAX_UNCOMPRESSED_MB", "").strip()
+    mb = int(raw) if raw else 500
+    return mb * 1024 * 1024
+
+
+def _check_zip_bomb_bounds(zf: zipfile.ZipFile) -> None:
+    """Reject a zip whose total *uncompressed* size exceeds a sane cap (BL-088).
+
+    DOCX and EPUB are both zip containers with no guard against a classic
+    decompression bomb: a small compressed file whose declared uncompressed
+    content would exhaust memory before any XML parsing even begins.
+    Overridable via ``DOCRAY_EXTRACT_MAX_UNCOMPRESSED_MB`` (default 500 MiB).
+    """
+    total = sum(info.file_size for info in zf.infolist())
+    limit = _max_zip_uncompressed_bytes()
+    if total > limit:
+        raise ValueError(
+            f"archive's uncompressed size ({total} bytes) exceeds the {limit}-byte limit"
+        )
+
+
 def _epub_spine(zf: zipfile.ZipFile) -> list[str]:
     """Return content-document paths in reading order (OPF spine), else all (x)html."""
     try:
@@ -477,6 +499,7 @@ def extract_epub(data: bytes, fallback_title: str) -> Extracted:
     """
     parts: list[str] = []
     with zipfile.ZipFile(io.BytesIO(data)) as zf:
+        _check_zip_bomb_bounds(zf)
         for name in _epub_spine(zf):
             try:
                 parts.append(_html_to_text(zf.read(name).decode("utf-8", "replace")))
@@ -508,6 +531,8 @@ def extract_docx(data: bytes, fallback_title: str) -> Extracted:
         import docx  # python-docx (optional)
     except ImportError as e:
         raise ValueError("docx extraction requires python-docx") from e
+    with zipfile.ZipFile(io.BytesIO(data)) as zf:
+        _check_zip_bomb_bounds(zf)
     document = docx.Document(io.BytesIO(data))
     return _text_extracted(
         "\n".join(p.text for p in document.paragraphs),

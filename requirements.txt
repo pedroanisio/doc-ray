@@ -3,6 +3,9 @@ psycopg-pool==3.3.*
 boto3==1.34.*
 pypdf==4.*
 pymupdf==1.*
+# EPUB/DOCX extraction (adapters/extraction) — zip/XML parsing hardened against
+# entity-expansion attacks (BL-088); previously only an undeclared transitive dep.
+defusedxml==0.7.*
 
 # GraphQL API (entrypoints/api) — read-only surface over the store.
 strawberry-graphql[fastapi]==0.320.*

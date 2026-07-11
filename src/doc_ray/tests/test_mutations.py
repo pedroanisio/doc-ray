@@ -11,6 +11,7 @@ import asyncio
 from pathlib import Path
 
 import psycopg
+import pytest
 from psycopg.rows import dict_row
 
 from doc_ray.domain.ulid import new_ulid_str
@@ -226,6 +227,93 @@ def test_create_backup_requires_admin_not_just_write_scope(pg):
 
     asyncio.run(check())
     conn.execute("DELETE FROM principals WHERE id = %s", (non_admin,))
+
+
+# ---------------------------------------------------------------------------
+# BL-098 — ingestDocument had no upload-size cap at all (unlike the webapp's
+# Flask route, which enforces DOCRAY_MAX_UPLOAD_MB); a client could buffer an
+# arbitrarily large upload into API process memory before any validation ran.
+# ---------------------------------------------------------------------------
+
+
+def test_ingest_document_rejects_oversized_upload(pg, monkeypatch):
+    """ingestDocument must enforce the same upload-size ceiling the webapp does."""
+    import io
+
+    from starlette.datastructures import Headers, UploadFile
+
+    monkeypatch.setenv("DOCRAY_MAX_UPLOAD_MB", "1")
+    schema = build_schema()
+    body = b"x" * (2 * 1024 * 1024)  # 2 MiB, comfortably over the 1 MiB cap
+    upload = UploadFile(
+        io.BytesIO(body),
+        filename="big-upload.txt",
+        headers=Headers({"content-type": "text/plain"}),
+    )
+
+    async def check():
+        # Shadow the real queue: the size check must reject the upload before
+        # any store.put/enqueue is attempted, but a shadow table is cheap
+        # insurance against that assumption regressing silently.
+        aconn = await _aconn()
+        try:
+            await aconn.execute("CREATE TEMP TABLE jobs (LIKE public.jobs INCLUDING ALL)")
+            ctx = RequestContext(conn=aconn, principal=WRITE_PRINCIPAL, loaders=Loaders(aconn))
+            result = await schema.execute(
+                "mutation($f: Upload!){ ingestDocument(file: $f) { id } }",
+                variable_values={"f": upload},
+                context_value=ctx,
+            )
+            assert result.errors is not None
+            assert "exceeds" in str(result.errors[0]).lower()
+            cur = await aconn.execute("SELECT count(*) AS n FROM jobs")
+            assert (await cur.fetchone())["n"] == 0
+        finally:
+            await aconn.close()
+
+    asyncio.run(check())
+
+
+def test_ingest_document_accepts_upload_within_the_cap(pg, monkeypatch):
+    """A normal-sized upload is unaffected by the new bounded-read path."""
+    import io
+
+    from starlette.datastructures import Headers, UploadFile
+
+    from doc_ray.adapters.object_store import ObjectStore
+    from doc_ray.config import Config
+
+    try:  # skip when MinIO is not running — the blob PUT is real
+        ObjectStore(Config.from_env()).ensure_bucket()
+    except Exception as exc:
+        pytest.skip(f"object store unreachable: {exc}")
+
+    monkeypatch.setenv("DOCRAY_MAX_UPLOAD_MB", "1")
+    schema = build_schema()
+    body = b"Well within the cap."
+    upload = UploadFile(
+        io.BytesIO(body),
+        filename="small-upload.txt",
+        headers=Headers({"content-type": "text/plain"}),
+    )
+
+    async def check():
+        aconn = await _aconn()
+        try:
+            await aconn.execute("CREATE TEMP TABLE jobs (LIKE public.jobs INCLUDING ALL)")
+            ctx = RequestContext(conn=aconn, principal=WRITE_PRINCIPAL, loaders=Loaders(aconn))
+            result = await schema.execute(
+                "mutation($f: Upload!){ ingestDocument(file: $f, pipeline: false) "
+                "{ kind status } }",
+                variable_values={"f": upload},
+                context_value=ctx,
+            )
+            assert result.errors is None, result.errors
+            assert result.data["ingestDocument"]["status"] == "queued"
+        finally:
+            await aconn.close()
+
+    asyncio.run(check())
 
 
 def test_create_backup_allows_admin_principal(pg):

@@ -2864,7 +2864,7 @@ items:
       pattern a second and third time.
     category:     "security"
     type:         "bug"
-    status:       "ready"
+    status:       "done"
     complexity:   "M"
     priority:     "high"
     rationale:    "This is a real, currently-exploitable gap against formats already accepted from untrusted uploads (docx, epub) — not a future-state risk being pre-empted. Fixing it once, shared, before adding two more zip/XML-based formats (pptx, svg) is cheaper and safer than fixing it four times or not at all."
@@ -2876,7 +2876,7 @@ items:
     references:
       - "src/doc_ray/adapters/extraction.py"
     owner:        "shared"
-    source:       "Feature request 2026-07-05: design production-ready ingestion for pptx/svg and audit docx/html/epub; verified live that EPUB's zip/XML parsing has no decompression-bomb or entity-expansion guard today, and that this would otherwise be copied into two new formats rather than fixed."
+    source:       "Feature request 2026-07-05: design production-ready ingestion for pptx/svg and audit docx/html/epub; verified live that EPUB's zip/XML parsing has no decompression-bomb or entity-expansion guard today, and that this would otherwise be copied into two new formats rather than fixed. Completed 2026-07-11 (extraction.py's ET now aliases defusedxml.ElementTree instead of stdlib; a shared _check_zip_bomb_bounds helper, configurable via DOCRAY_EXTRACT_MAX_UNCOMPRESSED_MB, runs before extract_epub/extract_docx read any zip member — both reusable as-is once BL-089/BL-090 add pptx/svg) on branch fix/bl-064-mutation-document-acl."
     tags:         ["security", "extraction", "hardening", "zip-bomb", "xxe"]
 
   - id:          "BL-089"
@@ -3163,7 +3163,7 @@ items:
       implementation happens to also fix this.
     category:     "persistence"
     type:         "bug"
-    status:       "ready"
+    status:       "done"
     complexity:   "S"
     priority:     "medium"
     rationale:    "Unbounded storage growth on the one operation (delete) a user would reasonably expect to free space, plus a real data-erasure gap for anyone deleting a document for compliance/privacy reasons who now believes the bytes are gone."
@@ -3190,7 +3190,7 @@ items:
       before the extension/content checks in extraction.py ever run.
     category:     "security"
     type:         "bug"
-    status:       "ready"
+    status:       "done"
     complexity:   "S"
     priority:     "high"
     rationale:    "An unauthenticated-by-default (DOCRAY_API_ALLOW_ANONYMOUS defaults true) or write-scoped caller can trivially exhaust API memory with one request; this is a live DoS vector, not a hypothetical one."
@@ -3202,7 +3202,7 @@ items:
       - "src/doc_ray/entrypoints/api/mutation.py"
       - "src/doc_ray/config.py"
     owner:        "shared"
-    source:       "Full-codebase gap-analysis 2026-07-10 (object-storage subsystem audit)."
+    source:       "Full-codebase gap-analysis 2026-07-10 (object-storage subsystem audit). Completed 2026-07-11 (ingestDocument now reads uploads in bounded chunks via Config.max_upload_bytes/DOCRAY_MAX_UPLOAD_MB — the same knob the webapp's Flask route already enforced — rejecting an oversized upload before the full body is ever buffered) on branch fix/bl-064-mutation-document-acl."
     tags:         ["security", "dos", "bug"]
 
   - id:          "BL-099"
@@ -3480,7 +3480,7 @@ items:
       credential at all in a default deployment.
     category:     "security"
     type:         "bug"
-    status:       "ready"
+    status:       "done"
     complexity:   "XS"
     priority:     "high"
     rationale:    "Full schema enumeration (including exactly which mutations exist, their arguments, and by implication what BL-064's admin-gated operations look like) should not be free to an anonymous caller — this is the same reconnaissance-hardening gap most production GraphQL deployment guides treat as a baseline requirement."
@@ -3494,7 +3494,7 @@ items:
       - "src/doc_ray/entrypoints/api/security.py"
       - "src/doc_ray/config.py"
     owner:        "shared"
-    source:       "Full-codebase gap-analysis 2026-07-10 (GraphQL input-validation subsystem audit), re-verified directly against schema.py/security.py/config.py given severity."
+    source:       "Full-codebase gap-analysis 2026-07-10 (GraphQL input-validation subsystem audit), re-verified directly against schema.py/security.py/config.py given severity. Completed 2026-07-11 (DOCRAY_API_DEBUG opt-in: build_schema appends DisableIntrospection unless set; app.py threads settings.api_debug into both build_schema and GraphQLRouter's graphql_ide) on branch fix/bl-064-mutation-document-acl."
     tags:         ["security", "graphql", "introspection", "bug"]
 
   - id:          "BL-109"

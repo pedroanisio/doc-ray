@@ -66,6 +66,26 @@ def test_app_serves_health_and_graphql():
         assert isinstance(body["data"]["documents"], list)
 
 
+def test_graphiql_disabled_by_default(pg):
+    # BL-108: an anonymous caller (the default) must not get an interactive
+    # schema explorer for free reconnaissance.
+    from fastapi.testclient import TestClient
+
+    app = create_app(replace(_cfg(), api_debug=False))
+    with TestClient(app) as client:
+        r = client.get("/graphql", headers={"accept": "text/html"})
+        assert r.status_code == 404
+
+
+def test_graphiql_enabled_with_debug_opt_in(pg):
+    from fastapi.testclient import TestClient
+
+    app = create_app(replace(_cfg(), api_debug=True))
+    with TestClient(app) as client:
+        r = client.get("/graphql", headers={"accept": "text/html"})
+        assert r.status_code == 200
+
+
 def test_noop_authenticator_returns_anonymous():
     async def check():
         principal = await NoopAuthenticator().authenticate(None)  # type: ignore[arg-type]
