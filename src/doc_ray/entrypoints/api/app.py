@@ -37,6 +37,7 @@ from doc_ray.entrypoints.api.security import (
     apply_principal,
     reset_principal,
 )
+from doc_ray.logging_setup import configure_logging
 
 
 async def _readiness_checks(
@@ -79,6 +80,7 @@ def create_app(cfg: Config | None = None, authenticator: Authenticator | None = 
     Returns:
         A configured :class:`fastapi.FastAPI` app with GraphQL mounted at ``/graphql``.
     """
+    configure_logging()
     settings = cfg or Config.from_env()
     auth = authenticator or HeaderTokenAuthenticator(
         tokens=settings.api_tokens,

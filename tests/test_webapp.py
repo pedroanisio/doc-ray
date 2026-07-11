@@ -742,6 +742,40 @@ def test_operator_health_pills_and_pos_chips_expose_accessible_definitions(clien
 
 
 # ---------------------------------------------------------------------------
+# BL-107 — the operator token must not have to travel via the URL query
+# string on every request: a header works standalone, and a query-string
+# bootstrap link sets a short-lived signed session flag so later navigation
+# (internal links) no longer needs the token in the URL at all.
+# ---------------------------------------------------------------------------
+
+
+def test_operator_health_accepts_header_token_without_query_string(client):
+    webapp.app.config["OPERATOR_HEALTH_TOKEN"] = "secret"
+
+    resp = client.get("/operator/health", headers={"X-Operator-Token": "secret"})
+    assert resp.status_code == 200
+
+
+def test_operator_health_query_bootstrap_then_no_longer_needs_the_token(client):
+    webapp.app.config["OPERATOR_HEALTH_TOKEN"] = "secret"
+
+    first = client.get("/operator/health?token=secret")
+    assert first.status_code == 200
+
+    # Same client (session cookie carried over) -- no token anywhere in this request.
+    second = client.get("/operator/health")
+    assert second.status_code == 200
+
+
+def test_operator_health_page_links_do_not_embed_the_token(client):
+    webapp.app.config["OPERATOR_HEALTH_TOKEN"] = "secret"
+
+    html = client.get("/operator/health?token=secret").get_data(as_text=True)
+    assert "token=secret" not in html
+    assert "?token=" not in html
+
+
+# ---------------------------------------------------------------------------
 # RLS enforcement: get_conn drops to docray_client + sets the principal
 # ---------------------------------------------------------------------------
 
@@ -944,3 +978,18 @@ def test_post_with_valid_csrf_token_dispatches_seeding_action(client, monkeypatc
     )
     assert resp.status_code == 302
     assert calls
+
+
+# ---------------------------------------------------------------------------
+# BL-104 — every response carries a baseline set of security headers.
+# ---------------------------------------------------------------------------
+
+
+def test_responses_carry_security_headers(client):
+    resp = client.get("/")
+    assert resp.headers["X-Frame-Options"] == "DENY"
+    assert resp.headers["X-Content-Type-Options"] == "nosniff"
+    assert resp.headers["Referrer-Policy"] == "strict-origin-when-cross-origin"
+    csp = resp.headers["Content-Security-Policy"]
+    assert "default-src 'self'" in csp
+    assert "frame-ancestors 'none'" in csp

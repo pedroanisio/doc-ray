@@ -63,6 +63,12 @@ class Extracted:
     extractor: str  # tool that produced the text
     extractor_version: str  # its version — recorded in provenance
     metadata: dict[str, Any] = field(default_factory=dict)
+    #: Per-line source geometry (BL-076), PDF-pymupdf only: each entry is
+    #: {"page": int, "bbox": (x0, y0, x1, y1), "text": str}. A sibling view over
+    #: the same geometry the layout classifier already computes — it does not
+    #: change full_text/to_markdown's output, only surfaces what was already
+    #: being discarded. None for every other extractor.
+    page_runs: list[dict[str, Any]] | None = None
 
 
 # --- PyMuPDF: layout-aware, structured Markdown ----------------------------
@@ -283,6 +289,7 @@ def extract_pdf_pymupdf(data: bytes, fallback_title: str) -> Extracted:
                 "bold_max_words": thresholds.bold_max_words,
             },
         },
+        page_runs=pdf_layout.page_runs_from_blocks(blocks),
     )
 
 
@@ -555,6 +562,16 @@ _EXTRACTORS = {
     ".epub": extract_epub,
     ".docx": extract_docx,
 }
+
+
+def is_supported_extension(extension: str) -> bool:
+    """Return whether ``extension`` (with leading dot) has a registered extractor.
+
+    The same allowlist :func:`extract` dispatches on — exposed so callers (e.g.
+    ``ingestDocument``, BL-106) can reject an unsupported upload before ever
+    persisting its blob, not just before extraction runs.
+    """
+    return extension.lower() in _EXTRACTORS
 
 
 def extract(data: bytes, filename: str, extension: str) -> Extracted:

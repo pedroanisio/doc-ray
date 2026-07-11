@@ -61,6 +61,36 @@ def test_dispatch_prefers_pymupdf_for_pdf():
     assert "# Formal Statement" in ex.full_text
 
 
+def _make_two_page_pdf() -> bytes:
+    doc = fitz.open()
+    page1 = doc.new_page(width=400, height=600)
+    page1.insert_text((50, 100), "Alpha content on page one", fontsize=12)
+    page2 = doc.new_page(width=400, height=600)
+    page2.insert_text((50, 300), "Beta content on page two", fontsize=12)
+    return doc.tobytes()
+
+
+def test_pymupdf_extractor_surfaces_page_and_bbox_per_run():
+    """BL-076: page/bbox geometry is surfaced alongside full_text, unaltered."""
+    ex = extract.extract_pdf_pymupdf(_make_two_page_pdf(), fallback_title="synthetic")
+
+    assert "Alpha content on page one" in ex.full_text
+    assert "Beta content on page two" in ex.full_text
+
+    assert ex.page_runs, "expected page_runs to be populated"
+    alpha = [r for r in ex.page_runs if "Alpha" in r["text"]]
+    beta = [r for r in ex.page_runs if "Beta" in r["text"]]
+    assert alpha and beta
+    assert alpha[0]["page"] == 0
+    assert beta[0]["page"] == 1
+    # Distinct source pages -> non-overlapping bounding boxes (by construction:
+    # the two runs sit at different y-positions on their respective pages).
+    a_bbox = alpha[0]["bbox"]
+    b_bbox = beta[0]["bbox"]
+    assert len(a_bbox) == 4 and len(b_bbox) == 4
+    assert (a_bbox[1], a_bbox[3]) != (b_bbox[1], b_bbox[3])
+
+
 def test_pdf_heading_thresholds_are_loaded_from_environment(monkeypatch):
     monkeypatch.setenv("DOCRAY_PDF_HEADING_L1_RATIO", "1.9")
     monkeypatch.setenv("DOCRAY_PDF_HEADING_L2_RATIO", "1.6")

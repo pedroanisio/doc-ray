@@ -29,7 +29,7 @@
   Read-only corpus and database checks, rendered from the same Postgres store as
   the browser. The page is hidden unless the operator token is supplied.
 </p>
-<p class="hint"><a href="{{ url_for('operator_health_json', token=request.args.get('token')) }}">Stable JSON contract</a></p>
+<p class="hint"><a href="{{ url_for('operator_health_json') }}">Stable JSON contract</a></p>
 
 <section class="health-layout">
   <div>

@@ -10,6 +10,7 @@ registry — without those heavy dependencies present.
 from __future__ import annotations
 
 import contextlib
+import logging
 import tempfile
 import threading
 from collections.abc import Callable
@@ -34,6 +35,8 @@ from doc_ray.domain.jobs import (
     Job,
 )
 from doc_ray.ports.object_store import ObjectStore
+
+_logger = logging.getLogger("doc_ray.jobs")
 
 if TYPE_CHECKING:
     # Concrete adapter type for the (path-based) pipeline, imported for typing only
@@ -410,6 +413,19 @@ def run_once(
                 _advance_chain(conn, job, result)
     except Exception as exc:  # the worker must survive any handler failure
         retry = None if job.attempts >= job.max_attempts else backoff_seconds(job.attempts)
+        # BL-115: repr(exc) in the DB column is easy to miss (an operator has to
+        # think to query it); the full traceback + job context goes to the log
+        # too, so a real crash during ingest leaves a durable, discoverable trace.
+        _logger.error(
+            "job %s (kind=%s, document_id=%s) failed on attempt %d/%d: %s",
+            job.id,
+            job.kind,
+            job.document_id,
+            job.attempts,
+            job.max_attempts,
+            exc,
+            exc_info=exc,
+        )
         queue.fail(conn, job.id, error=repr(exc), retry_in_seconds=retry)
     finally:
         if stop_heartbeat is not None:

@@ -316,6 +316,50 @@ def test_ingest_document_accepts_upload_within_the_cap(pg, monkeypatch):
     asyncio.run(check())
 
 
+# ---------------------------------------------------------------------------
+# BL-106 — the upload extension is client-controlled; it must be checked
+# against extraction.py's format allowlist before the blob is ever persisted
+# to the object store, not after.
+# ---------------------------------------------------------------------------
+
+
+def test_ingest_document_rejects_unsupported_extension_before_storing_blob(pg, monkeypatch):
+    import io
+
+    from starlette.datastructures import Headers, UploadFile
+
+    from doc_ray.adapters.object_store import ObjectStore
+
+    put_calls = []
+    monkeypatch.setattr(ObjectStore, "put", lambda self, *a, **k: put_calls.append(a))
+    schema = build_schema()
+    upload = UploadFile(
+        io.BytesIO(b"MZ\x90\x00fake-binary"),
+        filename="totally-legit.exe",
+        headers=Headers({"content-type": "application/octet-stream"}),
+    )
+
+    async def check():
+        aconn = await _aconn()
+        try:
+            await aconn.execute("CREATE TEMP TABLE jobs (LIKE public.jobs INCLUDING ALL)")
+            ctx = RequestContext(conn=aconn, principal=WRITE_PRINCIPAL, loaders=Loaders(aconn))
+            result = await schema.execute(
+                "mutation($f: Upload!){ ingestDocument(file: $f) { id } }",
+                variable_values={"f": upload},
+                context_value=ctx,
+            )
+            assert result.errors is not None
+            assert "unsupported" in str(result.errors[0]).lower()
+            cur = await aconn.execute("SELECT count(*) AS n FROM jobs")
+            assert (await cur.fetchone())["n"] == 0
+        finally:
+            await aconn.close()
+
+    asyncio.run(check())
+    assert not put_calls, "the blob must never reach the object store"
+
+
 def test_create_backup_allows_admin_principal(pg):
     conn, created = pg
     admin = conn.execute(

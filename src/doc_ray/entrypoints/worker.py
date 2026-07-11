@@ -11,6 +11,7 @@ reclaimed mid-run. SIGTERM/SIGINT trigger a graceful drain of the in-flight job.
 
 from __future__ import annotations
 
+import logging
 import os
 import signal
 import socket
@@ -24,6 +25,9 @@ from doc_ray.adapters import queue_postgres as queue
 from doc_ray.adapters.object_store import ObjectStore
 from doc_ray.application.jobs import run_once
 from doc_ray.config import Config
+from doc_ray.logging_setup import configure_logging
+
+_logger = logging.getLogger("doc_ray.worker")
 
 _POLL_SECONDS = float(os.environ.get("WORKER_POLL_SECONDS", "5"))
 _HEARTBEAT_SECONDS = float(os.environ.get("WORKER_HEARTBEAT_SECONDS", "15"))
@@ -76,12 +80,18 @@ def run(cfg: Config | None = None, *, worker_id: str | None = None) -> int:
                     if job is None:
                         shutdown.wait(_POLL_SECONDS)  # idle: sleep, but wake on shutdown
         except psycopg.OperationalError:
+            _logger.warning(
+                "worker lost its database connection; reconnecting in %.1fs",
+                _RECONNECT_BACKOFF_SECONDS,
+                exc_info=True,
+            )
             shutdown.wait(_RECONNECT_BACKOFF_SECONDS)
     return 0
 
 
 def main(argv: list[str] | None = None) -> int:
     """CLI entrypoint for the worker."""
+    configure_logging()
     return run()
 
 

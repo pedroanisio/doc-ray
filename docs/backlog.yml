@@ -2475,7 +2475,7 @@ items:
       implied to cover everything the corpus can ingest.
     category:     "extraction"
     type:         "feature"
-    status:       "ready"
+    status:       "done"
     complexity:   "M"
     priority:     "high"
     rationale:    "This is the one true blocker for the PDF-first overlay slice: every downstream PDF item (BL-077..BL-079, BL-081, BL-082) needs page+bbox data that is already computed once per ingest and discarded today. Sequencing anything else first would mean re-deriving this same geometry or hand-waving the data it depends on."
@@ -2489,7 +2489,7 @@ items:
       - "src/doc_ray/adapters/extraction.py"
       - "src/doc_ray/domain/pdf_layout.py"
     owner:        "shared"
-    source:       "Feature request 2026-07-05: overlay POS/structural rendering on the original document, then corrected mid-design (the corpus also ingests docx/html and was asked to consider pptx/svg). Traced against extraction.py/pdf_layout.py, db/migrations/007_spans.sql, webapp/app.py, and a repo-wide grep for PDF-to-image and non-PDF rendering (get_pixmap/pdf2image/Pixmap/soffice/unoconv/docx2pdf/python-pptx/cairosvg: zero hits outside a PDF-only test fixture) to establish exactly what exists per format versus what each requires."
+    source:       "Feature request 2026-07-05: overlay POS/structural rendering on the original document, then corrected mid-design (the corpus also ingests docx/html and was asked to consider pptx/svg). Traced against extraction.py/pdf_layout.py, db/migrations/007_spans.sql, webapp/app.py, and a repo-wide grep for PDF-to-image and non-PDF rendering (get_pixmap/pdf2image/Pixmap/soffice/unoconv/docx2pdf/python-pptx/cairosvg: zero hits outside a PDF-only test fixture) to establish exactly what exists per format versus what each requires. Completed 2026-07-11 (Extracted.page_runs + domain.pdf_layout.page_runs_from_blocks; D-023) on branch fix/bl-097-delete-blob-leak."
     tags:         ["extraction", "pdf", "overlay", "bbox"]
 
   - id:          "BL-077"
@@ -3371,7 +3371,7 @@ items:
       exists anywhere in `webapp/templates/`).
     category:     "security"
     type:         "tech-debt"
-    status:       "ready"
+    status:       "done"
     complexity:   "S"
     priority:     "medium"
     rationale:    "Cheap, standard defense-in-depth hardening with no functional downside; the absence is notable precisely because the rest of the webapp's escaping discipline is otherwise solid."
@@ -3382,7 +3382,7 @@ items:
     references:
       - "webapp/app.py"
     owner:        "shared"
-    source:       "Full-codebase gap-analysis 2026-07-10 (webapp security subsystem audit)."
+    source:       "Full-codebase gap-analysis 2026-07-10 (webapp security subsystem audit). Completed 2026-07-11 (new webapp/security_headers.py wired via app.after_request; CSP keeps 'unsafe-inline' for script/style since eliminating the templates' pre-existing inline script/style is a larger refactor than this item's scope; D-021) on branch fix/bl-097-delete-blob-leak."
     tags:         ["security", "webapp", "headers", "tech-debt"]
 
   - id:          "BL-105"
@@ -3421,7 +3421,7 @@ items:
       format, leaving an untyped orphaned blob per BL-097) afterward.
     category:     "security"
     type:         "bug"
-    status:       "ready"
+    status:       "done"
     complexity:   "S"
     priority:     "medium"
     rationale:    "Storing first and validating later means a rejected upload still leaves attacker-controlled bytes with an attacker-chosen name/extension sitting in the object store, and widens the surface BL-088's zip/XML hardening is trying to close (an extension mismatch could route a crafted file through the wrong parser)."
@@ -3433,7 +3433,7 @@ items:
       - "src/doc_ray/entrypoints/api/mutation.py"
       - "src/doc_ray/adapters/extraction.py"
     owner:        "shared"
-    source:       "Full-codebase gap-analysis 2026-07-10 (webapp security subsystem audit)."
+    source:       "Full-codebase gap-analysis 2026-07-10 (webapp security subsystem audit). Completed 2026-07-11 (new extraction.is_supported_extension() checked in ingestDocument before ObjectStore is even constructed; D-021) on branch fix/bl-097-delete-blob-leak."
     tags:         ["security", "upload", "bug"]
 
   - id:          "BL-107"
@@ -3449,7 +3449,7 @@ items:
       header for a credential that gates BL-038's operator health page.
     category:     "security"
     type:         "bug"
-    status:       "ready"
+    status:       "done"
     complexity:   "XS"
     priority:     "medium"
     rationale:    "A token designed to gate an admin surface shouldn't be handed a worse transport than the header-token scheme (HeaderTokenAuthenticator) the rest of the API already uses for the same purpose."
@@ -3461,7 +3461,7 @@ items:
       - "webapp/operator_health.py"
       - "webapp/templates/operator_health.html"
     owner:        "shared"
-    source:       "Full-codebase gap-analysis 2026-07-10 (webapp security subsystem audit)."
+    source:       "Full-codebase gap-analysis 2026-07-10 (webapp security subsystem audit). Completed 2026-07-11 (X-Operator-Token header accepted standalone; a query-string bootstrap now sets a signed session flag so later requests/links never need the token again; D-021) on branch fix/bl-097-delete-blob-leak."
     tags:         ["security", "webapp", "bug"]
 
   - id:          "BL-108"
@@ -3700,7 +3700,7 @@ items:
       logging.
     category:     "ops"
     type:         "tech-debt"
-    status:       "ready"
+    status:       "done"
     complexity:   "M"
     priority:     "high"
     rationale:    "An ingest pipeline that silently swallows its own failures (no log line, no traceback, nothing an operator would see without proactively querying the jobs table) makes production incidents undiagnosable after the fact — this is the single highest-leverage observability gap since it affects every other failure mode in the system."
@@ -3714,7 +3714,7 @@ items:
       - "src/doc_ray/entrypoints/worker.py"
       - "src/doc_ray/entrypoints/api/schema.py"
     owner:        "shared"
-    source:       "Full-codebase gap-analysis 2026-07-10 (observability subsystem audit)."
+    source:       "Full-codebase gap-analysis 2026-07-10 (observability subsystem audit). Completed 2026-07-11 (new doc_ray.logging_setup.configure_logging(), called from worker.main and api.app.create_app; jobs.py logs full traceback + job context on handler failure; confirmed Strawberry's default process_errors already logs to strawberry.execution, so the GraphQL criterion needed only the root-logger configuration, not new resolver code; D-022) on branch fix/bl-097-delete-blob-leak."
     tags:         ["ops", "observability", "logging", "tech-debt"]
 
   - id:          "BL-116"

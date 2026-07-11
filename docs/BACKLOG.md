@@ -243,7 +243,7 @@ live dev stack (real Postgres + MinIO), not just schema-level unit tests.
 | BL-073 | ABAC layer for sensitive and contextual authorization rules | security | feature | parked | L | medium | shared |
 | BL-074 | Append-only security audit-event log distinct from document_provenance | security | feature | parked | L | high | shared |
 | BL-075 | Tenant-admin audit surface: search by actor/action/target/time/IP, exportable | security | feature | parked | M | medium | shared |
-| BL-076 | Persist per-span page number and bounding box at extraction time (PDF) | extraction | feature | ready | M | high | shared |
+| BL-076 | Persist per-span page number and bounding box at extraction time (PDF) | extraction | feature | done | M | high | shared |
 | BL-077 | Schema: persist page number and bounding box on spans | persistence | feature | parked | M | high | shared |
 | BL-078 | Backfill page/bbox for already-ingested documents via re-extraction | ops | feature | parked | L | medium | shared |
 | BL-079 | Route: render an original PDF page as an image (PDF) | webapp | feature | parked | M | medium | shared |
@@ -271,10 +271,10 @@ live dev stack (real Postgres + MinIO), not just schema-level unit tests.
 | BL-101 | Worker's outer poll loop has no resilience to a dropped DB connection | ops | bug | done | S | medium | shared |
 | BL-102 | JobStatus.CANCELED is a dead status — no code path ever sets it | ops | feature | parked | S | low | shared |
 | BL-103 | Webapp has no CSRF protection on any state-changing form | security | bug | done | M | high | shared |
-| BL-104 | Webapp sends no security response headers (CSP, X-Frame-Options, etc.) | security | tech-debt | ready | S | medium | shared |
+| BL-104 | Webapp sends no security response headers (CSP, X-Frame-Options, etc.) | security | tech-debt | done | S | medium | shared |
 | BL-105 | No rate limiting on expensive webapp routes (search, upload) | security | tech-debt | parked | M | medium | shared |
-| BL-106 | Upload extension is client-controlled and unchecked before the blob is stored | security | bug | ready | S | medium | shared |
-| BL-107 | Operator health token travels via URL query string, not a header | security | bug | ready | XS | medium | shared |
+| BL-106 | Upload extension is client-controlled and unchecked before the blob is stored | security | bug | done | S | medium | shared |
+| BL-107 | Operator health token travels via URL query string, not a header | security | bug | done | XS | medium | shared |
 | BL-108 | GraphQL introspection and GraphiQL are enabled with no production gating | security | bug | done | XS | high | shared |
 | BL-109 | GraphQL write-mutation arguments lack the bounds every read resolver enforces | security | bug | done | S | medium | shared |
 | BL-110 | Malformed UUID arguments leak raw Postgres exception text to GraphQL clients | api | bug | done | S | medium | shared |
@@ -282,7 +282,7 @@ live dev stack (real Postgres + MinIO), not just schema-level unit tests.
 | BL-112 | App containers run as root — no USER directive anywhere in the Dockerfile | security | tech-debt | ready | S | medium | shared |
 | BL-113 | No automated dependency vulnerability scanning, SBOM, or update automation | tooling | infra | parked | M | medium | shared |
 | BL-114 | CI and the Docker build bypass the committed uv.lock; no hash verification | tooling | tech-debt | ready | S | medium | shared |
-| BL-115 | No structured logging anywhere in src/doc_ray — worker and GraphQL failures produce no durable trace | ops | tech-debt | ready | M | high | shared |
+| BL-115 | No structured logging anywhere in src/doc_ray — worker and GraphQL failures produce no durable trace | ops | tech-debt | done | M | high | shared |
 | BL-116 | Webapp: 3 of 5 exception handlers never log to app.logger | webapp | bug | ready | XS | low | shared |
 | BL-117 | No request/correlation-id threading across webapp -> API -> queue -> worker | ops | feature | parked | M | low | shared |
 | BL-118 | Zero metrics/tracing integration anywhere in the stack | ops | feature | parked | L | low | shared |

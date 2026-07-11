@@ -281,6 +281,7 @@ class Mutation:
         """
         import anyio
 
+        from doc_ray.adapters import extraction
         from doc_ray.adapters.object_store import ObjectStore
         from doc_ray.config import Config
 
@@ -293,6 +294,11 @@ class Mutation:
         sha = hashlib.sha256(data).hexdigest()
         filename = upload.filename
         ext = Path(filename).suffix if filename else ""
+        # BL-106: the extension is attacker-supplied; check it against the same
+        # allowlist extraction.py dispatches on *before* the blob ever reaches
+        # the object store, not after (extraction's own check ran too late).
+        if not extraction.is_supported_extension(ext):
+            raise ValueError(f"unsupported document type: {ext!r}")
         key = f"{sha[:2]}/{sha}{ext}"
 
         store = ObjectStore(settings)

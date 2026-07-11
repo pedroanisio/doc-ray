@@ -14,7 +14,7 @@ from collections import Counter
 from collections.abc import Callable
 from typing import Any
 
-from flask import abort, current_app, request
+from flask import abort, current_app, request, session
 
 Query = Callable[[str], list[dict[str, Any]]]
 QueryOne = Callable[[str], dict[str, Any] | None]
@@ -97,11 +97,28 @@ SELECT relname,
 
 
 def require_operator_health() -> None:
-    """Hide the operator health page unless the configured token is supplied."""
+    """Hide the operator health page unless the configured token is supplied.
+
+    Accepts the token via the ``X-Operator-Token`` header, which never lands in
+    URLs/access logs/browser history. A query-string ``?token=`` is still
+    accepted as a one-time bootstrap link (e.g. pasted from a runbook), but
+    instead of requiring the URL to keep carrying it, a valid bootstrap sets a
+    signed session flag (Flask's session cookie, already signed by
+    ``app.secret_key``) so every subsequent request in that browser session
+    authenticates from the cookie, not the query string (BL-107).
+    """
     configured = current_app.config.get("OPERATOR_HEALTH_TOKEN") or OPERATOR_HEALTH_TOKEN
-    supplied = request.headers.get("X-Operator-Token") or request.args.get("token") or ""
-    if not configured or not hmac.compare_digest(str(supplied), str(configured)):
+    if not configured:
         abort(404)
+    header_token = request.headers.get("X-Operator-Token")
+    query_token = request.args.get("token")
+    for supplied in (header_token, query_token):
+        if supplied is not None and hmac.compare_digest(str(supplied), str(configured)):
+            session["operator_health_ok"] = True
+            return
+    if session.get("operator_health_ok"):
+        return
+    abort(404)
 
 
 def build_operator_health(q: Query, q1: QueryOne) -> dict[str, Any]:

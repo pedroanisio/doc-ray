@@ -28,11 +28,13 @@ try:
     from webapp.job_view import decorate_job_rows
     from webapp.operator_health import build_operator_health, require_operator_health
     from webapp.reader_blocks import attach_page_blocks, latest_annotation_state
+    from webapp.security_headers import apply_security_headers
 except ModuleNotFoundError:  # pragma: no cover - direct ``python webapp/app.py`` path.
     from health_contract import operator_health_payload
     from job_view import decorate_job_rows
     from operator_health import build_operator_health, require_operator_health
     from reader_blocks import attach_page_blocks, latest_annotation_state
+    from security_headers import apply_security_headers
 
 DATABASE_URL = os.environ.get("DATABASE_URL", "postgresql://docray:docray@localhost:5455/docray")
 
@@ -80,6 +82,9 @@ def _require_csrf_token():
         expected = session.get("_csrf_token", "")
         if not expected or not hmac.compare_digest(sent, expected):
             return "missing or invalid CSRF token", 400
+
+
+app.after_request(apply_security_headers)
 
 
 # --- per-request DB connection --------------------------------------------

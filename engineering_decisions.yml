@@ -33,7 +33,7 @@ source_schema:         "db/migrations"
 # scripts/check_version_consistency.py.
 source_schema_version: "1.10.0"
 target_engine:         "PostgreSQL 16"
-total_decisions:       19
+total_decisions:       22
 
 decisions:
 
@@ -969,5 +969,236 @@ decisions:
             context:     "ci"
             side_effects: "reads"
             command:     "pytest src/doc_ray/tests/test_mutations.py -k 'suggest_seeds_clamps or decide_seeds_rejects' -q"
+            expect:
+              exit:      0
+
+  - id:                 "D-021"
+    title:              "Webapp response-security headers, upload-extension allowlisting, header-based operator token"
+    version_introduced: "1.10.0"
+    category:           "security"
+    decision: |
+      Three findings, landed together: (1) webapp/security_headers.py's
+      apply_security_headers, wired via app.after_request, sets
+      Content-Security-Policy (default-src 'self'; 'unsafe-inline' scoped to
+      script-src/style-src only, since the templates carry pre-existing
+      inline <script>/style= that a larger refactor would be needed to
+      eliminate), X-Frame-Options: DENY, X-Content-Type-Options: nosniff, and
+      Referrer-Policy: strict-origin-when-cross-origin on every response
+      (BL-104). (2) entrypoints/api/mutation.py's ingestDocument now calls
+      the new adapters.extraction.is_supported_extension(ext) — the same
+      _EXTRACTORS allowlist extract() dispatches on — before constructing
+      ObjectStore or calling store.put, so an unrecognized/spoofed extension
+      is rejected before the blob is ever persisted, not after (BL-106). (3)
+      webapp/operator_health.py's require_operator_health accepts the
+      X-Operator-Token header standalone; a query-string ?token= bootstrap
+      link is still accepted but now sets a signed session flag
+      (operator_health_ok, via Flask's already-signed session cookie) so
+      later requests in that browser session authenticate from the cookie —
+      operator_health.html's internal link no longer embeds the token in an
+      href at all.
+    rationale: |
+      (1) No CSP/frame/sniffing/referrer headers existed at all; Talisman
+      was flagged as absent but installing a new dependency for four header
+      assignments was unnecessary (CLAUDE.md: no unnecessary dependencies) —
+      a plain after_request hook is the "or equivalent" the backlog item
+      itself named. (2) The extension is attacker-supplied and previously
+      reached store.put with zero validation; extraction.py's own format
+      check only ran later, during the worker's ingest job, by which point
+      the blob already existed in the object store. (3) A token traveling
+      via URL query string lands in access logs, proxy logs, and browser
+      history on every single request; the header path already existed for
+      API-style callers, this closes the gap for the browser-navigated
+      operator health page specifically, where every internal link was
+      re-embedding the token in its href.
+    decision_status:    "accepted"
+    decision_date:      "2026-07-11"
+    owner:              ["pedroanisio@faz.ai"]
+    scope_path:
+      - "webapp/security_headers.py"
+      - "webapp/app.py"
+      - "src/doc_ray/adapters/extraction.py"
+      - "src/doc_ray/entrypoints/api/mutation.py"
+      - "webapp/operator_health.py"
+      - "webapp/templates/operator_health.html"
+    claims:
+      - claim_id:    "D-021.k1"
+        claim_text:  "Every webapp response carries CSP/X-Frame-Options/X-Content-Type-Options/Referrer-Policy headers."
+        auditable:   true
+        status:      "populated"
+        declared_checks_count: 1
+        checks:
+          - check_id:    "D-021.k1.c1"
+            description: "The regression test on a representative route passes."
+            check_kind:  "shell"
+            severity:    "error"
+            context:     "ci"
+            side_effects: "reads"
+            command:     "pytest tests/test_webapp.py::test_responses_carry_security_headers -q"
+            expect:
+              exit:      0
+
+      - claim_id:    "D-021.k2"
+        claim_text:  "ingestDocument rejects an unsupported upload extension before the blob reaches the object store."
+        auditable:   true
+        status:      "populated"
+        declared_checks_count: 1
+        checks:
+          - check_id:    "D-021.k2.c1"
+            description: "The regression test asserts ObjectStore.put is never called for an unsupported extension."
+            check_kind:  "shell"
+            severity:    "error"
+            context:     "ci"
+            side_effects: "reads"
+            command:     "pytest src/doc_ray/tests/test_mutations.py::test_ingest_document_rejects_unsupported_extension_before_storing_blob -q"
+            expect:
+              exit:      0
+
+      - claim_id:    "D-021.k3"
+        claim_text:  "The operator health token is accepted via header, and a query-string bootstrap no longer requires the token in subsequent internal links."
+        auditable:   true
+        status:      "populated"
+        declared_checks_count: 1
+        checks:
+          - check_id:    "D-021.k3.c1"
+            description: "The header-token, session-bootstrap, and no-token-in-links regression tests pass."
+            check_kind:  "shell"
+            severity:    "error"
+            context:     "ci"
+            side_effects: "reads"
+            command:     "pytest tests/test_webapp.py -k 'operator_health_accepts_header or operator_health_query_bootstrap or operator_health_page_links' -q"
+            expect:
+              exit:      0
+
+  - id:                 "D-022"
+    title:              "Process-wide structured logging for the worker and API"
+    version_introduced: "1.10.0"
+    category:           "observability"
+    decision: |
+      New doc_ray.logging_setup.configure_logging() installs one formatted
+      handler on the root logger (level via DOCRAY_LOG_LEVEL, format via
+      DOCRAY_LOG_FORMAT, default INFO / "%(asctime)s %(levelname)s %(name)s
+      %(message)s"), idempotent across repeated calls. entrypoints.worker's
+      main() and entrypoints.api.app's create_app() both call it at process
+      startup. application/jobs.py's run_once now logs a handler failure's
+      full traceback plus job id/kind/document_id via logging.getLogger
+      ("doc_ray.jobs").error(..., exc_info=exc), in addition to the existing
+      repr(exc) written to the jobs.error column. worker.py also logs a
+      warning (with traceback) on the BL-101 reconnect path. GraphQL resolver
+      exceptions needed no code change: Strawberry's default process_errors
+      already logs to logging.getLogger("strawberry.execution") — the gap was
+      that nothing configured logging at all, so that call fell through to
+      Python's unconfigured "handler of last resort".
+    rationale: |
+      grep import logging/logging.basicConfig/structlog/getLogger across
+      src/doc_ray returned zero hits before this — all output was print(), and
+      a worker crash during a real ingest produced no trace anywhere an
+      operator would find without already knowing to query the jobs.error
+      column. Confirmed the GraphQL logging gap was specifically the missing
+      root-logger configuration, not missing integration: Strawberry's
+      StrawberryLogger already calls logging.getLogger("strawberry.execution")
+      .error(...) on every resolver exception (verified by reading
+      strawberry.utils.logging's source directly), so build_schema() only had
+      to not break that default, not reimplement it.
+    decision_status:    "accepted"
+    decision_date:      "2026-07-11"
+    owner:              ["pedroanisio@faz.ai"]
+    scope_path:
+      - "src/doc_ray/logging_setup.py"
+      - "src/doc_ray/entrypoints/worker.py"
+      - "src/doc_ray/entrypoints/api/app.py"
+      - "src/doc_ray/application/jobs.py"
+    claims:
+      - claim_id:    "D-022.k1"
+        claim_text:  "A process-wide logger is configured for the worker and API processes, level/format controlled via environment."
+        auditable:   true
+        status:      "populated"
+        declared_checks_count: 1
+        checks:
+          - check_id:    "D-022.k1.c1"
+            description: "logging_setup.py defines configure_logging, called from worker.main and api.app.create_app."
+            check_kind:  "grep"
+            severity:    "error"
+            context:     "workspace"
+            path:        "src/doc_ray/logging_setup.py"
+            pattern:     "def configure_logging"
+            expect:
+              present:   true
+
+      - claim_id:    "D-022.k2"
+        claim_text:  "A worker job failure logs the full traceback and job context, not just repr(exc) in the DB column."
+        auditable:   true
+        status:      "populated"
+        declared_checks_count: 1
+        checks:
+          - check_id:    "D-022.k2.c1"
+            description: "The regression test asserts a logged record with exc_info and job id/kind in the message."
+            check_kind:  "shell"
+            severity:    "error"
+            context:     "ci"
+            side_effects: "reads"
+            command:     "pytest src/doc_ray/tests/test_jobs_worker.py::test_run_once_failure_logs_exception_with_job_context -q"
+            expect:
+              exit:      0
+
+      - claim_id:    "D-022.k3"
+        claim_text:  "GraphQL resolver exceptions are logged server-side via the configured logger, not just returned to the client."
+        auditable:   true
+        status:      "populated"
+        declared_checks_count: 1
+        checks:
+          - check_id:    "D-022.k3.c1"
+            description: "The regression test asserts schema.process_errors logs to the strawberry.execution logger."
+            check_kind:  "shell"
+            severity:    "error"
+            context:     "ci"
+            side_effects: "reads"
+            command:     "pytest src/doc_ray/tests/test_api_contract.py::test_graphql_resolver_exceptions_are_logged_server_side -q"
+            expect:
+              exit:      0
+
+  - id:                 "D-023"
+    title:              "Surface per-line page number + bounding box at PDF-extraction time"
+    version_introduced: "1.10.0"
+    category:           "extensibility"
+    decision: |
+      adapters.extraction.extract_pdf_pymupdf now attaches page_runs (a new
+      optional Extracted field, None for every non-PDF-pymupdf extractor) —
+      one {page, bbox, text} entry per line, computed by the new
+      domain.pdf_layout.page_runs_from_blocks(blocks), a sibling pass over the
+      exact same blocks structure to_markdown already consumes. No change to
+      full_text/to_markdown's output: this only surfaces geometry
+      _blocks_from_pages already computed and previously discarded.
+    rationale: |
+      BL-076 is explicitly the foundational, non-behavior-changing first step
+      for a future overlay-on-original-document feature (BL-077 persisting
+      this to spans, BL-082 rendering it) — surfacing the data at the
+      extraction boundary first, with a test proving distinct pages/bboxes on
+      a synthetic 2-page PDF, lets the persistence and rendering work build on
+      a verified extraction contract instead of doing extraction and
+      persistence changes in one unreviewable step. Placed in
+      domain/pdf_layout.py (not adapters/extraction.py) because it is pure
+      logic over the same blocks shape body_size/to_markdown already operate
+      on, dependency-free and unit-testable without PyMuPDF — consistent with
+      that module's existing charter.
+    decision_status:    "accepted"
+    decision_date:      "2026-07-11"
+    owner:              ["pedroanisio@faz.ai"]
+    scope_path:
+      - "src/doc_ray/domain/pdf_layout.py"
+      - "src/doc_ray/adapters/extraction.py"
+    claims:
+      - claim_id:    "D-023.k1"
+        claim_text:  "extract_pdf_pymupdf returns page_runs: one {page, bbox, text} entry per line, with distinct pages/bboxes for text on different source pages."
+        auditable:   true
+        status:      "populated"
+        declared_checks_count: 1
+        checks:
+          - check_id:    "D-023.k1.c1"
+            description: "The synthetic 2-page PDF regression test passes."
+            check_kind:  "shell"
+            severity:    "error"
+            context:     "ci"
+            side_effects: "reads"
+            command:     "pytest tests/test_extract_pymupdf.py::test_pymupdf_extractor_surfaces_page_and_bbox_per_run -q"
             expect:
               exit:      0

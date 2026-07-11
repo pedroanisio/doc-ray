@@ -164,6 +164,35 @@ def body_size(blocks: list[dict[str, Any]]) -> float:
     return float(max(weight.items(), key=lambda kv: kv[1])[0])
 
 
+def page_runs_from_blocks(blocks: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Return one ``{page, bbox, text}`` entry per line (BL-076).
+
+    A sibling pass over the same ``blocks`` structure ``to_markdown`` consumes —
+    every line already carries its source ``page`` and ``y0``/``y1``; this just
+    also collects the line's x-range from its spans and its concatenated text,
+    without touching the Markdown classifier itself.
+    """
+    runs: list[dict[str, Any]] = []
+    for block in blocks:
+        for line in block["lines"]:
+            spans = line["spans"]
+            if not spans:
+                continue
+            runs.append(
+                {
+                    "page": line["page"],
+                    "bbox": (
+                        min(sp["x0"] for sp in spans),
+                        line["y0"],
+                        max(sp["x1"] for sp in spans),
+                        line["y1"],
+                    ),
+                    "text": "".join(sp["text"] for sp in spans),
+                }
+            )
+    return runs
+
+
 def _norm_marginal(text: str) -> str:
     return re.sub(r"\d+", "#", text).lower().strip()
 

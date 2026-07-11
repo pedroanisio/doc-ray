@@ -66,3 +66,16 @@ def test_entity_and_chunk_reads_never_rejoin_document_content():
         body = inspect.getsource(fn)
         assert "document_content" not in body, f"{fn.__qualname__} rejoined document_content"
         assert "substring(" not in body, f"{fn.__qualname__} reintroduced substring extraction"
+
+
+def test_graphql_resolver_exceptions_are_logged_server_side(caplog):
+    """BL-115: a resolver exception must be logged server-side, not just returned
+    to the client — build_schema() must not silence Strawberry's default
+    process_errors -> strawberry.execution logger integration."""
+    from graphql import GraphQLError
+
+    schema = build_schema()
+    err = GraphQLError("boom", original_error=RuntimeError("boom"))
+    with caplog.at_level("ERROR", logger="strawberry.execution"):
+        schema.process_errors([err], execution_context=None)
+    assert any("boom" in r.getMessage() for r in caplog.records)

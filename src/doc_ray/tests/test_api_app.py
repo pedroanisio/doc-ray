@@ -55,8 +55,11 @@ def _cfg() -> Config:
     )
 
 
-def test_app_serves_health_and_graphql():
+def test_app_serves_health_and_graphql(monkeypatch):
+    logging_calls = []  # BL-115: create_app must configure logging once at startup.
+    monkeypatch.setattr(api_app, "configure_logging", lambda: logging_calls.append(1))
     app = create_app(_cfg())
+    assert logging_calls == [1]
     with TestClient(app) as client:  # context manager runs the lifespan (pool open/close)
         health = client.get("/health").json()
         assert health["status"] == "ok"

@@ -75,6 +75,36 @@ doc-ray carries **one global version** covering both the application package
     bound every read resolver uses; `decideSeeds`'s `approveIds`/
     `rejectIds` are rejected outright (new `context.MAX_BATCH_IDS`, 500) —
     not silently truncated — when a batch is too large.
+- **Webapp security headers; upload-extension allowlisting; header-based
+  operator token** (Claude Sonnet 5 via Claude Code) — BL-104, BL-106,
+  BL-107. See engineering decision `D-021`:
+  - New `webapp/security_headers.py` sets `Content-Security-Policy`,
+    `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, and
+    `Referrer-Policy: strict-origin-when-cross-origin` on every response,
+    via `app.after_request` — no new dependency. Previously none of these
+    headers were set anywhere.
+  - `ingestDocument` now checks the upload extension against
+    `extraction.is_supported_extension` (the same allowlist `extract()`
+    dispatches on) before the blob ever reaches the object store, not
+    after. Previously the attacker-supplied extension was persisted first,
+    validated only later during the worker's ingest job.
+  - `operator_health.py`'s `require_operator_health` accepts the
+    `X-Operator-Token` header standalone; a query-string `?token=`
+    bootstrap link now sets a signed session flag so later navigation no
+    longer needs the token in the URL. `operator_health.html`'s internal
+    link no longer embeds the raw token.
+- **Structured logging for the worker and API processes** (Claude Sonnet 5
+  via Claude Code) — BL-115. See engineering decision `D-022`: new
+  `doc_ray.logging_setup.configure_logging()` (level/format via
+  `DOCRAY_LOG_LEVEL`/`DOCRAY_LOG_FORMAT`) is called at startup by
+  `entrypoints.worker.main` and `entrypoints.api.app.create_app`. Worker
+  job failures now log the full traceback plus job id/kind/document_id
+  (`application/jobs.py`), not just `repr(exc)` tucked into the `jobs.error`
+  column; the worker also logs a warning on the BL-101 reconnect path.
+  GraphQL resolver exceptions needed no code change — Strawberry's default
+  `process_errors` already logs them to `strawberry.execution`; the gap was
+  that nothing configured logging at all, so that call fell through to
+  Python's unconfigured handler of last resort.
 
 ### Added
 - **Doc-hygiene audit fixes + drift regression tests** (Claude Sonnet 5 via
@@ -90,6 +120,16 @@ doc-ray carries **one global version** covering both the application package
   it can actually fail). `docs/doc-ray-database-*.pdf/svg` ERD diagrams remain
   stale — no generator script exists for them yet (tracked as a gap, not fixed
   here; see the doc-hygiene report's Recommendation 1).
+- **PDF extraction surfaces per-line page number + bounding box** (Claude
+  Sonnet 5 via Claude Code) — BL-076, the foundational first step for a
+  future overlay-on-original-document feature (see engineering decision
+  `D-023`). `extract_pdf_pymupdf` now attaches a new `Extracted.page_runs`
+  field (`None` for every non-PDF-pymupdf extractor): one
+  `{page, bbox, text}` entry per line, computed by the new
+  `domain.pdf_layout.page_runs_from_blocks`, a sibling pass over the same
+  `blocks` structure `to_markdown` already consumes. `full_text`/
+  `to_markdown`'s output is unchanged — this only surfaces geometry that was
+  already being computed and discarded.
 - **Semantic enrichment joins the default pipeline; entity/chunk reads stop
   rejoining `document_content`** (Claude Sonnet 5 via Claude Code) — the
   post-ingest pipeline chain is now `ingest -> annotate -> semantic_enrich ->
