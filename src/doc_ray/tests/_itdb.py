@@ -31,13 +31,13 @@ def unique_sha() -> str:
     return hashlib.sha256(os.urandom(16)).hexdigest()
 
 
-def make_doc(conn, text: str) -> str:
+def make_doc(conn, text: str, *, source_uri: str = "s3://it") -> str:
     sents = build_sentences(text)
     return db.insert_document(
         conn,
         title="itest",
         doc_type="txt",
-        source_uri="s3://it",
+        source_uri=source_uri,
         content_sha256=unique_sha(),
         byte_size=len(text),
         page_count=None,

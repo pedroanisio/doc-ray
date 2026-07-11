@@ -14,8 +14,8 @@ from pathlib import Path
 import pytest
 
 from doc_ray.adapters import queue_postgres as q
-from doc_ray.application.jobs import run_once
-from doc_ray.domain.jobs import JobStatus
+from doc_ray.application.jobs import handle_delete, run_once
+from doc_ray.domain.jobs import Job, JobStatus
 
 _MIGRATIONS = Path(__file__).resolve().parents[3] / "db" / "migrations"
 
@@ -484,3 +484,64 @@ def test_handle_restore_delegates_to_backup_module(qconn, monkeypatch):
     assert seen == {"backup_id": "b1"}
     result = conn.execute("SELECT result FROM jobs WHERE id = %s", (job_id,)).fetchone()["result"]
     assert result == {"tables_restored": 3, "blobs_restored": 1}
+
+
+# ---------------------------------------------------------------------------
+# BL-097 — deleteDocument must not leak the document's blob in the object
+# store forever.
+# ---------------------------------------------------------------------------
+
+
+class _FakeStore:
+    """Records .delete() calls; never touches real S3/MinIO."""
+
+    bucket = "documents"
+
+    def __init__(self) -> None:
+        self.deleted_keys: list[str] = []
+
+    def delete(self, key: str) -> None:
+        self.deleted_keys.append(key)
+
+
+def test_handle_delete_removes_the_documents_blob(qconn):
+    import _itdb
+
+    conn, _created = qconn
+    doc_id = _itdb.make_doc(conn, "Delete me.", source_uri="s3://documents/ab/cd.pdf")
+    store = _FakeStore()
+    job = Job(id="x", kind="delete", status=JobStatus.RUNNING, document_id=doc_id)
+
+    result = handle_delete(conn, store, job)
+
+    assert result == {"deleted": doc_id}
+    assert store.deleted_keys == ["ab/cd.pdf"]
+    assert conn.execute("SELECT 1 FROM documents WHERE id = %s", (doc_id,)).fetchone() is None
+
+
+def test_handle_delete_tolerates_a_missing_object_store(qconn):
+    """The DB delete must still succeed even when no store is configured."""
+    import _itdb
+
+    conn, _created = qconn
+    doc_id = _itdb.make_doc(conn, "Delete me too.", source_uri="s3://documents/ab/ce.pdf")
+    job = Job(id="x", kind="delete", status=JobStatus.RUNNING, document_id=doc_id)
+
+    result = handle_delete(conn, None, job)
+
+    assert result == {"deleted": doc_id}
+    assert conn.execute("SELECT 1 FROM documents WHERE id = %s", (doc_id,)).fetchone() is None
+
+
+def test_handle_delete_ignores_a_source_uri_outside_the_configured_bucket(qconn):
+    """A foreign-bucket source_uri must not be handed to store.delete() as a bare key."""
+    import _itdb
+
+    conn, _created = qconn
+    doc_id = _itdb.make_doc(conn, "Odd URI.", source_uri="s3://other-bucket/ab/cf.pdf")
+    store = _FakeStore()
+    job = Job(id="x", kind="delete", status=JobStatus.RUNNING, document_id=doc_id)
+
+    handle_delete(conn, store, job)
+
+    assert store.deleted_keys == []

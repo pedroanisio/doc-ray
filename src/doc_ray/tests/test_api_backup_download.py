@@ -49,7 +49,10 @@ def test_download_serves_available_archive_and_404s_for_admin() -> None:
 
     admin_id = str(uuid4())
     conn = psycopg.connect(_itdb.DB_URL, row_factory=dict_row, autocommit=True)
-    _itdb.ensure_admin_principal(conn, admin_id, "test-backup-download-admin")
+    # display_name must vary with admin_id: it's independently UNIQUE, and a fixed
+    # literal here would collide with a prior run's row on this persistent DB, silently
+    # no-op the insert (ON CONFLICT DO NOTHING), and FK-violate on principal_roles below.
+    _itdb.ensure_admin_principal(conn, admin_id, f"test-backup-download-admin-{admin_id}")
     cfg = _cfg(api_tokens={ADMIN_TOKEN: (admin_id, frozenset({"read", "write"}))})
     try:
         store = ObjectStore(cfg)

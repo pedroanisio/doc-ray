@@ -55,8 +55,25 @@ def backoff_seconds(attempts: int) -> float:
 def handle_delete(
     conn: psycopg.Connection[Any], store: ObjectStore | None, job: Job
 ) -> dict[str, Any]:
-    """Delete a document (cascading to all its derived layers)."""
+    """Delete a document (cascading to all its derived layers) and its blob.
+
+    ``source_uri`` is read before the row is gone (the DELETE cascades
+    immediately), then the object-store blob is removed too — otherwise every
+    delete permanently leaks the original bytes (BL-097). The DB delete is
+    the authoritative operation; a document with no configured store, or
+    whose source_uri doesn't belong to this store's bucket (unexpected, but
+    not this handler's problem to fix), still gets its catalog row removed —
+    blob cleanup is a bonus, not a precondition for deletion to succeed.
+    """
+    row = conn.execute(
+        "SELECT source_uri FROM documents WHERE id = %s", (job.document_id,)
+    ).fetchone()
     conn.execute("DELETE FROM documents WHERE id = %s", (job.document_id,))
+    if store is not None and row and row["source_uri"]:
+        prefix = f"s3://{store.bucket}/"
+        source_uri = row["source_uri"]
+        if source_uri.startswith(prefix):
+            store.delete(source_uri[len(prefix) :])
     return {"deleted": job.document_id}
 
 

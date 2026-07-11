@@ -264,7 +264,7 @@ live dev stack (real Postgres + MinIO), not just schema-level unit tests.
 | BL-094 | Backup download route is completely unauthenticated and bypasses RLS | security | bug | done | S | critical | shared |
 | BL-095 | Duplicate re-upload silently downgrades a document's stored Content-Type | persistence | bug | ready | XS | low | shared |
 | BL-096 | No read-side integrity verification despite content_sha256 being threaded for exactly that purpose | persistence | tech-debt | parked | S | medium | shared |
-| BL-097 | deleteDocument never deletes the document's blob — permanent storage leak | persistence | bug | ready | S | medium | shared |
+| BL-097 | deleteDocument never deletes the document's blob — permanent storage leak | persistence | bug | done | S | medium | shared |
 | BL-098 | ingestDocument has no upload size cap — unbounded memory buffering | security | bug | done | S | high | shared |
 | BL-099 | No encryption enforcement for object storage, at rest or in transit | security | tech-debt | parked | M | medium | shared |
 | BL-100 | Worker detects crashed jobs but not hung ones — no execution timeout | ops | bug | parked | M | medium | shared |

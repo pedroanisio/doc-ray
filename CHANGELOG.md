@@ -225,6 +225,16 @@ doc-ray carries **one global version** covering both the application package
   through the wrong row access mode.
 
 ### Fixed
+- **deleteDocument no longer leaks the document's blob in object storage**
+  (Claude Sonnet 5 via Claude Code) — `handle_delete` (`application/jobs.py`)
+  previously only issued `DELETE FROM documents`; a repo-wide grep for
+  `store.delete(` showed exactly one call site in all of `src/doc_ray`
+  (`application/backup.py`, pruning old backup archives), so every document
+  delete leaked its original bytes in MinIO/S3 forever. `handle_delete` now
+  reads `source_uri` before the row is removed, then deletes the matching
+  object-store key after the DB delete succeeds — tolerating a document with
+  no configured store or a `source_uri` outside the configured bucket.
+  Closes `BL-097`.
 - **Corpus landing count and empty state** (OpenAI GPT-5 via Codex) —
   the webapp landing lede now reflects the live document count instead of
   hardcoding "Five documents", and an empty corpus shows an upload call-to-action,
