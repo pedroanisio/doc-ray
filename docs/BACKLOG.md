@@ -270,7 +270,7 @@ live dev stack (real Postgres + MinIO), not just schema-level unit tests.
 | BL-100 | Worker detects crashed jobs but not hung ones — no execution timeout | ops | bug | parked | M | medium | shared |
 | BL-101 | Worker's outer poll loop has no resilience to a dropped DB connection | ops | bug | ready | S | medium | shared |
 | BL-102 | JobStatus.CANCELED is a dead status — no code path ever sets it | ops | feature | parked | S | low | shared |
-| BL-103 | Webapp has no CSRF protection on any state-changing form | security | bug | ready | M | high | shared |
+| BL-103 | Webapp has no CSRF protection on any state-changing form | security | bug | done | M | high | shared |
 | BL-104 | Webapp sends no security response headers (CSP, X-Frame-Options, etc.) | security | tech-debt | ready | S | medium | shared |
 | BL-105 | No rate limiting on expensive webapp routes (search, upload) | security | tech-debt | parked | M | medium | shared |
 | BL-106 | Upload extension is client-controlled and unchecked before the blob is stored | security | bug | ready | S | medium | shared |

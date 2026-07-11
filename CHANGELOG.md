@@ -22,6 +22,19 @@ doc-ray carries **one global version** covering both the application package
 ## [Unreleased]
 
 ### Security
+- **CSRF protection on every state-changing webapp form** (Claude Sonnet 5 via
+  Claude Code) — upload, backup create/restore, and seeding approve/reject/seed
+  were all plain POST forms with no CSRF token, no SameSite reliance
+  documented, and no Origin check anywhere in `app.py`; a logged-in operator's
+  browser could be tricked into submitting any of these from another origin.
+  A per-session token (session-cookie-backed, compared with
+  `hmac.compare_digest`) is now minted via a Jinja `csrf_token()` global and
+  verified in a `before_request` hook that rejects every
+  POST/PUT/PATCH/DELETE without a matching token before the route body runs —
+  one hook covers all four mutating routes (and any future one) without a
+  per-route opt-in, since every webapp mutation is a same-origin `<form>`
+  post (no JS fetch/XHR writes exist), so no new dependency was needed. New
+  `DOCRAY_WEBAPP_SECRET_KEY` signs the session cookie. Closes `BL-103`.
 - **GraphQL introspection/GraphiQL gated; ingestDocument upload size capped;
   EPUB/DOCX zip-bomb + entity-expansion hardening** (Claude Sonnet 5 via
   Claude Code) — three findings from the 2026-07-10 full-codebase gap

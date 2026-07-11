@@ -3342,7 +3342,7 @@ items:
       cross-site request forgery today.
     category:     "security"
     type:         "bug"
-    status:       "ready"
+    status:       "done"
     complexity:   "M"
     priority:     "high"
     rationale:    "The webapp's admin-gated actions (createBackup, restoreBackup, seed approval) are exactly the operations an attacker would want to trigger via a forged cross-site request against an operator's open browser tab."
@@ -3356,7 +3356,7 @@ items:
       - "webapp/templates/backups.html"
       - "webapp/templates/seeding.html"
     owner:        "shared"
-    source:       "Full-codebase gap-analysis 2026-07-10 (webapp security subsystem audit)."
+    source:       "Full-codebase gap-analysis 2026-07-10 (webapp security subsystem audit). Completed 2026-07-11 (a per-session CSRF token, session-cookie-backed and compared with hmac.compare_digest, is minted via a Jinja csrf_token() global and verified in a before_request hook that rejects every POST/PUT/PATCH/DELETE without a matching token; hidden field added to all 3 form templates) on branch fix/bl-103-webapp-csrf."
     tags:         ["security", "webapp", "csrf", "bug"]
 
   - id:          "BL-104"
