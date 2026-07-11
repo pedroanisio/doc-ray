@@ -49,6 +49,24 @@ need the API (with its object-store configuration) and the worker up as well.
 
 ### Launching
 
+As part of the compose stack (talks to the stack's Postgres and API over the
+compose network; host port via `WEBAPP_PORT`, bound to 127.0.0.1):
+
+```bash
+docker compose up -d webapp
+```
+
+For HTTPS access, add the nginx front door — it serves the webapp on
+`https://localhost:${NGINX_HTTPS_PORT:-443}` and 301-redirects plain HTTP
+(`${NGINX_HTTP_PORT:-80}`). First start bootstraps a self-signed certificate
+(browser warning expected until replaced with a real one):
+
+```bash
+docker compose up -d nginx
+```
+
+Or locally against a running stack:
+
 ```bash
 flask --app webapp.app run --port 5001
 # or

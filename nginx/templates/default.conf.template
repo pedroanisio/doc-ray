@@ -1,0 +1,53 @@
+# docray TLS front door — rendered by the nginx image's envsubst hook into
+# /etc/nginx/conf.d/default.conf (replacing the stock welcome-page config).
+# Only ${NGINX_MAX_BODY} is substituted from the environment; nginx runtime
+# variables ($host, $request_uri, ...) are left alone because envsubst is run
+# with an explicit variable list.
+
+server_tokens off;
+
+server {
+    listen 80 default_server;
+    server_name _;
+
+    # Plain-HTTP probe target for the compose healthcheck — exempt from the
+    # redirect so the check never depends on the (possibly self-signed) cert.
+    location = /healthz {
+        return 200 "ok\n";
+    }
+
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+
+server {
+    listen 443 ssl default_server;
+    http2 on;
+    server_name _;
+
+    # Bootstrapped self-signed by the nginx-certgen one-shot service; replace
+    # with real certs by pointing the compose `nginxcerts` mount at a host
+    # directory holding fullchain.pem + privkey.pem.
+    ssl_certificate     /etc/nginx/certs/fullchain.pem;
+    ssl_certificate_key /etc/nginx/certs/privkey.pem;
+    ssl_protocols       TLSv1.2 TLSv1.3;
+
+    # No Strict-Transport-Security header on purpose: the default cert is
+    # self-signed, and HSTS would remove the browser's cert-warning bypass.
+    # Add it here once real certificates are in place.
+
+    # Must admit what the webapp/API accept (DOCRAY_MAX_UPLOAD_MB); nginx's
+    # 1m default would reject uploads long before Flask sees them.
+    client_max_body_size ${NGINX_MAX_BODY};
+
+    location / {
+        proxy_pass http://webapp:5001;
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+        # Backup archives can be large; don't cut streaming downloads at 60s.
+        proxy_read_timeout 300s;
+    }
+}

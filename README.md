@@ -97,7 +97,7 @@ Beyond the batch `ingester` CLI, the stack ships a GraphQL API (Strawberry)
 and a Flask browser over the corpus:
 
 ```bash
-docker compose up -d postgres minio createbucket api worker backup-scheduler
+docker compose up -d postgres minio createbucket api worker backup-scheduler webapp
 ```
 
 `api` serves GraphQL at `http://localhost:8000/graphql`; `worker` is the
@@ -135,8 +135,9 @@ RLS-limited `docray_api` role with no principal id; set
 are explicit through `DOCRAY_API_POOL_MIN_SIZE`, `DOCRAY_API_POOL_MAX_SIZE`, and
 `DOCRAY_API_POOL_TIMEOUT`.
 
-The webapp (`python -m webapp.app`, or `flask --app webapp.app run --port
-5001`) is a read-only Postgres browser plus a thin GraphQL write path: upload
+The webapp (`docker compose up -d webapp`, serving on
+`http://127.0.0.1:5001`; or locally `flask --app webapp.app run --port 5001`)
+is a read-only Postgres browser plus a thin GraphQL write path: upload
 a document, watch its pipeline status, read it with POS/entity overlays, and
 curate **domain seeding** — mining a document's vocabulary, resolving each
 term to an exact Wikidata identity, and auditing the resolved description
@@ -144,6 +145,13 @@ before anything reaches the shared canonical registry (the fuzzy-search
 alternative silently drifts, e.g. resolving "versal" to the Wikidata item
 for *Versailles*). Full walkthrough: [`docs/webapp_user_manual.md`](docs/webapp_user_manual.md).
 Entity canonicalization design: [`docs/canonicalization_pipeline.md`](docs/canonicalization_pipeline.md).
+
+For HTTPS, `docker compose up -d nginx` starts a TLS front door on
+`https://localhost:${NGINX_HTTPS_PORT:-443}` (plain HTTP on
+`${NGINX_HTTP_PORT:-80}` 301-redirects there). A self-signed certificate is
+bootstrapped on first start — expect a browser warning until you replace it
+with a real one — and the webapp has no login, so keep the exposed ports
+inside a trusted network.
 
 ## Backup & restore
 

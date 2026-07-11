@@ -107,6 +107,37 @@ doc-ray carries **one global version** covering both the application package
   Python's unconfigured handler of last resort.
 
 ### Added
+- **nginx TLS front door for the webapp** (Claude Fable 5 via Claude Code) —
+  new compose `nginx` service (nginx:1.27-alpine) serves the webapp over
+  HTTPS on `${NGINX_HTTPS_PORT:-443}` and 301-redirects plain HTTP on
+  `${NGINX_HTTP_PORT:-80}` (host/path/query preserved). A one-shot
+  `nginx-certgen` service (createbucket pattern, stack image's openssl)
+  bootstraps a self-signed certificate (CN=localhost, SAN
+  localhost/127.0.0.1) into the new `nginxcerts` volume on first start and
+  never overwrites existing certs, so real certificates can be dropped in.
+  Config ships as `nginx/templates/default.conf.template`, rendered over the
+  image's stock config by its envsubst hook; `client_max_body_size` is wired
+  to `${DOCRAY_MAX_UPLOAD_MB:-200}m` so nginx's 1 MiB default doesn't 413
+  uploads the webapp/API would accept. No HSTS on purpose while the default
+  cert is self-signed (it would remove the browser's cert-warning bypass);
+  plain-HTTP `/healthz` is exempt from the redirect and backs the compose
+  healthcheck. nginx binds all interfaces as the intentional entry point —
+  the webapp itself stays loopback-only — but the UI still has no login, so
+  the exposed ports must stay inside a trusted network.
+- **Webapp joins the compose stack as a first-class service** (Claude Fable 5
+  via Claude Code) — `docker compose up -d webapp` now serves the Flask corpus
+  browser at `http://127.0.0.1:${WEBAPP_PORT:-5001}`, wired to the stack's
+  Postgres and to the api service's in-network GraphQL endpoint
+  (`http://api:8000/graphql` — hard-coded like `docker-compose.api.yml`'s
+  `S3_ENDPOINT`, so a host-oriented `.env` URL can't dead-end inside the
+  container). The shared `Dockerfile` now ships `webapp/`. The container runs
+  `flask run` (debug off) rather than `python -m webapp.app`, whose
+  `debug=True` would expose the Werkzeug debugger; the host port binds to
+  127.0.0.1 because the UI has no login and `/backups` can restore over the
+  live database. Healthcheck probes `/`, which doubles as a DB-reachability
+  check. `DOCRAY_WEBAPP_SECRET_KEY`, `DOCRAY_WEBAPP_API_TOKEN`,
+  `DOCRAY_OPERATOR_HEALTH_TOKEN`, `DOCRAY_MAX_UPLOAD_MB`, `DOCRAY_DB_ROLE`,
+  and `DOCRAY_PRINCIPAL_ID` pass through from `.env`.
 - **Doc-hygiene audit fixes + drift regression tests** (Claude Sonnet 5 via
   Claude Code) — README's quick-start referenced a removed fixture
   (`orwell1984.pdf`) and its GraphQL surface list had drifted 7 fields behind

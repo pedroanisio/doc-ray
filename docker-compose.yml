@@ -138,6 +138,109 @@ services:
     entrypoint:
       ["uvicorn", "doc_ray.entrypoints.api.app:app", "--host", "0.0.0.0", "--port", "8000"]
 
+  # Flask corpus browser (webapp/): the reading UI plus the thin write path
+  # (upload, seeding, backups) that it forwards to the api service.
+  # http://localhost:${WEBAPP_PORT:-5001} — bound to 127.0.0.1 like postgres:
+  # the UI has no login of its own and /backups can restore over the live
+  # database, so it must not be reachable from other hosts by default.
+  webapp:
+    build: .
+    container_name: docray-webapp
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+      # Started, not healthy: browsing needs only the database; upload/seeding
+      # degrade gracefully while the api is still coming up.
+      api:
+        condition: service_started
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-docray}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD to a non-default secret}@postgres:5432/${POSTGRES_DB:-docray}
+      # In-network endpoint, hard-coded on purpose (not ${DOCRAY_API_URL}): a
+      # host-oriented .env value like http://localhost:8000/graphql would
+      # dead-end inside the container — the same trap docker-compose.api.yml
+      # documents for S3_ENDPOINT.
+      DOCRAY_API_URL: http://api:8000/graphql
+      DOCRAY_WEBAPP_SECRET_KEY: ${DOCRAY_WEBAPP_SECRET_KEY:-}
+      DOCRAY_WEBAPP_API_TOKEN: ${DOCRAY_WEBAPP_API_TOKEN:-}
+      DOCRAY_OPERATOR_HEALTH_TOKEN: ${DOCRAY_OPERATOR_HEALTH_TOKEN:-}
+      DOCRAY_MAX_UPLOAD_MB: ${DOCRAY_MAX_UPLOAD_MB:-200}
+      DOCRAY_DB_ROLE: ${DOCRAY_DB_ROLE:-docray_client}
+      DOCRAY_PRINCIPAL_ID: ${DOCRAY_PRINCIPAL_ID:-}
+    ports:
+      - "127.0.0.1:${WEBAPP_PORT:-5001}:5001"
+    # The index page queries Postgres, so this doubles as a DB-reachability
+    # probe (same spirit as the api's /readyz check above).
+    healthcheck:
+      test: ["CMD", "python", "-c",
+             "import urllib.request; urllib.request.urlopen('http://localhost:5001/')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+    # `flask run`, NOT `python -m webapp.app`: the module path enables Flask
+    # debug mode (Werkzeug debugger = remote code execution if ever exposed).
+    entrypoint:
+      ["flask", "--app", "webapp.app", "run", "--host", "0.0.0.0", "--port", "5001"]
+
+  # One-shot: bootstrap a self-signed certificate into the shared certs volume
+  # so the nginx front door below can start on a fresh checkout (createbucket
+  # pattern). Skips itself when certs are already present, so real
+  # certificates dropped into the volume are never overwritten.
+  nginx-certgen:
+    build: .
+    volumes:
+      - nginxcerts:/certs
+    entrypoint:
+      - /bin/sh
+      - -ec
+      - |
+        if [ -s /certs/fullchain.pem ] && [ -s /certs/privkey.pem ]; then
+          echo "certs present, leaving them untouched"
+          exit 0
+        fi
+        openssl req -x509 -newkey rsa:2048 -nodes -days 825 \
+          -subj "/CN=localhost" \
+          -addext "subjectAltName=DNS:localhost,IP:127.0.0.1" \
+          -keyout /certs/privkey.pem -out /certs/fullchain.pem
+        echo "generated self-signed certificate (CN=localhost)"
+
+  # TLS front door: serves the webapp over HTTPS on ${NGINX_HTTPS_PORT:-443}
+  # and 301-redirects plain HTTP on ${NGINX_HTTP_PORT:-80}. Binds all
+  # interfaces — this is the one intentionally exposed entry point (the webapp
+  # itself stays on 127.0.0.1). The webapp still has NO login of its own, so
+  # do not expose this beyond a trusted network without adding auth here.
+  nginx:
+    image: nginx:1.27-alpine
+    container_name: docray-nginx
+    restart: unless-stopped
+    depends_on:
+      # Started (not healthy) is required, not merely tolerated: nginx resolves
+      # the `webapp` upstream at config-load time and exits if the name is
+      # unknown to compose DNS.
+      webapp:
+        condition: service_started
+      nginx-certgen:
+        condition: service_completed_successfully
+    environment:
+      # Substituted into client_max_body_size — keep in lockstep with the
+      # webapp/API upload cap so nginx isn't the surprise 413 in the middle.
+      NGINX_MAX_BODY: ${DOCRAY_MAX_UPLOAD_MB:-200}m
+    ports:
+      - "${NGINX_HTTP_PORT:-80}:80"
+      - "${NGINX_HTTPS_PORT:-443}:443"
+    volumes:
+      - ./nginx/templates:/etc/nginx/templates:ro
+      - nginxcerts:/etc/nginx/certs:ro
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
   # Background worker (D-005): claims jobs and runs the blocking work (extract/spaCy).
   # Scale out with: docker compose up --scale worker=3
   worker:
@@ -209,3 +312,4 @@ services:
 volumes:
   pgdata:
   miniodata:
+  nginxcerts:
