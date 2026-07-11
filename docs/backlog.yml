@@ -71,6 +71,33 @@
 # once the already-shipped keyset pagination (BL-009/D-008) was excluded.
 # Any item introducing an ML/LLM suggestion feature (BL-002, BL-006, BL-061)
 # carries a PALS's-Law verification obligation.
+#
+# 2026-07-10: added BL-094..BL-118 from a full-codebase gap-analysis run as
+# six parallel subsystem audits (object storage/content-addressing, worker/
+# job-queue robustness, webapp security surface, GraphQL input validation,
+# dependency/container supply chain, observability) after BL-064 landed
+# (commit d04165d). Each finding was independently verified against the live
+# tree with file:line evidence; the two highest-severity findings were
+# re-verified a second time directly rather than trusted from the subagent
+# report alone. Most severe: BL-094, an *unauthenticated* FastAPI route
+# (`GET /backups/{id}/download`, entrypoints/api/app.py) that streams a full
+# corpus backup archive with no Authenticator/principal check and no RLS
+# (it runs on the raw superuser pool connection, bypassing the RLS BL-064
+# just added to `backups`) — confirmed by test_api_backup_download.py itself
+# calling it with no auth header. BL-108 is the second critical finding:
+# GraphQL introspection/GraphiQL are enabled with no production gating, and
+# anonymous read access is the default (`DOCRAY_API_ALLOW_ANONYMOUS` defaults
+# true), so an anonymous caller can enumerate the full schema including
+# admin-only mutation shapes. The rest span storage integrity/leaks (blobs
+# orphaned on delete, no read-side hash verification, Content-Type silently
+# downgraded on duplicate re-upload), worker hang/crash-recovery gaps, webapp
+# CSRF/headers/rate-limiting/upload-validation gaps, GraphQL argument-bound
+# gaps distinct from BL-009's query-shape limits, container/supply-chain
+# hardening (root user, floating base image, no CVE/SBOM scanning, CI
+# bypassing the committed uv.lock), and an application-wide absence of
+# logging/tracing (worker and GraphQL failures produce no durable trace
+# today). Deduped against all 93 existing items before writing; none
+# duplicate BL-009/023/038/039-046/049/055/058/059/064/065-075.
 # =====================================================================
 
 disclaimer: |
@@ -83,7 +110,7 @@ metadata:
   generated_by:     "Claude Sonnet 5 via Claude Code (merge of Claude Opus 4.8 backlog + OpenAI Codex improvement-proposal candidates)"
   generated_on:     "2026-07-05"
   system_of_record: "docs/backlog.yml"
-  total_items:      93
+  total_items:      118
 
 items:
 
@@ -3017,3 +3044,757 @@ items:
     owner:        "shared"
     source:       "Feature request 2026-07-05: full ingest feature design for pptx/svg, decomposed to include a durable test-coverage component rather than one-off tests per format."
     tags:         ["testing", "extraction", "drift-guard"]
+
+  # ==================== FULL-CODEBASE GAP ANALYSIS (2026-07-10) ====================
+
+  - id:          "BL-094"
+    title:        "Backup download route is completely unauthenticated and bypasses RLS"
+    summary:      "GET /backups/{id}/download (entrypoints/api/app.py) has no Authenticator/principal check at all and runs on the raw superuser pool connection (never calls apply_principal), so it also bypasses the backups RLS policy BL-064/migration 043 just added — any network-reachable caller can download a full corpus backup archive (DB dump + every original document blob) knowing only a backup id."
+    description: |
+      Confirmed live: `download_backup` (entrypoints/api/app.py:147-173) is a
+      plain `@app.get` route that never calls `request.app.state.authenticator`
+      or any `_require_admin`/scope check — unlike every GraphQL mutation,
+      including `createBackup`/`restoreBackup` which both call `_require_admin`
+      (mutation.py:207/220, BL-064/D-019). It also queries via
+      `pool.connection()` directly rather than through `_get_context`'s
+      `apply_principal` (app.py:52-56), so the connection never runs
+      `SET ROLE docray_api` — the SELECT against `backups` executes as the
+      pool's configured role, which docker-compose/`.env.example` set to the
+      `docray` superuser/table-owner (RLS-bypassing by design, D-010). This
+      means the route is unauthenticated at the HTTP layer *and* unscoped at
+      the RLS layer that migration 043 just restricted `backups` SELECT to
+      `docray_is_admin()`. Confirmed by the route's own test,
+      `test_api_backup_download.py::test_download_serves_available_archive_and_404s`,
+      which calls `client.get(f"/backups/{backup_id}/download")` with no auth
+      header at all and asserts HTTP 200 — the test proves the current
+      behavior is exactly this, not a hypothetical. `webapp/app.py`'s proxy
+      route inherits the same gap (it forwards to this URL with no added auth).
+    category:     "security"
+    type:         "bug"
+    status:       "done"
+    complexity:   "S"
+    priority:     "critical"
+    rationale:    "This is the same class of bug BL-064 just fixed (a write/read path that ignores the access-control model entirely) except worse: BL-064 required a stolen write-scoped token; this requires no credential of any kind, just network reachability and a backup id (which is itself visible to any admin-panel viewer or guessable as a ULID sequence). It silently undoes migration 043's RLS intent for the one table that RLS was supposed to lock down as admin-only."
+    acceptance_criteria:
+      - "download_backup requires an authenticated principal and calls _require_admin (or equivalent) before querying backups, returning 401/403 for anonymous or non-admin callers."
+      - "The backups lookup runs through a principal-bound connection (apply_principal / SET ROLE docray_api) so RLS is actually enforced, not bypassed via the raw pool."
+      - "A regression test proves an anonymous or non-admin caller gets 401/403, not the archive bytes; the existing 200/404 cases in test_api_backup_download.py continue to pass for an admin principal."
+    dependencies: []
+    related_decisions: ["D-019"]
+    references:
+      - "src/doc_ray/entrypoints/api/app.py"
+      - "src/doc_ray/tests/test_api_backup_download.py"
+      - "src/doc_ray/entrypoints/api/mutation.py"
+    owner:        "shared"
+    source:       "Full-codebase gap-analysis 2026-07-10 (object-storage subsystem audit), re-verified directly against app.py and the route's own test given severity. Completed 2026-07-11 (download_backup now authenticates + calls docray_is_admin() through apply_principal; webapp proxy forwards the API token and propagates 401/403/404) on branch fix/bl-064-mutation-document-acl, commit 846237c."
+    tags:         ["security", "critical", "rls", "authorization", "bug"]
+
+  - id:          "BL-095"
+    title:        "Duplicate re-upload silently downgrades a document's stored Content-Type"
+    summary:      "ingestDocument always calls store.put(key, data, \"application/octet-stream\") before the worker's dedupe check runs; a document already in the corpus that gets re-uploaded has its correctly-typed blob (set on first ingest) irreversibly overwritten with a generic octet-stream content-type."
+    description: |
+      Confirmed live: mutation.py's ingestDocument path uploads with a
+      hardcoded "application/octet-stream" content-type before the job queue
+      even runs; the worker's ingest handler short-circuits on a sha256 match
+      and returns "duplicate" without ever re-uploading with the correct
+      type (which is only set on a first, successful, non-duplicate ingest).
+      Net effect: every re-upload of an already-ingested document permanently
+      degrades its stored Content-Type header for all future downloads/serves
+      of that blob, and nothing restores it — a second re-upload just repeats
+      the same overwrite.
+    category:     "persistence"
+    type:         "bug"
+    status:       "ready"
+    complexity:   "XS"
+    priority:     "low"
+    rationale:    "A silent, irreversible metadata degradation on a common user action (re-uploading a file you're not sure was already ingested) that nothing currently detects or reports."
+    acceptance_criteria:
+      - "A duplicate upload either skips the store.put entirely (detecting the sha256 match before upload) or re-uploads with the correct, format-derived content-type instead of a hardcoded octet-stream default."
+      - "A regression test re-uploads an already-ingested document and asserts its stored content-type is unchanged."
+    dependencies: []
+    references:
+      - "src/doc_ray/entrypoints/api/mutation.py"
+      - "src/doc_ray/application/jobs.py"
+    owner:        "shared"
+    source:       "Full-codebase gap-analysis 2026-07-10 (object-storage subsystem audit)."
+    tags:         ["persistence", "storage", "bug"]
+
+  - id:          "BL-096"
+    title:        "No read-side integrity verification despite content_sha256 being threaded for exactly that purpose"
+    summary:      "docs/DATABASE.md documents content_sha256 as providing dedupe + integrity, but no code path ever re-checks a fetched blob's hash against it — a silently corrupted, truncated, or wrong-object read (bit rot, MinIO bug, race) is ingested or restored as if correct."
+    description: |
+      Confirmed live: the ingest handler fetches the blob back via
+      `store.get()` and recomputes a hash only for the dedupe lookup, never
+      comparing it to the `sha256` value already threaded through the job
+      payload. Backup creation and restore-from-archive likewise never
+      verify a hash on any blob read. The `content_sha256` column's
+      documented "integrity" purpose is therefore aspirational, not enforced.
+    category:     "persistence"
+    type:         "tech-debt"
+    status:       "parked"
+    complexity:   "S"
+    priority:     "medium"
+    rationale:    "Content-addressing without a read-side integrity check only gets you dedupe, not the corruption-detection half of the design DATABASE.md already claims exists."
+    acceptance_criteria:
+      - "Every blob read used for ingest verification, backup, or restore recomputes sha256 and raises/fails the job on a mismatch instead of proceeding silently."
+      - "A test injects a corrupted blob (wrong bytes at the same key) and asserts the affected job fails cleanly rather than succeeding."
+    dependencies: []
+    references:
+      - "src/doc_ray/application/jobs.py"
+      - "src/doc_ray/application/backup.py"
+      - "docs/DATABASE.md"
+    owner:        "shared"
+    source:       "Full-codebase gap-analysis 2026-07-10 (object-storage subsystem audit)."
+    tags:         ["persistence", "storage", "integrity", "tech-debt"]
+
+  - id:          "BL-097"
+    title:        "deleteDocument never deletes the document's blob — permanent storage leak"
+    summary:      "handle_delete only issues DELETE FROM documents; a repo-wide grep for store.delete( shows exactly one call site in all of src/doc_ray (backup.py, pruning old backup archives) — no code path ever deletes a document's own storage_key, so every deleteDocument mutation leaks the original bytes forever."
+    description: |
+      Confirmed live: `handle_delete` (application/jobs.py) deletes the
+      `documents` row (cascading to its layers per FK) but never calls
+      `ObjectStore.delete()` for the document's own blob. The only
+      `store.delete(` call site anywhere in `src/doc_ray` is
+      `application/backup.py:355`, used solely to prune old backup archive
+      objects — not document blobs. This is distinct from BL-059 (which is
+      about adding lifecycle states like archive/soft-delete/restore at the
+      product level); this is a lower-level adapter omission that would
+      still leak storage even once BL-059 lands, unless BL-059's
+      implementation happens to also fix this.
+    category:     "persistence"
+    type:         "bug"
+    status:       "ready"
+    complexity:   "S"
+    priority:     "medium"
+    rationale:    "Unbounded storage growth on the one operation (delete) a user would reasonably expect to free space, plus a real data-erasure gap for anyone deleting a document for compliance/privacy reasons who now believes the bytes are gone."
+    acceptance_criteria:
+      - "handle_delete calls store.delete() for the document's storage_key after (or as part of) the DB delete."
+      - "A regression test deletes a document and asserts its blob is no longer present in the object store."
+    dependencies: []
+    references:
+      - "src/doc_ray/application/jobs.py"
+      - "src/doc_ray/application/backup.py"
+      - "src/doc_ray/adapters/object_store.py"
+    owner:        "shared"
+    source:       "Full-codebase gap-analysis 2026-07-10 (object-storage subsystem audit)."
+    tags:         ["persistence", "storage", "bug", "data-erasure"]
+
+  - id:          "BL-098"
+    title:        "ingestDocument has no upload size cap — unbounded memory buffering"
+    summary:      "mutation.py's ingestDocument does data = await upload.read() with no size limit anywhere in Config or the resolver, so an arbitrarily large upload buffers entirely in API process memory before any validation runs."
+    description: |
+      Confirmed live: the ingest resolver reads the full upload body into
+      memory with no configured ceiling (grepped Config for any
+      max-upload/max-body setting — none exists). A single large file (or a
+      client that simply keeps streaming) can exhaust API process memory
+      before the extension/content checks in extraction.py ever run.
+    category:     "security"
+    type:         "bug"
+    status:       "ready"
+    complexity:   "S"
+    priority:     "high"
+    rationale:    "An unauthenticated-by-default (DOCRAY_API_ALLOW_ANONYMOUS defaults true) or write-scoped caller can trivially exhaust API memory with one request; this is a live DoS vector, not a hypothetical one."
+    acceptance_criteria:
+      - "ingestDocument enforces a configurable maximum upload size, rejecting oversized uploads with a clean error before buffering the full body."
+      - "The default cap is documented in .env.example alongside the other DOCRAY_API_* settings."
+    dependencies: []
+    references:
+      - "src/doc_ray/entrypoints/api/mutation.py"
+      - "src/doc_ray/config.py"
+    owner:        "shared"
+    source:       "Full-codebase gap-analysis 2026-07-10 (object-storage subsystem audit)."
+    tags:         ["security", "dos", "bug"]
+
+  - id:          "BL-099"
+    title:        "No encryption enforcement for object storage, at rest or in transit"
+    summary:      "Config.s3_endpoint freely accepts http:// with no warning/refusal, and ObjectStore.put/get never set SSE (server-side-encryption) headers — nothing in the codebase enforces or even encourages TLS-in-transit or at-rest encryption for stored document blobs."
+    description: |
+      Confirmed live: `Config.s3_endpoint` (config.py) has no scheme
+      validation (contrast with BL-041's now-fixed refusal of default DB
+      passwords — no equivalent guard exists here), and
+      `ObjectStore.put`/`get` (object_store.py) never pass
+      `ServerSideEncryption`/SSE-related parameters to the underlying client
+      calls. For a corpus that may contain sensitive source documents, this
+      is a real gap in the storage hardening this repo has otherwise been
+      actively closing (BL-039/040/041).
+    category:     "security"
+    type:         "tech-debt"
+    status:       "parked"
+    complexity:   "M"
+    priority:     "medium"
+    rationale:    "Matches the same hardening bar already applied to Postgres (BL-041's default-credential refusal, BL-039's pinned image) — object storage is the other half of where document bytes live and currently has none of that scrutiny."
+    acceptance_criteria:
+      - "ObjectStore refuses (or at minimum warns loudly on) a plaintext http:// endpoint outside of an explicit local-dev opt-in."
+      - "Server-side encryption is requested on put() where the backing store supports it, documented as a config option otherwise."
+    dependencies: []
+    references:
+      - "src/doc_ray/adapters/object_store.py"
+      - "src/doc_ray/config.py"
+    owner:        "shared"
+    source:       "Full-codebase gap-analysis 2026-07-10 (object-storage subsystem audit)."
+    tags:         ["security", "storage", "encryption", "tech-debt"]
+
+  - id:          "BL-100"
+    title:        "Worker detects crashed jobs but not hung ones — no execution timeout"
+    summary:      "_start_heartbeat keeps a job's heartbeat alive for as long as the handler runs regardless of progress, and reap_stale only reclaims jobs whose heartbeat has gone stale (a dead worker process) — a handler stuck in an infinite loop, a DB deadlock, or a hanging external call (e.g. ClaudeResolver.resolve with no explicit timeout) heartbeats forever and is never reclaimed."
+    description: |
+      Confirmed live: `application/jobs.py`'s `_start_heartbeat` spins a
+      daemon thread on a fixed interval independent of the handler's actual
+      progress; `adapters/queue_postgres.py`'s `reap_stale` only reclaims
+      jobs whose heartbeat timestamp has gone stale, i.e. it detects a dead
+      *process*, not a live-but-stuck handler. `adapters/resolver_claude.py`
+      opens an `anthropic.Anthropic()` client with no explicit request
+      timeout. With the default single-`worker`-replica topology
+      (docker-compose.yml), one hung job blocks the entire queue
+      indefinitely — including every future scheduled backup (see BL-102's
+      related starvation scenario).
+    category:     "ops"
+    type:         "bug"
+    status:       "parked"
+    complexity:   "M"
+    priority:     "medium"
+    rationale:    "The retry/backoff/max-attempts machinery (BL-010/011, already done) only helps once a handler *returns* an exception — it does nothing for a handler that never returns at all."
+    acceptance_criteria:
+      - "Each job kind has a configurable maximum execution duration; exceeding it fails the job (subject to the existing retry/backoff policy) instead of holding the queue slot forever."
+      - "ClaudeResolver.resolve and any other external-call handler sets an explicit request timeout."
+    dependencies: []
+    references:
+      - "src/doc_ray/application/jobs.py"
+      - "src/doc_ray/adapters/queue_postgres.py"
+      - "src/doc_ray/adapters/resolver_claude.py"
+    owner:        "shared"
+    source:       "Full-codebase gap-analysis 2026-07-10 (worker/job-queue subsystem audit)."
+    tags:         ["ops", "reliability", "bug"]
+
+  - id:          "BL-101"
+    title:        "Worker's outer poll loop has no resilience to a dropped DB connection"
+    summary:      "worker.py opens one plain psycopg connection for the life of the process with no reconnect logic; queue.reap_stale and queue.claim execute outside any try/except in the outer loop (only handler exceptions are caught), so a transient Postgres blip during the reaper scan or claim query crashes the whole worker process instead of being retried on the next poll."
+    description: |
+      Confirmed live: `adapters/persistence.py`'s `db.connect` opens a
+      single long-lived `psycopg.connect` with no reconnect wrapper.
+      `worker.py`'s outer loop calls `queue.reap_stale` and `queue.claim`
+      unguarded; `application/jobs.py`'s `except Exception as exc` only
+      wraps the handler dispatch itself (jobs.py's inner call), not these
+      outer-loop calls. A restart, network partition, or connection reset
+      hitting the reaper or claim query therefore raises unhandled and kills
+      the process — requiring an external process supervisor (Docker
+      restart policy) to notice and recover, with the same reap-and-resume
+      cost as a full crash.
+    category:     "ops"
+    type:         "bug"
+    status:       "ready"
+    complexity:   "S"
+    priority:     "medium"
+    rationale:    "The queue's crash-recovery story (reap_stale, retry/backoff) already assumes the worker process itself is resilient enough to keep polling — a transient DB blip shouldn't need a full process restart to recover from."
+    acceptance_criteria:
+      - "The outer poll loop catches connection-level exceptions from reap_stale/claim, backs off briefly, and reconnects rather than crashing the process."
+      - "A test simulates a dropped connection mid-loop and asserts the worker recovers and resumes claiming jobs without process exit."
+    dependencies: []
+    references:
+      - "src/doc_ray/entrypoints/worker.py"
+      - "src/doc_ray/adapters/persistence.py"
+      - "src/doc_ray/application/jobs.py"
+    owner:        "shared"
+    source:       "Full-codebase gap-analysis 2026-07-10 (worker/job-queue subsystem audit)."
+    tags:         ["ops", "reliability", "bug"]
+
+  - id:          "BL-102"
+    title:        "JobStatus.CANCELED is a dead status — no code path ever sets it"
+    summary:      "domain/jobs.py defines CANCELED as a valid jobs.status CHECK-constraint value, but a repo-wide grep for \"cancel\" finds only the enum member and unrelated hits — no mutation, CLI command, or queue function ever transitions a job to canceled, so operators have no way to cancel a queued or running job (e.g. an accidental resolve=true canonicalize job, or a hung backup per BL-100)."
+    description: |
+      Confirmed live: `domain/jobs.py` defines `CANCELED = "canceled"` and
+      `db/migrations/020_jobs.sql`'s CHECK constraint on `jobs.status`
+      accepts it, but nothing in the GraphQL mutation surface, the CLI, or
+      `queue_postgres.py` ever writes that value. Combined with BL-100 (no
+      execution timeout) and BL-103's backup-starvation scenario, this means
+      a stuck job today has no operator-facing way to be stopped short of
+      manual SQL surgery against the `jobs` table.
+    category:     "ops"
+    type:         "feature"
+    status:       "parked"
+    complexity:   "S"
+    priority:     "low"
+    rationale:    "A status value the schema already models but the application never exposes is a half-finished feature — cheaper to complete than to leave as a trap for the next person who assumes cancellation exists because the enum says it does."
+    acceptance_criteria:
+      - "A GraphQL mutation (admin-gated, per the BL-064 pattern) transitions a queued or running job to canceled."
+      - "The worker checks for a canceled status at a safe checkpoint and stops processing rather than completing a canceled job."
+    dependencies: []
+    references:
+      - "src/doc_ray/domain/jobs.py"
+      - "db/migrations/020_jobs.sql"
+      - "src/doc_ray/adapters/queue_postgres.py"
+    owner:        "shared"
+    source:       "Full-codebase gap-analysis 2026-07-10 (worker/job-queue subsystem audit)."
+    tags:         ["ops", "feature", "jobs"]
+
+  - id:          "BL-103"
+    title:        "Webapp has no CSRF protection on any state-changing form"
+    summary:      "Upload, backup create/restore, and seeding approve/reject/seed are all POST forms in webapp/templates/*.html with no CSRF token, no SameSite reliance documented, and no Origin check anywhere in app.py — a logged-in operator's browser can be tricked into submitting any of these from another origin."
+    description: |
+      Confirmed live: grepped every `<form method="post">` in
+      `webapp/templates/` (upload.html, backups.html, seeding.html) and the
+      corresponding `app.py` routes — none carry or verify a CSRF token, and
+      no `Flask-WTF`/`Flask-SeaSurf`-style protection is installed anywhere
+      in `requirements.txt`. This is distinct from BL-070 (a future
+      real-login session/cookie feature, still parked) — even without a
+      login system, any admin-token-authenticated browser session
+      (bookmarked token URL, per BL-107's related finding) is exposed to
+      cross-site request forgery today.
+    category:     "security"
+    type:         "bug"
+    status:       "ready"
+    complexity:   "M"
+    priority:     "high"
+    rationale:    "The webapp's admin-gated actions (createBackup, restoreBackup, seed approval) are exactly the operations an attacker would want to trigger via a forged cross-site request against an operator's open browser tab."
+    acceptance_criteria:
+      - "Every state-changing webapp form carries a per-session CSRF token, verified server-side before the action executes."
+      - "A test posts to a state-changing route without a valid token and asserts it is rejected."
+    dependencies: []
+    references:
+      - "webapp/app.py"
+      - "webapp/templates/upload.html"
+      - "webapp/templates/backups.html"
+      - "webapp/templates/seeding.html"
+    owner:        "shared"
+    source:       "Full-codebase gap-analysis 2026-07-10 (webapp security subsystem audit)."
+    tags:         ["security", "webapp", "csrf", "bug"]
+
+  - id:          "BL-104"
+    title:        "Webapp sends no security response headers (CSP, X-Frame-Options, etc.)"
+    summary:      "No Content-Security-Policy, X-Frame-Options, X-Content-Type-Options, or Referrer-Policy header is set anywhere; no Flask-Talisman (or equivalent after_request hook) exists in app.py or requirements.txt."
+    description: |
+      Confirmed live: grepped `app.py` for `after_request`, `Talisman`,
+      and each header name — zero hits. The webapp renders document text
+      and metadata originating from uploaded files; a defense-in-depth CSP
+      would reduce blast radius even though the current templates escape
+      correctly (verified: no `|safe` filter or `{% autoescape false %}`
+      exists anywhere in `webapp/templates/`).
+    category:     "security"
+    type:         "tech-debt"
+    status:       "ready"
+    complexity:   "S"
+    priority:     "medium"
+    rationale:    "Cheap, standard defense-in-depth hardening with no functional downside; the absence is notable precisely because the rest of the webapp's escaping discipline is otherwise solid."
+    acceptance_criteria:
+      - "Responses carry CSP, X-Frame-Options, X-Content-Type-Options, and Referrer-Policy headers appropriate to a server-rendered app with no inline scripts."
+      - "A test asserts the headers are present on at least one representative route."
+    dependencies: []
+    references:
+      - "webapp/app.py"
+    owner:        "shared"
+    source:       "Full-codebase gap-analysis 2026-07-10 (webapp security subsystem audit)."
+    tags:         ["security", "webapp", "headers", "tech-debt"]
+
+  - id:          "BL-105"
+    title:        "No rate limiting on expensive webapp routes (search, upload)"
+    summary:      "The corpus search route's unanchored ILIKE '%term%' full-scan (already disclosed to users as a literal substring match per BL-031) and the upload/ingest path have no throttling anywhere — no Flask-Limiter or equivalent dependency exists in the project."
+    description: |
+      Confirmed live: grepped `requirements.txt` and `app.py` for any
+      rate-limiting library or manual throttle — none exists. `search()`'s
+      `ILIKE` full-scan (webapp/app.py) and the ingest upload path are both
+      cheap to hammer repeatedly and expensive to serve.
+    category:     "security"
+    type:         "tech-debt"
+    status:       "parked"
+    complexity:   "M"
+    priority:     "medium"
+    rationale:    "An unauthenticated-by-default deployment (DOCRAY_API_ALLOW_ANONYMOUS defaults true) with no throttle on its most expensive routes is a straightforward resource-exhaustion target."
+    acceptance_criteria:
+      - "search and the upload/ingest route enforce a configurable per-client rate limit, returning a clean 429 when exceeded."
+    dependencies: []
+    references:
+      - "webapp/app.py"
+    owner:        "shared"
+    source:       "Full-codebase gap-analysis 2026-07-10 (webapp security subsystem audit)."
+    tags:         ["security", "webapp", "dos", "tech-debt"]
+
+  - id:          "BL-106"
+    title:        "Upload extension is client-controlled and unchecked before the blob is stored"
+    summary:      "mutation.py derives the stored object's extension straight from the attacker-supplied filename and persists the blob to the object store before extraction.py's format-allowlist check ever runs; the webapp's accept= attribute is a client-side-only hint with no server-side enforcement ahead of storage."
+    description: |
+      Confirmed live: the extension used to build the storage key in
+      `mutation.py`'s ingest path comes directly from the uploaded
+      filename, with the actual format/extension allowlist only enforced
+      later in `extraction.py` when the worker picks up the job — meaning
+      an arbitrary file with a spoofed or unexpected extension is written
+      to the object store first, and only rejected (as an unrecognized
+      format, leaving an untyped orphaned blob per BL-097) afterward.
+    category:     "security"
+    type:         "bug"
+    status:       "ready"
+    complexity:   "S"
+    priority:     "medium"
+    rationale:    "Storing first and validating later means a rejected upload still leaves attacker-controlled bytes with an attacker-chosen name/extension sitting in the object store, and widens the surface BL-088's zip/XML hardening is trying to close (an extension mismatch could route a crafted file through the wrong parser)."
+    acceptance_criteria:
+      - "The upload extension/format is validated against the same allowlist extraction.py uses before the blob is uploaded to the object store, not after."
+      - "A test uploads a file with an unrecognized/spoofed extension and asserts no blob is persisted."
+    dependencies: []
+    references:
+      - "src/doc_ray/entrypoints/api/mutation.py"
+      - "src/doc_ray/adapters/extraction.py"
+    owner:        "shared"
+    source:       "Full-codebase gap-analysis 2026-07-10 (webapp security subsystem audit)."
+    tags:         ["security", "upload", "bug"]
+
+  - id:          "BL-107"
+    title:        "Operator health token travels via URL query string, not a header"
+    summary:      "operator_health.py accepts the operator token as request.args.get('token'), and operator_health.html itself embeds the live token in an <a href>, guaranteeing it lands in access logs, proxy logs, and browser history rather than only a request header."
+    description: |
+      Confirmed live: `webapp/operator_health.py`'s token check reads
+      `request.args.get('token')`; `webapp/templates/operator_health.html`
+      builds at least one link with the token embedded directly in the
+      query string. Query-string secrets are logged by default by most
+      reverse proxies, CDNs, and web server access logs, and persist in
+      browser history — a materially weaker channel than an Authorization
+      header for a credential that gates BL-038's operator health page.
+    category:     "security"
+    type:         "bug"
+    status:       "ready"
+    complexity:   "XS"
+    priority:     "medium"
+    rationale:    "A token designed to gate an admin surface shouldn't be handed a worse transport than the header-token scheme (HeaderTokenAuthenticator) the rest of the API already uses for the same purpose."
+    acceptance_criteria:
+      - "The operator health token is accepted via a request header (or a short-lived signed cookie set once from a query-string bootstrap link), not read from the query string on every subsequent request."
+      - "operator_health.html's internal links no longer embed the raw token in href attributes."
+    dependencies: []
+    references:
+      - "webapp/operator_health.py"
+      - "webapp/templates/operator_health.html"
+    owner:        "shared"
+    source:       "Full-codebase gap-analysis 2026-07-10 (webapp security subsystem audit)."
+    tags:         ["security", "webapp", "bug"]
+
+  - id:          "BL-108"
+    title:        "GraphQL introspection and GraphiQL are enabled with no production gating"
+    summary:      "build_schema only registers QueryDepthLimiter/MaxTokensLimiter — no NoSchemaIntrospection extension and no env-based gating exists anywhere; GraphQLRouter is constructed with Strawberry's introspection/GraphiQL defaults left untouched, and anonymous read access is the default (DOCRAY_API_ALLOW_ANONYMOUS defaults true) — so any anonymous caller can load the interactive explorer or send a raw IntrospectionQuery and enumerate the entire schema, including admin-only mutation argument shapes, for free reconnaissance."
+    description: |
+      Confirmed live: `entrypoints/api/schema.py`'s `build_schema` only adds
+      `QueryDepthLimiter`/`MaxTokensLimiter` to the extensions list — no
+      `NoSchemaIntrospection` extension exists in the whole tree (grepped).
+      `entrypoints/api/app.py`'s `GraphQLRouter(...)` construction never
+      sets `graphql_ide`, leaving Strawberry's default (`'graphiql'`)
+      active. `security.py`'s `ANONYMOUS` principal and
+      `Config.api_allow_anonymous` (config.py, defaults `True`) mean an
+      unauthenticated request is treated as a valid read-scoped principal
+      by default, not rejected — so this reconnaissance requires no
+      credential at all in a default deployment.
+    category:     "security"
+    type:         "bug"
+    status:       "ready"
+    complexity:   "XS"
+    priority:     "high"
+    rationale:    "Full schema enumeration (including exactly which mutations exist, their arguments, and by implication what BL-064's admin-gated operations look like) should not be free to an anonymous caller — this is the same reconnaissance-hardening gap most production GraphQL deployment guides treat as a baseline requirement."
+    acceptance_criteria:
+      - "Introspection and the GraphiQL IDE are disabled by default outside of an explicit DOCRAY_API_DEBUG-style opt-in, mirroring the existing API_MAX_DEPTH/API_MAX_TOKENS env-override pattern."
+      - "A test confirms an IntrospectionQuery is rejected (or GraphiQL 404s) when the opt-in is not set."
+    dependencies: []
+    references:
+      - "src/doc_ray/entrypoints/api/schema.py"
+      - "src/doc_ray/entrypoints/api/app.py"
+      - "src/doc_ray/entrypoints/api/security.py"
+      - "src/doc_ray/config.py"
+    owner:        "shared"
+    source:       "Full-codebase gap-analysis 2026-07-10 (GraphQL input-validation subsystem audit), re-verified directly against schema.py/security.py/config.py given severity."
+    tags:         ["security", "graphql", "introspection", "bug"]
+
+  - id:          "BL-109"
+    title:        "GraphQL write-mutation arguments lack the bounds every read resolver enforces"
+    summary:      "context.py's MAX_PAGE_SIZE/page_size() clamp is applied by every query resolver, but suggestSeeds's limit argument is passed straight into the job payload with no call to page_size(), and decideSeeds's approveIds/rejectIds arrays have no length cap at all — both distinct from BL-009 (query-shape limits) and BL-063 (documents-list pagination, unrelated resolvers)."
+    description: |
+      Confirmed live: `mutation.py`'s `suggest_seeds(self, info, document_id,
+      limit: int = 40)` forwards `limit` directly into
+      `{"limit": limit}` with no bound check, which flows unbounded into
+      `application/seed_suggest.py`'s raw SQL `LIMIT %s`. `decideSeeds`
+      (mutation.py) accepts unbounded `list[strawberry.ID] | None` for both
+      `approveIds` and `rejectIds`, forwarded to
+      `seed_suggestion_store.py`'s `WHERE id = ANY(%s)` with no length
+      check. A client can request an arbitrarily large `limit` or submit an
+      arbitrarily large ID array in one request.
+    category:     "security"
+    type:         "bug"
+    status:       "ready"
+    complexity:   "S"
+    priority:     "medium"
+    rationale:    "BL-009 explicitly bounds query *shape* (depth/token count), not argument *values* on mutations — this is the gap that leaves. A resource-exhaustion vector on the worker (unbounded candidate mining per document) is a distinct concern from the generic error-envelope work BL-049 tracks."
+    acceptance_criteria:
+      - "suggestSeeds's limit argument is clamped through the same page_size()-style bound the read resolvers use."
+      - "decideSeeds's approveIds/rejectIds arrays are capped at a documented maximum length, rejected cleanly if exceeded."
+    dependencies: []
+    references:
+      - "src/doc_ray/entrypoints/api/mutation.py"
+      - "src/doc_ray/entrypoints/api/context.py"
+      - "src/doc_ray/application/seed_suggest.py"
+      - "src/doc_ray/adapters/seed_suggestion_store.py"
+    owner:        "shared"
+    source:       "Full-codebase gap-analysis 2026-07-10 (GraphQL input-validation subsystem audit)."
+    tags:         ["security", "graphql", "dos", "bug"]
+
+  - id:          "BL-110"
+    title:        "Malformed UUID arguments leak raw Postgres exception text to GraphQL clients"
+    summary:      "query.py's document(id) resolver (and lexeme/reannotate/deleteDocument/entities and others) pass the raw id straight into a uuid-typed SQL parameter with no format validation, and Strawberry's default error handling forwards str(exc) verbatim — a malformed id surfaces Postgres's raw 'invalid input syntax for type uuid' message unauthenticated; jobs(document_id) already shows the fix pattern (a defensive uuid.UUID(...) + catch), just not applied consistently."
+    description: |
+      Confirmed live: `query.py`'s `document(id)` calls
+      `read.get_document(conn, str(id))` -> `persistence_read.py`'s
+      `SELECT * FROM documents WHERE id = %s` against a `uuid`-typed
+      column with no prior format check. `schema.py` has no
+      `process_errors`/masking override, so Strawberry's default forwards
+      the raw exception string. `query.py`'s `jobs(document_id)` resolver,
+      by contrast, already wraps the id in `uuid.UUID(str(document_id))`
+      inside a `try/except ValueError` — proving the defensive pattern is
+      known in this codebase but not applied to `document`, `lexeme`,
+      `reannotate`, `deleteDocument`, `entities`, and others.
+    category:     "api"
+    type:         "bug"
+    status:       "ready"
+    complexity:   "S"
+    priority:     "medium"
+    rationale:    "A concrete information-disclosure gap today (raw DB error text, not merely an inconsistent generic error shape) — distinct from and narrower than BL-049's broader structured-error-envelope proposal, so worth fixing on its own rather than waiting on that larger item."
+    acceptance_criteria:
+      - "Every resolver taking a document_id/id-shaped argument validates its format before querying, returning a clean not-found/invalid-argument error instead of forwarding the raw database exception."
+      - "A test passes a malformed id to document() and asserts the error message contains no raw SQL/Postgres exception text."
+    dependencies: []
+    references:
+      - "src/doc_ray/entrypoints/api/query.py"
+      - "src/doc_ray/adapters/persistence_read.py"
+      - "src/doc_ray/entrypoints/api/schema.py"
+    owner:        "shared"
+    source:       "Full-codebase gap-analysis 2026-07-10 (GraphQL input-validation subsystem audit)."
+    tags:         ["api", "security", "information-disclosure", "bug"]
+
+  - id:          "BL-111"
+    title:        "The app's own Docker base image floats on a mutable tag, unlike Postgres"
+    summary:      "Dockerfile's FROM python:3.12-slim has no @sha256: digest pin; BL-039 pinned the Postgres image by digest with a regression test, but that test only covers the postgres service in docker-compose.yml — nothing pins or guards the app's own base image across all six services built from this Dockerfile (api, worker, migrate, ingester, backup-scheduler, and any CLI image)."
+    description: |
+      Confirmed live: `Dockerfile:1` is `FROM python:3.12-slim` with no
+      digest. `tests/test_compose_security.py::test_postgres_image_is_pinned_to_an_immutable_digest`
+      only asserts on the `postgres` service block in `docker-compose.yml`.
+      Every rebuild resolves whatever `python:3.12-slim` currently is on
+      Docker Hub at build time — an upstream tag repoint or a compromised
+      base layer propagates silently into every service this image builds.
+    category:     "ops"
+    type:         "tech-debt"
+    status:       "ready"
+    complexity:   "XS"
+    priority:     "medium"
+    rationale:    "The exact reproducibility/supply-chain argument BL-039 already made for Postgres applies identically to the app's own base image, which BL-039's fix and its regression test simply didn't cover."
+    acceptance_criteria:
+      - "Dockerfile's FROM line pins python:3.12-slim by @sha256: digest."
+      - "A regression test (extending or mirroring test_compose_security.py's pattern) asserts the Dockerfile's base image is digest-pinned."
+    dependencies: []
+    references:
+      - "Dockerfile"
+      - "src/doc_ray/tests/test_compose_security.py"
+    owner:        "shared"
+    source:       "Full-codebase gap-analysis 2026-07-10 (dependency/supply-chain subsystem audit)."
+    tags:         ["ops", "supply-chain", "docker", "tech-debt"]
+
+  - id:          "BL-112"
+    title:        "App containers run as root — no USER directive anywhere in the Dockerfile"
+    summary:      "grep -n USER Dockerfile returns no match; every one of the six services built from this image (api, worker, migrate, ingester, backup-scheduler, ...) executes its entrypoint as root inside the container."
+    description: |
+      Confirmed live: no `USER` instruction exists in `Dockerfile`. The
+      worker and API both parse untrusted, uploaded document bytes
+      (PDF/EPUB/DOCX/HTML via PyMuPDF/python-docx/stdlib zipfile+
+      ElementTree — the same parsers BL-088 is hardening against
+      decompression-bomb/entity-expansion attacks). Running that parsing
+      as root maximizes the blast radius of any future parser CVE or
+      container-escape bug.
+    category:     "security"
+    type:         "tech-debt"
+    status:       "ready"
+    complexity:   "S"
+    priority:     "medium"
+    rationale:    "Standard container-hardening baseline (principle of least privilege) that costs a few Dockerfile lines and has no functional downside for this app."
+    acceptance_criteria:
+      - "The Dockerfile creates and switches to a non-root user before the app's entrypoint runs, with file permissions adjusted as needed for any writable paths."
+      - "All six compose services still start and pass health checks running as the non-root user."
+    dependencies: []
+    references:
+      - "Dockerfile"
+      - "docker-compose.yml"
+    owner:        "shared"
+    source:       "Full-codebase gap-analysis 2026-07-10 (dependency/supply-chain subsystem audit)."
+    tags:         ["security", "docker", "tech-debt"]
+
+  - id:          "BL-113"
+    title:        "No automated dependency vulnerability scanning, SBOM, or update automation"
+    summary:      ".github/workflows/ci.yml's static job runs ruff/mypy/a LOC cap/engineering_decisions.yml validation and its tests job runs pytest, but no step anywhere invokes pip-audit/safety/trivy/grype, no SBOM (syft/cyclonedx-bom) is generated, and no Dependabot/Renovate config exists anywhere in the repo — vulnerable pins have no automated detection or update path."
+    description: |
+      Confirmed live: `.github/workflows/ci.yml` is the only CI workflow
+      file in the repo; neither of its two jobs runs a CVE scanner.
+      `find . -iname "dependabot*" -o -iname "renovate*"` returns nothing.
+      No SBOM-generation step exists in the Dockerfile or CI. This is a
+      distinct gap from BL-051 (graceful handling of missing *optional*
+      runtime dependencies) — this is about proactively detecting known
+      vulnerabilities in the dependencies that are already required.
+    category:     "tooling"
+    type:         "infra"
+    status:       "parked"
+    complexity:   "M"
+    priority:     "medium"
+    rationale:    "Without CVE scanning or dependency-update automation, a known-vulnerable pin sits in requirements.txt indefinitely until a human happens to notice it — the same class of blind spot BL-039/041 closed for infrastructure config, unaddressed for the dependency graph itself."
+    acceptance_criteria:
+      - "CI runs a CVE/vulnerability scan (e.g. pip-audit) against the resolved dependency set and fails on a high/critical finding."
+      - "An SBOM is generated as a CI artifact for at least the production image."
+      - "A Dependabot or Renovate config exists covering Python dependencies and the Docker base image."
+    dependencies: []
+    references:
+      - ".github/workflows/ci.yml"
+      - "requirements.txt"
+      - "Dockerfile"
+    owner:        "shared"
+    source:       "Full-codebase gap-analysis 2026-07-10 (dependency/supply-chain subsystem audit)."
+    tags:         ["tooling", "supply-chain", "ci", "infra"]
+
+  - id:          "BL-114"
+    title:        "CI and the Docker build bypass the committed uv.lock; no hash verification"
+    summary:      "A 473KB uv.lock is committed at the repo root but is never referenced — Dockerfile runs pip install -r requirements.txt and ci.yml runs pip install -r requirements.txt -r requirements-dev.txt, plain pip against glob-pinned versions (e.g. psycopg[binary]==3.2.*, boto3==1.34.*), not uv sync/uv pip sync against the lockfile, and neither install command uses --require-hashes or per-package --hash entries."
+    description: |
+      Confirmed live: `uv.lock` exists and is committed, but
+      `Dockerfile`'s install step and `ci.yml`'s two `pip install` calls
+      both target `requirements.txt`/`requirements-dev.txt` directly with
+      plain `pip`, not `uv`. The glob pins in `requirements.txt` (e.g.
+      `pymupdf==1.*`, `anthropic==0.113.*`) are looser than the lockfile's
+      exact resolution, and nothing enforces the lockfile's pins at install
+      time in either CI or the shipped image — a patch release on any
+      pinned line (including a compromised one, e.g. a PyPI account
+      takeover) is pulled in on the next build. No `--hash=sha256:...`
+      entries or `--require-hashes` flag exist anywhere, so package
+      integrity is never verified at install time either.
+    category:     "tooling"
+    type:         "tech-debt"
+    status:       "ready"
+    complexity:   "S"
+    priority:     "medium"
+    rationale:    "A committed lockfile that nothing actually installs from is decorative — it creates a false impression of reproducibility while CI and production both float on requirements.txt's looser glob pins."
+    acceptance_criteria:
+      - "CI and the Dockerfile install from uv.lock (via uv sync/uv pip sync --locked or equivalent) rather than plain pip against requirements.txt, or requirements.txt is regenerated with --require-hashes-compatible exact pins and hash verification is enabled."
+      - "A CI check fails if requirements.txt and uv.lock drift out of sync."
+    dependencies: []
+    references:
+      - "uv.lock"
+      - "requirements.txt"
+      - "Dockerfile"
+      - ".github/workflows/ci.yml"
+    owner:        "shared"
+    source:       "Full-codebase gap-analysis 2026-07-10 (dependency/supply-chain subsystem audit)."
+    tags:         ["tooling", "supply-chain", "tech-debt"]
+
+  - id:          "BL-115"
+    title:        "No structured logging anywhere in src/doc_ray — worker and GraphQL failures produce no durable trace"
+    summary:      "Grepped import logging/logging.basicConfig/structlog/getLogger across src/doc_ray — zero hits; all output is print(). The worker's job-failure handler (application/jobs.py) records only queue.fail(conn, job.id, error=repr(exc), ...) with no logging call and no traceback — a crash during a real ingest produces no output anywhere outside a jobs.error DB column an operator would have to think to query; GraphQL resolver exceptions are likewise never logged server-side, only serialized into the client-facing errors array."
+    description: |
+      Confirmed live: no logger configuration exists in `src/doc_ray/` at
+      all (`entrypoints/migrate.py`, `application/db_health.py`, and 30+
+      other call sites use bare `print()`). `application/jobs.py`'s
+      exception handler (`except Exception as exc: ... queue.fail(conn,
+      job.id, error=repr(exc), ...)`) has no `logging` call — `repr(exc)`
+      captures only the exception class and message, no traceback, no
+      file/line. `worker.py`'s outer loop (see BL-101) has no logging or
+      exception handling of its own either. `entrypoints/api/schema.py`
+      registers no `process_errors`/extension override, so a resolver
+      exception is only visible in the client's response, never on the
+      server's own output. This is distinct from BL-023/038/055, which are
+      all DB/corpus-health-specific monitoring, not general application
+      logging.
+    category:     "ops"
+    type:         "tech-debt"
+    status:       "ready"
+    complexity:   "M"
+    priority:     "high"
+    rationale:    "An ingest pipeline that silently swallows its own failures (no log line, no traceback, nothing an operator would see without proactively querying the jobs table) makes production incidents undiagnosable after the fact — this is the single highest-leverage observability gap since it affects every other failure mode in the system."
+    acceptance_criteria:
+      - "A process-wide logger is configured for the API and worker processes (structured, with level/format control via env)."
+      - "Worker job failures log the full exception with traceback and job/document context, not just repr(exc) in the DB column."
+      - "GraphQL resolver exceptions are logged server-side in addition to being returned to the client."
+    dependencies: []
+    references:
+      - "src/doc_ray/application/jobs.py"
+      - "src/doc_ray/entrypoints/worker.py"
+      - "src/doc_ray/entrypoints/api/schema.py"
+    owner:        "shared"
+    source:       "Full-codebase gap-analysis 2026-07-10 (observability subsystem audit)."
+    tags:         ["ops", "observability", "logging", "tech-debt"]
+
+  - id:          "BL-116"
+    title:        "Webapp: 3 of 5 exception handlers never log to app.logger"
+    summary:      "app.logger is used in only 2 spots in webapp/app.py; the seed approve/reject/decide actions, createBackup, and restoreBackup routes all do except Exception as exc: return redirect(url_for(..., error=str(exc))) with no app.logger call — a failed backup or restore leaves zero server-side trace once the operator dismisses the flash message."
+    description: |
+      Confirmed live: `webapp/app.py` calls `app.logger` in exactly two
+      places; the seeding-decision route and the `createBackup`/
+      `restoreBackup` routes each catch `Exception` and surface `str(exc)`
+      to the user via a redirect/flash, with no corresponding
+      `app.logger.exception(...)` call. A quick, narrow bug distinct from
+      BL-115's broader application-wide logging-infrastructure gap — this
+      is fixable independently by adding the same logging call already
+      used elsewhere in the same file to the three missing spots.
+    category:     "webapp"
+    type:         "bug"
+    status:       "ready"
+    complexity:   "XS"
+    priority:     "low"
+    rationale:    "The fix pattern already exists twice in the same file — this is a one-line-per-callsite consistency fix, not new infrastructure, and closes a real gap for exactly the admin-destructive actions (backup/restore) an operator would most want a server-side trail for."
+    acceptance_criteria:
+      - "The seeding-decision, createBackup, and restoreBackup exception handlers each call app.logger.exception (or equivalent) before redirecting."
+    dependencies: []
+    references:
+      - "webapp/app.py"
+    owner:        "shared"
+    source:       "Full-codebase gap-analysis 2026-07-10 (observability subsystem audit)."
+    tags:         ["webapp", "observability", "logging", "bug"]
+
+  - id:          "BL-117"
+    title:        "No request/correlation-id threading across webapp -> API -> queue -> worker"
+    summary:      "Grepped request_id/correlation_id/x-request-id/trace_id across both src/doc_ray and webapp — zero hits; a single failed ingest cannot be traced across the webapp form submission, the GraphQL mutation, the resulting jobs row, and the worker's processing of it, since no shared identifier exists to correlate them (and, per BL-115, there is mostly nothing to correlate against yet regardless)."
+    description: |
+      Confirmed live: no correlation-id mechanism exists anywhere in the
+      request path from the webapp form through the GraphQL mutation to the
+      enqueued `jobs` row and the worker that eventually processes it. The
+      `jobs.id` itself is the closest thing to a correlation key today, but
+      nothing surfaces it back to the originating webapp request/response
+      for a user or operator to search logs by.
+    category:     "ops"
+    type:         "feature"
+    status:       "parked"
+    complexity:   "M"
+    priority:     "low"
+    rationale:    "Only valuable once BL-115 gives the system something to correlate in the first place — sequenced as a follow-on, not standalone value today."
+    acceptance_criteria:
+      - "A correlation id is generated (or accepted via an incoming header) at the webapp/API boundary, threaded through the GraphQL context into the enqueued job's payload/metadata, and included in every log line the worker emits while processing that job."
+    dependencies: ["BL-115"]
+    references:
+      - "webapp/app.py"
+      - "src/doc_ray/entrypoints/api/context.py"
+      - "src/doc_ray/application/jobs.py"
+    owner:        "shared"
+    source:       "Full-codebase gap-analysis 2026-07-10 (observability subsystem audit)."
+    tags:         ["ops", "observability", "tracing", "feature"]
+
+  - id:          "BL-118"
+    title:        "Zero metrics/tracing integration anywhere in the stack"
+    summary:      "Grepped prometheus/opentelemetry/otel/statsd/jaeger/sentry/datadog/grafana across all .py/.txt/.toml/.cfg/.yml files in the repo — zero hits, and requirements.txt confirms no such dependency is even installed; there is no way to graph queue depth, job latency, or resolver latency over time, only the point-in-time corpus_health/db_health snapshots BL-023/038 already expose."
+    description: |
+      Confirmed live: a full-tree grep for every common metrics/tracing
+      vendor or standard (Prometheus, OpenTelemetry, StatsD, Jaeger,
+      Sentry, Datadog, Grafana) returns nothing, and none of those
+      libraries appear in `requirements.txt`. BL-023/038's operator-health
+      surfaces are point-in-time snapshots (corpus/DB health at request
+      time), not time-series metrics or distributed traces — this is a
+      distinct, larger capability gap.
+    category:     "ops"
+    type:         "feature"
+    status:       "parked"
+    complexity:   "L"
+    priority:     "low"
+    rationale:    "Point-in-time health checks answer 'is it healthy right now' but not 'how did queue depth trend over the last week' or 'which resolver call is slow' — real capacity planning and performance regression detection need time-series data this repo currently has no way to produce."
+    acceptance_criteria:
+      - "Key metrics (queue depth, job latency by kind, GraphQL resolver latency, ingest throughput) are exported in a scrapeable format (e.g. Prometheus /metrics endpoint)."
+      - "At minimum, worker job processing emits basic timing/count instrumentation, even if full distributed tracing is deferred further."
+    dependencies: []
+    references:
+      - "src/doc_ray/entrypoints/corpus_health.py"
+      - "src/doc_ray/entrypoints/db_health.py"
+      - "webapp/operator_health.py"
+    owner:        "shared"
+    source:       "Full-codebase gap-analysis 2026-07-10 (observability subsystem audit)."
+    tags:         ["ops", "observability", "metrics", "tracing", "feature"]

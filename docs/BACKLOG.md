@@ -118,6 +118,34 @@ live backlog after these three.
 
 **2026-07-05 full ingest feature design (pptx/svg + docx/html/epub structural parity):** added `BL-088`-`BL-093`, a from-scratch design (not overlay-scope) for production-ready multi-format ingestion, decomposed into hardening / new-format extraction / existing-format structural parity / test-coverage-drift-guard. Verified live: `extract_docx` (`extraction.py:511-518`) discards `python-docx`'s already-available `paragraph.style.name` ("Heading 1", "List Bullet", ...) entirely, and `_HTMLText` (`extraction.py:387-423`, reused by EPUB) flattens `h1`-`h6`/`li`/`p`/`div` identically to a bare newline — both are confirmed, currently-shipping structural-information losses, not hypothetical gaps (`BL-091`, `BL-092`). Separately, EPUB's zip/XML parsing (`extraction.py:445-491`) has no decompressed-size cap and no entity-expansion hardening today — a real, live gap against an already-accepted format, sequenced to land once, shared, before PPTX (also zip+XML) and SVG (raw XML) would otherwise copy the same unguarded pattern a third and fourth time (`BL-088`, `high`/`ready`, blocking `BL-089`/`BL-090`). `BL-089` (PPTX) and `BL-090` (SVG) are the new-format extractors themselves, each deriving Markdown heading/list structure from real format-native structure (placeholder type + paragraph level for PPTX; font-size/weight for SVG) rather than PDF's inference heuristic. `BL-093` is a coverage drift-guard (every `_EXTRACTORS` entry must have a golden-fixture test), mirroring the `BL-047`/`BL-052` precedent, rather than one-off per-format test tasks.
 
+**2026-07-10 full-codebase gap analysis:** added `BL-094`-`BL-118` from six
+parallel subsystem audits (object storage/content-addressing, worker/
+job-queue robustness, webapp security surface, GraphQL input validation,
+dependency/container supply chain, observability) run after `BL-064` landed
+(commit `d04165d`). Each finding was independently verified against the live
+tree with file:line evidence; the two most severe were re-verified a second
+time directly. `BL-094` is the standout: `GET /backups/{id}/download`
+(`entrypoints/api/app.py`) has **no authentication check at all** and runs on
+the raw superuser pool connection rather than a principal-bound one, so it
+also bypasses the `backups` RLS policy `BL-064`/migration 043 just added —
+confirmed by the route's own test calling it with no auth header and
+asserting 200. `BL-108` is the second critical finding: GraphQL introspection
+and GraphiQL have no production gating, and anonymous read access is the
+default, so an unauthenticated caller can enumerate the full schema
+including admin-only mutation shapes. The rest span storage integrity/leaks
+(`BL-095`-`BL-099`: orphaned blobs on delete, no read-side hash
+verification, Content-Type silently downgraded on re-upload, no upload size
+cap, no encryption enforcement), worker hang/crash-recovery gaps
+(`BL-100`-`BL-102`), webapp CSRF/headers/rate-limiting/upload-validation
+gaps (`BL-103`-`BL-107`), GraphQL argument-bound gaps distinct from
+`BL-009`'s query-shape limits (`BL-109`, `BL-110`), container/supply-chain
+hardening (`BL-111`-`BL-114`: root user, floating base image, no CVE/SBOM
+scanning, CI bypassing the committed `uv.lock`), and an application-wide
+absence of logging/tracing (`BL-115`-`BL-118`: worker and GraphQL failures
+produce no durable trace today). Deduped against all 93 prior items before
+writing; none duplicate `BL-009`/`023`/`038`/`039`-`046`/`049`/`055`/`058`/
+`059`/`064`/`065`-`075`.
+
 ## Items
 
 | ID | Item | Category | Type | Status | Cx | Priority | Owner |
@@ -215,6 +243,31 @@ live backlog after these three.
 | BL-091 | DOCX: reconstruct heading/list structure from paragraph styles | extraction | tech-debt | parked | S | medium | shared |
 | BL-092 | HTML/EPUB: reconstruct heading/list structure instead of flattening all block tags | extraction | tech-debt | parked | M | medium | shared |
 | BL-093 | Format-extraction coverage guard: every registered extractor has a golden-fixture test | testing | infra | parked | XS | medium | shared |
+| BL-094 | Backup download route is completely unauthenticated and bypasses RLS | security | bug | done | S | critical | shared |
+| BL-095 | Duplicate re-upload silently downgrades a document's stored Content-Type | persistence | bug | ready | XS | low | shared |
+| BL-096 | No read-side integrity verification despite content_sha256 being threaded for exactly that purpose | persistence | tech-debt | parked | S | medium | shared |
+| BL-097 | deleteDocument never deletes the document's blob — permanent storage leak | persistence | bug | ready | S | medium | shared |
+| BL-098 | ingestDocument has no upload size cap — unbounded memory buffering | security | bug | ready | S | high | shared |
+| BL-099 | No encryption enforcement for object storage, at rest or in transit | security | tech-debt | parked | M | medium | shared |
+| BL-100 | Worker detects crashed jobs but not hung ones — no execution timeout | ops | bug | parked | M | medium | shared |
+| BL-101 | Worker's outer poll loop has no resilience to a dropped DB connection | ops | bug | ready | S | medium | shared |
+| BL-102 | JobStatus.CANCELED is a dead status — no code path ever sets it | ops | feature | parked | S | low | shared |
+| BL-103 | Webapp has no CSRF protection on any state-changing form | security | bug | ready | M | high | shared |
+| BL-104 | Webapp sends no security response headers (CSP, X-Frame-Options, etc.) | security | tech-debt | ready | S | medium | shared |
+| BL-105 | No rate limiting on expensive webapp routes (search, upload) | security | tech-debt | parked | M | medium | shared |
+| BL-106 | Upload extension is client-controlled and unchecked before the blob is stored | security | bug | ready | S | medium | shared |
+| BL-107 | Operator health token travels via URL query string, not a header | security | bug | ready | XS | medium | shared |
+| BL-108 | GraphQL introspection and GraphiQL are enabled with no production gating | security | bug | ready | XS | high | shared |
+| BL-109 | GraphQL write-mutation arguments lack the bounds every read resolver enforces | security | bug | ready | S | medium | shared |
+| BL-110 | Malformed UUID arguments leak raw Postgres exception text to GraphQL clients | api | bug | ready | S | medium | shared |
+| BL-111 | The app's own Docker base image floats on a mutable tag, unlike Postgres | ops | tech-debt | ready | XS | medium | shared |
+| BL-112 | App containers run as root — no USER directive anywhere in the Dockerfile | security | tech-debt | ready | S | medium | shared |
+| BL-113 | No automated dependency vulnerability scanning, SBOM, or update automation | tooling | infra | parked | M | medium | shared |
+| BL-114 | CI and the Docker build bypass the committed uv.lock; no hash verification | tooling | tech-debt | ready | S | medium | shared |
+| BL-115 | No structured logging anywhere in src/doc_ray — worker and GraphQL failures produce no durable trace | ops | tech-debt | ready | M | high | shared |
+| BL-116 | Webapp: 3 of 5 exception handlers never log to app.logger | webapp | bug | ready | XS | low | shared |
+| BL-117 | No request/correlation-id threading across webapp -> API -> queue -> worker | ops | feature | parked | M | low | shared |
+| BL-118 | Zero metrics/tracing integration anywhere in the stack | ops | feature | parked | L | low | shared |
 
 See [`backlog.yml`](backlog.yml) for each item's full description, rationale,
 acceptance criteria, dependencies, related decisions (`D-###`), and references.
