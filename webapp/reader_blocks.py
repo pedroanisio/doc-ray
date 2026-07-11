@@ -126,7 +126,9 @@ def _classify_chunk(text: str, start: int, end: int) -> list[dict[str, Any]]:
             line = chunk[a:b]
             line_lead = len(line) - len(line.lstrip())
             marker = _LIST_LINE_PREFIX_RE.match(line[line_lead:])
-            items.append({"type": "list", "start": start + a + line_lead + marker.end(), "end": start + b})
+            items.append(
+                {"type": "list", "start": start + a + line_lead + marker.end(), "end": start + b}
+            )
         return items
 
     return [{"type": "para", "start": start, "end": end}]
@@ -214,6 +216,70 @@ def render_annotated_blocks(
 def render_plain_blocks(text: str, blocks: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Render each structural block to its plain-text slice (no annotation)."""
     return [{"type": b["type"], "text": text[b["start"] : b["end"]]} for b in blocks]
+
+
+def attach_page_blocks(
+    query: Callable[..., Sequence[Mapping[str, Any]]],
+    query_one: Callable[..., Mapping[str, Any] | None],
+    sentences: list[dict[str, Any]],
+    doc_id: Any,
+    *,
+    annotate: bool,
+) -> None:
+    """Set ``sentence["blocks"]`` in place for every sentence in *sentences*.
+
+    Sentence segmentation only splits on terminal punctuation, so a run of
+    un-punctuated Markdown lines (heading, caption, bullet, next heading, ...)
+    can be folded into a single stored sentence. The raw ``full_text`` slice
+    spanning *sentences* still has the original blank-line/newline block
+    boundaries that ``sentence.text`` collapsed away, so block-splitting
+    always works from that raw slice rather than the lossy collapsed text.
+    No-op for an empty *sentences*.
+    """
+    if not sentences:
+        return
+    lo = min(s["ss"] for s in sentences)
+    hi = max(s["se"] for s in sentences)
+    slice_row = query_one(
+        "SELECT substring(full_text FROM %s FOR %s) AS t "
+        "FROM document_content WHERE document_id = %s",
+        (lo + 1, hi - lo, str(doc_id)),
+    )
+    page_text = (slice_row or {}).get("t") or ""
+    occ = (
+        query(
+            """
+            SELECT sp.char_start AS a, sp.char_end AS b, l.uid, l.lemma, l.pos
+            FROM lexeme_occurrences o
+            JOIN annotations an ON an.id = o.annotation_id
+            JOIN spans sp       ON sp.id = o.span_id
+            JOIN lexemes l      ON l.uid = o.lexeme_uid
+            WHERE an.document_id = %s AND sp.char_start >= %s AND sp.char_end <= %s
+            ORDER BY sp.char_start
+            """,
+            (str(doc_id), lo, hi),
+        )
+        if annotate
+        else []
+    )
+    for s in sentences:
+        body = page_text[s["ss"] - lo : s["se"] - lo]
+        blocks = split_structural_blocks(body)
+        if annotate:
+            inside = [
+                {
+                    "rel_start": o["a"] - s["ss"],
+                    "rel_end": o["b"] - s["ss"],
+                    "uid": o["uid"],
+                    "lemma": o["lemma"],
+                    "pos": o["pos"],
+                }
+                for o in occ
+                if o["a"] >= s["ss"] and o["b"] <= s["se"]
+            ]
+            s["blocks"] = render_annotated_blocks(body, inside, blocks)
+        else:
+            s["blocks"] = render_plain_blocks(body, blocks)
 
 
 def latest_annotation_state(query: Callable[..., Sequence[Mapping[str, Any]]], doc_id: Any) -> str:

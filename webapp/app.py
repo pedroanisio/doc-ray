@@ -25,24 +25,12 @@ try:
     from webapp.health_contract import operator_health_payload
     from webapp.job_view import decorate_job_rows
     from webapp.operator_health import build_operator_health, require_operator_health
-    from webapp.reader_blocks import (
-        annotate_html,
-        latest_annotation_state,
-        render_annotated_blocks,
-        render_plain_blocks,
-        split_structural_blocks,
-    )
+    from webapp.reader_blocks import attach_page_blocks, latest_annotation_state
 except ModuleNotFoundError:  # pragma: no cover - direct ``python webapp/app.py`` path.
     from health_contract import operator_health_payload
     from job_view import decorate_job_rows
     from operator_health import build_operator_health, require_operator_health
-    from reader_blocks import (
-        annotate_html,
-        latest_annotation_state,
-        render_annotated_blocks,
-        render_plain_blocks,
-        split_structural_blocks,
-    )
+    from reader_blocks import attach_page_blocks, latest_annotation_state
 
 DATABASE_URL = os.environ.get("DATABASE_URL", "postgresql://docray:docray@localhost:5455/docray")
 
@@ -276,56 +264,7 @@ def document(doc_id):
             (str(doc_id), per_page, (page - 1) * per_page),
         )
 
-    if sentences:
-        # Sentence segmentation only splits on terminal punctuation, so a run
-        # of un-punctuated Markdown lines (heading, caption, bullet, next
-        # heading, ...) can be folded into a single stored sentence. The raw
-        # ``full_text`` slice still has the original blank-line/newline block
-        # boundaries that ``sentence.text`` collapsed away, so block-splitting
-        # always works from that raw slice — in both reading modes — rather
-        # than the lossy collapsed text.
-        lo = min(s["ss"] for s in sentences)
-        hi = max(s["se"] for s in sentences)
-        slice_row = q1(
-            "SELECT substring(full_text FROM %s FOR %s) AS t "
-            "FROM document_content WHERE document_id = %s",
-            (lo + 1, hi - lo, str(doc_id)),
-        )
-        page_text = (slice_row or {}).get("t") or ""
-        occ = (
-            q(
-                """
-                SELECT sp.char_start AS a, sp.char_end AS b, l.uid, l.lemma, l.pos
-                FROM lexeme_occurrences o
-                JOIN annotations an ON an.id = o.annotation_id
-                JOIN spans sp       ON sp.id = o.span_id
-                JOIN lexemes l      ON l.uid = o.lexeme_uid
-                WHERE an.document_id = %s AND sp.char_start >= %s AND sp.char_end <= %s
-                ORDER BY sp.char_start
-                """,
-                (str(doc_id), lo, hi),
-            )
-            if annotate
-            else []
-        )
-        for s in sentences:
-            body = page_text[s["ss"] - lo : s["se"] - lo]
-            blocks = split_structural_blocks(body)
-            if annotate:
-                inside = [
-                    {
-                        "rel_start": o["a"] - s["ss"],
-                        "rel_end": o["b"] - s["ss"],
-                        "uid": o["uid"],
-                        "lemma": o["lemma"],
-                        "pos": o["pos"],
-                    }
-                    for o in occ
-                    if o["a"] >= s["ss"] and o["b"] <= s["se"]
-                ]
-                s["blocks"] = render_annotated_blocks(body, inside, blocks)
-            else:
-                s["blocks"] = render_plain_blocks(body, blocks)
+    attach_page_blocks(q, q1, sentences, doc_id, annotate=annotate)
 
     pages = max(1, -(-n_sent // per_page))
     return render_template(
@@ -711,8 +650,10 @@ def backups_download(backup_id):
     The API owns object-store access (it lives inside the store's network); the
     webapp never reaches S3 directly, so a host-vs-container ``S3_ENDPOINT``
     mismatch cannot break downloads. The archive is streamed chunk-by-chunk so a
-    large corpus never has to be buffered whole in the webapp. A 404 from the API
-    (unknown or not-yet-available backup) propagates unchanged.
+    large corpus never has to be buffered whole in the webapp. The download is
+    admin-only at the API (BL-094), so the same credential every other write
+    forward uses (``_api_auth_headers``) rides along here too; a 401/403/404
+    from the API propagates as the same status rather than a proxy 500.
     """
     import httpx
     from flask import Response, abort, stream_with_context
@@ -720,11 +661,14 @@ def backups_download(backup_id):
     base = API_URL.rsplit("/graphql", 1)[0]
     url = f"{base}/backups/{backup_id}/download"
     client = httpx.Client(timeout=None)
-    upstream = client.send(client.build_request("GET", url), stream=True)
-    if upstream.status_code == 404:
+    upstream = client.send(
+        client.build_request("GET", url, headers=_api_auth_headers()), stream=True
+    )
+    if upstream.status_code in (401, 403, 404):
+        status = upstream.status_code
         upstream.close()
         client.close()
-        abort(404)
+        abort(status)
     upstream.raise_for_status()
 
     def _pump():

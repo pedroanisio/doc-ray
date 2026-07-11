@@ -425,7 +425,7 @@ def test_document_missing_returns_404(client):
 
 
 def test_annotate_html_wraps_words_preserves_gaps_and_escapes():
-    from webapp.app import annotate_html
+    from webapp.reader_blocks import annotate_html
 
     occs = [
         {"rel_start": 0, "rel_end": 2, "uid": "lx_en.o_he", "lemma": "he", "pos": "PRON"},
@@ -824,3 +824,59 @@ def test_database_unavailable_renders_graceful_page_not_a_traceback(monkeypatch)
     assert "Can't reach the database" in body
     assert "password authentication failed" in body  # actionable detail, not swallowed
     assert "Traceback" not in body and "Werkzeug Debugger" not in body
+
+
+# ---------------------------------------------------------------------------
+# Backup download proxy: forwards the API credential and propagates a denied
+# upstream status as the same status instead of a proxy 500 (BL-094 — the API
+# route is now admin-only, so the webapp side must carry the token through and
+# handle 401/403 cleanly, not just the 404 it already knew about).
+# ---------------------------------------------------------------------------
+
+
+class _FakeUpstreamResponse:
+    def __init__(self, status_code, chunks=(b"",)):
+        self.status_code = status_code
+        self._chunks = chunks
+
+    def iter_bytes(self, chunk_size=None):
+        yield from self._chunks
+
+    def close(self):
+        pass
+
+    def raise_for_status(self):
+        if self.status_code >= 400:
+            raise RuntimeError(f"upstream {self.status_code}")
+
+
+def test_backups_download_forwards_the_api_token(client, monkeypatch):
+    import httpx
+
+    captured = {}
+
+    def fake_send(_self, request, **_kwargs):
+        captured["authorization"] = request.headers.get("authorization")
+        return _FakeUpstreamResponse(200, chunks=(b"archive-bytes",))
+
+    monkeypatch.setattr(httpx.Client, "send", fake_send)
+    monkeypatch.setattr(webapp, "API_TOKEN", "webapp-token")
+    resp = client.get("/backups/some-id/download")
+    assert resp.status_code == 200
+    assert captured["authorization"] == "Bearer webapp-token"
+
+
+def test_backups_download_propagates_upstream_403_not_500(client, monkeypatch):
+    import httpx
+
+    monkeypatch.setattr(httpx.Client, "send", lambda _self, _r, **_k: _FakeUpstreamResponse(403))
+    resp = client.get("/backups/some-id/download")
+    assert resp.status_code == 403
+
+
+def test_backups_download_propagates_upstream_401_not_500(client, monkeypatch):
+    import httpx
+
+    monkeypatch.setattr(httpx.Client, "send", lambda _self, _r, **_k: _FakeUpstreamResponse(401))
+    resp = client.get("/backups/some-id/download")
+    assert resp.status_code == 401

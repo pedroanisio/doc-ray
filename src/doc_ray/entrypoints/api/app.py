@@ -19,7 +19,7 @@ from typing import Any, cast
 
 import anyio
 import psycopg
-from fastapi import FastAPI, Request, Response
+from fastapi import FastAPI, HTTPException, Request, Response
 from psycopg.rows import dict_row
 from psycopg_pool import AsyncConnectionPool
 from strawberry.fastapi import GraphQLRouter
@@ -151,18 +151,36 @@ def create_app(cfg: Config | None = None, authenticator: Authenticator | None = 
         The object store sits inside the API's network/trust boundary, so the
         browser-facing webapp proxies downloads through here rather than reaching
         the store directly — a host-side ``S3_ENDPOINT`` mismatch can never break
-        the download. Only ``available`` archives are served; anything else is a
-        404. The blocking ``get`` runs off the event loop.
+        the download. Backups are corpus-wide and admin-only, the same as
+        createBackup/restoreBackup (BL-064/D-019): this route authenticates the
+        caller and requires ``docray_is_admin()`` through a principal-bound
+        connection (``apply_principal``), so RLS is actually exercised rather
+        than bypassed via the raw superuser pool (BL-094). Only ``available``
+        archives are served; anything else is a 404. The blocking ``get`` runs
+        off the event loop.
         """
+        authenticator: Authenticator = request.app.state.authenticator
+        principal = await authenticator.authenticate(request)
+        if principal.principal_id is None:
+            raise HTTPException(status_code=401, detail="authentication required")
+
         pool: AsyncConnectionPool = request.app.state.pool
         store: ObjectStore = request.app.state.object_store
         async with pool.connection() as raw_conn:
             conn = cast(psycopg.AsyncConnection[dict[str, Any]], raw_conn)
-            cur = await conn.execute(
-                "SELECT object_key FROM backups WHERE id = %s AND status = 'available'",
-                (backup_id,),
-            )
-            row = await cur.fetchone()
+            await apply_principal(conn, principal)
+            try:
+                admin_cur = await conn.execute("SELECT docray_is_admin() AS ok")
+                admin_row = await admin_cur.fetchone()
+                if not admin_row or not admin_row["ok"]:
+                    raise HTTPException(status_code=403, detail="admin principal required")
+                cur = await conn.execute(
+                    "SELECT object_key FROM backups WHERE id = %s AND status = 'available'",
+                    (backup_id,),
+                )
+                row = await cur.fetchone()
+            finally:
+                await reset_principal(conn, principal)
         if row is None or not row["object_key"]:
             return Response(status_code=404)
         data = await anyio.to_thread.run_sync(store.get, str(row["object_key"]))
