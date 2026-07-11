@@ -45,6 +45,43 @@ def _require_write(ctx: RequestContext) -> None:
         raise PermissionError("API mutation requires an authenticated principal with write scope")
 
 
+async def _require_document_write(ctx: RequestContext, document_id: str) -> None:
+    """Require a write grant on *document_id* specifically (BL-064).
+
+    Global write scope (:func:`_require_write`) is necessary but not
+    sufficient: a principal scoped to one document's ``document_acl`` must
+    not be able to mutate another. ``jobs`` also enforces this at the RLS
+    layer (migration 043) so a bypass here is not the only backstop, but
+    checking first turns a raw RLS policy violation into a clean, expected
+    error and avoids the failed INSERT entirely. The same error is raised
+    whether the document doesn't exist or merely isn't in the caller's
+    grants, so this can't be used to enumerate documents the caller can't see.
+    """
+    _require_write(ctx)
+    cur = await ctx.conn.execute(
+        "SELECT %s::uuid IN (SELECT * FROM docray_writable_documents()) AS ok",
+        (document_id,),
+    )
+    row = await cur.fetchone()
+    if not row or not row["ok"]:
+        raise PermissionError(f"no write grant for document {document_id}")
+
+
+async def _require_admin(ctx: RequestContext) -> None:
+    """Require an admin principal, for corpus-wide mutations (backup/restore).
+
+    Backup/restore affect the whole corpus, not one document, so there is no
+    ``document_acl`` grant that makes sense as a scope check — only admins may
+    call these (BL-064). ``jobs``/``backups`` RLS (migration 043) is the
+    backstop; this turns a raw policy violation into a clean error.
+    """
+    _require_write(ctx)
+    cur = await ctx.conn.execute("SELECT docray_is_admin() AS ok")
+    row = await cur.fetchone()
+    if not row or not row["ok"]:
+        raise PermissionError("this mutation requires an admin principal")
+
+
 async def _job_status(ctx: RequestContext, job_id: str) -> Job:
     """Load the freshly-enqueued job's status row and map it to a GraphQL Job."""
     row = await queue.status_async(ctx.conn, job_id)
@@ -61,7 +98,7 @@ class Mutation:
     async def reannotate(self, info: Info, document_id: strawberry.ID, lang: str = "en") -> Job:
         """Enqueue a re-annotation of a document; returns the queued job."""
         ctx = info.context
-        _require_write(ctx)
+        await _require_document_write(ctx, str(document_id))
         job_id = await queue.enqueue_async(
             ctx.conn, KIND_REANNOTATE, {"lang": lang}, document_id=str(document_id)
         )
@@ -71,7 +108,7 @@ class Mutation:
     async def delete_document(self, info: Info, document_id: strawberry.ID) -> Job:
         """Enqueue deletion of a document (cascades to its layers); returns the job."""
         ctx = info.context
-        _require_write(ctx)
+        await _require_document_write(ctx, str(document_id))
         job_id = await queue.enqueue_async(ctx.conn, KIND_DELETE, {}, document_id=str(document_id))
         return await _job_status(ctx, job_id)
 
@@ -81,7 +118,7 @@ class Mutation:
     ) -> Job:
         """Enqueue Stage-1 annotation (tokens/NER/coref) for a document."""
         ctx = info.context
-        _require_write(ctx)
+        await _require_document_write(ctx, str(document_id))
         job_id = await queue.enqueue_async(
             ctx.conn, KIND_ANNOTATE, {"lang": lang}, document_id=str(document_id)
         )
@@ -91,7 +128,7 @@ class Mutation:
     async def semantic_enrich_document(self, info: Info, document_id: strawberry.ID) -> Job:
         """Enqueue deterministic semantic enrichment for a document."""
         ctx = info.context
-        _require_write(ctx)
+        await _require_document_write(ctx, str(document_id))
         job_id = await queue.enqueue_async(
             ctx.conn, KIND_SEMANTIC_ENRICH, {}, document_id=str(document_id)
         )
@@ -107,7 +144,7 @@ class Mutation:
         LLM cost is always an explicit request, never a default.
         """
         ctx = info.context
-        _require_write(ctx)
+        await _require_document_write(ctx, str(document_id))
         payload = {"resolve": True} if resolve else {}
         job_id = await queue.enqueue_async(
             ctx.conn, KIND_CANONICALIZE, payload, document_id=str(document_id)
@@ -122,7 +159,7 @@ class Mutation:
         nothing reaches the canonical registry without an approval.
         """
         ctx = info.context
-        _require_write(ctx)
+        await _require_document_write(ctx, str(document_id))
         job_id = await queue.enqueue_async(
             ctx.conn, KIND_SEED_SUGGEST, {"limit": limit}, document_id=str(document_id)
         )
@@ -153,7 +190,7 @@ class Mutation:
     async def seed_approved(self, info: Info, document_id: strawberry.ID) -> Job:
         """Enqueue seeding of a document's approved suggestions into the registry."""
         ctx = info.context
-        _require_write(ctx)
+        await _require_document_write(ctx, str(document_id))
         job_id = await queue.enqueue_async(
             ctx.conn, KIND_SEED_APPROVED, {}, document_id=str(document_id)
         )
@@ -167,7 +204,7 @@ class Mutation:
         in the ``backups`` table. Poll ``job(id)`` for completion.
         """
         ctx = info.context
-        _require_write(ctx)
+        await _require_admin(ctx)
         payload = {"note": note} if note else {}
         job_id = await queue.enqueue_async(ctx.conn, KIND_BACKUP, payload, document_id=None)
         return await _job_status(ctx, job_id)
@@ -180,7 +217,7 @@ class Mutation:
         from the archive. The target must be at the archive's schema version.
         """
         ctx = info.context
-        _require_write(ctx)
+        await _require_admin(ctx)
         job_id = await queue.enqueue_async(
             ctx.conn, KIND_RESTORE, {"backup_id": str(backup_id)}, document_id=None
         )

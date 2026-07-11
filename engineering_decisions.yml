@@ -27,12 +27,13 @@ source_schema:         "db/migrations"
 # principal LOGIN-role isolation, to 1.6.0 by migration 033 for API-role
 # runtime grants, to 1.7.0 by migration 035 for scheduled backup retention and
 # annotation-table autovacuum tuning, to 1.8.0 by migration 037 for
-# evaluation/drift artifacts, then to 1.9.0 by migration 039 for the
-# entity_mention/chunk surface denormalization). Kept in lockstep with
-# doc_ray.__version__ by scripts/check_version_consistency.py.
-source_schema_version: "1.9.0"
+# evaluation/drift artifacts, to 1.9.0 by migration 039 for the
+# entity_mention/chunk surface denormalization, then to 1.10.0 by migration
+# 044 for jobs/backups RLS). Kept in lockstep with doc_ray.__version__ by
+# scripts/check_version_consistency.py.
+source_schema_version: "1.10.0"
 target_engine:         "PostgreSQL 16"
-total_decisions:       17
+total_decisions:       18
 
 decisions:
 
@@ -785,3 +786,91 @@ decisions:
             pattern:     "DOCRAY_API_STATEMENT_TIMEOUT_MS"
             expect:
               present:   true
+
+  - id:                 "D-019"
+    title:              "Per-document write ACL on mutations; RLS on jobs/backups"
+    version_introduced: "1.10.0"
+    category:           "security"
+    decision: |
+      Every mutation that takes a document_id (reannotate, deleteDocument,
+      annotateDocument, semanticEnrichDocument, canonicalizeDocument,
+      suggestSeeds, seedApproved) now calls _require_document_write, which
+      checks the caller's document_id against docray_writable_documents()
+      before enqueuing — not just the global "write" scope _require_write
+      already checked. createBackup/restoreBackup (corpus-wide, no single
+      document to scope against) call _require_admin instead, checking
+      docray_is_admin(). Migration 043 backs both with real RLS: jobs
+      (document-scoped reads/writes follow the caller's existing
+      docray_readable_documents()/docray_writable_documents() grants;
+      document_id IS NULL jobs require admin) and backups (admin-only SELECT,
+      corpus-wide by nature) — previously granted to docray_client/docray_api
+      directly with no RLS at all. decideSeeds and ingestDocument are
+      unchanged: decideSeeds's underlying seed_suggestion UPDATE is already
+      RLS-scoped (migration 032); ingestDocument creates a new document, so
+      there is no existing document_id to check a grant against.
+    rationale: |
+      Verified directly against the live tree: every mutation resolver called
+      only _require_write, a global capability check with no per-document
+      scope, while jobs/backups had no RLS to backstop that gap either. Any
+      token with global write scope was, in practice, equivalent to admin for
+      every document in the corpus — the document_acl/RLS infrastructure
+      D-010/BL-012/BL-040 built constrained direct reads but not writes
+      through the job queue. Checking in the resolver (not just relying on
+      the new RLS policies) turns a raw Postgres policy-violation error into
+      a clean, fail-closed PermissionError before the write is attempted;
+      RLS remains the backstop if a future resolver forgets the check.
+    decision_status:    "accepted"
+    decision_date:      "2026-07-05"
+    owner:              ["pedroanisio@faz.ai"]
+    scope_path:
+      - "db/migrations/043_jobs_backups_rls.sql"
+      - "db/migrations/044_schema_version_1_10_0.sql"
+      - "src/doc_ray/entrypoints/api/mutation.py"
+    claims:
+      - claim_id:    "D-019.k1"
+        claim_text:  "jobs and backups enable Row-Level Security (migration 043)."
+        auditable:   true
+        status:      "populated"
+        declared_checks_count: 1
+        checks:
+          - check_id:    "D-019.k1.c1"
+            description: "Migration 043 enables RLS on both tables."
+            check_kind:  "grep"
+            severity:    "error"
+            context:     "workspace"
+            path:        "db/migrations/043_jobs_backups_rls.sql"
+            pattern:     "ALTER TABLE (jobs|backups) ENABLE ROW LEVEL SECURITY"
+            expect:
+              present:   true
+
+      - claim_id:    "D-019.k2"
+        claim_text:  "Document-scoped mutations check a per-document write grant before enqueuing, not just global write scope."
+        auditable:   true
+        status:      "populated"
+        declared_checks_count: 1
+        checks:
+          - check_id:    "D-019.k2.c1"
+            description: "mutation.py defines and uses _require_document_write."
+            check_kind:  "grep"
+            severity:    "error"
+            context:     "workspace"
+            path:        "src/doc_ray/entrypoints/api/mutation.py"
+            pattern:     "_require_document_write"
+            expect:
+              present:   true
+
+      - claim_id:    "D-019.k3"
+        claim_text:  "A regression test proves a write-scoped-but-non-admin principal cannot enqueue a job against a document outside their document_acl grants."
+        auditable:   true
+        status:      "populated"
+        declared_checks_count: 1
+        checks:
+          - check_id:    "D-019.k3.c1"
+            description: "The regression test passes."
+            check_kind:  "shell"
+            severity:    "error"
+            context:     "ci"
+            side_effects: "reads"
+            command:     "pytest src/doc_ray/tests/test_mutations.py::test_reannotate_rejects_write_scope_without_document_grant -q"
+            expect:
+              exit:      0

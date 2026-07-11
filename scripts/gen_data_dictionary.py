@@ -268,7 +268,8 @@ document-scoped table. A principal may **read** a document iff it is *admin* or
 holds any `document_acl` row on it, and may **write** iff *admin* or holds an
 `annotate`/`delete`/`admin` grant.
 
-**Enforcement.** RLS is `ENABLE`d (not `FORCE`) on 33 tables. The `docray`
+**Enforcement.** RLS is `ENABLE`d (not `FORCE`) on 36 tables (incl. `jobs` and
+`backups` since migration 043 — BL-064). The `docray`
 role is a **superuser and table owner**, so it **bypasses RLS** — the ingest
 pipeline and admin tooling use it as the trusted batch writer. End-user / API
 traffic must run as the non-superuser role **`docray_api`** (`SET ROLE

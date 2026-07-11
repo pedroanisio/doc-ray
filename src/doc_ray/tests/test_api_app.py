@@ -208,19 +208,32 @@ def test_apply_and_reset_principal_switch_roles(pg):
     asyncio.run(check())
 
 
+async def _isolated_write_conn() -> psycopg.AsyncConnection:
+    """A shadow-``jobs``-queue connection scoped as WRITE_PRINCIPAL (BL-064).
+
+    ``LIKE ... INCLUDING ALL`` skips RLS, so grant before SET ROLE.
+    """
+    aconn = await psycopg.AsyncConnection.connect(
+        _itdb.DB_URL, row_factory=dict_row, autocommit=True
+    )
+    await aconn.execute("CREATE TEMP TABLE jobs (LIKE public.jobs INCLUDING ALL)")
+    await aconn.execute("GRANT SELECT, INSERT ON jobs TO docray_client; SET ROLE docray_api")
+    await aconn.execute(
+        "SELECT set_config('app.principal_id', %s, false)", (WRITE_PRINCIPAL.principal_id,)
+    )
+    return aconn
+
+
 def test_mutations_enqueue_jobs_on_isolated_queue(pg):
     conn, created = pg
     doc_id = _itdb.make_doc(conn, "A document to reannotate.")
     created.append(doc_id)
+    _itdb.ensure_admin_principal(conn, WRITE_PRINCIPAL.principal_id, "test-writer-app")
     schema = build_schema()
 
     async def check():
-        aconn = await psycopg.AsyncConnection.connect(
-            _itdb.DB_URL, row_factory=dict_row, autocommit=True
-        )
+        aconn = await _isolated_write_conn()
         try:
-            # Shadow the shared queue with a session-local temp table.
-            await aconn.execute("CREATE TEMP TABLE jobs (LIKE public.jobs INCLUDING ALL)")
             ctx = RequestContext(conn=aconn, principal=WRITE_PRINCIPAL, loaders=Loaders(aconn))
 
             r = await schema.execute(
@@ -280,6 +293,7 @@ def test_seeding_and_backup_mutations_enqueue_on_isolated_queue(pg):
 
     doc_id = _itdb.make_doc(conn, "A document to seed.")
     created.append(doc_id)
+    _itdb.ensure_admin_principal(conn, WRITE_PRINCIPAL.principal_id, "test-writer-app")
     sid_a = new_ulid_str()
     sid_r = new_ulid_str()
     conn.execute(
@@ -290,11 +304,8 @@ def test_seeding_and_backup_mutations_enqueue_on_isolated_queue(pg):
     schema = build_schema()
 
     async def check():
-        aconn = await psycopg.AsyncConnection.connect(
-            _itdb.DB_URL, row_factory=dict_row, autocommit=True
-        )
+        aconn = await _isolated_write_conn()
         try:
-            await aconn.execute("CREATE TEMP TABLE jobs (LIKE public.jobs INCLUDING ALL)")
             ctx = RequestContext(conn=aconn, principal=WRITE_PRINCIPAL, loaders=Loaders(aconn))
 
             r = await schema.execute(

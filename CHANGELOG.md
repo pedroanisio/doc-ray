@@ -218,6 +218,26 @@ doc-ray carries **one global version** covering both the application package
   nonsense words identically to real ones), decoupling the test from
   corpus size entirely.
 
+## [1.10.0] - 2026-07-05
+
+### Security
+- **Mutation resolvers never checked per-document write ACL** (Claude Sonnet 5
+  via Claude Code) — every GraphQL mutation checked only a global "write"
+  scope (`_require_write`), never the caller's `document_acl` grant for the
+  specific `document_id` being mutated; `jobs` and `backups` had no RLS at
+  all (only a direct `GRANT` to `docray_client`). Net effect: any token with
+  global write scope could enqueue `reannotate`/`delete`/`canonicalize`/
+  `restore` against **any** document in the corpus, not just the ones it was
+  granted. Migration 043 enables RLS on `jobs` (document-scoped reads/writes
+  follow the caller's existing grants; corpus-wide jobs like backup/restore
+  require admin) and `backups` (admin-only, corpus-wide by nature); a new
+  `_require_document_write`/`_require_admin` check in `mutation.py` turns a
+  raw RLS policy violation into a clean, fail-closed error before the write is
+  even attempted. Regression tests prove a write-scoped-but-non-admin
+  principal cannot enqueue a job against a document outside its grants, and
+  cannot call `createBackup`/`restoreBackup` without an admin role. See
+  `engineering_decisions.yml` `D-019`.
+
 ## [1.9.0] - 2026-07-05
 
 ### Fixed

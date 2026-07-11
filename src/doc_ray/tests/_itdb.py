@@ -47,6 +47,32 @@ def make_doc(conn, text: str) -> str:
     )
 
 
+def ensure_admin_principal(conn, principal_id: str, display_name: str) -> None:
+    """Idempotently give a fixed test principal_id the admin role.
+
+    Since BL-064, docray_writable_documents()/docray_is_admin() are checked
+    against the DB, not just an in-memory Principal.scopes — a test that
+    wants a "generic write-scoped principal able to act on any document"
+    needs a real principals/principal_roles row, the same way a real admin
+    would. Takes a sync connection; callers that also need an async
+    connection for the actual mutation should use this one only for setup.
+    """
+    conn.execute(
+        # Unqualified ON CONFLICT: display_name is independently UNIQUE, so a
+        # second fixed test principal_id reusing the same display_name must
+        # be tolerated too, not just a re-run with the same id.
+        "INSERT INTO principals (id, kind, display_name) VALUES (%s, 'service', %s) "
+        "ON CONFLICT DO NOTHING",
+        (principal_id, display_name),
+    )
+    admin_role_id = conn.execute("SELECT id FROM roles WHERE name = 'admin'").fetchone()["id"]
+    conn.execute(
+        "INSERT INTO principal_roles (principal_id, role_id) VALUES (%s, %s) "
+        "ON CONFLICT DO NOTHING",
+        (principal_id, admin_role_id),
+    )
+
+
 def make_annotation(conn, doc_id: str, layer: str, tool: str, version: str | None = None) -> str:
     aid = new_ulid_str()
     conn.execute(

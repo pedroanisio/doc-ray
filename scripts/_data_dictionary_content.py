@@ -41,6 +41,7 @@ RLS_PATH = {
     "tlink": "annotation_id → annotations",
     "sentiment": "annotation_id → annotations",
     "embedding": "span_id → spans",
+    "backups": "docray_is_admin()",
 }
 
 MIGRATIONS = [

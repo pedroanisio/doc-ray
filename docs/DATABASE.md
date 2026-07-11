@@ -1,6 +1,6 @@
 # doc-ray — Database ERD & Data Dictionary
 
-**Schema version `1.9.0`** (SemVer) · 42 migrations applied
+**Schema version `1.10.0`** (SemVer) · 44 migrations applied
 
 > Generated from the live schema by `scripts/gen_data_dictionary.py`. Do not edit by hand — re-run the generator.
 
@@ -992,6 +992,7 @@ never clobbers the queue or the archive index it is reading from.
 - **Primary key:** (id)
 - **Check:** CHECK ((status = ANY (ARRAY['creating'::text, 'available'::text, 'restoring'::text, 'failed'::text])))
 - **Index** `idx_backups_created`: public.backups USING btree (created_at DESC)
+- **RLS:** enabled — read/write policies via *docray_is_admin()*
 
 
 ## 6. Views
@@ -1067,7 +1068,8 @@ document-scoped table. A principal may **read** a document iff it is *admin* or
 holds any `document_acl` row on it, and may **write** iff *admin* or holds an
 `annotate`/`delete`/`admin` grant.
 
-**Enforcement.** RLS is `ENABLE`d (not `FORCE`) on 33 tables. The `docray`
+**Enforcement.** RLS is `ENABLE`d (not `FORCE`) on 36 tables (incl. `jobs` and
+`backups` since migration 043 — BL-064). The `docray`
 role is a **superuser and table owner**, so it **bypasses RLS** — the ingest
 pipeline and admin tooling use it as the trusted batch writer. End-user / API
 traffic must run as the non-superuser role **`docray_api`** (`SET ROLE
