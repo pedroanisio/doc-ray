@@ -73,9 +73,7 @@ def test_introspection_disabled_by_default():
     schema = build_schema()
 
     async def check():
-        result = await schema.execute(
-            "{ __schema { queryType { name } } }", context_value=None
-        )
+        result = await schema.execute("{ __schema { queryType { name } } }", context_value=None)
         assert result.errors, "expected introspection to be disabled by default (BL-108)"
         assert "introspection" in str(result.errors[0]).lower()
 
@@ -87,9 +85,7 @@ def test_introspection_allowed_with_debug_enabled():
     schema = build_schema(debug=True)
 
     async def check():
-        result = await schema.execute(
-            "{ __schema { queryType { name } } }", context_value=None
-        )
+        result = await schema.execute("{ __schema { queryType { name } } }", context_value=None)
         assert result.errors is None, result.errors
         assert result.data["__schema"]["queryType"]["name"] == "Query"
 
@@ -365,6 +361,93 @@ def test_entities_query_document_field_and_frequency(pg):
             assert freq.data["entityFrequency"] == [
                 {"text": "Winston", "entityType": "PERSON", "count": 2}
             ]
+        finally:
+            await aconn.close()
+
+    asyncio.run(check())
+
+
+# ---------------------------------------------------------------------------
+# BL-110 — a malformed id-shaped argument must read as "not found" / an empty
+# page, never forward Postgres's raw format-violation exception text.
+# ---------------------------------------------------------------------------
+
+
+def test_document_rejects_malformed_id_without_leaking_postgres_error(pg):
+    schema = build_schema()
+
+    async def check():
+        aconn = await _aconn()
+        try:
+            ctx = _ctx(aconn)
+            r = await schema.execute('{ document(id: "not-a-uuid") { title } }', context_value=ctx)
+            assert r.errors is None, r.errors
+            assert r.data["document"] is None
+        finally:
+            await aconn.close()
+
+    asyncio.run(check())
+
+
+def test_job_rejects_malformed_id_without_leaking_postgres_error(pg):
+    schema = build_schema()
+
+    async def check():
+        aconn = await _aconn()
+        try:
+            ctx = _ctx(aconn)
+            r = await schema.execute('{ job(id: "not-a-ulid") { status } }', context_value=ctx)
+            assert r.errors is None, r.errors
+            assert r.data["job"] is None
+        finally:
+            await aconn.close()
+
+    asyncio.run(check())
+
+
+def test_optional_document_id_filters_reject_malformed_id_as_empty_page(pg):
+    """search_sentences/lexemes/entities/entityFrequency/resolutionReview."""
+    schema = build_schema()
+    queries = [
+        '{ searchSentences(term: "x", documentId: "not-a-uuid") { id } }',
+        '{ lexemes(documentId: "not-a-uuid") { uid } }',
+        '{ entities(documentId: "not-a-uuid") { id } }',
+        '{ entityFrequency(documentId: "not-a-uuid") { text } }',
+        '{ resolutionReview(documentId: "not-a-uuid") { id } }',
+    ]
+
+    async def check():
+        aconn = await _aconn()
+        try:
+            ctx = _ctx(aconn)
+            for q in queries:
+                r = await schema.execute(q, context_value=ctx)
+                assert r.errors is None, (q, r.errors)
+                (field,) = r.data.values()
+                assert field == [], (q, field)
+        finally:
+            await aconn.close()
+
+    asyncio.run(check())
+
+
+def test_required_document_id_list_resolvers_reject_malformed_id_as_empty_page(pg):
+    """seedSuggestions/unresolvedMentions take a required documentId argument."""
+    schema = build_schema()
+    queries = [
+        '{ seedSuggestions(documentId: "not-a-uuid") { id } }',
+        '{ unresolvedMentions(documentId: "not-a-uuid") { mentionId } }',
+    ]
+
+    async def check():
+        aconn = await _aconn()
+        try:
+            ctx = _ctx(aconn)
+            for q in queries:
+                r = await schema.execute(q, context_value=ctx)
+                assert r.errors is None, (q, r.errors)
+                (field,) = r.data.values()
+                assert field == [], (q, field)
         finally:
             await aconn.close()
 

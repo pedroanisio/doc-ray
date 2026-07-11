@@ -7,6 +7,8 @@ lives here.
 
 from __future__ import annotations
 
+import uuid
+
 import strawberry
 
 from doc_ray.adapters import persistence_canonical_read as canonical_read
@@ -31,6 +33,21 @@ from doc_ray.entrypoints.api.types import (
 )
 
 
+def _clean_uuid(value: str) -> str | None:
+    """Normalize *value* to a canonical uuid string, or ``None`` if malformed.
+
+    A ``uuid``-typed column raises ``invalid input syntax for type uuid`` on
+    comparison with a malformed value (unlike the ``ulid`` domain, whose CHECK
+    constraint only fires on an explicit cast, not a ``=`` comparison) — every
+    resolver taking a document/job id must validate before querying, or that
+    raw Postgres exception text reaches the caller verbatim (BL-110).
+    """
+    try:
+        return str(uuid.UUID(value))
+    except ValueError:
+        return None
+
+
 @strawberry.type
 class Query:
     """The GraphQL query root."""
@@ -53,8 +70,11 @@ class Query:
 
     @strawberry.field
     async def document(self, info: Info, id: strawberry.ID) -> Document | None:
-        """Return the document with *id*, or ``None`` if it does not exist."""
-        row = await read.get_document(info.context.conn, str(id))
+        """Return the document with *id*, or ``None`` if not found (or *id* is malformed)."""
+        doc_id = _clean_uuid(str(id))
+        if doc_id is None:
+            return None
+        row = await read.get_document(info.context.conn, doc_id)
         return Document.from_row(row) if row is not None else None
 
     @strawberry.field
@@ -72,10 +92,15 @@ class Query:
         enumerate all matches for a common term page by page.
         """
         ctx = info.context
+        doc_id: str | None = None
+        if document_id is not None:
+            doc_id = _clean_uuid(str(document_id))
+            if doc_id is None:  # malformed -> no matches, not a DB error
+                return []
         rows = await read.search_sentences(
             ctx.conn,
             term,
-            document_id=str(document_id) if document_id is not None else None,
+            document_id=doc_id,
             limit=ctx.page_size(limit),
             after=after,
         )
@@ -112,12 +137,17 @@ class Query:
         instead of corpus-global totals.
         """
         ctx = info.context
+        doc_id: str | None = None
+        if document_id is not None:
+            doc_id = _clean_uuid(str(document_id))
+            if doc_id is None:  # malformed -> no matches, not a DB error
+                return []
         rows = await read.list_lexemes(
             ctx.conn,
             q=q,
             pos=pos,
             lang=lang,
-            document_id=str(document_id) if document_id is not None else None,
+            document_id=doc_id,
             limit=ctx.page_size(limit),
             after=after,
         )
@@ -134,9 +164,14 @@ class Query:
     ) -> list[EntityMention]:
         """Return named-entity mentions (NER layer), filterable by document and type."""
         ctx = info.context
+        doc_id: str | None = None
+        if document_id is not None:
+            doc_id = _clean_uuid(str(document_id))
+            if doc_id is None:  # malformed -> no matches, not a DB error
+                return []
         rows = await read.list_entities(
             ctx.conn,
-            document_id=str(document_id) if document_id is not None else None,
+            document_id=doc_id,
             entity_type=entity_type,
             limit=ctx.page_size(limit),
             after=after,
@@ -154,9 +189,14 @@ class Query:
     ) -> list[EntityFrequency]:
         """Return entity mention frequencies — the character/place/org table."""
         ctx = info.context
+        doc_id: str | None = None
+        if document_id is not None:
+            doc_id = _clean_uuid(str(document_id))
+            if doc_id is None:  # malformed -> no matches, not a DB error
+                return []
         rows = await read.entity_frequency(
             ctx.conn,
-            document_id=str(document_id) if document_id is not None else None,
+            document_id=doc_id,
             entity_type=entity_type,
             limit=ctx.page_size(limit),
             after=after,
@@ -178,17 +218,14 @@ class Query:
         after: str | None = None,
     ) -> list[Job]:
         """Return recent jobs, newest first — a document's pipeline progress view."""
-        import uuid
-
         ctx = info.context
-        doc: str | None = None
+        doc_id: str | None = None
         if document_id is not None:
-            try:
-                doc = str(uuid.UUID(str(document_id)))
-            except ValueError:  # not a document id -> no jobs, not a DB error
+            doc_id = _clean_uuid(str(document_id))
+            if doc_id is None:  # malformed -> no jobs, not a DB error
                 return []
         rows = await queue.list_async(
-            ctx.conn, document_id=doc, limit=ctx.page_size(limit), after=after
+            ctx.conn, document_id=doc_id, limit=ctx.page_size(limit), after=after
         )
         return [Job.from_row(r) for r in rows]
 
@@ -197,9 +234,10 @@ class Query:
         self, info: Info, document_id: strawberry.ID, status: str | None = None
     ) -> list[SeedSuggestion]:
         """Return a document's seed suggestions (unresolved last, then by frequency)."""
-        rows = await seeds.list_for_document_async(
-            info.context.conn, str(document_id), status=status
-        )
+        doc_id = _clean_uuid(str(document_id))
+        if doc_id is None:  # malformed -> no suggestions, not a DB error
+            return []
+        rows = await seeds.list_for_document_async(info.context.conn, doc_id, status=status)
         return [SeedSuggestion.from_row(r) for r in rows]
 
     @strawberry.field
@@ -225,8 +263,11 @@ class Query:
     ) -> list[UnresolvedMention]:
         """Return entity mentions in a document that lack a canonical link."""
         ctx = info.context
+        doc_id = _clean_uuid(str(document_id))
+        if doc_id is None:  # malformed -> no mentions, not a DB error
+            return []
         rows = await canonical_read.list_unresolved_mentions(
-            ctx.conn, str(document_id), limit=ctx.page_size(limit), after=after
+            ctx.conn, doc_id, limit=ctx.page_size(limit), after=after
         )
         return [UnresolvedMention.from_row(r) for r in rows]
 
@@ -241,9 +282,14 @@ class Query:
     ) -> list[ResolutionReview]:
         """Return resolution-review rows, optionally scoped by document and status."""
         ctx = info.context
+        doc_id: str | None = None
+        if document_id is not None:
+            doc_id = _clean_uuid(str(document_id))
+            if doc_id is None:  # malformed -> no matches, not a DB error
+                return []
         rows = await canonical_read.list_resolution_review(
             ctx.conn,
-            document_id=str(document_id) if document_id is not None else None,
+            document_id=doc_id,
             status=status,
             limit=ctx.page_size(limit),
             after=after,

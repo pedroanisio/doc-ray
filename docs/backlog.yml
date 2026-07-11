@@ -3282,7 +3282,7 @@ items:
       cost as a full crash.
     category:     "ops"
     type:         "bug"
-    status:       "ready"
+    status:       "done"
     complexity:   "S"
     priority:     "medium"
     rationale:    "The queue's crash-recovery story (reap_stale, retry/backoff) already assumes the worker process itself is resilient enough to keep polling — a transient DB blip shouldn't need a full process restart to recover from."
@@ -3295,7 +3295,7 @@ items:
       - "src/doc_ray/adapters/persistence.py"
       - "src/doc_ray/application/jobs.py"
     owner:        "shared"
-    source:       "Full-codebase gap-analysis 2026-07-10 (worker/job-queue subsystem audit)."
+    source:       "Full-codebase gap-analysis 2026-07-10 (worker/job-queue subsystem audit). Completed 2026-07-11 (outer poll loop retries on psycopg.OperationalError with WORKER_RECONNECT_BACKOFF_SECONDS backoff, D-020) on branch fix/bl-097-delete-blob-leak."
     tags:         ["ops", "reliability", "bug"]
 
   - id:          "BL-102"
@@ -3512,7 +3512,7 @@ items:
       arbitrarily large ID array in one request.
     category:     "security"
     type:         "bug"
-    status:       "ready"
+    status:       "done"
     complexity:   "S"
     priority:     "medium"
     rationale:    "BL-009 explicitly bounds query *shape* (depth/token count), not argument *values* on mutations — this is the gap that leaves. A resource-exhaustion vector on the worker (unbounded candidate mining per document) is a distinct concern from the generic error-envelope work BL-049 tracks."
@@ -3526,7 +3526,7 @@ items:
       - "src/doc_ray/application/seed_suggest.py"
       - "src/doc_ray/adapters/seed_suggestion_store.py"
     owner:        "shared"
-    source:       "Full-codebase gap-analysis 2026-07-10 (GraphQL input-validation subsystem audit)."
+    source:       "Full-codebase gap-analysis 2026-07-10 (GraphQL input-validation subsystem audit). Completed 2026-07-11 (suggestSeeds.limit clamped via ctx.page_size(); decideSeeds's approveIds/rejectIds rejected past new context.MAX_BATCH_IDS=500; D-020) on branch fix/bl-097-delete-blob-leak."
     tags:         ["security", "graphql", "dos", "bug"]
 
   - id:          "BL-110"
@@ -3545,7 +3545,7 @@ items:
       `reannotate`, `deleteDocument`, `entities`, and others.
     category:     "api"
     type:         "bug"
-    status:       "ready"
+    status:       "done"
     complexity:   "S"
     priority:     "medium"
     rationale:    "A concrete information-disclosure gap today (raw DB error text, not merely an inconsistent generic error shape) — distinct from and narrower than BL-049's broader structured-error-envelope proposal, so worth fixing on its own rather than waiting on that larger item."
@@ -3557,8 +3557,9 @@ items:
       - "src/doc_ray/entrypoints/api/query.py"
       - "src/doc_ray/adapters/persistence_read.py"
       - "src/doc_ray/entrypoints/api/schema.py"
+      - "src/doc_ray/entrypoints/api/mutation.py"
     owner:        "shared"
-    source:       "Full-codebase gap-analysis 2026-07-10 (GraphQL input-validation subsystem audit)."
+    source:       "Full-codebase gap-analysis 2026-07-10 (GraphQL input-validation subsystem audit). Completed 2026-07-11 (query.py's _clean_uuid across every id-shaped read resolver, plus mutation.py's _require_document_write — named in this item's own description but missing from its original references — validating before its ::uuid cast; D-020) on branch fix/bl-097-delete-blob-leak."
     tags:         ["api", "security", "information-disclosure", "bug"]
 
   - id:          "BL-111"

@@ -9,6 +9,7 @@ completion.
 from __future__ import annotations
 
 import hashlib
+import uuid
 from pathlib import Path
 from typing import Any, cast
 
@@ -30,7 +31,7 @@ from doc_ray.domain.jobs import (
     KIND_SEED_SUGGEST,
     KIND_SEMANTIC_ENRICH,
 )
-from doc_ray.entrypoints.api.context import RequestContext
+from doc_ray.entrypoints.api.context import MAX_BATCH_IDS, RequestContext
 from doc_ray.entrypoints.api.types import Info, Job
 
 #: The default post-ingest pipeline: Stage-1 annotation, deterministic semantic
@@ -54,10 +55,16 @@ async def _require_document_write(ctx: RequestContext, document_id: str) -> None
     layer (migration 043) so a bypass here is not the only backstop, but
     checking first turns a raw RLS policy violation into a clean, expected
     error and avoids the failed INSERT entirely. The same error is raised
-    whether the document doesn't exist or merely isn't in the caller's
-    grants, so this can't be used to enumerate documents the caller can't see.
+    whether the document doesn't exist, merely isn't in the caller's grants, or
+    is malformed, so none of those can be distinguished by the caller (BL-110:
+    a bare ``%s::uuid`` cast raises Postgres's raw input-syntax error on a
+    malformed id — validate in Python first so that never reaches the client).
     """
     _require_write(ctx)
+    try:
+        uuid.UUID(document_id)
+    except ValueError as exc:
+        raise PermissionError(f"no write grant for document {document_id}") from exc
     cur = await ctx.conn.execute(
         "SELECT %s::uuid IN (SELECT * FROM docray_writable_documents()) AS ok",
         (document_id,),
@@ -185,7 +192,10 @@ class Mutation:
         ctx = info.context
         await _require_document_write(ctx, str(document_id))
         job_id = await queue.enqueue_async(
-            ctx.conn, KIND_SEED_SUGGEST, {"limit": limit}, document_id=str(document_id)
+            ctx.conn,
+            KIND_SEED_SUGGEST,
+            {"limit": ctx.page_size(limit)},
+            document_id=str(document_id),
         )
         return await _job_status(ctx, job_id)
 
@@ -199,9 +209,17 @@ class Mutation:
         """Record curator decisions on suggestions; returns rows updated.
 
         ``seeded`` rows are immutable — re-deciding them is a no-op.
+
+        Raises:
+            ValueError: If ``approveIds`` or ``rejectIds`` exceeds
+                :data:`MAX_BATCH_IDS` — rejected outright rather than silently
+                truncated, so a caller never has some of its decisions dropped.
         """
         ctx = info.context
         _require_write(ctx)
+        for name, ids in (("approveIds", approve_ids), ("rejectIds", reject_ids)):
+            if ids is not None and len(ids) > MAX_BATCH_IDS:
+                raise ValueError(f"{name} cannot exceed {MAX_BATCH_IDS} ids per call")
         conn = ctx.conn
         updated = 0
         if approve_ids:

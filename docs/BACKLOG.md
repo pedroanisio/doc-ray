@@ -268,7 +268,7 @@ live dev stack (real Postgres + MinIO), not just schema-level unit tests.
 | BL-098 | ingestDocument has no upload size cap — unbounded memory buffering | security | bug | done | S | high | shared |
 | BL-099 | No encryption enforcement for object storage, at rest or in transit | security | tech-debt | parked | M | medium | shared |
 | BL-100 | Worker detects crashed jobs but not hung ones — no execution timeout | ops | bug | parked | M | medium | shared |
-| BL-101 | Worker's outer poll loop has no resilience to a dropped DB connection | ops | bug | ready | S | medium | shared |
+| BL-101 | Worker's outer poll loop has no resilience to a dropped DB connection | ops | bug | done | S | medium | shared |
 | BL-102 | JobStatus.CANCELED is a dead status — no code path ever sets it | ops | feature | parked | S | low | shared |
 | BL-103 | Webapp has no CSRF protection on any state-changing form | security | bug | done | M | high | shared |
 | BL-104 | Webapp sends no security response headers (CSP, X-Frame-Options, etc.) | security | tech-debt | ready | S | medium | shared |
@@ -276,8 +276,8 @@ live dev stack (real Postgres + MinIO), not just schema-level unit tests.
 | BL-106 | Upload extension is client-controlled and unchecked before the blob is stored | security | bug | ready | S | medium | shared |
 | BL-107 | Operator health token travels via URL query string, not a header | security | bug | ready | XS | medium | shared |
 | BL-108 | GraphQL introspection and GraphiQL are enabled with no production gating | security | bug | done | XS | high | shared |
-| BL-109 | GraphQL write-mutation arguments lack the bounds every read resolver enforces | security | bug | ready | S | medium | shared |
-| BL-110 | Malformed UUID arguments leak raw Postgres exception text to GraphQL clients | api | bug | ready | S | medium | shared |
+| BL-109 | GraphQL write-mutation arguments lack the bounds every read resolver enforces | security | bug | done | S | medium | shared |
+| BL-110 | Malformed UUID arguments leak raw Postgres exception text to GraphQL clients | api | bug | done | S | medium | shared |
 | BL-111 | The app's own Docker base image floats on a mutable tag, unlike Postgres | ops | tech-debt | ready | XS | medium | shared |
 | BL-112 | App containers run as root — no USER directive anywhere in the Dockerfile | security | tech-debt | ready | S | medium | shared |
 | BL-113 | No automated dependency vulnerability scanning, SBOM, or update automation | tooling | infra | parked | M | medium | shared |

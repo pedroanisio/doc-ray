@@ -15,6 +15,13 @@ from doc_ray.entrypoints.api.security import Principal
 #: an unbounded slice (defence-in-depth alongside the depth/complexity limits).
 MAX_PAGE_SIZE = 200
 
+#: Hard cap on any batch id-array mutation argument (e.g. decideSeeds's
+#: approveIds/rejectIds). Unlike MAX_PAGE_SIZE this is never silently clamped —
+#: a caller over the cap gets a clean rejection, since silently dropping ids
+#: from a write batch would mean some approve/reject the caller asked for
+#: never happened (BL-109).
+MAX_BATCH_IDS = 500
+
 
 @dataclass
 class RequestContext(BaseContext):

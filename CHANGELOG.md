@@ -57,6 +57,24 @@ doc-ray carries **one global version** covering both the application package
     zip whose declared uncompressed size is disproportionate to its
     compressed size before `extract_epub`/`extract_docx` read any member.
     Previously EPUB/DOCX had neither guard.
+- **Worker DB-reconnect resilience; GraphQL id-argument validation; mutation
+  batch bounds** (Claude Sonnet 5 via Claude Code) — three more findings from
+  the 2026-07-10 full-codebase gap analysis (BL-101, BL-110, BL-109). See
+  engineering decision `D-020`:
+  - `entrypoints/worker.py`'s outer poll loop now catches
+    `psycopg.OperationalError` from the reap/claim cycle, backs off
+    (`WORKER_RECONNECT_BACKOFF_SECONDS`, default 2s), and reconnects, instead
+    of a dropped connection crashing the whole worker process.
+  - `entrypoints/api/query.py`'s `document`/`job`/`searchSentences`/
+    `lexemes`/`entities`/`entityFrequency`/`jobs`/`seedSuggestions`/
+    `unresolvedMentions`/`resolutionReview` resolvers now validate any
+    uuid-shaped id argument (a shared `_clean_uuid()`) before querying; a
+    malformed id now reads as "not found"/an empty page instead of
+    forwarding Postgres's raw `invalid input syntax for type uuid` text.
+  - `suggestSeeds`'s `limit` is now clamped through the same `page_size()`
+    bound every read resolver uses; `decideSeeds`'s `approveIds`/
+    `rejectIds` are rejected outright (new `context.MAX_BATCH_IDS`, 500) —
+    not silently truncated — when a batch is too large.
 
 ### Added
 - **Doc-hygiene audit fixes + drift regression tests** (Claude Sonnet 5 via

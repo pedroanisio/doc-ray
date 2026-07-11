@@ -17,6 +17,8 @@ import socket
 import threading
 from types import FrameType
 
+import psycopg
+
 from doc_ray.adapters import persistence as db
 from doc_ray.adapters import queue_postgres as queue
 from doc_ray.adapters.object_store import ObjectStore
@@ -26,6 +28,10 @@ from doc_ray.config import Config
 _POLL_SECONDS = float(os.environ.get("WORKER_POLL_SECONDS", "5"))
 _HEARTBEAT_SECONDS = float(os.environ.get("WORKER_HEARTBEAT_SECONDS", "15"))
 _CLAIM_TIMEOUT_SECONDS = float(os.environ.get("WORKER_CLAIM_TIMEOUT_SECONDS", "120"))
+#: Backoff before reconnecting after a dropped connection (BL-101). Short enough
+#: that a transient blip recovers quickly, long enough not to hot-loop against a
+#: database that is genuinely still down.
+_RECONNECT_BACKOFF_SECONDS = float(os.environ.get("WORKER_RECONNECT_BACKOFF_SECONDS", "2"))
 
 
 def run(cfg: Config | None = None, *, worker_id: str | None = None) -> int:
@@ -50,18 +56,27 @@ def run(cfg: Config | None = None, *, worker_id: str | None = None) -> int:
     signal.signal(signal.SIGINT, _request_shutdown)
 
     # Two connections: one for claim/dispatch, one dedicated to the heartbeat thread.
-    with db.connect(settings) as conn, db.connect(settings) as hb_conn:
-        while not shutdown.is_set():
-            queue.reap_stale(conn, older_than_seconds=_CLAIM_TIMEOUT_SECONDS)
-            job = run_once(
-                conn,
-                store,
-                worker_id=wid,
-                heartbeat_conn=hb_conn,
-                heartbeat_interval=_HEARTBEAT_SECONDS,
-            )
-            if job is None:
-                shutdown.wait(_POLL_SECONDS)  # idle: sleep, but wake on shutdown
+    # A connection-level error (dropped network, Postgres restart) is caught at this
+    # outer level: the broken pair is closed by the `with` on the way out, we back
+    # off briefly, then reconnect — a transient blip must never crash the process
+    # (BL-101). Only `psycopg.OperationalError` (connection/transport failures) is
+    # retried; handler-level errors are already contained inside `run_once`.
+    while not shutdown.is_set():
+        try:
+            with db.connect(settings) as conn, db.connect(settings) as hb_conn:
+                while not shutdown.is_set():
+                    queue.reap_stale(conn, older_than_seconds=_CLAIM_TIMEOUT_SECONDS)
+                    job = run_once(
+                        conn,
+                        store,
+                        worker_id=wid,
+                        heartbeat_conn=hb_conn,
+                        heartbeat_interval=_HEARTBEAT_SECONDS,
+                    )
+                    if job is None:
+                        shutdown.wait(_POLL_SECONDS)  # idle: sleep, but wake on shutdown
+        except psycopg.OperationalError:
+            shutdown.wait(_RECONNECT_BACKOFF_SECONDS)
     return 0
 
 

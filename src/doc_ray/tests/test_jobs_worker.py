@@ -13,6 +13,7 @@ import threading
 from typing import Any
 
 import _itdb
+import psycopg
 import pytest
 
 from doc_ray.adapters import queue_postgres as queue
@@ -258,3 +259,38 @@ def test_worker_loop_drains_on_sigint(monkeypatch):
         signal.signal(signal.SIGTERM, old_term)
         signal.signal(signal.SIGINT, old_int)
     assert calls["reap"] >= 1 and calls["run"] >= 1
+
+
+def test_worker_loop_recovers_from_dropped_connection(monkeypatch):
+    """BL-101: a connection-level error must be retried, never crash the process."""
+    calls = {"reap": 0, "run": 0}
+
+    def flaky_reap_stale(_conn, older_than_seconds):
+        calls["reap"] += 1
+        if calls["reap"] == 1:
+            raise psycopg.OperationalError("server closed the connection unexpectedly")
+
+    monkeypatch.setattr(worker_mod.queue, "reap_stale", flaky_reap_stale)
+    monkeypatch.setattr(
+        worker_mod,
+        "run_once",
+        lambda conn, store, **kw: calls.__setitem__("run", calls["run"] + 1),
+    )
+    monkeypatch.setattr(worker_mod, "ObjectStore", lambda cfg: None)
+    monkeypatch.setattr(worker_mod, "_POLL_SECONDS", 0.05)
+    monkeypatch.setattr(worker_mod, "_RECONNECT_BACKOFF_SECONDS", 0.05)
+
+    old_term = signal.getsignal(signal.SIGTERM)
+    old_int = signal.getsignal(signal.SIGINT)
+    timer = threading.Timer(0.5, lambda: os.kill(os.getpid(), signal.SIGINT))
+    timer.start()
+    try:
+        assert worker_mod.main() == 0  # never raises out of main() / process never crashes
+    finally:
+        timer.cancel()
+        signal.signal(signal.SIGTERM, old_term)
+        signal.signal(signal.SIGINT, old_int)
+    # The dropped-connection reap_stale call was call #1; the loop must have
+    # reconnected and gone on to claim/process at least one more job afterward.
+    assert calls["reap"] >= 2
+    assert calls["run"] >= 1

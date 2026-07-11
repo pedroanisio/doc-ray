@@ -33,7 +33,7 @@ source_schema:         "db/migrations"
 # scripts/check_version_consistency.py.
 source_schema_version: "1.10.0"
 target_engine:         "PostgreSQL 16"
-total_decisions:       18
+total_decisions:       19
 
 decisions:
 
@@ -872,5 +872,102 @@ decisions:
             context:     "ci"
             side_effects: "reads"
             command:     "pytest src/doc_ray/tests/test_mutations.py::test_reannotate_rejects_write_scope_without_document_grant -q"
+            expect:
+              exit:      0
+
+  - id:                 "D-020"
+    title:              "Worker reconnects on dropped DB connections; GraphQL id args are format-validated and write batches are bounded"
+    version_introduced: "1.10.0"
+    category:           "security"
+    decision: |
+      Three independent hardening fixes from the 2026-07-10 full-codebase gap
+      analysis, landed together: (1) entrypoints/worker.py's outer poll loop
+      now wraps the connect+claim+dispatch cycle in a retry loop that catches
+      psycopg.OperationalError, backs off (WORKER_RECONNECT_BACKOFF_SECONDS,
+      default 2s), and reconnects, instead of letting a dropped connection
+      crash the process (BL-101). (2) entrypoints/api/query.py's document/job/
+      search_sentences/lexemes/entities/entity_frequency/jobs/seedSuggestions/
+      unresolvedMentions/resolutionReview resolvers now validate any uuid-
+      shaped id argument via a shared _clean_uuid() before querying — a
+      malformed id reads as "not found" / an empty page, never a forwarded
+      psycopg.errors.InvalidTextRepresentation (BL-110). ulid-typed columns
+      (jobs.id) turned out not to share this bug: a domain's CHECK constraint
+      only fires on an explicit cast, not on a `=` comparison, which resolves
+      through the base type's operators — verified directly against a live
+      Postgres rather than assumed. (3) suggestSeeds's limit argument is now
+      clamped through the same ctx.page_size() bound every read resolver
+      uses, and decideSeeds's approveIds/rejectIds arrays are rejected
+      outright (not silently truncated) past context.MAX_BATCH_IDS (500) —
+      silently dropping ids from a write batch would mean some of the
+      caller's approve/reject decisions never happened (BL-109).
+    rationale: |
+      Each fix closes a distinct fail-open path a live audit confirmed rather
+      than assumed: (1) an unhandled connection error previously took down
+      the whole worker process on a transient Postgres blip, turning a
+      recoverable network hiccup into a full outage requiring manual restart.
+      (2) uuid-typed columns (unlike the ulid domain, confirmed by direct
+      testing against Postgres) raise a raw input-syntax error on a malformed
+      comparison value, and Strawberry's default error handling forwards
+      str(exc) verbatim — the same class of information leak BL-110 was
+      opened to close, now closed consistently across every resolver that
+      takes an id-shaped argument, not just the one originally flagged. (3)
+      every read resolver already had a page_size()-style cap; the two write
+      mutations taking unbounded arguments were the gap BL-009/BL-063 didn't
+      cover, and a silent truncation would be worse than a clean rejection
+      because it fails without telling the caller which decisions landed.
+    decision_status:    "accepted"
+    decision_date:      "2026-07-11"
+    owner:              ["pedroanisio@faz.ai"]
+    scope_path:
+      - "src/doc_ray/entrypoints/worker.py"
+      - "src/doc_ray/entrypoints/api/query.py"
+      - "src/doc_ray/entrypoints/api/mutation.py"
+      - "src/doc_ray/entrypoints/api/context.py"
+    claims:
+      - claim_id:    "D-020.k1"
+        claim_text:  "The worker's outer poll loop catches psycopg.OperationalError, backs off, and reconnects rather than crashing the process."
+        auditable:   true
+        status:      "populated"
+        declared_checks_count: 1
+        checks:
+          - check_id:    "D-020.k1.c1"
+            description: "A regression test simulates a dropped connection mid-loop and asserts the worker recovers without process exit."
+            check_kind:  "shell"
+            severity:    "error"
+            context:     "ci"
+            side_effects: "reads"
+            command:     "pytest src/doc_ray/tests/test_jobs_worker.py::test_worker_loop_recovers_from_dropped_connection -q"
+            expect:
+              exit:      0
+
+      - claim_id:    "D-020.k2"
+        claim_text:  "Every query resolver taking a uuid-shaped id argument validates it before querying, so a malformed id never forwards a raw Postgres exception."
+        auditable:   true
+        status:      "populated"
+        declared_checks_count: 1
+        checks:
+          - check_id:    "D-020.k2.c1"
+            description: "query.py defines and uses a shared _clean_uuid() helper across every id-shaped resolver argument."
+            check_kind:  "grep"
+            severity:    "error"
+            context:     "workspace"
+            path:        "src/doc_ray/entrypoints/api/query.py"
+            pattern:     "_clean_uuid"
+            expect:
+              present:   true
+
+      - claim_id:    "D-020.k3"
+        claim_text:  "suggestSeeds.limit is clamped through page_size(); decideSeeds's approveIds/rejectIds are rejected, not truncated, past MAX_BATCH_IDS."
+        auditable:   true
+        status:      "populated"
+        declared_checks_count: 1
+        checks:
+          - check_id:    "D-020.k3.c1"
+            description: "The regression tests for both bounds pass."
+            check_kind:  "shell"
+            severity:    "error"
+            context:     "ci"
+            side_effects: "reads"
+            command:     "pytest src/doc_ray/tests/test_mutations.py -k 'suggest_seeds_clamps or decide_seeds_rejects' -q"
             expect:
               exit:      0

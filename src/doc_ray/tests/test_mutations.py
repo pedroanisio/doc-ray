@@ -354,3 +354,87 @@ def test_create_backup_allows_admin_principal(pg):
     )
     conn.execute("DELETE FROM principal_roles WHERE principal_id = %s", (admin,))
     conn.execute("DELETE FROM principals WHERE id = %s", (admin,))
+
+
+# ---------------------------------------------------------------------------
+# BL-109 — write-mutation arguments must carry the same bounds read resolvers
+# enforce: suggestSeeds.limit clamped through page_size(), decideSeeds's
+# approve/reject arrays capped and rejected (not silently truncated) if too big.
+# ---------------------------------------------------------------------------
+
+
+def test_suggest_seeds_clamps_limit_through_page_size(pg):
+    from doc_ray.entrypoints.api.context import MAX_PAGE_SIZE
+
+    conn, created = pg
+    doc_id = _seed(pg)
+    schema = build_schema()
+
+    async def check():
+        aconn = await _aconn_as(WRITE_PRINCIPAL.principal_id)
+        try:
+            ctx = RequestContext(conn=aconn, principal=WRITE_PRINCIPAL, loaders=Loaders(aconn))
+            result = await schema.execute(
+                "mutation($id: ID!) { suggestSeeds(documentId: $id, limit: 999999) { id } }",
+                variable_values={"id": doc_id},
+                context_value=ctx,
+            )
+            assert result.errors is None, result.errors
+        finally:
+            await aconn.close()
+
+    asyncio.run(check())
+    row = conn.execute(
+        "SELECT payload->>'limit' AS lim FROM jobs WHERE kind = 'seed_suggest' "
+        "AND document_id = %s ORDER BY created_at DESC LIMIT 1",
+        (doc_id,),
+    ).fetchone()
+    assert row is not None
+    assert int(row["lim"]) == MAX_PAGE_SIZE
+
+
+def test_reannotate_rejects_malformed_document_id_without_leaking_postgres_error(pg):
+    """BL-110: _require_document_write's ::uuid cast must not leak a raw Postgres error."""
+    _seed(pg)
+    schema = build_schema()
+
+    async def check():
+        aconn = await _aconn_as(WRITE_PRINCIPAL.principal_id)
+        try:
+            ctx = RequestContext(conn=aconn, principal=WRITE_PRINCIPAL, loaders=Loaders(aconn))
+            result = await schema.execute(
+                'mutation { reannotate(documentId: "not-a-uuid", lang: "en") { id } }',
+                context_value=ctx,
+            )
+            assert result.errors is not None
+            msg = str(result.errors[0]).lower()
+            assert "no write grant" in msg
+            assert "invalid input syntax" not in msg
+        finally:
+            await aconn.close()
+
+    asyncio.run(check())
+
+
+def test_decide_seeds_rejects_oversized_batch(pg):
+    from doc_ray.entrypoints.api.context import MAX_BATCH_IDS
+
+    _seed(pg)
+    schema = build_schema()
+    too_many = [new_ulid_str() for _ in range(MAX_BATCH_IDS + 1)]
+
+    async def check():
+        aconn = await _aconn_as(WRITE_PRINCIPAL.principal_id)
+        try:
+            ctx = RequestContext(conn=aconn, principal=WRITE_PRINCIPAL, loaders=Loaders(aconn))
+            result = await schema.execute(
+                "mutation($ids: [ID!]) { decideSeeds(approveIds: $ids) }",
+                variable_values={"ids": too_many},
+                context_value=ctx,
+            )
+            assert result.errors is not None
+            assert str(MAX_BATCH_IDS) in str(result.errors[0])
+        finally:
+            await aconn.close()
+
+    asyncio.run(check())
