@@ -99,7 +99,10 @@ class Query:
         self, info: Info, document_id: strawberry.ID
     ) -> list[DocumentMetadataChange]:
         """Return a document's title/description/tags edit history, oldest first."""
-        rows = await read.get_metadata_history(info.context.conn, str(document_id))
+        doc_id = _clean_uuid(str(document_id))
+        if doc_id is None:
+            return []
+        rows = await read.get_metadata_history(info.context.conn, doc_id)
         return [DocumentMetadataChange.from_row(r) for r in rows]
 
     @strawberry.field

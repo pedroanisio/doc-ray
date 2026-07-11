@@ -444,9 +444,11 @@ items:
       per-principal LOGIN roles (or an equivalent DB-enforced identity), so the
       principal is authenticated by the database rather than asserted by the client.
       (docray superuser intentionally bypasses RLS as the trusted batch writer and
-      must NOT be switched to docray_client.) Still open as of 2026-07-04:
-      migration 018_rbac.sql creates only a single shared `docray_client NOLOGIN`
-      role; the per-principal LOGIN-role note there is a comment, not code.
+      must NOT be switched to docray_client.) Closed by migration
+      030_principal_login_roles.sql: principals.db_role + per-principal LOGIN
+      roles via docray_create_principal_login(), and docray_current_principal()
+      honors the app.principal_id GUC only for the trusted docray_api actor, so
+      a direct docray_client connection can no longer impersonate by GUC.
     category:     "security"
     type:         "feature"
     status:       "done"
@@ -1558,12 +1560,16 @@ items:
       Docs assert numbers that quietly go false — the corpus landing lede hardcoded
       'Five documents' against a 41-doc corpus (BL-028), and DATABASE.md's migration
       count drifted. check_version_consistency.py pins versions but not doc prose.
-      Add tests/test_docs_in_sync.py asserting that documented, machine-derivable
-      counts (migration count, table counts, documented corpus figures) equal the
-      machine value, per FrameForge's test_docs_in_sync. Scope to stable facts only.
+      Landed as tests/test_docs_in_sync.py, scoped to stable facts: DATABASE.md's
+      'N migrations applied' header must equal the db/migrations/*.sql file count,
+      its §9 migration-history table must list every migration file (the hand-curated
+      MIGRATIONS list in scripts/_data_dictionary_content.py had silently stopped at
+      037 — the test's first run caught it), and the BL-047 drift gate must stay
+      wired into both pre-commit and CI. Volatile figures (corpus document counts)
+      are deliberately out of scope; the landing lede is dynamic since BL-028.
     category:     "testing"
     type:         "infra"
-    status:       "parked"
+    status:       "done"
     complexity:   "S"
     priority:     "high"
     rationale:    "Prose that makes numeric claims drifts against reality; a red test is cheaper than a stale-doc incident."
@@ -1571,11 +1577,12 @@ items:
       - "A test fails when a documented, machine-derivable count no longer matches the live/generated value."
       - "The check is limited to stable facts, not volatile numbers, to avoid churny failures."
     references:
-      - "scripts/check_version_consistency.py"
+      - "tests/test_docs_in_sync.py"
+      - "scripts/gen_data_dictionary.py"
+      - "scripts/_data_dictionary_content.py"
       - "docs/DATABASE.md"
-      - "README.md"
     owner:        "shared"
-    source:       "Reference-codebase analysis 2026-07-04: FrameForge — tests/test_docs_in_sync.py asserts README '<n> $defs' == schema count and 'N/N green' == real test count."
+    source:       "Reference-codebase analysis 2026-07-04: FrameForge — tests/test_docs_in_sync.py asserts README '<n> $defs' == schema count and 'N/N green' == real test count. Completed 2026-07-11: migration-count + migration-history + gate-wiring assertions; first run exposed DATABASE.md's history table stale at 037, fixed by extending MIGRATIONS and regenerating."
     tags:         ["docs", "testing", "drift"]
 
   - id:          "BL-049"
@@ -1638,12 +1645,14 @@ items:
     title:        "Graceful optional-dependency handling with install hints"
     summary:      "Entrypoints hard-fail with opaque ModuleNotFoundError when optional deps are absent; add optional groups + actionable install hints."
     description: |
-      Running the API/worker/MCP raises bare ModuleNotFoundError (fastapi, strawberry,
+      Running the API or worker raises bare ModuleNotFoundError (fastapi, strawberry,
       pyshacl, spaCy models, ...) with no remediation. Group optional dependencies
-      (api, nlp, mcp) and guard heavy/optional imports at the entrypoints so a missing
+      (api, nlp) and guard heavy/optional imports at the entrypoints so a missing
       dependency yields an actionable message ('needs X - run <install command>')
       rather than a stacktrace, following FrameForge's _can_import-driven availability
-      with install hints. The core import path stays light.
+      with install hints. The core import path stays light. (An earlier revision of
+      this item mentioned an MCP entrypoint — doc-ray has none; that was carried
+      over from the FrameForge reference analysis.)
     category:     "tooling"
     type:         "feature"
     status:       "parked"
@@ -2240,7 +2249,7 @@ items:
     summary:      "Once OIDC exists (BL-066), the current HeaderTokenAuthenticator (static, non-expiring, shared-secret tokens) should become an explicit, documented fallback for local/offline use — not remain the only or default authenticator."
     description: |
       Today HeaderTokenAuthenticator is the only real authenticator
-      (config.py wires it unconditionally in create_app). It has no
+      (app.py's create_app wires it unconditionally). It has no
       expiry, no rotation, and no per-token audit trail beyond the static
       DOCRAY_API_TOKENS mapping — acceptable for a single-operator/local
       deployment (as D-010 accepted explicitly) but wrong as the ongoing
@@ -2267,17 +2276,18 @@ items:
 
   - id:          "BL-070"
     title:        "Webapp session: real per-user login with a secure HttpOnly cookie"
-    summary:      "The webapp has no login at all today — DOCRAY_PRINCIPAL_ID is a single static server-side config value (the same identity for every browser hitting the process), not a per-user session. No Flask session/cookie mechanism exists (no SECRET_KEY, no session[...] usage anywhere in webapp/)."
+    summary:      "The webapp has no login at all today — DOCRAY_PRINCIPAL_ID is a single static server-side config value (the same identity for every browser hitting the process), not a per-user session. Flask sessions exist only as plumbing (CSRF token, operator-health gate), never as user identity."
     description: |
-      Grepped webapp/*.py: zero uses of Flask's `session`, no
-      `app.secret_key`/`SECRET_KEY` configuration. `_apply_principal`
-      (webapp/app.py) reads one process-wide `DOCRAY_PRINCIPAL_ID` from the
-      environment and stamps it on every request's DB connection — every
-      browser session hitting this webapp process is the same principal.
-      There is no login page, no logout, no cookie at all. This is the
-      webapp-side prerequisite for OIDC/SAML (BL-066/BL-067) to mean
-      anything for actual browser users, since today nobody logs in as
-      themselves.
+      `_apply_principal` (webapp/app.py) reads one process-wide
+      `DOCRAY_PRINCIPAL_ID` from the environment and stamps it on every
+      request's DB connection — every browser session hitting this webapp
+      process is the same principal. There is no login page, no logout, and
+      no identity cookie. (Since BL-103/BL-107 the app does set a
+      SECRET_KEY and uses Flask `session[...]` — but only for the CSRF
+      token and the operator-health access flag; nothing binds a session to
+      a principal.) This is the webapp-side prerequisite for OIDC/SAML
+      (BL-066/BL-067) to mean anything for actual browser users, since
+      today nobody logs in as themselves.
     category:     "security"
     type:         "feature"
     status:       "parked"
@@ -2466,7 +2476,7 @@ items:
       have zero extraction code and aren't a dependency anywhere in the
       repo — they cannot be overlaid until format support is built first
       (BL-084, BL-085). Of the formats that ARE ingested, only PDF's
-      extractor captures any geometry; extract_docx (extraction.py:494-518)
+      extractor captures any geometry; extract_docx (extraction.py)
       is paragraph-text-only, and the HTML/EPUB path (extraction.py's
       _HTMLText/_html_to_text, :387-491) discards the DOM entirely, keeping
       only concatenated strings. Positional bbox extraction is therefore
@@ -2590,7 +2600,7 @@ items:
 
   - id:          "BL-080"
     title:        "Route: stream the original uploaded file to the browser"
-    summary:      "The original file is retained in the object store (documents.source_uri) but nothing serves it to a browser today — the only download route is the operator-facing full-backup archive (webapp/app.py:707-740). Users have no way to retrieve what they originally uploaded."
+    summary:      "The original file is retained in the object store (documents.source_uri) but nothing serves it to a browser today — the only download route is the operator-facing full-backup archive (download_backup in webapp/app.py). Users have no way to retrieve what they originally uploaded."
     description: |
       A per-document download route, mirroring the existing
       backup-download proxy pattern: the webapp never touches storage
@@ -2607,7 +2617,7 @@ items:
     priority:     "low"
     rationale:    "Confirmed absent in the 2026-07-05 investigation behind this item set: source_uri exists on documents and the blob is genuinely retained, but no route streams it to a browser. Splitting it out from BL-079 keeps each item's acceptance criteria testable in isolation."
     acceptance_criteria:
-      - "A route streams a document's original bytes with the correct mime_type and original_filename, mirroring the backup-download proxy's streaming pattern (webapp/app.py:707-740)."
+      - "A route streams a document's original bytes with the correct mime_type and original_filename, mirroring download_backup's streaming proxy pattern in webapp/app.py."
       - "A clean error path exists for documents whose blob is missing or whose ingest never completed."
     dependencies: []
     references:
@@ -2712,7 +2722,7 @@ items:
     summary:      "PPTX is not an ingestable format today — a repo-wide grep for 'pptx' returns zero hits in src/, and python-pptx is not a dependency anywhere. This is a prerequisite for any overlay feature on PowerPoint documents, not an extension of one — the format cannot be uploaded at all right now."
     description: |
       Confirmed live: extraction.py's _EXTRACTORS dispatch table covers
-      only pdf/txt/md/html/htm/epub/docx (extraction.py:522-532); no
+      only pdf/txt/md/html/htm/epub/docx; no
       pptx/.pptx reference exists anywhere in src/, and python-pptx is
       absent from requirements.txt and the installed environment. Adding
       PPTX support is ordinary extraction work (parse slide text via
@@ -2774,10 +2784,10 @@ items:
     title:        "Overlay strategy for non-paginated formats (docx/html/epub): highlight in a rendered view of the original markup"
     summary:      "docx/html/epub are ingested for text today but capture zero positional data (extract_docx is paragraph-text-only; the HTML/EPUB path discards the DOM entirely) and, unlike PDF, have no fixed 'page' to rasterize — pagination in these formats is a rendering-time artifact of viewport/page-size, not a property of the file. BL-076..BL-082's render-a-page-then-draw-bbox-boxes approach does not apply to them; they need a fundamentally different mechanism."
     description: |
-      Confirmed live: extract_docx (extraction.py:494-518) does
+      Confirmed live: extract_docx (extraction.py) does
       "\n".join(p.text for p in document.paragraphs) — no run/paragraph
       position, no page. HTML/EPUB extraction (_HTMLText/_html_to_text,
-      extraction.py:387-491) only appends string parts at tag boundaries —
+      extraction.py) only appends string parts at tag boundaries —
       the DOM itself is not retained, and HTML has no page concept at all
       (it reflows to viewport width).
 
@@ -2956,7 +2966,7 @@ items:
 
   - id:          "BL-091"
     title:        "DOCX: reconstruct heading/list structure from paragraph styles"
-    summary:      "extract_docx (extraction.py:511-518) joins every paragraph's raw text with no structural distinction at all — python-docx already exposes paragraph.style.name ('Heading 1', 'Heading 2', 'List Bullet', 'List Number'), unused anywhere in the codebase, that would let DOCX get the same #/##/- Markdown structure PDF now reconstructs."
+    summary:      "extract_docx (extraction.py) joins every paragraph's raw text with no structural distinction at all — python-docx already exposes paragraph.style.name ('Heading 1', 'Heading 2', 'List Bullet', 'List Number'), unused anywhere in the codebase, that would let DOCX get the same #/##/- Markdown structure PDF now reconstructs."
     description: |
       Confirmed live (python-docx 1.2.0, installed): Paragraph.style.name
       returns exactly the style names Word itself assigns on headings and
@@ -2990,10 +3000,10 @@ items:
 
   - id:          "BL-092"
     title:        "HTML/EPUB: reconstruct heading/list structure instead of flattening all block tags"
-    summary:      "_HTMLText (extraction.py:387-423) treats h1-h6, li, p, div, br, tr all identically as a bare newline break — headings and list items are indistinguishable in extracted text. EPUB reuses this same stripper per spine document (extraction.py:468-491), so the gap affects both formats via one shared code path."
+    summary:      "_HTMLText (extraction.py) treats h1-h6, li, p, div, br, tr all identically as a bare newline break — headings and list items are indistinguishable in extracted text. EPUB reuses this same stripper per spine document (extract_epub), so the gap affects both formats via one shared code path."
     description: |
       Confirmed live: handle_starttag/handle_endtag both just append "\n"
-      for any tag in the _BREAK set (extraction.py:391, 399-411) with
+      for any tag in the _BREAK set with
       zero per-tag distinction, and handle_data appends raw text
       unconditionally outside _SKIP tags (script/style/head/title). This
       item extends _HTMLText to emit "#"*level for h1-h6 and "- " for li
@@ -3559,7 +3569,7 @@ items:
       - "src/doc_ray/entrypoints/api/schema.py"
       - "src/doc_ray/entrypoints/api/mutation.py"
     owner:        "shared"
-    source:       "Full-codebase gap-analysis 2026-07-10 (GraphQL input-validation subsystem audit). Completed 2026-07-11 (query.py's _clean_uuid across every id-shaped read resolver, plus mutation.py's _require_document_write — named in this item's own description but missing from its original references — validating before its ::uuid cast; D-020) on branch fix/bl-097-delete-blob-leak."
+    source:       "Full-codebase gap-analysis 2026-07-10 (GraphQL input-validation subsystem audit). Completed 2026-07-11 (query.py's _clean_uuid across every id-shaped read resolver, plus mutation.py's _require_document_write — named in this item's own description but missing from its original references — validating before its ::uuid cast; D-020) on branch fix/bl-097-delete-blob-leak. Backlog-vs-code audit 2026-07-11 found two resolvers the sweep missed — documentMetadataHistory (unvalidated documentId into the uuid-typed history query) and updateDocumentMetadata (enqueued with only _require_write, no id validation) — both closed the same day (_clean_uuid empty-page; _require_document_write like every sibling document-scoped mutation) with regression tests."
     tags:         ["api", "security", "information-disclosure", "bug"]
 
   - id:          "BL-111"
@@ -3584,7 +3594,7 @@ items:
     dependencies: []
     references:
       - "Dockerfile"
-      - "src/doc_ray/tests/test_compose_security.py"
+      - "tests/test_compose_security.py"
     owner:        "shared"
     source:       "Full-codebase gap-analysis 2026-07-10 (dependency/supply-chain subsystem audit)."
     tags:         ["ops", "supply-chain", "docker", "tech-debt"]
@@ -3719,9 +3729,10 @@ items:
 
   - id:          "BL-116"
     title:        "Webapp: 3 of 5 exception handlers never log to app.logger"
-    summary:      "app.logger is used in only 2 spots in webapp/app.py; the seed approve/reject/decide actions, createBackup, and restoreBackup routes all do except Exception as exc: return redirect(url_for(..., error=str(exc))) with no app.logger call — a failed backup or restore leaves zero server-side trace once the operator dismisses the flash message."
+    summary:      "app.logger is used in only 3 spots in webapp/app.py; the seed approve/reject/decide actions, createBackup, and restoreBackup routes all do except Exception as exc: return redirect(url_for(..., error=str(exc))) with no app.logger call — a failed backup or restore leaves zero server-side trace once the operator dismisses the flash message."
     description: |
-      Confirmed live: `webapp/app.py` calls `app.logger` in exactly two
+      Confirmed live (recounted 2026-07-11): `webapp/app.py` calls
+      `app.logger` in exactly three
       places; the seeding-decision route and the `createBackup`/
       `restoreBackup` routes each catch `Exception` and surface `str(exc)`
       to the user via a redirect/flash, with no corresponding

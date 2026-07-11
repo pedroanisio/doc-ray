@@ -491,7 +491,7 @@ def test_update_document_metadata_enqueues_and_history_reads_back(pg):
     schema = build_schema()
 
     async def check():
-        aconn = await _aconn()
+        aconn = await _aconn_as(WRITE_PRINCIPAL.principal_id)
         try:
             ctx = RequestContext(conn=aconn, principal=WRITE_PRINCIPAL, loaders=Loaders(aconn))
             result = await schema.execute(
@@ -536,3 +536,30 @@ def test_update_document_metadata_enqueues_and_history_reads_back(pg):
             await aconn.close()
 
     asyncio.run(check())
+
+def test_update_document_metadata_rejects_malformed_id_without_leaking_postgres_error(pg):
+    """A malformed documentId must fail as a clean grant error, never as raw
+    Postgres uuid-syntax text, and must not enqueue a job (BL-110)."""
+    _seed(pg)  # ensures the jobs table exists
+    conn, _created = pg
+    schema = build_schema()
+    jobs_before = conn.execute("SELECT count(*) AS n FROM jobs").fetchone()["n"]
+
+    async def check():
+        aconn = await _aconn()
+        try:
+            ctx = RequestContext(conn=aconn, principal=WRITE_PRINCIPAL, loaders=Loaders(aconn))
+            result = await schema.execute(
+                'mutation { updateDocumentMetadata(documentId: "not-a-uuid", title: "X") '
+                "{ id } }",
+                context_value=ctx,
+            )
+            assert result.errors is not None
+            message = str(result.errors[0])
+            assert "invalid input syntax" not in message, message
+            assert "write grant" in message.lower(), message
+        finally:
+            await aconn.close()
+
+    asyncio.run(check())
+    assert conn.execute("SELECT count(*) AS n FROM jobs").fetchone()["n"] == jobs_before

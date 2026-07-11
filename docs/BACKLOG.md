@@ -168,6 +168,24 @@ live dev stack (real Postgres + MinIO), not just schema-level unit tests.
 
 **2026-07-10 doc-management/webapp-UX lane, BL-058 landed:** implemented in worktree `doc-mgmt-lane`, schema bumped to `1.11.0` (migration 045 adds `documents.description` + the RLS-scoped `document_metadata_history` table; migration 046 bumps the version — renumbered from the branch's original 043/044 to resolve a numbering collision with BL-064's own 043/044, which landed on `main` first). Metadata edits go through the same job-queue write pattern as every mutation but `decide_seeds` (D-004/D-005) — a new `update_metadata` job kind, dispatched to `persistence.update_document_metadata`, which applies only the fields passed and records one history row per field that actually changed (a same-value edit is a no-op, no history row). `updateDocumentMetadata` enqueues it; `documentMetadataHistory` reads the trail back; the document page gained an inline edit form (pre-filled, collapsed by default) and a change-history card in the sidebar, with a "queued" notice on the redirect since the edit isn't applied synchronously. New tests across the stack: `persistence.update_document_metadata` behavior via the job handler (`test_handle_update_metadata_*`), a GraphQL enqueue-then-read-back test, and four webapp tests (form pre-fill, history rendering, successful redirect with the right mutation variables, and the error path).
 
+**2026-07-11 backlog-vs-code audit:** all 118 items were verified against the
+implementation (every `done` item's acceptance criteria checked in code; every
+`parked`/`ready` item checked for silent implementation). Findings fixed the
+same day: `BL-110` had two resolvers its sweep missed (`documentMetadataHistory`
+leaked raw `invalid input syntax for type uuid`; `updateDocumentMetadata`
+enqueued with no id validation and only global write scope) — both now
+validate like their siblings, with regression tests. `BL-047`'s gate now also
+runs in pre-commit (`gen_data_dictionary.py --check --skip-without-db`, an
+explicit named skip when no DB is reachable; CI stays strict). `BL-048` landed
+as `tests/test_docs_in_sync.py`, whose first run caught a real drift:
+`DATABASE.md`'s §9 migration-history table had silently stopped at 037 because
+`scripts/_data_dictionary_content.py`'s hand-curated `MIGRATIONS` list was
+never extended — entries 038–046 added and the file regenerated. Stale
+descriptions corrected on `BL-012`, `BL-051` (phantom MCP entrypoint),
+`BL-069`, `BL-070` (its "no SECRET_KEY / no session" evidence predated
+BL-103/BL-107), `BL-080`, `BL-084`, `BL-086`, `BL-091`, `BL-092`, `BL-111`,
+and `BL-116`; rotted line-number citations replaced with symbol names.
+
 ## Items
 
 | ID | Item | Category | Type | Status | Cx | Priority | Owner |
@@ -219,7 +237,7 @@ live dev stack (real Postgres + MinIO), not just schema-level unit tests.
 | BL-045 | FTS read/write language-config symmetry isn't enforced by a test | testing | tech-debt | done | XS | low | shared |
 | BL-046 | docker-compose ingester exit code 2 reads as a startup failure (GH#3) | ops | tech-debt | done | XS | low | shared |
 | BL-047 | Drift-gate generated docs with a --check twin | tooling | infra | done | XS | high | shared |
-| BL-048 | Gate documentation prose against machine facts | testing | infra | parked | S | high | shared |
+| BL-048 | Gate documentation prose against machine facts | testing | infra | done | S | high | shared |
 | BL-049 | Structured result/error envelope for jobs and the API | api | feature | parked | M | high | shared |
 | BL-050 | Property-based invariants for ingest and annotation | testing | infra | parked | S | medium | shared |
 | BL-051 | Graceful optional-dependency handling with install hints | tooling | feature | parked | S | medium | shared |

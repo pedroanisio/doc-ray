@@ -157,10 +157,11 @@ class Mutation:
 
         Only the fields passed are changed; each actually-changed field is
         recorded in ``documentMetadataHistory``. Tags, when passed, fully
-        replace the document's current tag set.
+        replace the document's current tag set. Requires a write grant on the
+        document itself, like every other document-scoped mutation (BL-064).
         """
         ctx = info.context
-        _require_write(ctx)
+        await _require_document_write(ctx, str(document_id))
         payload: dict[str, Any] = {"actor": ctx.principal.principal_id}
         if title is not None:
             payload["title"] = title

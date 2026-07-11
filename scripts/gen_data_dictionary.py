@@ -477,8 +477,27 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="Exit non-zero if docs/DATABASE.md is stale vs the live schema; write nothing.",
     )
+    ap.add_argument(
+        "--skip-without-db",
+        action="store_true",
+        help="With --check: exit 0 with an explicit SKIPPED notice when the database is "
+        "unreachable, so pre-commit works offline. CI runs plain --check and stays strict.",
+    )
     args = ap.parse_args(argv)
-    conn = psycopg.connect(DB, row_factory=dict_row, autocommit=True)
+    if args.skip_without_db and not args.check:
+        ap.error("--skip-without-db is only meaningful with --check")
+    try:
+        conn = psycopg.connect(DB, row_factory=dict_row, autocommit=True)
+    except psycopg.OperationalError as exc:
+        if args.skip_without_db:
+            # Named skip, never a silent pass: the gate did NOT verify anything.
+            reason = str(exc).splitlines()[0]
+            print(
+                f"SKIPPED (database unreachable: {reason}) — docs/DATABASE.md drift "
+                "NOT verified; the CI gate still enforces it."
+            )
+            return 0
+        raise
     applied = conn.execute("SELECT count(*) n FROM schema_migrations").fetchone()["n"]
     try:
         ver = conn.execute("SELECT docray_schema_version() v").fetchone()["v"]

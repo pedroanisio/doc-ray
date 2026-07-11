@@ -432,11 +432,12 @@ def test_optional_document_id_filters_reject_malformed_id_as_empty_page(pg):
 
 
 def test_required_document_id_list_resolvers_reject_malformed_id_as_empty_page(pg):
-    """seedSuggestions/unresolvedMentions take a required documentId argument."""
+    """seedSuggestions/unresolvedMentions/documentMetadataHistory take a required documentId."""
     schema = build_schema()
     queries = [
         '{ seedSuggestions(documentId: "not-a-uuid") { id } }',
         '{ unresolvedMentions(documentId: "not-a-uuid") { mentionId } }',
+        '{ documentMetadataHistory(documentId: "not-a-uuid") { field } }',
     ]
 
     async def check():

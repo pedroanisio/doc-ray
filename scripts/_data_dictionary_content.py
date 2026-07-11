@@ -98,4 +98,25 @@ MIGRATIONS = [
         "evaluation runs, corpus snapshots, metrics, and gold samples",
     ),
     ("037_schema_version_1_8_0", "advance the schema SemVer to 1.8.0"),
+    (
+        "038_entity_mention_chunk_surface_columns",
+        "nullable surface columns on entity_mention and chunk (phase 1 of 038-041)",
+    ),
+    (
+        "039_entity_mention_surface_backfill",
+        "backfill entity_mention.surface from document_content.full_text",
+    ),
+    ("040_chunk_surface_backfill", "backfill chunk.surface from document_content.full_text"),
+    (
+        "041_entity_mention_chunk_surface_finalize",
+        "NOT NULL + indexes on entity_mention/chunk surface after the backfills",
+    ),
+    ("042_schema_version_1_9_0", "advance the schema SemVer to 1.9.0"),
+    ("043_jobs_backups_rls", "Row-Level Security on jobs and backups (BL-064)"),
+    ("044_schema_version_1_10_0", "advance the schema SemVer to 1.10.0"),
+    (
+        "045_document_metadata_history",
+        "editable document metadata and its per-field change history (BL-058)",
+    ),
+    ("046_schema_version_1_11_0", "advance the schema SemVer to 1.11.0"),
 ]

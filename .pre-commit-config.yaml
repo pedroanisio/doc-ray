@@ -56,6 +56,13 @@ repos:
         pass_filenames: false
         always_run: true
 
+      - id: database-md-drift
+        name: docs/DATABASE.md matches the live schema — BL-047
+        entry: python scripts/gen_data_dictionary.py --check --skip-without-db
+        language: system
+        pass_filenames: false
+        always_run: true
+
       - id: coverage-gate
         name: pytest coverage >= 90% — D-013 (pre-push)
         entry: pytest --cov=doc_ray --cov-fail-under=90 tests src/doc_ray/tests -q

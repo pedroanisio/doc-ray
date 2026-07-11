@@ -1168,3 +1168,12 @@ owner's bypass.
 | 035 | `035_schema_version_1_7_0.sql` | advance the schema SemVer to 1.7.0 |
 | 036 | `036_evaluation_drift.sql` | evaluation runs, corpus snapshots, metrics, and gold samples |
 | 037 | `037_schema_version_1_8_0.sql` | advance the schema SemVer to 1.8.0 |
+| 038 | `038_entity_mention_chunk_surface_columns.sql` | nullable surface columns on entity_mention and chunk (phase 1 of 038-041) |
+| 039 | `039_entity_mention_surface_backfill.sql` | backfill entity_mention.surface from document_content.full_text |
+| 040 | `040_chunk_surface_backfill.sql` | backfill chunk.surface from document_content.full_text |
+| 041 | `041_entity_mention_chunk_surface_finalize.sql` | NOT NULL + indexes on entity_mention/chunk surface after the backfills |
+| 042 | `042_schema_version_1_9_0.sql` | advance the schema SemVer to 1.9.0 |
+| 043 | `043_jobs_backups_rls.sql` | Row-Level Security on jobs and backups (BL-064) |
+| 044 | `044_schema_version_1_10_0.sql` | advance the schema SemVer to 1.10.0 |
+| 045 | `045_document_metadata_history.sql` | editable document metadata and its per-field change history (BL-058) |
+| 046 | `046_schema_version_1_11_0.sql` | advance the schema SemVer to 1.11.0 |

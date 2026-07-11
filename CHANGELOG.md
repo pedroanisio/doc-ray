@@ -22,6 +22,16 @@ doc-ray carries **one global version** covering both the application package
 ## [Unreleased]
 
 ### Security
+- **BL-110 follow-through: the two resolvers the original sweep missed now
+  validate ids** (Claude Fable 5 via Claude Code) — a backlog-vs-code audit
+  found `documentMetadataHistory` still passed its `documentId` unvalidated
+  into the uuid-typed history query (a malformed id surfaced Postgres's raw
+  `invalid input syntax for type uuid` text to any caller), and
+  `updateDocumentMetadata` enqueued with only global write scope and no id
+  validation, unlike every sibling document-scoped mutation. The query now
+  short-circuits to an empty page via `_clean_uuid`; the mutation now goes
+  through `_require_document_write` (per-document grant check + id
+  validation, BL-064's pattern). Regression tests cover both.
 - **CSRF protection on every state-changing webapp form** (Claude Sonnet 5 via
   Claude Code) — upload, backup create/restore, and seeding approve/reject/seed
   were all plain POST forms with no CSRF token, no SameSite reliance
@@ -107,6 +117,18 @@ doc-ray carries **one global version** covering both the application package
   Python's unconfigured handler of last resort.
 
 ### Added
+- **Documentation drift gates: BL-048 landed, BL-047 completed** (Claude
+  Fable 5 via Claude Code) — new `tests/test_docs_in_sync.py` asserts
+  DATABASE.md's "N migrations applied" header equals the `db/migrations/*.sql`
+  file count, that its §9 migration-history table lists every migration file,
+  and that the BL-047 drift gate stays wired into pre-commit and CI. Its first
+  run caught real drift: `scripts/_data_dictionary_content.py`'s hand-curated
+  `MIGRATIONS` list had silently stopped at 037, so DATABASE.md's history
+  table was missing 038–046 — list extended, file regenerated. The BL-047
+  `--check` gate now also runs as a pre-commit hook
+  (`gen_data_dictionary.py --check --skip-without-db`, a new flag that prints
+  an explicit SKIPPED notice instead of a stacktrace when no database is
+  reachable; CI keeps running the strict form).
 - **nginx TLS front door for the webapp** (Claude Fable 5 via Claude Code) —
   new compose `nginx` service (nginx:1.27-alpine) serves the webapp over
   HTTPS on `${NGINX_HTTPS_PORT:-443}` and 301-redirects plain HTTP on
@@ -327,6 +349,16 @@ doc-ray carries **one global version** covering both the application package
   through the wrong row access mode.
 
 ### Fixed
+- **Backlog descriptions reconciled with the code** (Claude Fable 5 via
+  Claude Code) — full 118-item audit of `docs/backlog.yml` against the
+  implementation. `BL-048` parked→done (see Added); stale or false claims
+  corrected in `BL-012` (impersonation gap is closed, not "still open"),
+  `BL-051` (no MCP entrypoint exists), `BL-069` (authenticator is wired in
+  `app.py`, not `config.py`), `BL-070` (SECRET_KEY/session now exist for
+  CSRF and the operator-health gate — just not for identity), `BL-111`
+  (test path), `BL-116` (logger call-site count); rotted line-number
+  citations in `BL-080`/`BL-084`/`BL-086`/`BL-091`/`BL-092` replaced with
+  stable symbol names.
 - **deleteDocument no longer leaks the document's blob in object storage**
   (Claude Sonnet 5 via Claude Code) — `handle_delete` (`application/jobs.py`)
   previously only issued `DELETE FROM documents`; a repo-wide grep for
