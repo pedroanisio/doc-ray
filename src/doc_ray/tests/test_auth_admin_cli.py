@@ -1,0 +1,167 @@
+"""CLI tests for auth administration."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from pathlib import Path
+
+from doc_ray.adapters.auth_admin_postgres import PrincipalRecord
+from doc_ray.entrypoints import auth_admin
+
+
+@dataclass
+class FakeRepository:
+    """In-memory repository double for the auth admin CLI."""
+
+    principal: PrincipalRecord = PrincipalRecord(
+        id="00000000-0000-0000-0000-000000000001",
+        display_name="alice",
+        kind="human",
+        external_subject=None,
+    )
+
+    def __post_init__(self) -> None:
+        self.created: list[tuple[str, str, str | None]] = []
+        self.roles: list[tuple[str, str]] = []
+        self.grants: list[tuple[str, str, str]] = []
+        self.logins: list[tuple[str, str, str | None]] = []
+
+    def resolve_principal(self, value: str) -> PrincipalRecord:
+        assert value in {self.principal.id, self.principal.display_name}
+        return self.principal
+
+    def create_principal(
+        self, *, display_name: str, kind: str, external_subject: str | None = None
+    ) -> PrincipalRecord:
+        self.created.append((display_name, kind, external_subject))
+        self.principal = PrincipalRecord(
+            id="00000000-0000-0000-0000-000000000002",
+            display_name=display_name,
+            kind=kind,
+            external_subject=external_subject,
+        )
+        return self.principal
+
+    def assign_role(self, principal_id: str, role_name: str) -> None:
+        self.roles.append((principal_id, role_name))
+
+    def grant_document(self, principal_id: str, document_id: str, permission: str) -> None:
+        self.grants.append((principal_id, document_id, permission))
+
+    def create_db_login(
+        self, principal_id: str, role_name: str, password: str | None = None
+    ) -> str:
+        self.logins.append((principal_id, role_name, password))
+        return role_name
+
+
+def test_principal_create_assigns_requested_roles(capsys):
+    repo = FakeRepository()
+
+    rc = auth_admin.main(
+        ["principal", "create", "--display-name", "bob", "--kind", "service", "--role", "admin"],
+        repo_factory=lambda _database_url: repo,
+    )
+
+    assert rc == 0
+    assert repo.created == [("bob", "service", None)]
+    assert repo.roles == [("00000000-0000-0000-0000-000000000002", "admin")]
+    assert "principal_id=00000000-0000-0000-0000-000000000002" in capsys.readouterr().out
+
+
+def test_token_mint_appends_env_entry_without_printing_env_file_contents(tmp_path: Path, capsys):
+    repo = FakeRepository()
+    env_file = tmp_path / ".env"
+    env_file.write_text("DATABASE_URL=postgresql://example\nDOCRAY_API_TOKENS=old=uuid:read\n")
+
+    rc = auth_admin.main(
+        [
+            "token",
+            "mint",
+            "--principal",
+            "alice",
+            "--token",
+            "new-secret",
+            "--scopes",
+            "read+write",
+            "--env-file",
+            str(env_file),
+        ],
+        repo_factory=lambda _database_url: repo,
+    )
+
+    assert rc == 0
+    assert env_file.read_text() == (
+        "DATABASE_URL=postgresql://example\n"
+        "DOCRAY_API_TOKENS=old=uuid:read,"
+        "new-secret=00000000-0000-0000-0000-000000000001:read+write\n"
+    )
+    out = capsys.readouterr().out
+    assert "token=new-secret" in out
+    assert "old=uuid" not in out
+
+
+def test_mcp_token_mint_defaults_to_read_write_scope(capsys):
+    repo = FakeRepository()
+
+    rc = auth_admin.main(
+        ["mcp-token", "mint", "--principal", "alice", "--token", "mcp-secret"],
+        repo_factory=lambda _database_url: repo,
+    )
+
+    assert rc == 0
+    assert "DOCRAY_API_TOKENS=mcp-secret=00000000-0000-0000-0000-000000000001:read+write" in (
+        capsys.readouterr().out
+    )
+
+
+def test_db_login_create_reads_password_from_stdin(monkeypatch, capsys):
+    repo = FakeRepository()
+    monkeypatch.setattr("sys.stdin", type("Input", (), {"read": lambda self: "pw-from-stdin\n"})())
+
+    rc = auth_admin.main(
+        [
+            "db-login",
+            "create",
+            "--principal",
+            "alice",
+            "--role-name",
+            "docray_alice",
+            "--password-stdin",
+        ],
+        repo_factory=lambda _database_url: repo,
+    )
+
+    assert rc == 0
+    assert repo.logins == [
+        ("00000000-0000-0000-0000-000000000001", "docray_alice", "pw-from-stdin")
+    ]
+    assert "db_role=docray_alice" in capsys.readouterr().out
+
+
+def test_grant_document_records_acl_grant(capsys):
+    repo = FakeRepository()
+
+    rc = auth_admin.main(
+        [
+            "grant",
+            "document",
+            "--principal",
+            "alice",
+            "--document-id",
+            "00000000-0000-0000-0000-000000000099",
+            "--permission",
+            "annotate",
+        ],
+        repo_factory=lambda _database_url: repo,
+    )
+
+    assert rc == 0
+    assert repo.grants == [
+        (
+            "00000000-0000-0000-0000-000000000001",
+            "00000000-0000-0000-0000-000000000099",
+            "annotate",
+        )
+    ]
+    assert "permission=annotate" in capsys.readouterr().out
