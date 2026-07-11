@@ -8,6 +8,12 @@ Document store built on **PostgreSQL** (metadata + full text) and **MinIO / S3**
 This work is subject to the methodological caveats and commitments described in [@DISCLAIMER.md](./DISCLAIMER.md).
 > No statement or premise not backed by a real logical definition or verifiable reference should be taken for granted.
 
+New to doc-ray? [`docs/TUTORIAL.md`](docs/TUTORIAL.md) walks through a fresh
+install end to end — clone, bring up the stack, ingest a document, query it
+through the GraphQL API, and install the repo's agent-facing skill so an AI
+coding agent (Claude Code, Codex) can explore the corpus correctly. The
+sections below are the terser command reference.
+
 ## Architecture
 
 ```
