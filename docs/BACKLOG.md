@@ -185,7 +185,7 @@ live backlog after these three.
 | BL-061 | AI-suggested document metadata refinements (titles, tags, duplicates, grouping) | nlp | feature | parked | M | medium | shared |
 | BL-062 | Operator-facing document metadata correction and enrichment workflow | ops | feature | parked | M | medium | shared |
 | BL-063 | Paginate the main document list and add filter arguments to the documents query | api | tech-debt | parked | S | medium | shared |
-| BL-064 | Mutation resolvers never check per-document write ACL (any write token can mutate any document) | security | bug | ready | M | high | shared |
+| BL-064 | Mutation resolvers never check per-document write ACL (any write token can mutate any document) | security | bug | done | M | high | shared |
 | BL-065 | Introduce a tenant model as the foundation for tenant-aware RBAC | security | feature | parked | XL | high | shared |
 | BL-066 | OIDC authentication as the default authenticator | security | feature | parked | L | high | shared |
 | BL-067 | SAML SSO for enterprise tenants | security | feature | parked | L | medium | shared |

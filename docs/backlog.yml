@@ -2068,7 +2068,7 @@ items:
       equivalent to admin for every document.
     category:     "security"
     type:         "bug"
-    status:       "ready"
+    status:       "done"
     complexity:   "M"
     priority:     "high"
     rationale:    "This is the concrete, present-day form of 'resource-level authorization on every object' being absent — not a hypothetical for a future multi-tenant deployment. It is independent of and does not require any SSO/tenant work below; it is fixable against the schema that exists today."
@@ -2083,7 +2083,7 @@ items:
       - "db/migrations/032_api_role_runtime_grants.sql"
       - "db/migrations/026_backups.sql"
     owner:        "shared"
-    source:       "Gap-analysis 2026-07-05 against a supplied enterprise-IAM checklist (Authentication/Provisioning/Session/Authorization/Audit), verified live against mutation.py, 018_rbac.sql, and the jobs/backups grant migrations."
+    source:       "Gap-analysis 2026-07-05 against a supplied enterprise-IAM checklist (Authentication/Provisioning/Session/Authorization/Audit), verified live against mutation.py, 018_rbac.sql, and the jobs/backups grant migrations. Completed 2026-07-05 (migrations 043/044, mutation.py _require_document_write/_require_admin, D-019) on branch fix/bl-064-mutation-document-acl."
     tags:         ["security", "rbac", "rls", "authorization", "bug"]
 
   - id:          "BL-065"
