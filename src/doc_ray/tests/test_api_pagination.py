@@ -40,6 +40,65 @@ def test_graphql_lists_expose_cursor_pagination_not_offset():
         assert "offset=" not in source
 
 
+def test_documents_filters_by_doc_type_status_and_tags(pg):
+    """documents(docType:, status:, tags:) narrows the result set (BL-063)."""
+    import _itdb
+
+    from doc_ray.adapters import persistence as db
+
+    conn, created = pg
+    pdf_id = db.insert_document(
+        conn,
+        title="pdf-one",
+        doc_type="pdf",
+        source_uri="s3://it",
+        content_sha256=_itdb.unique_sha(),
+        byte_size=10,
+        page_count=1,
+        full_text="x",
+        status="extracted",
+        tags=["reviewed"],
+    )
+    created.append(pdf_id)
+    txt_id = _itdb.make_doc(conn, "Some text.")
+    created.append(txt_id)
+    schema = build_schema()
+
+    async def check() -> None:
+        aconn = await psycopg.AsyncConnection.connect(
+            _itdb.DB_URL, row_factory=dict_row, autocommit=True
+        )
+        try:
+            ctx = RequestContext(conn=aconn, principal=ANONYMOUS, loaders=Loaders(aconn))
+
+            by_type = await schema.execute(
+                'query{ documents(docType:"pdf", limit: 200){ id docType } }', context_value=ctx
+            )
+            assert by_type.errors is None, by_type.errors
+            ids = {d["id"] for d in by_type.data["documents"]}
+            assert str(pdf_id) in ids
+            assert str(txt_id) not in ids
+
+            by_tag = await schema.execute(
+                'query{ documents(tags: ["reviewed"], limit: 200){ id } }', context_value=ctx
+            )
+            assert by_tag.errors is None, by_tag.errors
+            tag_ids = {d["id"] for d in by_tag.data["documents"]}
+            assert str(pdf_id) in tag_ids
+            assert str(txt_id) not in tag_ids
+
+            by_status = await schema.execute(
+                'query{ documents(status:"extracted", limit: 200){ id } }', context_value=ctx
+            )
+            assert by_status.errors is None, by_status.errors
+            status_ids = {d["id"] for d in by_status.data["documents"]}
+            assert str(pdf_id) in status_ids and str(txt_id) in status_ids
+        finally:
+            await aconn.close()
+
+    asyncio.run(check())
+
+
 def test_search_sentences_pages_after_returned_cursor(pg):
     """A caller can request the next search page using the prior row's cursor."""
     import _itdb

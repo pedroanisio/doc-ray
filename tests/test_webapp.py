@@ -274,6 +274,32 @@ def test_home_states_product_value_proposition(client):
     assert "auditable research corpus" in normalized
 
 
+def test_home_paginates_and_shows_next_link(client, monkeypatch):
+    captured = {}
+
+    def paginated_q(sql, params=()):
+        s = _norm(sql)
+        if "FROM documents d" in s and "ORDER BY d.char_count" in s:
+            captured["params"] = params
+            return [dict(_DOC, n_sentences=6002, tools="spacy/en_core_web_sm")] * 50
+        return fake_q(sql, params)
+
+    monkeypatch.setattr(webapp, "q", paginated_q)
+
+    html = client.get("/?page=2").get_data(as_text=True)
+
+    assert captured["params"]["offset"] == 50
+    assert captured["params"]["limit"] == 50
+    assert 'href="?page=1"' in html  # prev
+    assert 'href="?page=3"' in html  # a full page implies a next page
+
+
+def test_home_last_page_has_no_next_link(client):
+    # The default fixture returns a single row: fewer than a full page.
+    html = client.get("/").get_data(as_text=True)
+    assert "next →" not in html
+
+
 def test_header_groups_reading_and_admin_navigation(client):
     html = client.get("/").get_data(as_text=True)
     normalized = _norm(html)
@@ -372,6 +398,85 @@ def test_document_unannotated_reader_explains_queued_annotation(client, monkeypa
     assert "not finished yet" in html
     assert "annotation job is queued" in html
     assert "The plain text is readable now" in html
+
+
+def test_document_page_shows_metadata_edit_form(client):
+    html = client.get(f"/doc/{DOC_ID}").get_data(as_text=True)
+    assert f'action="/doc/{DOC_ID}/metadata"' in html
+    assert 'name="title" value="orwell1984"' in html
+    assert 'name="tags"' in html and 'name="description"' in html
+
+
+def test_document_page_shows_metadata_edit_history(client, monkeypatch):
+    def with_history(sql, params=()):
+        s = _norm(sql)
+        if "FROM document_metadata_history" in s:
+            return [
+                {
+                    "field": "title",
+                    "old_value": "Old Title",
+                    "new_value": "orwell1984",
+                    "changed_at": datetime(2026, 7, 5, 12, 0),
+                    "actor": "tester",
+                }
+            ]
+        return fake_q(sql, params)
+
+    monkeypatch.setattr(webapp, "q", with_history)
+
+    html = client.get(f"/doc/{DOC_ID}").get_data(as_text=True)
+
+    assert "Edit history" in html
+    assert "changed" in html and "title" in html
+    assert "Old Title" in html and "tester" in html
+
+
+def test_document_metadata_update_calls_mutation_and_redirects(client, monkeypatch):
+    captured = {}
+
+    def fake_gql(query, variables=None):
+        captured["query"] = query
+        captured["variables"] = variables
+        return {"updateDocumentMetadata": {"id": DOC_ID}}
+
+    monkeypatch.setattr(webapp, "gql", fake_gql)
+
+    token = _csrf_token_from(client.get(f"/doc/{DOC_ID}").get_data(as_text=True))
+    resp = client.post(
+        f"/doc/{DOC_ID}/metadata",
+        data={
+            "title": "New Title",
+            "description": "A summary.",
+            "tags": "a, b",
+            "csrf_token": token,
+        },
+    )
+
+    assert resp.status_code == 302
+    assert f"/doc/{DOC_ID}" in resp.headers["Location"]
+    assert "metadata_queued=1" in resp.headers["Location"]
+    assert "updateDocumentMetadata" in captured["query"]
+    assert captured["variables"] == {
+        "id": DOC_ID,
+        "title": "New Title",
+        "description": "A summary.",
+        "tags": ["a", "b"],
+    }
+
+
+def test_document_metadata_update_error_redirects_with_message(client, monkeypatch):
+    def raising_gql(query, variables=None):
+        raise RuntimeError("permission denied")
+
+    monkeypatch.setattr(webapp, "gql", raising_gql)
+
+    token = _csrf_token_from(client.get(f"/doc/{DOC_ID}").get_data(as_text=True))
+    resp = client.post(
+        f"/doc/{DOC_ID}/metadata", data={"title": "New Title", "csrf_token": token}
+    )
+
+    assert resp.status_code == 302
+    assert "metadata_error=permission+denied" in resp.headers["Location"]
 
 
 def test_document_pagination_math(client):
@@ -494,6 +599,33 @@ def test_search_highlights_the_term(client):
     html = client.get("/search?q=Winston").get_data(as_text=True)
     assert "<mark>Winston</mark>" in html
     assert "Big Brother" in html
+
+
+def test_search_paginates_and_shows_next_link(client, monkeypatch):
+    captured = {}
+    row = {"doc_id": DOC_ID, "title": "orwell1984", "ordinal": 3, "text": "Winston loved Big Brother."}
+
+    def paginated_q(sql, params=()):
+        s = _norm(sql)
+        if "FROM sentences s" in s and "ILIKE" in s:
+            captured["params"] = params
+            return [dict(row) for _ in range(100)]
+        return fake_q(sql, params)
+
+    monkeypatch.setattr(webapp, "q", paginated_q)
+
+    html = client.get("/search?q=Winston&page=2").get_data(as_text=True)
+
+    assert captured["params"]["offset"] == 100
+    assert captured["params"]["limit"] == 100
+    assert 'href="?q=Winston&page=1"' in html
+    assert 'href="?q=Winston&page=3"' in html
+
+
+def test_search_last_page_has_no_next_link(client):
+    # The default fixture returns a single row: fewer than a full page.
+    html = client.get("/search?q=Winston").get_data(as_text=True)
+    assert "next →" not in html
 
 
 def test_search_discloses_literal_substring_semantics(client):
@@ -888,6 +1020,8 @@ class _FakeUpstreamResponse:
 def test_backups_download_forwards_the_api_token(client, monkeypatch):
     import httpx
 
+    from webapp import graphql_client
+
     captured = {}
 
     def fake_send(_self, request, **_kwargs):
@@ -895,7 +1029,7 @@ def test_backups_download_forwards_the_api_token(client, monkeypatch):
         return _FakeUpstreamResponse(200, chunks=(b"archive-bytes",))
 
     monkeypatch.setattr(httpx.Client, "send", fake_send)
-    monkeypatch.setattr(webapp, "API_TOKEN", "webapp-token")
+    monkeypatch.setattr(graphql_client, "API_TOKEN", "webapp-token")
     resp = client.get("/backups/some-id/download")
     assert resp.status_code == 200
     assert captured["authorization"] == "Bearer webapp-token"

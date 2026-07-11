@@ -13,23 +13,28 @@ or simply:
 
 from __future__ import annotations
 
-import hmac
 import json
 import os
 import secrets
 
 import psycopg
-from flask import Flask, g, jsonify, render_template, request, session
+from flask import Flask, g, jsonify, render_template, request
 from psycopg import sql
 from psycopg.rows import dict_row
 
 try:
+    from webapp.csrf import csrf_token, require_csrf_token
+    from webapp.document_metadata import submit_metadata_update
+    from webapp.graphql_client import API_URL, api_auth_headers, gql
     from webapp.health_contract import operator_health_payload
     from webapp.job_view import decorate_job_rows
     from webapp.operator_health import build_operator_health, require_operator_health
     from webapp.reader_blocks import attach_page_blocks, latest_annotation_state
     from webapp.security_headers import apply_security_headers
 except ModuleNotFoundError:  # pragma: no cover - direct ``python webapp/app.py`` path.
+    from csrf import csrf_token, require_csrf_token
+    from document_metadata import submit_metadata_update
+    from graphql_client import API_URL, api_auth_headers, gql
     from health_contract import operator_health_payload
     from job_view import decorate_job_rows
     from operator_health import build_operator_health, require_operator_health
@@ -54,36 +59,8 @@ app.add_url_rule("/help", "help_page", lambda: render_template("help.html"))
 # Signs the session cookie that carries the CSRF token below; stable for the life
 # of one process even when unset (dev-only — set explicitly for a real deployment).
 app.secret_key = os.environ.get("DOCRAY_WEBAPP_SECRET_KEY") or secrets.token_hex(32)
-
-
-def _csrf_token() -> str:
-    """Return this session's CSRF token, minting one on first use."""
-    token = session.get("_csrf_token")
-    if not token:
-        token = secrets.token_hex(32)
-        session["_csrf_token"] = token
-    return token
-
-
-app.jinja_env.globals["csrf_token"] = _csrf_token
-
-
-@app.before_request
-def _require_csrf_token():
-    """Reject any state-changing request without this session's CSRF token (BL-103).
-
-    Runs before every route body, so a form field is the only way in — no
-    per-route opt-in to forget. Same-origin `<form>` posts are the only state
-    change the webapp performs (no JS fetch/XHR writes exist), so this alone
-    covers every mutating route without an Origin/Referer check.
-    """
-    if request.method in ("POST", "PUT", "PATCH", "DELETE"):
-        sent = request.form.get("csrf_token", "")
-        expected = session.get("_csrf_token", "")
-        if not expected or not hmac.compare_digest(sent, expected):
-            return "missing or invalid CSRF token", 400
-
-
+app.jinja_env.globals["csrf_token"] = csrf_token
+app.before_request(require_csrf_token)
 app.after_request(apply_security_headers)
 
 
@@ -163,54 +140,14 @@ def q1(sql, params=()):
         return cur.fetchone()
 
 
-# --- GraphQL write path -----------------------------------------------------
-#
-# The browser stays read-only over Postgres; every WRITE goes through the
-# GraphQL API so there is exactly one write path (mutations enqueue worker
-# jobs — the webapp never touches the queue or the registry directly).
-
-API_URL = os.environ.get("DOCRAY_API_URL", "http://localhost:8000/graphql")
-
-# The API's mutations always require a write-scoped principal (anonymous callers
-# are read-only regardless of DOCRAY_API_ALLOW_ANONYMOUS — see
-# entrypoints/api/mutation.py `_require_write`), so every write forwarded to it
-# needs this credential. Unset => mutations fail with a 200-wrapped GraphQL
-# PermissionError, surfaced to the browser by the callers below.
-API_TOKEN = os.environ.get("DOCRAY_WEBAPP_API_TOKEN") or None
-
-
-def _api_auth_headers() -> dict[str, str]:
-    """Bearer header for API calls, or empty (falls back to anonymous read-only)."""
-    return {"Authorization": f"Bearer {API_TOKEN}"} if API_TOKEN else {}
-
-
-def gql(query: str, variables: dict | None = None) -> dict:
-    """POST one GraphQL operation to the API and return its ``data`` payload.
-
-    Raises:
-        RuntimeError: If the API reports GraphQL errors.
-    """
-    import httpx
-
-    response = httpx.post(
-        API_URL,
-        json={"query": query, "variables": variables or {}},
-        headers=_api_auth_headers(),
-        timeout=30.0,
-    )
-    response.raise_for_status()
-    body = response.json()
-    if body.get("errors"):
-        raise RuntimeError(body["errors"][0].get("message", "GraphQL error"))
-    return body["data"]
-
-
 # --- routes ----------------------------------------------------------------
 
 
 @app.route("/")
 def documents():
-    """Render the corpus landing page: all documents plus corpus-wide totals."""
+    """Render the corpus landing page: a paginated document list plus corpus-wide totals."""
+    per_page = 50
+    page = max(1, request.args.get("page", 1, type=int))
     rows = q(
         """
         SELECT d.id, d.title, d.doc_type, d.language, d.char_count, d.page_count,
@@ -219,7 +156,9 @@ def documents():
                   FROM annotations a WHERE a.document_id = d.id) AS tools
         FROM documents d
         ORDER BY d.char_count DESC NULLS LAST
-        """
+        LIMIT %(limit)s OFFSET %(offset)s
+        """,
+        {"limit": per_page, "offset": (page - 1) * per_page},
     )
     totals = q1(
         "SELECT (SELECT count(*) FROM documents) docs, "
@@ -227,7 +166,9 @@ def documents():
         "(SELECT count(*) FROM lexemes) lexemes, "
         "(SELECT count(*) FROM lexeme_occurrences) occ"
     )
-    return render_template("documents.html", rows=rows, totals=totals)
+    return render_template(
+        "documents.html", rows=rows, totals=totals, page=page, has_next=len(rows) == per_page
+    )
 
 
 @app.route("/operator/health")
@@ -305,6 +246,11 @@ def document(doc_id):
     attach_page_blocks(q, q1, sentences, doc_id, annotate=annotate)
 
     pages = max(1, -(-n_sent // per_page))
+    metadata_history = q(
+        "SELECT field, old_value, new_value, changed_at, actor "
+        "FROM document_metadata_history WHERE document_id = %s ORDER BY id DESC",
+        (str(doc_id),),
+    )
     return render_template(
         "document.html",
         doc=doc,
@@ -319,7 +265,27 @@ def document(doc_id):
         n_sent=n_sent,
         annotate=annotate,
         annotation_state=latest_annotation_state(q, doc_id),
+        metadata_history=metadata_history,
+        metadata_error=request.args.get("metadata_error"),
+        metadata_queued=request.args.get("metadata_queued"),
     )
+
+
+@app.route("/doc/<uuid:doc_id>/metadata", methods=["POST"])
+def document_metadata_update(doc_id):
+    """Submit a title/description/tags edit via the GraphQL mutation (BL-058).
+
+    The edit is enqueued, not applied synchronously (D-004/D-005: writes never
+    happen in the request) — the worker typically catches up within
+    WORKER_POLL_SECONDS (5s by default); flag that on the redirect rather than
+    let the reloaded page look like the edit silently did nothing.
+    """
+    from flask import redirect, url_for
+
+    error = submit_metadata_update(gql, doc_id, request.form)
+    if error is not None:
+        return redirect(url_for("document", doc_id=doc_id, metadata_error=error))
+    return redirect(url_for("document", doc_id=doc_id, metadata_queued=1))
 
 
 @app.errorhandler(413)
@@ -390,7 +356,7 @@ def upload_submit():
                 "map": json.dumps({"0": ["variables.file"]}),
             },
             files={"0": (upload.filename, upload.stream, upload.mimetype)},
-            headers=_api_auth_headers(),
+            headers=api_auth_headers(),
             timeout=120.0,
         )
         response.raise_for_status()
@@ -622,21 +588,25 @@ def lexeme(uid):
 def search():
     """Render full-text sentence search results for the ``q`` query parameter."""
     term = request.args.get("q", "", type=str).strip()
+    per_page = 100
+    page = max(1, request.args.get("page", 1, type=int))
     rows = []
+    has_next = False
     if term:
         rows = q(
             """
             SELECT d.id AS doc_id, d.title, s.ordinal, s.text
             FROM sentences s JOIN documents d ON d.id = s.document_id
-            WHERE s.text ILIKE %s
-            ORDER BY d.title, s.ordinal LIMIT 100
+            WHERE s.text ILIKE %(term)s
+            ORDER BY d.title, s.ordinal LIMIT %(limit)s OFFSET %(offset)s
             """,
-            (f"%{term}%",),
+            {"term": f"%{term}%", "limit": per_page, "offset": (page - 1) * per_page},
         )
+        has_next = len(rows) == per_page
         for r in rows:
             pre, _, post = r["text"].partition(term)
             r["pre"], r["hit"], r["post"] = pre, (term if _ else ""), post
-    return render_template("search.html", term=term, rows=rows)
+    return render_template("search.html", term=term, rows=rows, page=page, has_next=has_next)
 
 
 # --- backup / restore --------------------------------------------------------
@@ -700,7 +670,7 @@ def backups_download(backup_id):
     url = f"{base}/backups/{backup_id}/download"
     client = httpx.Client(timeout=None)
     upstream = client.send(
-        client.build_request("GET", url, headers=_api_auth_headers()), stream=True
+        client.build_request("GET", url, headers=api_auth_headers()), stream=True
     )
     if upstream.status_code in (401, 403, 404):
         status = upstream.status_code

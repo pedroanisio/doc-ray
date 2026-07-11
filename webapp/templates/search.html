@@ -15,8 +15,7 @@
 </p>
 
 {% if term %}
-  <p class="lede">{{ rows|length }} match{{ '' if rows|length == 1 else 'es' }}{% if rows|length == 100 %} (first 100){% endif %}
-     for “{{ term }}”</p>
+  <p class="lede">page {{ page }} for “{{ term }}”</p>
   <div class="card">
     <table>
       <thead><tr><th>Document</th><th class="num">#</th><th>Sentence</th></tr></thead>
@@ -40,6 +39,13 @@
       {% endfor %}
       </tbody>
     </table>
+    {% if rows %}
+    <div class="pager">
+      {% if page > 1 %}<a href="?q={{ term }}&page={{ page-1 }}">← prev</a>{% endif %}
+      <span>page {{ page }}</span>
+      {% if has_next %}<a href="?q={{ term }}&page={{ page+1 }}">next →</a>{% endif %}
+    </div>
+    {% endif %}
   </div>
 {% endif %}
 {% endblock %}

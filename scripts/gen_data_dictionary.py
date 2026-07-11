@@ -47,8 +47,11 @@ GROUPS: list[tuple[str, str, list[str]]] = [
     (
         "Provenance (append-only lineage)",
         "Every processing/lineage event on a document, with its parameters "
-        "normalized out of a JSON bag into `(event, key) -> value`.",
-        ["document_provenance", "provenance_params"],
+        "normalized out of a JSON bag into `(event, key) -> value`. "
+        "`document_metadata_history` is the analogous append-only trail for "
+        "editable title/description/tags edits (BL-058) — a distinct concern "
+        "from pipeline/ingest events, RLS-scoped and read-granted the same way.",
+        ["document_provenance", "provenance_params", "document_metadata_history"],
     ),
     (
         "Segmentation & the span registry",

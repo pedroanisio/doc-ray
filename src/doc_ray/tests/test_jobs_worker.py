@@ -18,7 +18,7 @@ import pytest
 
 from doc_ray.adapters import queue_postgres as queue
 from doc_ray.application import jobs as jobs_mod
-from doc_ray.domain.jobs import KIND_DELETE, Job
+from doc_ray.domain.jobs import KIND_DELETE, KIND_UPDATE_METADATA, Job
 from doc_ray.entrypoints import worker as worker_mod
 from doc_ray.ports.queue import Queue
 
@@ -139,6 +139,70 @@ def test_handle_delete_removes_document(qconn, pg):
     assert out == {"deleted": doc_id}
     gone = conn.execute("SELECT 1 FROM documents WHERE id=%s", (doc_id,)).fetchone()
     assert gone is None
+
+
+def test_handle_update_metadata_applies_edit_and_records_history(qconn, pg):
+    conn, created = pg
+    doc_id = _itdb.make_doc(conn, "Some text.")
+    created.append(doc_id)
+    job = Job(
+        id="0" * 26,
+        kind=KIND_UPDATE_METADATA,
+        status="queued",
+        document_id=doc_id,
+        payload={"title": "New Title", "description": "A summary.", "tags": ["a", "b"]},
+    )  # type: ignore[arg-type]
+
+    out = jobs_mod.handle_update_metadata(qconn, None, job)
+
+    assert set(out["changed"]) == {"title", "description", "tags"}
+    row = conn.execute("SELECT title, description FROM documents WHERE id=%s", (doc_id,)).fetchone()
+    assert row["title"] == "New Title"
+    assert row["description"] == "A summary."
+    tags = {
+        r["tag"]
+        for r in conn.execute(
+            "SELECT t.tag FROM document_tags dt JOIN tags t ON t.id=dt.tag_id "
+            "WHERE dt.document_id=%s",
+            (doc_id,),
+        ).fetchall()
+    }
+    assert tags == {"a", "b"}
+    history = conn.execute(
+        "SELECT field FROM document_metadata_history WHERE document_id=%s ORDER BY id",
+        (doc_id,),
+    ).fetchall()
+    assert [r["field"] for r in history] == ["title", "description", "tags"]
+
+
+def test_handle_update_metadata_is_a_no_op_when_values_are_unchanged(qconn, pg):
+    conn, created = pg
+    doc_id = _itdb.make_doc(conn, "Some text.")
+    created.append(doc_id)
+    current_title = conn.execute("SELECT title FROM documents WHERE id=%s", (doc_id,)).fetchone()[
+        "title"
+    ]
+    job = Job(
+        id="0" * 26,
+        kind=KIND_UPDATE_METADATA,
+        status="queued",
+        document_id=doc_id,
+        payload={"title": current_title},
+    )  # type: ignore[arg-type]
+
+    out = jobs_mod.handle_update_metadata(qconn, None, job)
+
+    assert out["changed"] == []
+    history = conn.execute(
+        "SELECT 1 FROM document_metadata_history WHERE document_id=%s", (doc_id,)
+    ).fetchall()
+    assert history == []
+
+
+def test_handle_update_metadata_requires_document(qconn):
+    job = Job(id="0" * 26, kind=KIND_UPDATE_METADATA, status="queued")  # type: ignore[arg-type]
+    with pytest.raises(RuntimeError, match="document_id"):
+        jobs_mod.handle_update_metadata(qconn, None, job)
 
 
 def test_ports_declare_their_contracts():

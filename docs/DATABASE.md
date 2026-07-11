@@ -1,6 +1,6 @@
 # doc-ray — Database ERD & Data Dictionary
 
-**Schema version `1.10.0`** (SemVer) · 44 migrations applied
+**Schema version `1.11.0`** (SemVer) · 46 migrations applied
 
 > Generated from the live schema by `scripts/gen_data_dictionary.py`. Do not edit by hand — re-run the generator.
 
@@ -167,6 +167,7 @@ format metadata) are decomposed to their own relations (4NF); blobs live in obje
 | `derived_from` | uuid | yes | FK→documents |  |  |
 | `revision` | integer |  |  | `1` |  |
 | `original_filename` | text | yes |  |  |  |
+| `description` | text | yes |  |  |  |
 
 - **Primary key:** (id)
 - **Unique:** UNIQUE (content_sha256)
@@ -266,7 +267,9 @@ format metadata) are decomposed to their own relations (4NF); blobs live in obje
 ### 5.2 Provenance (append-only lineage)
 
 Every processing/lineage event on a document, with its parameters normalized out of a JSON bag into
-`(event, key) -> value`.
+`(event, key) -> value`. `document_metadata_history` is the analogous append-only trail for editable
+title/description/tags edits (BL-058) — a distinct concern from pipeline/ingest events, RLS-scoped
+and read-granted the same way.
 
 #### `document_provenance`
 
@@ -302,6 +305,26 @@ Every processing/lineage event on a document, with its parameters normalized out
 - **Primary key:** (event_id, key)
 - **FK:** FOREIGN KEY (event_id) REFERENCES document_provenance(id) ON DELETE CASCADE
 - **RLS:** enabled — read/write policies via *event_id → document_provenance*
+
+#### `document_metadata_history`
+
+| Column | Type | Null | Key | Default | Notes |
+|---|---|---|---|---|---|
+| `id` | ulid |  | PK |  |  |
+| `document_id` | uuid |  | FK→documents |  |  |
+| `field` | text |  |  |  |  |
+| `old_value` | text | yes |  |  |  |
+| `new_value` | text | yes |  |  |  |
+| `changed_at` | timestamp with time zone |  |  | `now()` |  |
+| `actor` | text | yes |  |  |  |
+| `actor_principal_id` | uuid | yes | FK→principals |  |  |
+
+- **Primary key:** (id)
+- **FK:** FOREIGN KEY (actor_principal_id) REFERENCES principals(id) ON DELETE SET NULL
+- **FK:** FOREIGN KEY (document_id) REFERENCES documents(id) ON DELETE CASCADE
+- **Check:** CHECK ((field = ANY (ARRAY['title'::text, 'description'::text, 'tags'::text])))
+- **Index** `idx_metadata_history_doc`: public.document_metadata_history USING btree (document_id, id)
+- **RLS:** enabled — read/write policies via *document_id*
 
 ### 5.3 Segmentation & the span registry
 

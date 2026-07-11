@@ -16,6 +16,7 @@ RLS_PATH = {
     "document_metadata": "document_id",
     "document_provenance": "document_id",
     "provenance_params": "event_id → document_provenance",
+    "document_metadata_history": "document_id",
     "sentences": "document_id",
     "spans": "document_id",
     "annotations": "document_id",

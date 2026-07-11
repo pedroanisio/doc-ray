@@ -29,9 +29,10 @@ source_schema:         "db/migrations"
 # annotation-table autovacuum tuning, to 1.8.0 by migration 037 for
 # evaluation/drift artifacts, to 1.9.0 by migration 039 for the
 # entity_mention/chunk surface denormalization, then to 1.10.0 by migration
-# 044 for jobs/backups RLS). Kept in lockstep with doc_ray.__version__ by
-# scripts/check_version_consistency.py.
-source_schema_version: "1.10.0"
+# 044 for jobs/backups RLS, then to 1.11.0 by migration 046 for editable
+# document metadata + change history (BL-058, migration 045). Kept in
+# lockstep with doc_ray.__version__ by scripts/check_version_consistency.py.
+source_schema_version: "1.11.0"
 target_engine:         "PostgreSQL 16"
 total_decisions:       22
 

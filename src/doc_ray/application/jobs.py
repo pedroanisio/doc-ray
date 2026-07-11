@@ -32,6 +32,7 @@ from doc_ray.domain.jobs import (
     KIND_SEED_CANONICAL,
     KIND_SEED_SUGGEST,
     KIND_SEMANTIC_ENRICH,
+    KIND_UPDATE_METADATA,
     Job,
 )
 from doc_ray.ports.object_store import ObjectStore
@@ -78,6 +79,25 @@ def handle_delete(
         if source_uri.startswith(prefix):
             store.delete(source_uri[len(prefix) :])
     return {"deleted": job.document_id}
+
+
+def handle_update_metadata(
+    conn: psycopg.Connection[Any], store: ObjectStore | None, job: Job
+) -> dict[str, Any]:
+    """Edit a document's title/description/tags, recording change history."""
+    from doc_ray.adapters import persistence as db
+
+    if job.document_id is None:
+        raise RuntimeError("update_metadata requires a document_id")
+    changed = db.update_document_metadata(
+        cast(db.DictConnection, conn),
+        job.document_id,
+        title=job.payload.get("title"),
+        description=job.payload.get("description"),
+        tags=job.payload.get("tags"),
+        actor=job.payload.get("actor"),
+    )
+    return {"changed": changed}
 
 
 def handle_reannotate(
@@ -322,6 +342,7 @@ HANDLERS: dict[str, Handler] = {
     KIND_CANONICALIZE: handle_canonicalize,
     KIND_BACKUP: handle_backup,
     KIND_RESTORE: handle_restore,
+    KIND_UPDATE_METADATA: handle_update_metadata,
 }
 
 

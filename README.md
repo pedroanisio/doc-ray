@@ -113,16 +113,18 @@ mutation($f: Upload!) {
 # poll pipeline progress with: { jobs(documentId: "...") { kind status } }
 ```
 
-Other query/mutation surface: `documents` / `document` / `searchSentences` /
-`fullTextSearch` / `lexeme(s)` / `entities` / `entityFrequency` / `job` /
-`jobs` (reads); `reannotate` / `deleteDocument` / `annotateDocument` /
-`canonicalizeDocument(resolve:)` / `semanticEnrichDocument` (pipeline writes —
-every mutation enqueues a worker job and returns it; poll `job(id)` for
-completion, never a synchronous result). Entity canonicalization curation:
-`seedSuggestions` / `canonical` / `canonicalSearch` / `unresolvedMentions` /
-`resolutionReview` (reads), `suggestSeeds` / `decideSeeds` / `seedApproved`
-(writes). Backup/restore: `createBackup` / `restoreBackup` (see
-[Backup & restore](#backup--restore) below).
+Other query/mutation surface: `documents(docType:, status:, tags:)` /
+`document` / `documentMetadataHistory` / `searchSentences` / `fullTextSearch` /
+`lexeme(s)` / `entities` / `entityFrequency` / `job` / `jobs` (reads);
+`reannotate` / `deleteDocument` / `annotateDocument` /
+`canonicalizeDocument(resolve:)` / `semanticEnrichDocument` /
+`updateDocumentMetadata` (pipeline writes — every mutation enqueues a worker
+job and returns it; poll `job(id)` for completion, never a synchronous
+result). Entity canonicalization curation: `seedSuggestions` / `canonical` /
+`canonicalSearch` / `unresolvedMentions` / `resolutionReview` (reads),
+`suggestSeeds` / `decideSeeds` / `seedApproved` (writes). Backup/restore:
+`createBackup` / `restoreBackup` (see [Backup & restore](#backup--restore)
+below).
 
 API authentication is token-to-principal based. Set
 `DOCRAY_API_TOKENS='token=principal_uuid[:read+write]'` to map bearer tokens (or

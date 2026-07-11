@@ -157,6 +157,7 @@ class Document:
     content_sha256: str | None
     source_uri: str | None
     original_filename: str | None
+    description: str | None
     subtitle: str | None
     publisher: str | None
     published_on: date | None
@@ -185,6 +186,7 @@ class Document:
             content_sha256=row.get("content_sha256"),
             source_uri=row.get("source_uri"),
             original_filename=row.get("original_filename") or row.get("filename"),
+            description=row.get("description"),
             subtitle=row.get("subtitle"),
             publisher=row.get("publisher"),
             published_on=row.get("published_on"),

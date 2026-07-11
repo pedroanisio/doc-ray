@@ -98,13 +98,24 @@ async def get_document(conn: _AConn, document_id: str) -> Row | None:
     return document
 
 
-async def list_documents(conn: _AConn, *, limit: int = 50, after: str | None = None) -> list[Row]:
+async def list_documents(
+    conn: _AConn,
+    *,
+    limit: int = 50,
+    after: str | None = None,
+    doc_type: str | None = None,
+    status: str | None = None,
+    tags: list[str] | None = None,
+) -> list[Row]:
     """Return document summary rows (with child counts), newest first.
 
     Args:
         conn: Async database connection.
         limit: Maximum number of documents to return.
         after: Optional keyset cursor returned by the previous page.
+        doc_type: Optional exact ``doc_type`` filter (e.g. ``"pdf"``).
+        status: Optional exact ``status`` filter (e.g. ``"extracted"``).
+        tags: Optional tag filter — a document matches if it has any of these tags.
 
     Returns:
         Summary rows with ``n_sentences`` and ``n_provenance`` counts.
@@ -123,6 +134,12 @@ async def list_documents(conn: _AConn, *, limit: int = 50, after: str | None = N
                OR d.created_at < %(after_created)s::timestamptz
                OR (d.created_at = %(after_created)s::timestamptz
                    AND d.id > %(after_id)s::uuid))
+          AND (%(doc_type)s::text IS NULL OR d.doc_type = %(doc_type)s)
+          AND (%(status)s::text IS NULL OR d.status = %(status)s)
+          AND (%(tags)s::text[] IS NULL OR EXISTS (
+                SELECT 1 FROM document_tags dt JOIN tags t ON t.id = dt.tag_id
+                WHERE dt.document_id = d.id AND t.tag = ANY(%(tags)s::text[])
+              ))
         ORDER BY d.created_at DESC, d.id
         LIMIT %(limit)s
         """,
@@ -130,6 +147,9 @@ async def list_documents(conn: _AConn, *, limit: int = 50, after: str | None = N
             "limit": limit,
             "after_created": cursor["created_at"] if cursor else None,
             "after_id": cursor["id"] if cursor else None,
+            "doc_type": doc_type,
+            "status": status,
+            "tags": tags,
         },
     )
     for row in rows:
@@ -203,6 +223,25 @@ async def get_provenance(conn: _AConn, document_id: str) -> list[Row]:
     for event in events:
         event["params"] = by_event.get(str(event["id"]), {})
     return events
+
+
+async def get_metadata_history(conn: _AConn, document_id: str) -> list[Row]:
+    """Return a document's title/description/tags edit history, oldest first (BL-058).
+
+    Args:
+        conn: Async database connection.
+        document_id: UUID of the owning document.
+
+    Returns:
+        Change rows (``field``, ``old_value``, ``new_value``, ``changed_at``,
+        ``actor``), in ULID (== time) order.
+    """
+    return await _rows(
+        conn,
+        "SELECT id, document_id, field, old_value, new_value, changed_at, actor "
+        "FROM document_metadata_history WHERE document_id = %s ORDER BY id",
+        (document_id,),
+    )
 
 
 # --------------------------------------------------------------------------

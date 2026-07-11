@@ -323,6 +323,45 @@ doc-ray carries **one global version** covering both the application package
   nonsense words identically to real ones), decoupling the test from
   corpus size entirely.
 
+## [1.11.0] - 2026-07-10
+
+### Added
+- **Editable document metadata (title/description/tags) with a change-history
+  audit trail** (Claude Sonnet 5 via Claude Code, BL-058) — documents were
+  write-once at ingest: no mutation or webapp route could rename a document
+  or fix a wrong title, add a description, or correct a tag afterward.
+  `documents` gains a `description` column and a new append-only
+  `document_metadata_history` table (migration 045), RLS-scoped and
+  read-granted like `document_provenance`; the `updateDocumentMetadata`
+  GraphQL mutation enqueues an `update_metadata` job that applies the edit
+  and records one history row per changed field. The webapp's document page
+  gains an edit form and a change-history view. Schema `1.11.0`.
+- **Document list pagination + query filters** (Claude Sonnet 5 via Claude
+  Code, BL-063) — the corpus landing page fetched every document unbounded
+  and `/search` hard-capped at 100 results with no way to see more. Both now
+  page with a prev/next pager, matching the webapp's own established
+  convention (`lexemes()`, the `/doc/<id>` sentence reader). The `documents`
+  GraphQL query and `persistence_read.list_documents` gained `doc_type`/
+  `status`/`tags` filter arguments alongside the existing keyset cursor.
+
+Merging BL-058/BL-063 (developed in a separate worktree) into `main` surfaced
+and fixed three gaps: the branch's own `043`/`044` migrations collided with
+`main`'s BL-064 migrations of the same numbers (both landed independently
+after a shared ancestor) — resolved by renumbering the branch's migrations to
+`045`/`046` and the schema bump to `1.11.0` rather than re-using `1.10.0`; the
+new metadata-edit form (`document.html`) predated `main`'s BL-103 CSRF
+protection and had no hidden `csrf_token` field, so it would have been the
+one unprotected mutating form in the webapp — fixed before landing; and the
+`document_metadata_history` table was never added to
+`scripts/gen_data_dictionary.py`'s curated table list, so `docs/DATABASE.md`
+would have silently stayed incomplete — fixed. `webapp/app.py` also crossed
+the D-015 400-net-LOC cap after the merge; `webapp/csrf.py`,
+`webapp/document_metadata.py`, and `webapp/graphql_client.py` split out the
+CSRF hook, the metadata-update mutation builder, and the GraphQL write-path
+client respectively, and `DocumentMetadataChange` moved to a new
+`entrypoints/api/audit_types.py`, matching the project's existing
+type-file-by-concern split.
+
 ## [1.10.0] - 2026-07-05
 
 ### Security
