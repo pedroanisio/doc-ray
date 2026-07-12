@@ -797,6 +797,75 @@ def _docx_structured_line(text: str, style_name: str) -> str:
     return text
 
 
+def _pptx_placeholder_kind(shape: object) -> str:
+    if not getattr(shape, "is_placeholder", False):
+        return ""
+    placeholder = getattr(shape, "placeholder_format", None)
+    return str(getattr(placeholder, "type", "") or "").upper()
+
+
+def _pptx_paragraph_text(paragraph: object) -> str:
+    return str(getattr(paragraph, "text", "") or "").strip()
+
+
+def _pptx_structured_line(text: str, placeholder_kind: str, paragraph: object) -> str:
+    if "TITLE" in placeholder_kind:
+        return f"# {text}"
+    level = max(int(getattr(paragraph, "level", 0) or 0), 0)
+    indent = "  " * level
+    return f"{indent}- {text}"
+
+
+def extract_pptx(data: bytes, fallback_title: str) -> Extracted:
+    """Extract slide text from a PPTX using python-pptx.
+
+    Args:
+        data: Raw PPTX bytes.
+        fallback_title: Title for the extracted document.
+
+    Returns:
+        The extracted PPTX document.
+
+    Raises:
+        ValueError: If python-pptx is not installed.
+    """
+    try:
+        import pptx  # python-pptx (optional)
+    except ImportError as e:
+        raise ValueError("pptx extraction requires python-pptx") from e
+    with zipfile.ZipFile(io.BytesIO(data)) as zf:
+        _check_zip_bomb_bounds(zf)
+    presentation = pptx.Presentation(io.BytesIO(data))
+    lines: list[str] = []
+    render_parts: list[str] = []
+    for slide in presentation.slides:
+        for shape in getattr(slide, "shapes", []):
+            if not getattr(shape, "has_text_frame", False):
+                continue
+            placeholder_kind = _pptx_placeholder_kind(shape)
+            for paragraph in getattr(shape.text_frame, "paragraphs", []):
+                text = _pptx_paragraph_text(paragraph)
+                if not text:
+                    continue
+                lines.append(_pptx_structured_line(text, placeholder_kind, paragraph))
+                render_parts.append(f"<p>{_html_escape(text)}</p>")
+        if getattr(slide, "has_notes_slide", False):
+            notes_frame = getattr(slide.notes_slide, "notes_text_frame", None)
+            for paragraph in getattr(notes_frame, "paragraphs", []):
+                text = _pptx_paragraph_text(paragraph)
+                if text:
+                    lines.append(text)
+                    render_parts.append(f"<p>{_html_escape(text)}</p>")
+    return _text_extracted(
+        "\n".join(lines),
+        fallback_title,
+        doc_type="pptx",
+        extractor="python-pptx",
+        content_type="application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        metadata={"render_html": "".join(render_parts)},
+    )
+
+
 def extract_docx(data: bytes, fallback_title: str) -> Extracted:
     """Extract text from a DOCX using python-docx.
 
@@ -845,6 +914,7 @@ _EXTRACTORS = {
     ".htm": extract_html,
     ".epub": extract_epub,
     ".svg": extract_svg,
+    ".pptx": extract_pptx,
     ".docx": extract_docx,
 }
 
@@ -858,6 +928,7 @@ _CONTENT_TYPES = {
     ".htm": "text/html",
     ".epub": "application/epub+zip",
     ".svg": "image/svg+xml",
+    ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
     ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
 }
 

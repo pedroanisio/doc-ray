@@ -2737,7 +2737,7 @@ items:
       than docx/html/epub are (see BL-087).
     category:     "extraction"
     type:         "feature"
-    status:       "parked"
+    status:       "done"
     complexity:   "M"
     priority:     "low"
     rationale:    "Named directly in the request ('document can also be ... pptx'), and confirmed absent rather than merely unverified — this blocks PPTX ingestion entirely today, independent of any overlay work."
@@ -2749,7 +2749,7 @@ items:
     references:
       - "src/doc_ray/adapters/extraction.py"
     owner:        "shared"
-    source:       "User correction 2026-07-05: 'document can also be docx, html, pptx, svgs' — verified pptx has zero extraction code or dependency in the live tree, making this a format-support gap rather than an overlay-scope question."
+    source:       "User correction 2026-07-05: 'document can also be docx, html, pptx, svgs' — verified pptx had zero extraction code or dependency in the live tree, making this a format-support gap rather than an overlay-scope question. Completed 2026-07-12 with a python-pptx-backed extractor registered for .pptx, hardened zip bounds before parsing, doc_type/content-type coverage, slide text plus speaker-note extraction, and dependency lock updates."
     tags:         ["extraction", "pptx", "format-support"]
 
   - id:          "BL-085"

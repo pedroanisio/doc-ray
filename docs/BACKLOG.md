@@ -323,7 +323,7 @@ which is modifying the same queue plumbing as this is written.
 | BL-081 | Align the reader's Pages tab to real PDF page boundaries (PDF) | webapp | tech-debt | done | S | medium | shared |
 | BL-082 | Overlay view: POS/word highlights positioned over the rendered original page (PDF) | webapp | feature | done | L | medium | shared |
 | BL-083 | Extend the overlay view to entity/canonical-link highlights (V2) | webapp | feature | done | M | low | shared |
-| BL-084 | Extraction support for PPTX (PowerPoint) | extraction | feature | parked | M | low | shared |
+| BL-084 | Extraction support for PPTX (PowerPoint) | extraction | feature | done | M | low | shared |
 | BL-085 | Extraction support for SVG | extraction | feature | done | S | low | shared |
 | BL-086 | Overlay strategy for non-paginated formats (docx/html/epub): highlight in a rendered view of the original markup | webapp | feature | done | L | low | shared |
 | BL-087 | Overlay support for PPTX/SVG once ingested (slide/vector-native positioning) | webapp | feature | parked | M | low | shared |

@@ -24,9 +24,9 @@ def _missing_golden_extensions(registered: Mapping[str, object]) -> list[str]:
 
 
 def test_extractor_coverage_guard_detects_uncovered_extension():
-    registered = {**_EXTRACTORS, ".pptx": object()}
+    registered = {**_EXTRACTORS, ".odt": object()}
 
-    assert _missing_golden_extensions(registered) == [".pptx"]
+    assert _missing_golden_extensions(registered) == [".odt"]
 
 
 def test_all_registered_extractors_have_golden_fixture_case():
@@ -59,6 +59,17 @@ def _minimal_docx() -> bytes:
     document.add_paragraph("Golden DOCX text.")
     out = io.BytesIO()
     document.save(out)
+    return out.getvalue()
+
+
+def _minimal_pptx() -> bytes:
+    pptx = pytest.importorskip("pptx", reason="python-pptx not installed")
+    presentation = pptx.Presentation()
+    slide = presentation.slides.add_slide(presentation.slide_layouts[0])
+    slide.shapes.title.text = "Golden PPTX title."
+    slide.placeholders[1].text = "Golden PPTX body."
+    out = io.BytesIO()
+    presentation.save(out)
     return out.getvalue()
 
 
@@ -184,6 +195,69 @@ def test_docx_emits_markdown_headings_and_list_items(monkeypatch):
     ]
 
 
+def test_pptx_extension_is_supported_for_upload_content_type():
+    assert extraction.is_supported_extension(".pptx")
+    assert (
+        extraction.content_type_for_extension(".pptx")
+        == "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+    )
+
+
+def test_pptx_extracts_slide_text_structure_and_speaker_notes(monkeypatch):
+    class _Paragraph:
+        def __init__(self, text: str, level: int = 0) -> None:
+            self.text = text
+            self.level = level
+
+    class _TextFrame:
+        def __init__(self, paragraphs: list[_Paragraph]) -> None:
+            self.paragraphs = paragraphs
+
+    class _PlaceholderFormat:
+        def __init__(self, kind: str) -> None:
+            self.type = kind
+
+    class _Shape:
+        def __init__(
+            self,
+            paragraphs: list[_Paragraph],
+            *,
+            placeholder_type: str | None = None,
+        ) -> None:
+            self.has_text_frame = True
+            self.text_frame = _TextFrame(paragraphs)
+            self.is_placeholder = placeholder_type is not None
+            self.placeholder_format = _PlaceholderFormat(placeholder_type or "")
+
+    class _NotesSlide:
+        notes_text_frame = _TextFrame([_Paragraph("Speaker note one.")])
+
+    class _Slide:
+        shapes = [
+            _Shape([_Paragraph("Deck Title")], placeholder_type="TITLE"),
+            _Shape([_Paragraph("First bullet", 0), _Paragraph("Nested bullet", 1)]),
+        ]
+        has_notes_slide = True
+        notes_slide = _NotesSlide()
+
+    class _Presentation:
+        slides = [_Slide()]
+
+    fake_pptx = types.SimpleNamespace(Presentation=lambda stream: _Presentation())
+    monkeypatch.setitem(sys.modules, "pptx", fake_pptx)
+
+    e = extract(_zip_bytes({"ppt/presentation.xml": "<p:presentation/>"}), "deck", ".pptx")
+
+    assert e.doc_type == "pptx"
+    assert e.content_type == "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+    assert e.full_text.splitlines() == [
+        "# Deck Title",
+        "- First bullet",
+        "  - Nested bullet",
+        "Speaker note one.",
+    ]
+
+
 def _minimal_epub() -> bytes:
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w") as z:
@@ -236,6 +310,7 @@ _GOLDEN_FORMATS: dict[str, GoldenCase] = {
     ".svg": (_minimal_svg, "svg", "Golden SVG text."),
     ".epub": (_minimal_epub, "epub", "First chapter."),
     ".docx": (_minimal_docx, "docx", "Golden DOCX text."),
+    ".pptx": (_minimal_pptx, "pptx", "Golden PPTX title."),
 }
 
 

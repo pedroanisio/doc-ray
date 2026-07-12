@@ -6,6 +6,8 @@ pymupdf==1.*
 # EPUB/DOCX extraction (adapters/extraction) — zip/XML parsing hardened against
 # entity-expansion attacks (BL-088); previously only an undeclared transitive dep.
 defusedxml==0.7.*
+# PowerPoint extraction (adapters/extraction), guarded by optional-import hints.
+python-pptx==1.0.*
 
 # GraphQL API (entrypoints/api) — read-only surface over the store.
 strawberry-graphql[fastapi]==0.320.*
