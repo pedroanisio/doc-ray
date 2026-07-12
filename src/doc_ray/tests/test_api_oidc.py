@@ -9,6 +9,7 @@ import hmac
 import json
 from collections.abc import Mapping
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from typing import cast
 from uuid import uuid4
 
@@ -23,6 +24,8 @@ from doc_ray.entrypoints.api.oidc import (
     PostgresOIDCPrincipalResolver,
 )
 from doc_ray.entrypoints.api.security import HeaderTokenAuthenticator, Principal
+
+_ROOT = Path(__file__).resolve().parents[3]
 
 
 class _Request:
@@ -83,6 +86,15 @@ def test_config_reads_oidc_static_token_fallback_flag(monkeypatch: pytest.Monkey
     monkeypatch.setenv("DOCRAY_API_OIDC_ALLOW_STATIC_TOKEN_FALLBACK", "true")
 
     assert Config.from_env().api_oidc_allow_static_token_fallback is True
+
+
+def test_env_example_documents_static_token_fallback_precedence() -> None:
+    text = (_ROOT / ".env.example").read_text(encoding="utf-8")
+    lowered = text.lower()
+
+    assert "DOCRAY_API_OIDC_ALLOW_STATIC_TOKEN_FALLBACK" in text
+    assert "break-glass" in lowered
+    assert "oidc" in lowered and "static" in lowered
 
 
 def test_oidc_authenticator_validates_jwks_jwt_and_resolves_external_subject() -> None:

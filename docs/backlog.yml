@@ -2257,7 +2257,7 @@ items:
       it is a wiring/precedence and documentation change, not new auth logic.
     category:     "security"
     type:         "tech-debt"
-    status:       "parked"
+    status:       "done"
     complexity:   "S"
     priority:     "medium"
     rationale:    "'Local login only if needed' (the request's own phrasing) implies static tokens stay available but stop being the implicit default once a real IdP is configured — otherwise the weaker path is always the one left enabled."
@@ -2271,7 +2271,7 @@ items:
       - "src/doc_ray/entrypoints/api/app.py"
       - ".env.example"
     owner:        "shared"
-    source:       "Gap-analysis 2026-07-05 against a supplied enterprise-IAM checklist."
+    source:       "Implemented 2026-07-12: OIDCAuthenticator is selected when DOCRAY_API_OIDC_ISSUER and DOCRAY_API_OIDC_JWKS_JSON are configured; static DOCRAY_API_TOKENS are rejected unless DOCRAY_API_OIDC_ALLOW_STATIC_TOKEN_FALLBACK is explicitly enabled. .env.example documents the precedence and break-glass/local-dev tradeoff. Verified by src/doc_ray/tests/test_api_oidc.py."
     tags:         ["security", "auth", "tech-debt"]
 
   - id:          "BL-070"
