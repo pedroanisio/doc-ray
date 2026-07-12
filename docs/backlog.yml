@@ -2433,7 +2433,7 @@ items:
       their own tooling.
     category:     "security"
     type:         "feature"
-    status:       "parked"
+    status:       "done"
     complexity:   "M"
     priority:     "medium"
     rationale:    "An audit log nobody can search or export satisfies the letter of 'append-only audit events' but not 'visible to tenant admins' / 'searchable' / 'exportable for enterprise customers' — all three are explicit, separate requirements in the request."
@@ -2446,7 +2446,7 @@ items:
       - "webapp/operator_health.py"
       - "webapp/app.py"
     owner:        "shared"
-    source:       "Gap-analysis 2026-07-05 against a supplied enterprise-IAM checklist."
+    source:       "Implemented 2026-07-12: db/migrations/063_audit_events_admin_read.sql grants tenant-admin SELECT over audit_events with RLS; GraphQL auditEvents and /audit/events/export filter by actor/action/target/time/source IP and export CSV/JSON via the API. Verified by src/doc_ray/tests/test_audit_surface.py and src/doc_ray/tests/test_api_audit_export.py."
     tags:         ["security", "audit", "webapp", "export"]
 
   - id:          "BL-076"

@@ -1,6 +1,6 @@
 # doc-ray — Database ERD & Data Dictionary
 
-**Schema version `1.17.0`** (SemVer) · 62 migrations applied
+**Schema version `1.17.0`** (SemVer) · 63 migrations applied
 
 > Generated from the live schema by `scripts/gen_data_dictionary.py`. Do not edit by hand — re-run the generator.
 
@@ -956,6 +956,7 @@ address, and whether it succeeded or was denied.
 - **Index** `idx_audit_events_target`: public.audit_events USING btree (target_type, target_id, occurred_at DESC)
 - **Index** `idx_audit_events_tenant`: public.audit_events USING btree (tenant_id, occurred_at DESC)
 - **Index** `idx_audit_events_time`: public.audit_events USING btree (occurred_at DESC)
+- **RLS:** enabled — read/write policies via *insert-only security audit log*
 
 ### 5.12 Evaluation & drift artifacts
 
@@ -1269,3 +1270,4 @@ owner's bypass.
 | 060 | `060_schema_version_1_17_0.sql` | advance the schema SemVer to 1.17.0 |
 | 061 | `061_tenant_foundation.sql` | tenant catalogue plus tenant-scoped principals, documents, and RLS helpers |
 | 062 | `062_security_audit_events.sql` | append-only security audit log for auth, reads, mutations, and denials |
+| 063 | `063_audit_events_admin_read.sql` | tenant-admin SELECT policy and grants for audit-event search/export |

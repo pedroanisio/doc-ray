@@ -160,4 +160,8 @@ MIGRATIONS = [
         "062_security_audit_events",
         "append-only security audit log for auth, reads, mutations, and denials",
     ),
+    (
+        "063_audit_events_admin_read",
+        "tenant-admin SELECT policy and grants for audit-event search/export",
+    ),
 ]

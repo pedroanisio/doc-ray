@@ -15,6 +15,7 @@ from doc_ray.adapters import document_metadata_suggestion_store as metadata_sugg
 from doc_ray.adapters import persistence_canonical_read as canonical_read
 from doc_ray.adapters import persistence_read as read
 from doc_ray.adapters import queue_postgres as queue
+from doc_ray.adapters import security_audit_read
 from doc_ray.adapters import seed_suggestion_store as seeds
 from doc_ray.entrypoints.api.audit_types import DocumentMetadataChange, DocumentMetadataSuggestion
 from doc_ray.entrypoints.api.canonical_types import (
@@ -23,6 +24,7 @@ from doc_ray.entrypoints.api.canonical_types import (
     UnresolvedMention,
 )
 from doc_ray.entrypoints.api.security_audit import record_audit_event
+from doc_ray.entrypoints.api.security_audit_types import SecurityAuditEvent
 from doc_ray.entrypoints.api.types import (
     Document,
     DocumentHit,
@@ -105,6 +107,37 @@ class Query:
                 outcome="success",
             )
         return Document.from_row(row) if row is not None else None
+
+    @strawberry.field
+    async def audit_events(
+        self,
+        info: Info,
+        actor: str | None = None,
+        action: str | None = None,
+        target_type: str | None = None,
+        target_id: str | None = None,
+        occurred_after: str | None = None,
+        occurred_before: str | None = None,
+        source_ip: str | None = None,
+        limit: int = 100,
+        after: str | None = None,
+    ) -> list[SecurityAuditEvent]:
+        """Return tenant-admin-visible audit events matching the supplied filters."""
+        ctx = info.context
+        await security_audit_read.require_audit_admin(ctx.conn)
+        rows = await security_audit_read.list_audit_events(
+            ctx.conn,
+            actor=actor,
+            action=action,
+            target_type=target_type,
+            target_id=target_id,
+            occurred_after=occurred_after,
+            occurred_before=occurred_before,
+            source_ip=source_ip,
+            limit=ctx.page_size(limit),
+            after=after,
+        )
+        return [SecurityAuditEvent.from_row(r) for r in rows]
 
     @strawberry.field
     async def document_metadata_history(

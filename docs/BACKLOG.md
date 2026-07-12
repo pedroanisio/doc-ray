@@ -314,7 +314,7 @@ which is modifying the same queue plumbing as this is written.
 | BL-072 | Refresh-token rotation with reuse detection | security | feature | done | M | medium | shared |
 | BL-073 | ABAC layer for sensitive and contextual authorization rules | security | feature | parked | L | medium | shared |
 | BL-074 | Append-only security audit-event log distinct from document_provenance | security | feature | done | L | high | shared |
-| BL-075 | Tenant-admin audit surface: search by actor/action/target/time/IP, exportable | security | feature | parked | M | medium | shared |
+| BL-075 | Tenant-admin audit surface: search by actor/action/target/time/IP, exportable | security | feature | done | M | medium | shared |
 | BL-076 | Persist per-span page number and bounding box at extraction time (PDF) | extraction | feature | done | M | high | shared |
 | BL-077 | Schema: persist page number and bounding box on spans | persistence | feature | done | M | high | shared |
 | BL-078 | Backfill page/bbox for already-ingested documents via re-extraction | ops | feature | done | L | medium | shared |
