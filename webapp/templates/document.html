@@ -376,20 +376,34 @@
                     <div style="display:flex; align-items:center; gap:.5rem; margin-top:.35rem">
                       <progress class="job-progress" value="{{ step.progress.current }}" max="{{ step.progress.total }}">{{ step.progress.label }}</progress>
                       <span class="mono">{{ step.progress.label }}</span>
-                      {% if step.progress.eta_label %}
-                        <span class="mono" style="color:var(--ink-faint)">{{ step.progress.eta_label }}</span>
+                      {% if step.progress.elapsed_label %}
+                        <span class="mono" style="color:var(--ink-faint)">running {{ step.progress.elapsed_label }}</span>
                       {% endif %}
                     </div>
                   {% endif %}
                   {% if step.progress.stage %}
                     <div style="color:var(--ink-faint); margin-top:.2rem">{{ step.progress.stage }}</div>
                   {% endif %}
+                  {% if step.progress.heartbeat_uncertain %}
+                    <div class="errbox" style="margin-top:.35rem">
+                      This step's worker hasn't reported in a while — it may have been
+                      interrupted by a restart. If progress does not change soon, it will
+                      be retried automatically; you don't need to do anything yet.
+                    </div>
+                  {% endif %}
                 {% endif %}
               {% else %}
+                {% if step.outcome %}
+                  <div class="errbox" style="margin-top:.35rem">
+                    <div><b>{{ step.outcome.summary }}</b>{% if step.attempts and step.max_attempts %} ({{ step.attempts }}/{{ step.max_attempts }} attempts used){% endif %}</div>
+                    {% if step.outcome.detail %}<div style="margin-top:.2rem">{{ step.outcome.detail }}</div>{% endif %}
+                    {% if step.outcome.action %}<div style="color:var(--ink-faint); margin-top:.2rem">{{ step.outcome.action }}</div>{% endif %}
+                  </div>
+                {% endif %}
                 <form method="post" action="{{ url_for('document_reprocess', doc_id=doc.id) }}" style="margin-top:.35rem">
                   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                   <input type="hidden" name="step" value="{{ step.step }}">
-                  <button type="submit">{{ step.label }}</button>
+                  <button type="submit">{{ "Retry " + step.label if step.outcome else step.label }}</button>
                 </form>
               {% endif %}
             </div>

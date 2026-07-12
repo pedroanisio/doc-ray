@@ -13,9 +13,21 @@ from typing import Any
 #: Kept well above the worker's claim timeout (default 120s) to avoid flapping.
 STALLED_AFTER_SECONDS = float(os.environ.get("DOCRAY_WEBAPP_STALLED_AFTER_SECONDS", "300"))
 
+#: Duplicates WORKER_CLAIM_TIMEOUT_SECONDS' default (src/doc_ray/entrypoints/worker.py) —
+#: this module stays independent of doc_ray by design (see webapp/operator_health.py's
+#: docstring). Past this age the backend already considers the job's heartbeat
+#: reclaimable; STALLED_AFTER_SECONDS above is deliberately looser (avoids flapping
+#: the active/inactive UI state), so progress display uses this narrower threshold
+#: to warn early rather than keep showing confident numbers for a likely-dead worker.
+HEARTBEAT_RECLAIM_ELIGIBLE_SECONDS = float(
+    os.environ.get("DOCRAY_WEBAPP_HEARTBEAT_RECLAIM_ELIGIBLE_SECONDS", "120")
+)
+
 KIND_LABELS = {
     "ingest": "Upload and ingest",
     "annotate": "Annotate text",
+    "reannotate": "Refresh word frequency",
+    "reextract": "Re-extract",
     "semantic_enrich": "Enrich semantics",
     "canonicalize": "Curate domain entities",
     "backup": "Create backup",
@@ -34,6 +46,8 @@ STATUS_LABELS = {
 SUCCESS_MESSAGES = {
     "ingest": "The document was uploaded and registered.",
     "annotate": "The document text was annotated.",
+    "reannotate": "Word-frequency data was refreshed.",
+    "reextract": "The document was re-extracted.",
     "semantic_enrich": "Semantic enrichment completed.",
     "canonicalize": "Domain entity curation completed.",
     "backup": "The backup was created.",
@@ -45,6 +59,8 @@ SUCCESS_MESSAGES = {
 NEXT_ACTIONS = {
     "ingest": "Check the file and upload it again after fixing the problem.",
     "annotate": "Restart annotation after the worker or input issue is fixed.",
+    "reannotate": "Restart the word-frequency refresh after the worker or input issue is fixed.",
+    "reextract": "Restart extraction after the worker or input issue is fixed.",
     "semantic_enrich": "Restart semantic enrichment after the worker or input issue is fixed.",
     "canonicalize": "Review the seeding inputs, then retry curation.",
     "backup": "Check storage access and retry the backup.",
@@ -124,12 +140,12 @@ def _seconds_since(value: Any, now: datetime | None = None) -> float | None:
     return (_now(now) - stamped).total_seconds()
 
 
-def _eta_label(seconds: float) -> str:
+def _duration_label(seconds: float) -> str:
     if seconds < 90:
-        return f"~{max(1, round(seconds))}s left"
+        return f"{max(1, round(seconds))}s"
     if seconds < 90 * 60:
-        return f"~{max(1, round(seconds / 60))}m left"
-    return f"~{max(1, round(seconds / 3600))}h left"
+        return f"{max(1, round(seconds / 60))}m"
+    return f"{max(1, round(seconds / 3600))}h"
 
 
 def summarize_progress(
@@ -137,10 +153,15 @@ def summarize_progress(
 ) -> dict[str, Any] | None:
     """Build a display model for a job's persisted progress fields.
 
-    For a running job that has advanced past its first step, derive a naive
-    linear ETA from ``started_at``: ``elapsed * remaining / done``. Rough by
-    design — phases are not equally sized — but it turns a bare percentage
-    into an answer to the question operators actually ask.
+    No ETA: pipeline stages are not equally sized (stage durations for large
+    documents span minutes to hours depending on the stage), so a linear
+    elapsed/remaining extrapolation is not "rough" — for the dominant stage it
+    is confidently wrong, sometimes by an order of magnitude. Report real
+    elapsed time (always true) instead of a fabricated remaining-time guess.
+    Also flags ``heartbeat_uncertain`` when the heartbeat is older than the
+    worker's own reclaim-eligibility window — the job may already be running
+    under a worker that no longer exists, well before the (deliberately
+    looser) ``is_stalled``/``STALLED_AFTER_SECONDS`` check would say so.
     """
     current = job.get("progress_current")
     total = job.get("progress_total")
@@ -161,16 +182,18 @@ def summarize_progress(
         "label": f"{percent}%",
         "stage": stage,
     }
+    is_running = str(job.get("status") or "") == "running"
     elapsed = _seconds_since(job.get("started_at"), now)
+    if is_running and elapsed is not None and elapsed >= 5:
+        progress["elapsed_seconds"] = elapsed
+        progress["elapsed_label"] = _duration_label(elapsed)
+    heartbeat_age = _seconds_since(job.get("heartbeat_at"), now)
     if (
-        str(job.get("status") or "") == "running"
-        and 0 < current_int < total_int
-        and elapsed is not None
-        and elapsed >= 5
+        is_running
+        and heartbeat_age is not None
+        and heartbeat_age > HEARTBEAT_RECLAIM_ELIGIBLE_SECONDS
     ):
-        eta = elapsed * (total_int - current_int) / current_int
-        progress["eta_seconds"] = eta
-        progress["eta_label"] = _eta_label(eta)
+        progress["heartbeat_uncertain"] = True
     return progress
 
 
