@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import bisect
 from collections.abc import Iterator
 from contextlib import contextmanager
 from typing import Any
@@ -124,33 +125,67 @@ def page_rows_from_page_metrics(
 def span_geometry_from_layout_rows(
     pairs: list[tuple[int, int]], layout_rows: list[dict[str, Any]]
 ) -> dict[tuple[int, int], dict[str, Any]]:
-    """Return the best page/bbox geometry for each requested span range."""
+    """Return the best page/bbox geometry for each requested span range.
+
+    Scanning every layout row per span is O(spans x rows) — for a book-sized
+    document (171k spans) that is tens of billions of pure-Python iterations,
+    which is what kept annotate jobs in "Registering annotation spans" for
+    hours until they hit the execution timeout (2026-07-12 incident). Rows are
+    deduplicated (the caller's join can emit one copy per overlapping staged
+    span, which also skewed the per-page overlap vote), sorted once, and each
+    span visits only its bisected candidate window.
+    """
     out: dict[tuple[int, int], dict[str, Any]] = {}
+    if not pairs or not layout_rows:
+        return out
+    rows = sorted(
+        {
+            (
+                int(row["char_start"]),
+                int(row["char_end"]),
+                int(row["page_number"]),
+                float(row["bbox_x0"]),
+                float(row["bbox_y0"]),
+                float(row["bbox_x1"]),
+                float(row["bbox_y1"]),
+            )
+            for row in layout_rows
+        }
+    )
+    starts = [r[0] for r in rows]
+    # Nondecreasing running maximum of char_end: the first index whose value
+    # exceeds a span's start bounds the candidate window from the left even
+    # when individual row ends are not monotonic.
+    max_end_so_far: list[int] = []
+    running = rows[0][1]
+    for _, row_end, *_ in rows:
+        running = max(running, row_end)
+        max_end_so_far.append(running)
     for start, end in pairs:
+        hi = bisect.bisect_left(starts, end)  # rows with char_start < end
+        lo = bisect.bisect_right(max_end_so_far, start, 0, hi)  # first with end > start
         by_page: dict[int, dict[str, Any]] = {}
-        for row in layout_rows:
-            row_start = int(row["char_start"])
-            row_end = int(row["char_end"])
+        for i in range(lo, hi):
+            row_start, row_end, page, x0, y0, x1, y1 = rows[i]
             overlap = min(end, row_end) - max(start, row_start)
             if overlap <= 0:
                 continue
-            page = int(row["page_number"])
-            page_geom = by_page.setdefault(
-                page,
-                {
-                    "overlap": 0,
+            page_geom = by_page.get(page)
+            if page_geom is None:
+                by_page[page] = {
+                    "overlap": overlap,
                     "page_number": page,
-                    "bbox_x0": float(row["bbox_x0"]),
-                    "bbox_y0": float(row["bbox_y0"]),
-                    "bbox_x1": float(row["bbox_x1"]),
-                    "bbox_y1": float(row["bbox_y1"]),
-                },
-            )
+                    "bbox_x0": x0,
+                    "bbox_y0": y0,
+                    "bbox_x1": x1,
+                    "bbox_y1": y1,
+                }
+                continue
             page_geom["overlap"] += overlap
-            page_geom["bbox_x0"] = min(page_geom["bbox_x0"], float(row["bbox_x0"]))
-            page_geom["bbox_y0"] = min(page_geom["bbox_y0"], float(row["bbox_y0"]))
-            page_geom["bbox_x1"] = max(page_geom["bbox_x1"], float(row["bbox_x1"]))
-            page_geom["bbox_y1"] = max(page_geom["bbox_y1"], float(row["bbox_y1"]))
+            page_geom["bbox_x0"] = min(page_geom["bbox_x0"], x0)
+            page_geom["bbox_y0"] = min(page_geom["bbox_y0"], y0)
+            page_geom["bbox_x1"] = max(page_geom["bbox_x1"], x1)
+            page_geom["bbox_y1"] = max(page_geom["bbox_y1"], y1)
         if by_page:
             best = max(by_page.values(), key=lambda g: (g["overlap"], -g["page_number"]))
             out[(start, end)] = {
@@ -255,15 +290,20 @@ def _update_span_geometry_from_layout(
     """Populate page/bbox fields for staged spans from persisted layout runs."""
     if not pairs:
         return
+    # EXISTS, not JOIN: the join emitted one copy of each layout row per
+    # overlapping staged span — for a book that multiplied the rows fed to
+    # the geometry pass by orders of magnitude and skewed its overlap vote.
     layout_rows = conn.execute(
         """
         SELECT lr.page_number, lr.char_start, lr.char_end,
                lr.bbox_x0, lr.bbox_y0, lr.bbox_x1, lr.bbox_y1
         FROM document_layout_runs lr
-        JOIN _span_stage st
-          ON lr.char_start < st.char_end
-         AND lr.char_end > st.char_start
         WHERE lr.document_id=%s
+          AND EXISTS (
+            SELECT 1 FROM _span_stage st
+            WHERE lr.char_start < st.char_end
+              AND lr.char_end > st.char_start
+          )
         """,
         (document_id,),
     ).fetchall()

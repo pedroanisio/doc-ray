@@ -110,7 +110,7 @@ metadata:
   generated_by:     "Claude Sonnet 5 via Claude Code (merge of Claude Opus 4.8 backlog + OpenAI Codex improvement-proposal candidates)"
   generated_on:     "2026-07-05"
   system_of_record: "docs/backlog.yml"
-  total_items:      132
+  total_items:      133
 
 items:
 
@@ -4359,3 +4359,39 @@ items:
     owner:        "shared"
     source:       "Operator health-check triage 2026-07-12 (4 books permanently failed, LLVM book on final attempt). Root cause: worker.py graceful drain + 120s stop grace + claim-time attempt increment. Added and completed the same session."
     tags:         ["worker", "queue", "reliability", "deploys", "bug"]
+
+  - id:          "BL-133"
+    title:        "Span-geometry backfill was O(spans x layout rows): book annotation ran for hours and hit the execution timeout"
+    summary:      "Root cause of the 2026-07-12 'Registering N annotation spans' stalls: span_geometry_from_layout_rows scanned every layout row for every span (171k spans x a 303-page book's rows = tens of billions of pure-Python iterations), and the caller's JOIN against _span_stage emitted one duplicate copy of each layout row per overlapping staged span — inflating the row list by orders of magnitude and skewing the per-page overlap vote toward duplicated partial rows."
+    description: |
+      Fixed (TDD): rows are deduplicated and sorted once; each span visits
+      only its bisected candidate window (binary search on sorted starts,
+      plus a nondecreasing running-max-of-ends array to bound the window from
+      the left) — O((n+m) log m). The caller now uses EXISTS instead of the
+      row-multiplying JOIN. Regression tests: duplicate rows must not flip
+      the page vote (red before the fix), equivalence against the original
+      scan on randomized duplicate-free input, and a 12k x 12k wall-clock
+      guard (44.6s before, 0.1s after; 5s budget).
+
+      Observed impact: the color-theory book (b5d35171, 4867 sentences,
+      171,494 spans) spent 34+ minutes inside phase 5/12 across attempts and
+      one book was terminally failed at exactly the 3600s execution timeout
+      inside this loop.
+    category:     "nlp"
+    type:         "bug"
+    status:       "done"
+    complexity:   "S"
+    priority:     "high"
+    rationale:    "Every pipeline reliability symptom chased on 2026-07-12 (timeouts, deploy-kill livelock exposure, hours-long span registration) traces back to this hot loop: jobs that should take minutes held worker slots for hours, magnifying every other failure mode."
+    acceptance_criteria:
+      - "span_geometry_from_layout_rows produces identical results to the original full scan on duplicate-free input."
+      - "Duplicate layout rows cannot change which page wins the overlap vote."
+      - "12k spans x 12k rows completes within a 5s test budget (previously 44.6s)."
+      - "_update_span_geometry_from_layout fetches each overlapping layout row exactly once (EXISTS, not JOIN)."
+    dependencies: []
+    references:
+      - "src/doc_ray/adapters/persistence.py"
+      - "src/doc_ray/tests/test_span_geometry.py"
+    owner:        "shared"
+    source:       "Operator directive 2026-07-12: 'fully fix the ingestion of document b5d35171...' + 'fix root causes, and add regression tests when needed.' Root-caused from the JobExecutionTimeout traceback frame (persistence.py:134) and 34-minute phase-5 stalls."
+    tags:         ["nlp", "performance", "extraction", "geometry", "bug"]

@@ -21,6 +21,20 @@ doc-ray carries **one global version** covering both the application package
 
 ## [Unreleased]
 
+### Fixed
+- **Span-geometry backfill is no longer quadratic** (Claude Fable 5 via
+  Claude Code) — BL-133, the root cause behind the 2026-07-12
+  "Registering N annotation spans" stalls and the execution-timeout failure:
+  `span_geometry_from_layout_rows` scanned every layout row for every span
+  (171k spans × a 303-page book's rows ≈ tens of billions of pure-Python
+  iterations), and `_update_span_geometry_from_layout`'s JOIN emitted one
+  duplicate copy of each layout row per overlapping staged span — inflating
+  the row list and skewing the per-page overlap vote. Rows are now
+  deduplicated, sorted once, and bisected to a per-span candidate window
+  (O((n+m) log m)); the caller uses EXISTS. Regression tests pin the
+  duplicate-vote semantics, equivalence with the original scan, and a
+  12k×12k wall-clock budget (44.6s → 0.1s).
+
 ### Added
 - **Short-job lane: kind-filtered claiming + reserved `worker-fast` service**
   (Claude Fable 5 via Claude Code) — the 2026-07-12 starvation incident's

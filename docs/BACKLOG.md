@@ -312,6 +312,16 @@ Crashes without the stamp still spend attempts (poison bound preserved), and
 `claim()` now resets the dead attempt's progress fields so retries stop
 rendering the old percentage.
 
+**2026-07-12 span-geometry hot loop (operator directive):** added and
+completed `BL-133` (S/high) — the root cause *behind* the day's reliability
+symptoms. `span_geometry_from_layout_rows` scanned every layout row per span
+(O(spans x rows); tens of billions of iterations for a 171k-span book) and
+its caller's JOIN duplicated each layout row once per overlapping staged
+span, skewing the per-page overlap vote. Now deduplicated, sorted once, and
+bisected to a candidate window per span; the caller uses EXISTS. Regression
+tests pin the page-vote semantics, equivalence with the original scan, and a
+12k x 12k wall-clock budget (44.6s before, 0.1s after).
+
 ## Items
 
 | ID | Item | Category | Type | Status | Cx | Priority | Owner |
@@ -448,6 +458,7 @@ rendering the old percentage.
 | BL-130 | test_api_jwt signed-access-JWT acceptance test fails on clean main | testing | bug | ready | S | high | shared |
 | BL-131 | Webapp collection writes silently rolled back — created collections vanished after the redirect | webapp | bug | done | XS | high | shared |
 | BL-132 | Deploy-kills burned job attempts: long annotate jobs permanently failed by consecutive fleet deploys | ops | bug | done | S | high | shared |
+| BL-133 | Span-geometry backfill was O(spans x layout rows): book annotation ran for hours and hit the execution timeout | nlp | bug | done | S | high | shared |
 
 See [`backlog.yml`](backlog.yml) for each item's full description, rationale,
 acceptance criteria, dependencies, related decisions (`D-###`), and references.
