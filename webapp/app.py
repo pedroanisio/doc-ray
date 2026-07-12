@@ -147,6 +147,84 @@ def exec_sql(sql, params=()):
         cur.execute(sql, params)
 
 
+_REPROCESS_CONFIG = {
+    "reextract": {
+        "label": "Re-extract",
+        "description": "Rebuild text and page geometry from the original PDF.",
+        "mutation": "mutation($id: ID!) { reextractDocument(documentId: $id) { id } }",
+        "response_key": "reextractDocument",
+        "active_kinds": {"reextract"},
+        "pdf_only": True,
+    },
+    "reannotate": {
+        "label": "Re-annotate",
+        "description": "Run the annotation pipeline over the document text again.",
+        "mutation": "mutation($id: ID!) { reannotate(documentId: $id) { id } }",
+        "response_key": "reannotate",
+        "active_kinds": {"annotate", "reannotate"},
+        "pdf_only": False,
+    },
+    "semantic_enrich": {
+        "label": "Re-enrich",
+        "description": "Recompute deterministic semantic enrichment.",
+        "mutation": "mutation($id: ID!) { semanticEnrichDocument(documentId: $id) { id } }",
+        "response_key": "semanticEnrichDocument",
+        "active_kinds": {"semantic_enrich"},
+        "pdf_only": False,
+    },
+    "canonicalize": {
+        "label": "Re-canonicalize",
+        "description": "Re-run deterministic entity canonicalization.",
+        "mutation": "mutation($id: ID!) { canonicalizeDocument(documentId: $id) { id } }",
+        "response_key": "canonicalizeDocument",
+        "active_kinds": {"canonicalize"},
+        "pdf_only": False,
+    },
+}
+
+
+def _active_reprocess_jobs(doc_id: str) -> dict[str, dict]:
+    """Return active pipeline jobs keyed by reprocess step."""
+    rows = q(
+        """
+        SELECT id, kind, status
+        FROM jobs
+        WHERE document_id = %s AND status IN ('queued', 'running')
+        ORDER BY id DESC
+        """,
+        (doc_id,),
+    )
+    active: dict[str, dict] = {}
+    for row in rows:
+        if row.get("status") not in {"queued", "running"}:
+            continue
+        for step, cfg in _REPROCESS_CONFIG.items():
+            if row.get("kind") in cfg["active_kinds"] and step not in active:
+                active[step] = row
+    return active
+
+
+def _reprocess_steps(doc: dict, doc_id: str) -> list[dict]:
+    """Build document-page reprocess controls from live job state."""
+    active_jobs = _active_reprocess_jobs(doc_id)
+    is_pdf = str(doc.get("doc_type") or "").lower() == "pdf"
+    steps = []
+    for step, cfg in _REPROCESS_CONFIG.items():
+        available = is_pdf or not cfg["pdf_only"]
+        active = active_jobs.get(step)
+        steps.append(
+            {
+                "step": step,
+                "label": cfg["label"],
+                "description": cfg["description"],
+                "available": available,
+                "active": active,
+                "active_status": active.get("status") if active else None,
+            }
+        )
+    return steps
+
+
 def _document_preview(doc: dict) -> dict[str, str | None]:
     """Return the webapp preview model for a document row."""
     doc_type = str(doc.get("doc_type") or "file").lower()
@@ -906,7 +984,43 @@ def document(doc_id):
         metadata_queued=request.args.get("metadata_queued"),
         suggestions_error=request.args.get("suggestions_error"),
         suggestions_queued=request.args.get("suggestions_queued"),
+        reprocess_steps=_reprocess_steps(doc, str(doc_id)),
+        reprocess_queued=request.args.get("reprocess_queued"),
+        reprocess_error=request.args.get("reprocess_error"),
     )
+
+
+@app.route("/doc/<uuid:doc_id>/reprocess", methods=["POST"])
+def document_reprocess(doc_id):
+    """Queue one document pipeline step again through the GraphQL API."""
+    from flask import redirect, url_for
+
+    doc = q1("SELECT * FROM documents WHERE id = %s", (str(doc_id),))
+    if doc is None:
+        return ("Document not found", 404)
+    step = request.form.get("step", "")
+    cfg = _REPROCESS_CONFIG.get(step)
+    if cfg is None:
+        return redirect(url_for("document", doc_id=doc_id, reprocess_error="unknown step"))
+    if cfg["pdf_only"] and str(doc.get("doc_type") or "").lower() != "pdf":
+        return redirect(
+            url_for("document", doc_id=doc_id, reprocess_error="re-extract is PDF-only")
+        )
+    active = _active_reprocess_jobs(str(doc_id)).get(step)
+    if active is not None:
+        return redirect(
+            url_for(
+                "document",
+                doc_id=doc_id,
+                reprocess_error=f"{cfg['label']} is already {active['status']}",
+            )
+        )
+    try:
+        gql(cfg["mutation"], {"id": str(doc_id)})
+    except Exception as exc:
+        app.logger.exception("document reprocess action failed")
+        return redirect(url_for("document", doc_id=doc_id, reprocess_error=str(exc)))
+    return redirect(url_for("document", doc_id=doc_id, reprocess_queued=step))
 
 
 @app.route("/doc/<uuid:doc_id>/metadata-suggestions", methods=["POST"])

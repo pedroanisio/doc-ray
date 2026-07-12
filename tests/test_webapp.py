@@ -673,6 +673,89 @@ def test_document_page_shows_metadata_edit_form(client):
     assert 'name="tags"' in html and 'name="description"' in html
 
 
+def test_document_page_shows_pipeline_reprocess_controls(client):
+    html = client.get(f"/doc/{DOC_ID}").get_data(as_text=True)
+
+    assert "Reprocess pipeline" in html
+    assert f'action="/doc/{DOC_ID}/reprocess"' in html
+    assert 'name="step" value="reextract"' in html
+    assert 'name="step" value="reannotate"' in html
+    assert 'name="step" value="semantic_enrich"' in html
+    assert 'name="step" value="canonicalize"' in html
+
+
+def test_document_reprocess_posts_graphql_mutation(client, monkeypatch):
+    captured = {}
+
+    def fake_gql(query, variables=None):
+        captured["query"] = query
+        captured["variables"] = variables
+        return {"semanticEnrichDocument": {"id": "job-1"}}
+
+    monkeypatch.setattr(webapp, "gql", fake_gql)
+
+    token = _csrf_token_from(client.get(f"/doc/{DOC_ID}").get_data(as_text=True))
+    resp = client.post(
+        f"/doc/{DOC_ID}/reprocess",
+        data={"step": "semantic_enrich", "csrf_token": token},
+    )
+
+    assert resp.status_code == 302
+    assert "reprocess_queued=semantic_enrich" in resp.headers["Location"]
+    assert "semanticEnrichDocument" in captured["query"]
+    assert captured["variables"] == {"id": DOC_ID}
+
+
+def test_document_reprocess_controls_show_active_job_instead_of_duplicate_button(
+    client, monkeypatch
+):
+    def active_jobs_q(sql, params=()):
+        s = _norm(sql)
+        if "FROM jobs WHERE document_id" in s:
+            return [{"id": "job-annotate", "kind": "reannotate", "status": "running"}]
+        return fake_q(sql, params)
+
+    monkeypatch.setattr(webapp, "q", active_jobs_q)
+
+    html = client.get(f"/doc/{DOC_ID}").get_data(as_text=True)
+
+    assert "Re-annotate is running" in html
+    assert 'name="step" value="reannotate"' not in html
+    assert 'name="step" value="semantic_enrich"' in html
+
+
+def test_document_overlay_missing_geometry_embeds_reextract_action(client, monkeypatch):
+    def missing_geometry_q(sql, params=()):
+        s = _norm(sql)
+        if "DISTINCT sp.page_number" in s:
+            return []
+        return fake_q(sql, params)
+
+    monkeypatch.setattr(webapp, "q", missing_geometry_q)
+
+    html = client.get(f"/doc/{DOC_ID}?view=original").get_data(as_text=True)
+
+    assert "Original overlay is not available until this PDF is re-extracted" in html
+    assert 'name="step" value="reextract"' in html
+    assert f'action="/doc/{DOC_ID}/reprocess"' in html
+
+
+def test_document_reprocess_error_redirects_with_message(client, monkeypatch):
+    def raising_gql(query, variables=None):
+        raise RuntimeError("permission denied")
+
+    monkeypatch.setattr(webapp, "gql", raising_gql)
+
+    token = _csrf_token_from(client.get(f"/doc/{DOC_ID}").get_data(as_text=True))
+    resp = client.post(
+        f"/doc/{DOC_ID}/reprocess",
+        data={"step": "canonicalize", "csrf_token": token},
+    )
+
+    assert resp.status_code == 302
+    assert "reprocess_error=permission+denied" in resp.headers["Location"]
+
+
 def test_document_page_shows_metadata_edit_history(client, monkeypatch):
     def with_history(sql, params=()):
         s = _norm(sql)
@@ -1719,6 +1802,7 @@ def _csrf_token_from(html: str) -> str:
     [
         ("/upload", "/upload"),
         (f"/doc/{DOC_ID}/seeding", f"/doc/{DOC_ID}/seeding"),
+        (f"/doc/{DOC_ID}/reprocess", f"/doc/{DOC_ID}"),
         ("/backups", "/backups"),
         ("/backups/some-id/restore", "/backups"),
     ],

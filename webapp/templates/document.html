@@ -178,6 +178,12 @@
   {% if suggestions_error %}
     <div class="errbox">Couldn't queue suggestions: {{ suggestions_error }}</div>
   {% endif %}
+  {% if reprocess_queued %}
+    <div class="notice">Reprocess job queued. Refresh after the worker finishes to review the pipeline.</div>
+  {% endif %}
+  {% if reprocess_error %}
+    <div class="errbox">Couldn't queue reprocess action: {{ reprocess_error }}</div>
+  {% endif %}
   <details style="margin-top:.6rem">
     <summary class="kicker" style="cursor:pointer">Edit title, description, tags</summary>
     <form method="post" action="{{ url_for('document_metadata_update', doc_id=doc.id) }}"
@@ -240,6 +246,21 @@
           <div class="markup-original">{{ overlay.html|safe }}</div>
         {% else %}
           <div class="reader-note">{{ overlay.message if overlay else "Original overlay is not available." }}</div>
+          {% if overlay and overlay.kind == "pdf" and reprocess_steps %}
+            {% for step in reprocess_steps %}
+              {% if step.step == "reextract" and step.available %}
+                {% if step.active %}
+                  <div class="reader-note">{{ step.label }} is {{ step.active_status }}.</div>
+                {% else %}
+                  <form method="post" action="{{ url_for('document_reprocess', doc_id=doc.id) }}" class="filters" style="margin-top:.8rem">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <input type="hidden" name="step" value="reextract">
+                    <button type="submit">Re-extract</button>
+                  </form>
+                {% endif %}
+              {% endif %}
+            {% endfor %}
+          {% endif %}
         {% endif %}
         {% if overlay and overlay.kind == "pdf" %}
         <div class="pager">
@@ -339,6 +360,28 @@
       </div>
     </div>
     {% endif %}
+    <div class="card">
+      <h2 style="margin-top:0">Reprocess pipeline</h2>
+      <div style="display:grid; gap:.75rem">
+        {% for step in reprocess_steps %}
+          {% if step.available %}
+            <div style="font-size:.86rem; line-height:1.45">
+              <div><b>{{ step.label }}</b></div>
+              <div style="color:var(--ink-faint)">{{ step.description }}</div>
+              {% if step.active %}
+                <span class="pill">{{ step.label }} is {{ step.active_status }}</span>
+              {% else %}
+                <form method="post" action="{{ url_for('document_reprocess', doc_id=doc.id) }}" style="margin-top:.35rem">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                  <input type="hidden" name="step" value="{{ step.step }}">
+                  <button type="submit">{{ step.label }}</button>
+                </form>
+              {% endif %}
+            </div>
+          {% endif %}
+        {% endfor %}
+      </div>
+    </div>
     <div class="card">
       <h2 style="margin-top:0">Metadata suggestions</h2>
       <form method="post" action="{{ url_for('document_metadata_suggestions_request', doc_id=doc.id) }}" style="margin-bottom:.8rem">
