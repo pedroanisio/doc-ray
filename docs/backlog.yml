@@ -2319,20 +2319,20 @@ items:
       round-trip to the IdP on every request.
     category:     "security"
     type:         "feature"
-    status:       "parked"
+    status:       "done"
     complexity:   "M"
     priority:     "medium"
     rationale:    "A leaked static bearer token today is valid forever until manually rotated; short-lived JWTs bound the blast radius of a leaked credential to the token's lifetime."
     acceptance_criteria:
       - "The API issues/accepts signed JWTs with a short exp claim, verified via a local key/JWKS without a DB round-trip per request."
       - "HeaderTokenAuthenticator's static-token path remains for the break-glass case (BL-069); the two coexist without collision (distinguishable by format/prefix)."
-    dependencies: ["BL-066"]
+    dependencies: []
     related_decisions: ["D-010"]
     references:
       - "src/doc_ray/config.py"
       - "src/doc_ray/entrypoints/api/security.py"
     owner:        "shared"
-    source:       "Gap-analysis 2026-07-05 against a supplied enterprise-IAM checklist; verified absent by grep and by reading the current token model."
+    source:       "Gap-analysis 2026-07-05 against a supplied enterprise-IAM checklist; verified absent by grep and by reading the current token model. Completed 2026-07-12 with stdlib HS256 access JWT issue/verify helpers, `/auth/token` exchange from an authenticated static credential, configurable issuer/audience/TTL, and HeaderTokenAuthenticator JWT/static-token coexistence tests."
     tags:         ["security", "auth", "jwt", "api"]
 
   - id:          "BL-072"

@@ -43,6 +43,7 @@ from doc_ray.entrypoints.api.security import (
     HeaderTokenAuthenticator,
     Principal,
     apply_principal,
+    issue_access_jwt,
     reset_principal,
 )
 from doc_ray.logging_setup import configure_logging
@@ -384,6 +385,30 @@ def _register_job_events_route(app: FastAPI) -> None:
         )
 
 
+def _register_auth_token_route(app: FastAPI, settings: Config) -> None:
+    @app.post("/auth/token")
+    async def issue_api_access_token(request: Request) -> dict[str, Any]:
+        """Exchange an authenticated API credential for a short-lived access JWT."""
+        if not settings.api_jwt_secret:
+            raise HTTPException(status_code=503, detail="JWT access tokens are not configured")
+        authenticator: Authenticator = request.app.state.authenticator
+        principal = await authenticator.authenticate(request)
+        if principal.principal_id is None:
+            raise HTTPException(status_code=401, detail="authentication required")
+        token = issue_access_jwt(
+            principal,
+            secret=settings.api_jwt_secret,
+            issuer=settings.api_jwt_issuer,
+            audience=settings.api_jwt_audience,
+            ttl_seconds=settings.api_jwt_ttl_seconds,
+        )
+        return {
+            "access_token": token,
+            "token_type": "Bearer",
+            "expires_in": settings.api_jwt_ttl_seconds,
+        }
+
+
 async def _get_context(request: Request) -> AsyncIterator[RequestContext]:
     """Yield a per-request context: a pooled connection bound to the principal.
 
@@ -419,6 +444,9 @@ def create_app(cfg: Config | None = None, authenticator: Authenticator | None = 
     auth = authenticator or HeaderTokenAuthenticator(
         tokens=settings.api_tokens,
         allow_anonymous=settings.api_allow_anonymous,
+        jwt_secret=settings.api_jwt_secret,
+        jwt_issuer=settings.api_jwt_issuer,
+        jwt_audience=settings.api_jwt_audience,
     )
     store = ObjectStore(settings)
     pool = AsyncConnectionPool(
@@ -548,6 +576,7 @@ def create_app(cfg: Config | None = None, authenticator: Authenticator | None = 
         """Render a cached PNG image for one original-PDF page."""
         return await _document_page_png_response(document_id, page_number, request)
 
+    _register_auth_token_route(app, settings)
     _register_job_events_route(app)
 
     return app

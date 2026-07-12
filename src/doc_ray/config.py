@@ -94,6 +94,13 @@ class Config:
         api_tokens: API bearer-token map to principal ids and scopes.
         api_allow_anonymous: Whether unauthenticated API requests get anonymous
             RLS-scoped read access instead of HTTP 401.
+        api_jwt_secret: Optional HMAC secret used to issue and verify short-lived
+            API access JWTs. Empty disables JWT support while keeping static
+            bearer tokens available.
+        api_jwt_issuer: Expected ``iss`` claim for locally issued access JWTs.
+        api_jwt_audience: Optional expected ``aud`` claim for locally issued
+            access JWTs.
+        api_jwt_ttl_seconds: Default lifetime for issued access JWTs.
         api_debug: Whether GraphQL introspection and the GraphiQL IDE are
             enabled (BL-108). False in production by default: an anonymous
             caller should not be able to enumerate the schema, including
@@ -122,6 +129,10 @@ class Config:
     api_statement_timeout_ms: int = 15_000
     api_tokens: ApiTokenMap = field(default_factory=dict)
     api_allow_anonymous: bool = True
+    api_jwt_secret: str | None = None
+    api_jwt_issuer: str = "doc-ray"
+    api_jwt_audience: str | None = None
+    api_jwt_ttl_seconds: int = 900
     api_debug: bool = False
     max_upload_bytes: int = 200 * 1024 * 1024
     backup_schedule_seconds: int = 86_400
@@ -155,6 +166,11 @@ class Config:
             api_statement_timeout_ms=_env_int("DOCRAY_API_STATEMENT_TIMEOUT_MS", 15_000),
             api_tokens=_parse_api_tokens(os.environ.get("DOCRAY_API_TOKENS")),
             api_allow_anonymous=_env_bool("DOCRAY_API_ALLOW_ANONYMOUS", True),
+            api_jwt_secret=_env_optional_str("DOCRAY_API_JWT_SECRET"),
+            api_jwt_issuer=os.environ.get("DOCRAY_API_JWT_ISSUER", "doc-ray").strip()
+            or "doc-ray",
+            api_jwt_audience=_env_optional_str("DOCRAY_API_JWT_AUDIENCE"),
+            api_jwt_ttl_seconds=_env_int("DOCRAY_API_JWT_TTL_SECONDS", 900),
             api_debug=_env_bool("DOCRAY_API_DEBUG", False),
             max_upload_bytes=_env_int("DOCRAY_MAX_UPLOAD_MB", 200) * 1024 * 1024,
             backup_schedule_seconds=_env_int("DOCRAY_BACKUP_SCHEDULE_SECONDS", 86_400),
