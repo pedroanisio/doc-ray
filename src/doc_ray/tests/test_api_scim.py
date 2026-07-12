@@ -95,22 +95,27 @@ def test_scim_repository_deactivation_revokes_roles_and_document_grants(pg) -> N
         (user.id, role_id),
     )
     conn.execute(
-        "INSERT INTO document_acl (document_id, principal_id, permission) "
-        "VALUES (%s, %s, 'read')",
+        "INSERT INTO document_acl (document_id, principal_id, permission) VALUES (%s, %s, 'read')",
         (doc_id, user.id),
     )
 
     deactivated = repo.deactivate_user(tenant_id=str(tenant_id), source_id="user-1")
 
     assert deactivated.active is False
-    assert conn.execute(
-        "SELECT count(*) AS n FROM principal_roles WHERE principal_id = %s",
-        (user.id,),
-    ).fetchone()["n"] == 0
-    assert conn.execute(
-        "SELECT count(*) AS n FROM document_acl WHERE principal_id = %s",
-        (user.id,),
-    ).fetchone()["n"] == 0
+    assert (
+        conn.execute(
+            "SELECT count(*) AS n FROM principal_roles WHERE principal_id = %s",
+            (user.id,),
+        ).fetchone()["n"]
+        == 0
+    )
+    assert (
+        conn.execute(
+            "SELECT count(*) AS n FROM document_acl WHERE principal_id = %s",
+            (user.id,),
+        ).fetchone()["n"]
+        == 0
+    )
 
 
 def test_scim_endpoint_creates_tenant_scoped_user_and_group(pg) -> None:

@@ -57,5 +57,9 @@ def test_sensitive_document_abac_migration_seeds_permission_and_helper() -> None
     assert "document_metadata" in sql
     assert "sensitivity" in sql
     assert "GRANT EXECUTE ON FUNCTION docray_current_principal(), docray_current_tenant()" in sql
-    assert "GRANT EXECUTE ON FUNCTION docray_audit_tenant_for_principal(uuid) TO docray_client" in sql
-    assert "GRANT EXECUTE ON FUNCTION docray_abac_document_write_allowed(uuid) TO docray_client" in sql
+    assert (
+        "GRANT EXECUTE ON FUNCTION docray_audit_tenant_for_principal(uuid) TO docray_client" in sql
+    )
+    assert (
+        "GRANT EXECUTE ON FUNCTION docray_abac_document_write_allowed(uuid) TO docray_client" in sql
+    )

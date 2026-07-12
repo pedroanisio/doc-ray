@@ -90,7 +90,9 @@ def test_refresh_endpoint_rotates_presented_refresh_token(monkeypatch):
         _post(app, "/auth/token", headers={"authorization": "Bearer static-token"})
     ).json()
 
-    response = asyncio.run(_post(app, "/auth/refresh", json={"refresh_token": first["refresh_token"]}))
+    response = asyncio.run(
+        _post(app, "/auth/refresh", json={"refresh_token": first["refresh_token"]})
+    )
 
     assert response.status_code == 200
     second = response.json()
@@ -109,7 +111,9 @@ def test_reusing_rotated_refresh_token_revokes_token_family(monkeypatch):
         _post(app, "/auth/refresh", json={"refresh_token": first["refresh_token"]})
     ).json()
 
-    replay = asyncio.run(_post(app, "/auth/refresh", json={"refresh_token": first["refresh_token"]}))
+    replay = asyncio.run(
+        _post(app, "/auth/refresh", json={"refresh_token": first["refresh_token"]})
+    )
     after_replay = asyncio.run(
         _post(app, "/auth/refresh", json={"refresh_token": second["refresh_token"]})
     )

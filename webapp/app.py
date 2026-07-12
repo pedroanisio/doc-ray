@@ -931,9 +931,7 @@ def documents_bulk_action():
             queued = len(data["bulkArchiveDocuments"])
         elif action == "tag":
             tags = [
-                tag.strip()
-                for tag in (request.form.get("tags") or "").split(",")
-                if tag.strip()
+                tag.strip() for tag in (request.form.get("tags") or "").split(",") if tag.strip()
             ]
             if not tags:
                 return redirect(url_for("documents", bulk_error="enter at least one tag"))
@@ -1012,9 +1010,7 @@ def operator_document_metadata_update(doc_id):
     require_operator_health()
     error = submit_metadata_update(gql, doc_id, request.form)
     if error is not None:
-        return redirect(
-            url_for("operator_document_metadata", doc_id=doc_id, metadata_error=error)
-        )
+        return redirect(url_for("operator_document_metadata", doc_id=doc_id, metadata_error=error))
     return redirect(url_for("operator_document_metadata", doc_id=doc_id, metadata_queued=1))
 
 

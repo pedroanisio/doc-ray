@@ -101,9 +101,7 @@ def test_applied_filenames_avoids_missing_schema_migrations_select():
     conn = _MissingSchemaMigrationsConnection()
 
     assert migrate.applied_filenames(conn) == set()
-    assert conn.executed == [
-        "SELECT to_regclass('public.schema_migrations') AS table_name"
-    ]
+    assert conn.executed == ["SELECT to_regclass('public.schema_migrations') AS table_name"]
 
 
 def test_apply_migrations_replays_recorded_idempotent_repairs(monkeypatch, tmp_path):
@@ -112,8 +110,7 @@ def test_apply_migrations_replays_recorded_idempotent_repairs(monkeypatch, tmp_p
         "INSERT INTO schema_migrations (filename) VALUES ('001_init.sql')"
     )
     (tmp_path / repair_name).write_text(
-        "ALTER TABLE document_layout_runs "
-        "ADD COLUMN IF NOT EXISTS page_width double precision"
+        "ALTER TABLE document_layout_runs ADD COLUMN IF NOT EXISTS page_width double precision"
     )
     executed_sql: list[str] = []
 
@@ -146,14 +143,11 @@ def test_apply_migrations_replays_recorded_idempotent_repairs(monkeypatch, tmp_p
 
     assert migrate.apply_migrations(cfg, tmp_path) == []
     assert executed_sql == [
-        "ALTER TABLE document_layout_runs "
-        "ADD COLUMN IF NOT EXISTS page_width double precision"
+        "ALTER TABLE document_layout_runs ADD COLUMN IF NOT EXISTS page_width double precision"
     ]
 
 
-def test_apply_migrations_skips_recorded_repair_when_catalog_is_converged(
-    monkeypatch, tmp_path
-):
+def test_apply_migrations_skips_recorded_repair_when_catalog_is_converged(monkeypatch, tmp_path):
     repair_name = "054_document_layout_run_page_dimensions.sql"
     (tmp_path / repair_name).write_text("SELECT fail_if_replayed()")
     executed_sql: list[str] = []

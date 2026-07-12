@@ -69,9 +69,7 @@ def test_create_app_registers_audit_export_endpoint() -> None:
         )
     )
 
-    assert "/audit/events/export" in {
-        route.path for route in app.routes if hasattr(route, "path")
-    }
+    assert "/audit/events/export" in {route.path for route in app.routes if hasattr(route, "path")}
 
 
 def test_audit_export_endpoint_maps_non_admin_to_forbidden(monkeypatch: pytest.MonkeyPatch) -> None:

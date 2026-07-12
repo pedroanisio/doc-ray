@@ -158,9 +158,7 @@ def oidc_claims_from_code(
     client_id = source.get("DOCRAY_WEBAPP_OIDC_CLIENT_ID", "").strip()
     client_secret = source.get("DOCRAY_WEBAPP_OIDC_CLIENT_SECRET", "")
     issuer = (
-        source.get("DOCRAY_WEBAPP_OIDC_ISSUER")
-        or source.get("DOCRAY_API_OIDC_ISSUER")
-        or ""
+        source.get("DOCRAY_WEBAPP_OIDC_ISSUER") or source.get("DOCRAY_API_OIDC_ISSUER") or ""
     ).strip()
     audience = (
         source.get("DOCRAY_WEBAPP_OIDC_AUDIENCE")

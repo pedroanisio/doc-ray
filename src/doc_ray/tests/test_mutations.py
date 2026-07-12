@@ -161,8 +161,7 @@ def test_metadata_suggestion_mutations_enqueue_and_decide(pg):
             assert enqueued.data["suggestDocumentMetadata"]["kind"] == "suggest_document_metadata"
 
             decided = await schema.execute(
-                "mutation($ids: [ID!]!) { decideDocumentMetadataSuggestions("
-                "approveIds: $ids) }",
+                "mutation($ids: [ID!]!) { decideDocumentMetadataSuggestions(approveIds: $ids) }",
                 variable_values={"ids": [sid]},
                 context_value=ctx,
             )
@@ -279,7 +278,9 @@ def test_reannotate_rejects_sensitive_document_without_extra_abac_grant(pg):
     from pathlib import Path
 
     conn, created = pg
-    migration = Path(__file__).resolve().parents[3] / "db/migrations/064_abac_sensitive_document_policy.sql"
+    migration = (
+        Path(__file__).resolve().parents[3] / "db/migrations/064_abac_sensitive_document_policy.sql"
+    )
     conn.execute(migration.read_text(encoding="utf-8"))
     doc_id = _seed(pg)
     grantee = _make_principal(conn, display_name=f"sensitive-grantee-{new_ulid_str()}")

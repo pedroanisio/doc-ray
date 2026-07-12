@@ -85,9 +85,7 @@ def applied_filenames(conn: psycopg.Connection[Any]) -> set[str]:
     table_row = conn.execute(
         "SELECT to_regclass('public.schema_migrations') AS table_name"
     ).fetchone()
-    table_name = (
-        None if table_row is None else _optional_row_value(table_row, "table_name")
-    )
+    table_name = None if table_row is None else _optional_row_value(table_row, "table_name")
     if not table_name:
         return set()
     rows = conn.execute("SELECT filename AS filename FROM schema_migrations").fetchall()

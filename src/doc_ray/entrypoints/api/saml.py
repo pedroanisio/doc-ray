@@ -37,31 +37,26 @@ class SAMLAssertion:
 
 
 class _Cursor(Protocol):
-    def fetchone(self) -> object:
-        ...
+    def fetchone(self) -> object: ...
 
 
 class _Connection(Protocol):
-    def execute(self, query: str, params: tuple[object, ...] = ...) -> object:
-        ...
+    def execute(self, query: str, params: tuple[object, ...] = ...) -> object: ...
 
 
 class _ConnectionContext(Protocol):
-    async def __aenter__(self) -> _Connection:
-        ...
+    async def __aenter__(self) -> _Connection: ...
 
     async def __aexit__(
         self,
         exc_type: type[BaseException] | None,
         exc: BaseException | None,
         tb: TracebackType | None,
-    ) -> None:
-        ...
+    ) -> None: ...
 
 
 class _PoolLike(Protocol):
-    def connection(self) -> _ConnectionContext:
-        ...
+    def connection(self) -> _ConnectionContext: ...
 
 
 class SAMLPrincipalPool(Protocol):

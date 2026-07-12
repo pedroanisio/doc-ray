@@ -72,8 +72,9 @@ def test_audit_events_admin_read_migration_is_tenant_scoped_and_select_only() ->
     assert "GRANT SELECT ON audit_events TO docray_client" in compact
     assert "GRANT UPDATE" not in compact
     assert "GRANT DELETE" not in compact
-    assert "INSERT INTO schema_migrations (filename) VALUES ('063_audit_events_admin_read.sql')" in (
-        migration
+    assert (
+        "INSERT INTO schema_migrations (filename) VALUES ('063_audit_events_admin_read.sql')"
+        in (migration)
     )
 
 

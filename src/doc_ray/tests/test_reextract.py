@@ -84,8 +84,9 @@ def test_enqueue_reextract_jobs_selects_pdfs_missing_position_data(monkeypatch) 
     enqueued = []
     monkeypatch.setattr(
         "doc_ray.adapters.queue_postgres.enqueue",
-        lambda conn_arg, kind, payload, **kw: enqueued.append((conn_arg, kind, payload, kw))
-        or f"job-{len(enqueued)}",
+        lambda conn_arg, kind, payload, **kw: (
+            enqueued.append((conn_arg, kind, payload, kw)) or f"job-{len(enqueued)}"
+        ),
     )
 
     jobs = reextract.enqueue_reextract_jobs(conn, only_missing_geometry=True)
@@ -99,9 +100,9 @@ def test_enqueue_reextract_jobs_selects_pdfs_missing_position_data(monkeypatch) 
 
 
 def test_object_key_from_source_uri_rejects_other_buckets() -> None:
-    assert reextract.object_key_from_source_uri("s3://docray-test/aa/report.pdf", "docray-test") == (
-        "aa/report.pdf"
-    )
+    assert reextract.object_key_from_source_uri(
+        "s3://docray-test/aa/report.pdf", "docray-test"
+    ) == ("aa/report.pdf")
     with pytest.raises(ValueError, match="does not belong to bucket"):
         reextract.object_key_from_source_uri("s3://other/aa/report.pdf", "docray-test")
 
@@ -164,7 +165,11 @@ def test_backfill_document_geometry_reports_page_progress(monkeypatch) -> None:
     )
     try:
         result = reextract.backfill_document_geometry(
-            ProgressConn(), DOC_ID, b"pdf", "report", ".pdf"  # type: ignore[arg-type]
+            ProgressConn(),
+            DOC_ID,
+            b"pdf",
+            "report",
+            ".pdf",  # type: ignore[arg-type]
         )
     finally:
         domain_progress.reset_progress_reporter(token)

@@ -17,9 +17,7 @@ from fastapi import HTTPException, Request, status
 
 from doc_ray.entrypoints.api.security import ANONYMOUS, Authenticator, Principal
 
-PrincipalResolver = Callable[
-    [str, dict[str, Any]], Principal | None | Awaitable[Principal | None]
-]
+PrincipalResolver = Callable[[str, dict[str, Any]], Principal | None | Awaitable[Principal | None]]
 
 
 class OIDCAuthenticator:
@@ -210,8 +208,10 @@ _RSA_SHA256_DER_PREFIX = bytes.fromhex("3031300d060960864801650304020105000420")
 
 
 def _verify_rs256_jwk(signing_input: str, signature: bytes, key: Mapping[str, Any]) -> None:
-    if key.get("kty") != "RSA" or not isinstance(key.get("n"), str) or not isinstance(
-        key.get("e"), str
+    if (
+        key.get("kty") != "RSA"
+        or not isinstance(key.get("n"), str)
+        or not isinstance(key.get("e"), str)
     ):
         raise ValueError("RS256 OIDC JWT requires an RSA JWK")
     n = int.from_bytes(_b64url_decode(str(key["n"])), "big")

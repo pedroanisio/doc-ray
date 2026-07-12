@@ -105,7 +105,9 @@ def test_oidc_authenticator_validates_jwks_jwt_and_resolves_external_subject() -
     async def resolve(subject: str, claims: dict[str, object]) -> Principal | None:
         assert subject == "user-123"
         assert claims["sub"] == "user-123"
-        return Principal(subject=f"oidc:{subject}", principal_id=principal_id, scopes=frozenset({"read"}))
+        return Principal(
+            subject=f"oidc:{subject}", principal_id=principal_id, scopes=frozenset({"read"})
+        )
 
     authenticator = OIDCAuthenticator(
         issuer="https://issuer.example",

@@ -293,7 +293,10 @@ def test_pptx_extracts_slide_text_structure_and_speaker_notes(monkeypatch):
     e = extract(_zip_bytes({"ppt/presentation.xml": "<p:presentation/>"}), "deck", ".pptx")
 
     assert e.doc_type == "pptx"
-    assert e.content_type == "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+    assert (
+        e.content_type
+        == "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+    )
     assert e.full_text.splitlines() == [
         "# Deck Title",
         "- First bullet",

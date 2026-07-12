@@ -124,8 +124,7 @@ def test_job_progress_update_persists_and_notifies(qconn):
             worker_id="w-progress",
         )
         row = conn.execute(
-            "SELECT progress_current, progress_total, progress_stage "
-            "FROM jobs WHERE id = %s",
+            "SELECT progress_current, progress_total, progress_stage FROM jobs WHERE id = %s",
             (job_id,),
         ).fetchone()
         events = [

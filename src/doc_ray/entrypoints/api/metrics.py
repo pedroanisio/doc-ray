@@ -62,9 +62,7 @@ class HTTPRequestMetrics:
         """Initialize empty request timing buckets."""
         self._graphql: defaultdict[tuple[str, str], _Timing] = defaultdict(_Timing)
 
-    def observe(
-        self, *, path: str, method: str, status_code: int, duration_seconds: float
-    ) -> None:
+    def observe(self, *, path: str, method: str, status_code: int, duration_seconds: float) -> None:
         """Record one HTTP request timing sample."""
         if path != "/graphql":
             return

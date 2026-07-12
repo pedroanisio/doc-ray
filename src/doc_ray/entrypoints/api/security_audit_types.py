@@ -39,9 +39,7 @@ class SecurityAuditEvent:
             occurred_at=row["occurred_at"],
             tenant_id=strawberry.ID(str(tenant_id)) if tenant_id is not None else None,
             actor_principal_id=(
-                strawberry.ID(str(actor_principal_id))
-                if actor_principal_id is not None
-                else None
+                strawberry.ID(str(actor_principal_id)) if actor_principal_id is not None else None
             ),
             actor_subject=row.get("actor_subject"),
             action=row["action"],

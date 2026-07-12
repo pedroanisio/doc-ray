@@ -137,9 +137,7 @@ def test_replace_document_pages_deletes_then_upserts_page_metrics() -> None:
         ],
     )
 
-    assert conn.executed == [
-        ("DELETE FROM document_pages WHERE document_id=%s", ("doc-1",))
-    ]
+    assert conn.executed == [("DELETE FROM document_pages WHERE document_id=%s", ("doc-1",))]
     assert len(conn.cursor_obj.executemany_calls) == 1
     sql, rows = conn.cursor_obj.executemany_calls[0]
     assert "INSERT INTO document_pages" in sql
@@ -154,9 +152,7 @@ def test_replace_document_pages_with_no_metrics_only_deletes_stale_rows() -> Non
 
     persistence.replace_document_pages(conn, "doc-1", None)  # type: ignore[arg-type]
 
-    assert conn.executed == [
-        ("DELETE FROM document_pages WHERE document_id=%s", ("doc-1",))
-    ]
+    assert conn.executed == [("DELETE FROM document_pages WHERE document_id=%s", ("doc-1",))]
     assert conn.cursor_obj.executemany_calls == []
 
 

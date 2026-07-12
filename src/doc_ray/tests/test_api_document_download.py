@@ -196,9 +196,7 @@ def test_document_download_returns_clean_errors_for_unavailable_original(monkeyp
     }
     missing_blob = dict(unavailable, status="extracted")
 
-    pending_app, _ = _app(
-        monkeypatch, unavailable, _Store({"documents/ab/report.pdf": b"body"})
-    )
+    pending_app, _ = _app(monkeypatch, unavailable, _Store({"documents/ab/report.pdf": b"body"}))
     missing_app, _ = _app(monkeypatch, missing_blob, _Store({}))
     absent_app, _ = _app(monkeypatch, None, _Store({}))
 

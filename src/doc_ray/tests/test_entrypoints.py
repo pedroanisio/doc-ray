@@ -245,9 +245,7 @@ def test_semantic_annotation_cli_accumulates_document_totals(monkeypatch, capsys
     assert "Done: discourse=11 timex=22 events=33 sentiment=44 embeddings=55" in out
 
 
-def test_semantic_annotation_cli_returns_one_when_selector_matches_nothing(
-    monkeypatch, capsys
-):
+def test_semantic_annotation_cli_returns_one_when_selector_matches_nothing(monkeypatch, capsys):
     from doc_ray.entrypoints import annotate_semantic
 
     monkeypatch.setattr(annotate_semantic.db, "connect", lambda _cfg: _ConnContext(object()))
@@ -346,9 +344,7 @@ def test_backup_scheduler_rejects_non_positive_interval(monkeypatch):
         ("doc_ray.entrypoints.reextract", "doc_ray.application.reextract"),
     ],
 )
-def test_thin_entrypoint_modules_exit_with_delegated_main(
-    module_name, target_name, monkeypatch
-):
+def test_thin_entrypoint_modules_exit_with_delegated_main(module_name, target_name, monkeypatch):
     target = importlib.import_module(target_name)
     calls: list[bool] = []
 

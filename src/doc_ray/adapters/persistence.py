@@ -72,8 +72,8 @@ def layout_runs_from_page_runs(
         text = str(run.get("text") or "")
         if not text:
             continue
-        bbox = run.get("bbox") or ()
-        if len(bbox) != 4:
+        bbox = run.get("bbox")
+        if bbox is None or len(bbox) != 4:
             continue
         start = full_text.find(text, cursor)
         if start < 0:

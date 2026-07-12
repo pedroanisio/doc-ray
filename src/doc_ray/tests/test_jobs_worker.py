@@ -222,7 +222,9 @@ def test_run_once_does_not_complete_job_canceled_during_handler(qconn, monkeypat
     jid = queue.enqueue(qconn, "cancelable", {"chain": ["unreachable"]}, priority=-10_000)
     monkeypatch.setattr(jobs_mod.queue, "complete", complete_must_not_run)
 
-    jobs_mod.run_once(qconn, None, worker_id="t-cancel", handlers={"cancelable": cancel_during_handler})
+    jobs_mod.run_once(
+        qconn, None, worker_id="t-cancel", handlers={"cancelable": cancel_during_handler}
+    )
 
     row = qconn.execute("SELECT status, result FROM jobs WHERE id=%s", (jid,)).fetchone()
     assert row is not None

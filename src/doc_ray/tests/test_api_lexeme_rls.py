@@ -29,8 +29,7 @@ def _seed_private_lexeme(pg) -> str:
     span_id = db.ensure_spans(conn, doc_id, [(0, 10)])[(0, 10)]
     lexeme_uid, _created = db.get_or_create_lexeme(conn, {}, "zyzzogeton", "NOUN", "en")
     conn.execute(
-        "INSERT INTO lexeme_occurrences (annotation_id, span_id, lexeme_uid) "
-        "VALUES (%s, %s, %s)",
+        "INSERT INTO lexeme_occurrences (annotation_id, span_id, lexeme_uid) VALUES (%s, %s, %s)",
         (annotation_id, span_id, lexeme_uid),
     )
     return lexeme_uid
@@ -44,8 +43,12 @@ def test_anonymous_graphql_lexemes_do_not_reveal_hidden_document_vocabulary(pg) 
         anon_conn = await _aconn_as(None)
         admin_conn = await _aconn_as(ADMIN.principal_id)
         try:
-            anon_ctx = RequestContext(conn=anon_conn, principal=ANONYMOUS, loaders=Loaders(anon_conn))
-            admin_ctx = RequestContext(conn=admin_conn, principal=ADMIN, loaders=Loaders(admin_conn))
+            anon_ctx = RequestContext(
+                conn=anon_conn, principal=ANONYMOUS, loaders=Loaders(anon_conn)
+            )
+            admin_ctx = RequestContext(
+                conn=admin_conn, principal=ADMIN, loaders=Loaders(admin_conn)
+            )
 
             anonymous_list = await schema.execute(
                 'query { lexemes(q: "zyzzogeton", limit: 10) { uid lemma uses } }',
