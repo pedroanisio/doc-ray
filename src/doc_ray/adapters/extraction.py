@@ -406,6 +406,7 @@ class _HTMLText(_HTMLParser):
 
     _SKIP = {"script", "style", "head", "title"}
     _BREAK = {"p", "br", "div", "li", "h1", "h2", "h3", "h4", "h5", "h6", "tr"}
+    _HEADINGS = {"h1": 1, "h2": 2, "h3": 3, "h4": 4, "h5": 5, "h6": 6}
 
     def __init__(self) -> None:
         """Initialize the parser with charref conversion enabled."""
@@ -415,13 +416,19 @@ class _HTMLText(_HTMLParser):
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         """Track skip depth for hidden tags and emit breaks for block tags."""
+        tag = tag.lower()
         if tag in self._SKIP:
             self._skip += 1
+        elif tag in self._HEADINGS:
+            self.parts.append(f"\n{'#' * self._HEADINGS[tag]} ")
+        elif tag == "li":
+            self.parts.append("\n- ")
         elif tag in self._BREAK:
             self.parts.append("\n")
 
     def handle_endtag(self, tag: str) -> None:
         """Unwind skip depth and emit a trailing break for block tags."""
+        tag = tag.lower()
         if tag in self._SKIP and self._skip:
             self._skip -= 1
         elif tag in self._BREAK:
@@ -437,7 +444,8 @@ def _html_to_text(html: str) -> str:
     """Return the visible text of an HTML/XHTML string."""
     p = _HTMLText()
     p.feed(html)
-    return "".join(p.parts)
+    raw = "".join(p.parts)
+    return "\n".join(line.strip() for line in raw.splitlines() if line.strip())
 
 
 class _HTMLRender(_HTMLParser):

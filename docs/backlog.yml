@@ -3013,7 +3013,7 @@ items:
       vocabulary the reader already understands.
     category:     "extraction"
     type:         "tech-debt"
-    status:       "parked"
+    status:       "done"
     complexity:   "M"
     priority:     "medium"
     rationale:    "Confirmed live total flattening, not a partial gap — h1 and a bare div produce identically-shaped output today. Because EPUB extraction is built directly on this same HTML stripper, fixing it once fixes both formats."
@@ -3025,7 +3025,7 @@ items:
     references:
       - "src/doc_ray/adapters/extraction.py"
     owner:        "shared"
-    source:       "Feature request 2026-07-05: audit docx/html/epub for structural-extraction gaps while designing pptx/svg ingestion; verified _HTMLText flattens all block tags identically with no heading/list distinction."
+    source:       "Feature request 2026-07-05: audit docx/html/epub for structural-extraction gaps while designing pptx/svg ingestion; verified _HTMLText flattens all block tags identically with no heading/list distinction. Completed 2026-07-12 by emitting Markdown heading/list markers from the shared HTML/EPUB parser and adding HTML plus EPUB regression fixtures."
     tags:         ["extraction", "html", "epub", "structure", "tech-debt"]
 
   - id:          "BL-093"

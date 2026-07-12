@@ -331,7 +331,7 @@ which is modifying the same queue plumbing as this is written.
 | BL-089 | Extraction support for PPTX: text and structure from slide/placeholder data | extraction | feature | parked | M | medium | shared |
 | BL-090 | Extraction support for SVG: text and structure from font-size/weight classification | extraction | feature | done | S | medium | shared |
 | BL-091 | DOCX: reconstruct heading/list structure from paragraph styles | extraction | tech-debt | parked | S | medium | shared |
-| BL-092 | HTML/EPUB: reconstruct heading/list structure instead of flattening all block tags | extraction | tech-debt | parked | M | medium | shared |
+| BL-092 | HTML/EPUB: reconstruct heading/list structure instead of flattening all block tags | extraction | tech-debt | done | M | medium | shared |
 | BL-093 | Format-extraction coverage guard: every registered extractor has a golden-fixture test | testing | infra | done | XS | medium | shared |
 | BL-094 | Backup download route is completely unauthenticated and bypasses RLS | security | bug | done | S | critical | shared |
 | BL-095 | Duplicate re-upload silently downgrades a document's stored Content-Type | persistence | bug | done | XS | low | shared |

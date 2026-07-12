@@ -74,6 +74,25 @@ def test_html_strips_scripts_and_tags():
     assert "x=1" not in e.full_text and "<p>" not in e.full_text  # tags/scripts gone
 
 
+def test_html_emits_markdown_headings_and_list_items():
+    html = (
+        b"<html><body><h1>Document Title</h1><p>Lead paragraph.</p>"
+        b"<h2>Findings</h2><ul><li>First finding</li><li>Second finding</li></ul>"
+        b"</body></html>"
+    )
+
+    e = extract(html, "structured-html", ".html")
+
+    assert e.doc_type == "html"
+    assert e.full_text.splitlines() == [
+        "# Document Title",
+        "Lead paragraph.",
+        "## Findings",
+        "- First finding",
+        "- Second finding",
+    ]
+
+
 def _minimal_svg() -> bytes:
     return b"""<?xml version="1.0" encoding="UTF-8"?>
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 100">
@@ -192,12 +211,69 @@ def test_epub_reads_in_spine_order():
     assert e.full_text.index("First chapter.") < e.full_text.index("Second chapter.")
 
 
+def test_epub_emits_markdown_headings_and_list_items():
+    data = _epub_with_documents(
+        {
+            "OEBPS/ch1.xhtml": (
+                '<html xmlns="http://www.w3.org/1999/xhtml"><body>'
+                "<h1>Chapter Title</h1><p>Opening.</p><ol><li>Step one</li><li>Step two</li></ol>"
+                "</body></html>"
+            )
+        },
+        spine=("OEBPS/ch1.xhtml",),
+    )
+
+    e = extract(data, "structured-book", ".epub")
+
+    assert e.doc_type == "epub"
+    assert e.full_text.splitlines() == [
+        "# Chapter Title",
+        "Opening.",
+        "- Step one",
+        "- Step two",
+    ]
+
+
 # ---------------------------------------------------------------------------
 # BL-088 — EPUB/DOCX (both zip+XML containers) had no decompressed-size cap
 # and no entity-expansion hardening: a small malicious file could exhaust
 # memory/CPU (zip bomb) or trigger entity-expansion blowup before any real
 # parsing began.
 # ---------------------------------------------------------------------------
+
+
+def _epub_with_documents(documents: Mapping[str, str], *, spine: tuple[str, ...]) -> bytes:
+    """Build a minimal EPUB containing the given XHTML content documents."""
+    manifest_items = []
+    spine_refs = []
+    for index, path in enumerate(documents, start=1):
+        item_id = f"c{index}"
+        href = path.removeprefix("OEBPS/")
+        manifest_items.append(
+            f'<item id="{item_id}" href="{href}" media-type="application/xhtml+xml"/>'
+        )
+        if path in spine:
+            spine_refs.append(f'<itemref idref="{item_id}"/>')
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        z.writestr("mimetype", "application/epub+zip")
+        z.writestr(
+            "META-INF/container.xml",
+            '<?xml version="1.0"?><container version="1.0" '
+            'xmlns="urn:oasis:names:tc:opendocument:xmlns:container">'
+            '<rootfiles><rootfile full-path="OEBPS/content.opf" '
+            'media-type="application/oebps-package+xml"/></rootfiles></container>',
+        )
+        z.writestr(
+            "OEBPS/content.opf",
+            '<?xml version="1.0"?><package xmlns="http://www.idpf.org/2007/opf" version="3.0">'
+            f"<manifest>{''.join(manifest_items)}</manifest>"
+            f"<spine>{''.join(spine_refs)}</spine></package>",
+        )
+        for path, content in documents.items():
+            z.writestr(path, content)
+    return buf.getvalue()
 
 
 def _epub_with_padding(padding_bytes: int) -> bytes:
