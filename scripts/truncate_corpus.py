@@ -6,6 +6,9 @@ job queue, while preserving what a fresh corpus still needs:
 * schema bookkeeping (``schema_migrations``, ``schema_version``)
 * auth config (``principals``/``roles``/``permissions`` and join tables), so
   configured ``DOCRAY_API_TOKENS`` principal mappings keep working
+* tenant and IdP-managed provisioning state (``tenants``, SCIM groups, SAML
+  identity-provider config), so corpus resets do not deconfigure access
+* append-only security audit history (``audit_events``)
 * the curated canonical registry (``canonical``, ``canonical_merge``,
   ``form_index``), so new documents canonicalize against existing curation
 * the ``backups`` catalog (existing archives stay restorable)
@@ -92,6 +95,11 @@ PRESERVED_TABLES = (
     "roles",
     "permissions",
     "role_permissions",
+    "tenants",
+    "scim_groups",
+    "scim_group_members",
+    "tenant_saml_identity_providers",
+    "audit_events",
     "canonical",
     "canonical_merge",
     "form_index",

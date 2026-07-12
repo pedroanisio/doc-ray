@@ -143,7 +143,7 @@ canonicalization curation: `seedSuggestions` / `canonical` /
 `canonicalSearch` / `unresolvedMentions` / `resolutionReview` (reads),
 `suggestSeeds` / `decideSeeds` / `seedApproved` (writes). Backup/restore:
 `createBackup` / `restoreBackup` (see [Backup & restore](#backup--restore)
-below).
+below). Security audit readback: `auditEvents` (admin-scoped).
 
 API authentication is token-to-principal based. Set
 `DOCRAY_API_TOKENS='token=principal_uuid[:read+write]'` to map bearer tokens (or

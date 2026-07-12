@@ -58,6 +58,23 @@ doc-ray carries **one global version** covering both the application package
   golden-case drift guard for every registered extractor extension, so future
   PPTX/SVG registrations fail tests until they ship with format coverage.
 
+## [1.19.0] - 2026-07-12
+
+### Added
+- **Tenant-scoped SAML identity-provider configuration** (Codex GPT-5) —
+  BL-067 adds `tenant_saml_identity_providers`, letting each tenant configure
+  its SAML entity, metadata, service-provider entity, ACS URL, signature
+  policy, and JIT provisioning posture without sharing IdP state across
+  tenants.
+
+## [1.18.0] - 2026-07-12
+
+### Added
+- **Tenant foundation, security audit events, ABAC hooks, and SCIM
+  provisioning** (Codex GPT-5) — BL-064/BL-065/BL-068 add tenant ownership for
+  principals/documents, append-only security audit events with admin readback,
+  sensitive-document write checks, and SCIM-managed principal/group state.
+
 ## [1.17.0] - 2026-07-12
 
 ### Added
