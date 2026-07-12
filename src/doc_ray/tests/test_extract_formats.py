@@ -5,6 +5,8 @@ from __future__ import annotations
 import io
 import json
 import subprocess
+import sys
+import types
 import zipfile
 from collections.abc import Callable, Mapping
 
@@ -33,6 +35,14 @@ def test_all_registered_extractors_have_golden_fixture_case():
 
 def _bytes(value: bytes) -> Callable[[], bytes]:
     return lambda: value
+
+
+def _zip_bytes(files: Mapping[str, str]) -> bytes:
+    out = io.BytesIO()
+    with zipfile.ZipFile(out, "w") as z:
+        for name, text in files.items():
+            z.writestr(name, text)
+    return out.getvalue()
 
 
 def _minimal_pdf() -> bytes:
@@ -135,6 +145,42 @@ def test_svg_emits_markdown_headings_from_font_size_and_weight():
         "Body line one.",
         "Body line two.",
         "### Short Bold Label",
+    ]
+
+
+def test_docx_emits_markdown_headings_and_list_items(monkeypatch):
+    class _Style:
+        def __init__(self, name: str) -> None:
+            self.name = name
+
+    class _Paragraph:
+        def __init__(self, text: str, style: str) -> None:
+            self.text = text
+            self.style = _Style(style)
+
+    class _Document:
+        paragraphs = [
+            _Paragraph("Document Title", "Heading 1"),
+            _Paragraph("Lead paragraph.", "Normal"),
+            _Paragraph("Findings", "Heading 2"),
+            _Paragraph("First finding", "List Bullet"),
+            _Paragraph("Second finding", "List Number"),
+            _Paragraph("Appendix", "Heading 3"),
+        ]
+
+    fake_docx = types.SimpleNamespace(Document=lambda stream: _Document())
+    monkeypatch.setitem(sys.modules, "docx", fake_docx)
+
+    e = extract(_zip_bytes({"word/document.xml": "<w:document/>"}), "structured-docx", ".docx")
+
+    assert e.doc_type == "docx"
+    assert e.full_text.splitlines() == [
+        "# Document Title",
+        "Lead paragraph.",
+        "## Findings",
+        "- First finding",
+        "- Second finding",
+        "### Appendix",
     ]
 
 

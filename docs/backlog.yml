@@ -2982,7 +2982,7 @@ items:
       rather than an inferred font-size ratio.
     category:     "extraction"
     type:         "tech-debt"
-    status:       "parked"
+    status:       "done"
     complexity:   "S"
     priority:     "medium"
     rationale:    "This is a currently-real, currently-shipping information loss for an already-supported format, not a hypothetical gap — every DOCX document ingested today silently loses heading/list structure that Word itself recorded and python-docx already exposes for free."
@@ -2995,7 +2995,7 @@ items:
       - "src/doc_ray/adapters/extraction.py"
       - "src/doc_ray/domain/pdf_layout.py"
     owner:        "shared"
-    source:       "Feature request 2026-07-05: audit docx/html/epub for structural-extraction gaps while designing pptx/svg ingestion; verified python-docx already exposes paragraph.style.name unused by extract_docx."
+    source:       "Feature request 2026-07-05: audit docx/html/epub for structural-extraction gaps while designing pptx/svg ingestion; verified python-docx already exposes paragraph.style.name unused by extract_docx. Completed 2026-07-12 by mapping DOCX Heading 1-6 and List Bullet/List Number styles onto the shared Markdown structural vocabulary with dependency-free regression coverage."
     tags:         ["extraction", "docx", "structure", "tech-debt"]
 
   - id:          "BL-092"

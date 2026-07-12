@@ -782,6 +782,21 @@ def extract_svg(data: bytes, fallback_title: str) -> Extracted:
     return replace(extracted, title=_svg_title(root, fallback_title))
 
 
+def _docx_style_name(paragraph: object) -> str:
+    style = getattr(paragraph, "style", None)
+    return str(getattr(style, "name", "") or "").strip()
+
+
+def _docx_structured_line(text: str, style_name: str) -> str:
+    normalized = _re.sub(r"\s+", " ", style_name.strip().lower())
+    heading_match = _re.fullmatch(r"heading ([1-6])", normalized)
+    if heading_match:
+        return f"{'#' * int(heading_match.group(1))} {text}"
+    if normalized.startswith(("list bullet", "list number")):
+        return f"- {text}"
+    return text
+
+
 def extract_docx(data: bytes, fallback_title: str) -> Extracted:
     """Extract text from a DOCX using python-docx.
 
@@ -802,15 +817,19 @@ def extract_docx(data: bytes, fallback_title: str) -> Extracted:
     with zipfile.ZipFile(io.BytesIO(data)) as zf:
         _check_zip_bomb_bounds(zf)
     document = docx.Document(io.BytesIO(data))
-    paragraphs = [p.text for p in document.paragraphs if p.text]
+    paragraphs = [
+        (_docx_structured_line(p.text, _docx_style_name(p)), p.text)
+        for p in document.paragraphs
+        if p.text
+    ]
     return _text_extracted(
-        "\n".join(paragraphs),
+        "\n".join(line for line, _text in paragraphs),
         fallback_title,
         doc_type="docx",
         extractor="python-docx",
         content_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         metadata={
-            "render_html": "".join(f"<p>{_html_escape(text)}</p>" for text in paragraphs)
+            "render_html": "".join(f"<p>{_html_escape(text)}</p>" for _line, text in paragraphs)
         },
     )
 
