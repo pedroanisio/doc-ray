@@ -33,6 +33,55 @@ Row = dict[str, Any]
 
 
 @strawberry.type
+class DocumentCollection:
+    """A manual or smart grouping of documents."""
+
+    id: strawberry.ID
+    name: str
+    description: str
+    kind: str
+    rule: JSON
+    rule_summary: str
+    document_count: int
+    created_at: datetime
+    updated_at: datetime
+    cursor: str
+
+    @classmethod
+    def from_row(cls, row: Row) -> DocumentCollection:
+        """Build a ``DocumentCollection`` from a read-adapter row."""
+        return cls(
+            id=strawberry.ID(str(row["id"])),
+            name=row["name"],
+            description=row.get("description") or "",
+            kind=row["kind"],
+            rule=cast(JSON, row.get("rule") or {}),
+            rule_summary=row.get("rule_summary") or "",
+            document_count=int(row.get("document_count") or 0),
+            created_at=row["created_at"],
+            updated_at=row["updated_at"],
+            cursor=row.get("cursor") or str(row["id"]),
+        )
+
+    @strawberry.field
+    async def documents(
+        self, info: Info, limit: int = 50, after: str | None = None
+    ) -> list[Document]:
+        """Return visible documents that currently belong to this collection."""
+        rows = await read.list_collection_documents(
+            info.context.conn,
+            {
+                "id": str(self.id),
+                "kind": self.kind,
+                "rule": self.rule,
+            },
+            limit=info.context.page_size(limit),
+            after=after,
+        )
+        return [Document.from_row(row) for row in rows]
+
+
+@strawberry.type
 class MetadataEntry:
     """One document metadata entry."""
 
@@ -217,6 +266,12 @@ class Document:
         """Resolve the document's metadata via the batched loader."""
         data = await info.context.loaders.metadata.load(str(self.id))
         return [MetadataEntry(key=k, value=v) for k, v in data.items()]
+
+    @strawberry.field
+    async def collections(self, info: Info) -> list[DocumentCollection]:
+        """Return collections that include this document."""
+        rows = await read.collections_for_document(info.context.conn, str(self.id))
+        return [DocumentCollection.from_row(row) for row in rows]
 
     @strawberry.field
     async def sentence_count(self, info: Info) -> int:

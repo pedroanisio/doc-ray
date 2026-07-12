@@ -27,6 +27,7 @@ from doc_ray.entrypoints.api.security_audit import record_audit_event
 from doc_ray.entrypoints.api.security_audit_types import SecurityAuditEvent
 from doc_ray.entrypoints.api.types import (
     Document,
+    DocumentCollection,
     DocumentHit,
     EntityFrequency,
     EntityMention,
@@ -107,6 +108,32 @@ class Query:
                 outcome="success",
             )
         return Document.from_row(row) if row is not None else None
+
+    @strawberry.field
+    async def collections(
+        self,
+        info: Info,
+        limit: int = 50,
+        after: str | None = None,
+        kind: str | None = None,
+    ) -> list[DocumentCollection]:
+        """Return manual and smart document collections with visible document counts."""
+        rows = await read.list_collections(
+            info.context.conn,
+            limit=info.context.page_size(limit),
+            after=after,
+            kind=kind,
+        )
+        return [DocumentCollection.from_row(row) for row in rows]
+
+    @strawberry.field
+    async def collection(self, info: Info, id: strawberry.ID) -> DocumentCollection | None:
+        """Return one document collection, or ``None`` if *id* is malformed or unknown."""
+        collection_id = _clean_uuid(str(id))
+        if collection_id is None:
+            return None
+        row = await read.get_collection(info.context.conn, collection_id)
+        return DocumentCollection.from_row(row) if row is not None else None
 
     @strawberry.field
     async def audit_events(

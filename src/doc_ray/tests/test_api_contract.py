@@ -55,6 +55,18 @@ def test_graphql_exposes_document_metadata_suggestion_surface():
     assert "confidenceBand" in sdl
 
 
+def test_graphql_exposes_document_collections_surface():
+    sdl = build_schema().as_str()
+
+    assert "collections(" in sdl
+    assert "collection(" in sdl
+    assert "createCollection(" in sdl
+    assert "addDocumentToCollection(" in sdl
+    assert "removeDocumentFromCollection(" in sdl
+    assert "type DocumentCollection" in sdl
+    assert "collections(" in sdl[sdl.index("type Document "):]
+
+
 def test_graphql_job_type_exposes_queue_timing_and_attempts():
     sdl = build_schema().as_str()
 
@@ -74,6 +86,8 @@ def test_graphql_query_resolvers_delegate_to_read_adapter_without_sql():
     for delegate in (
         "read.list_documents",
         "read.get_document",
+        "read.list_collections",
+        "read.get_collection",
         "read.search_sentences",
         "read.fulltext_search",
         "read.list_lexemes",

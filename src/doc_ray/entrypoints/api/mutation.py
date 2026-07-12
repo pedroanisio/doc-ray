@@ -9,6 +9,7 @@ completion.
 from __future__ import annotations
 
 import hashlib
+import json
 import uuid
 from pathlib import Path
 from typing import Any, cast
@@ -16,9 +17,11 @@ from typing import Any, cast
 import strawberry
 from starlette.datastructures import UploadFile
 from strawberry.file_uploads import Upload
+from strawberry.scalars import JSON
 
 from doc_ray.adapters import abac
 from doc_ray.adapters import document_metadata_suggestion_store as metadata_suggestions
+from doc_ray.adapters import persistence_read as read
 from doc_ray.adapters import queue_postgres as queue
 from doc_ray.adapters import seed_suggestion_store as seeds
 from doc_ray.correlation import payload_with_request_metadata
@@ -42,7 +45,7 @@ from doc_ray.domain.jobs import (
 )
 from doc_ray.entrypoints.api.context import MAX_BATCH_IDS, RequestContext
 from doc_ray.entrypoints.api.security_audit import record_audit_event
-from doc_ray.entrypoints.api.types import Info, Job
+from doc_ray.entrypoints.api.types import DocumentCollection, Info, Job
 
 #: The default post-ingest pipeline: Stage-1 annotation, deterministic semantic
 #: enrichment, then deterministic canonicalization. The frontier resolver is never
@@ -173,6 +176,61 @@ async def _require_admin(ctx: RequestContext, *, action: str = "mutation.admin")
             details={"reason": "admin_required"},
         )
         raise PermissionError("this mutation requires an admin principal")
+
+
+def _clean_collection_kind(kind: str) -> str:
+    clean = kind.strip().lower()
+    if clean not in {"manual", "smart"}:
+        raise ValueError("collection kind must be 'manual' or 'smart'")
+    return clean
+
+
+def _clean_collection_rule(
+    rule: JSON | None,
+    *,
+    doc_type: str | None = None,
+    status: str | None = None,
+    tags: list[str] | None = None,
+) -> dict[str, Any]:
+    clean: dict[str, Any] = dict(rule) if isinstance(rule, dict) else {}
+    if doc_type is not None and doc_type.strip():
+        clean["doc_type"] = doc_type.strip().lower()
+    if status is not None and status.strip():
+        clean["status"] = status.strip().lower()
+    if tags is not None:
+        clean_tags = sorted({tag.strip() for tag in tags if tag and tag.strip()})
+        if clean_tags:
+            clean["tags"] = clean_tags
+        else:
+            clean.pop("tags", None)
+    return {
+        key: value
+        for key, value in clean.items()
+        if key in {"doc_type", "status", "tags"} and value not in (None, "", [])
+    }
+
+
+async def _collection_status(ctx: RequestContext, collection_id: str) -> DocumentCollection:
+    try:
+        uuid.UUID(collection_id)
+    except ValueError as exc:
+        raise ValueError(f"unknown collection {collection_id}") from exc
+    row = await read.get_collection(ctx.conn, collection_id)
+    if row is None:
+        raise ValueError(f"unknown collection {collection_id}")
+    return DocumentCollection.from_row(row)
+
+
+async def _require_manual_collection(ctx: RequestContext, collection_id: str) -> None:
+    try:
+        uuid.UUID(collection_id)
+    except ValueError as exc:
+        raise ValueError(f"unknown collection {collection_id}") from exc
+    row = await read.get_collection(ctx.conn, collection_id)
+    if row is None:
+        raise ValueError(f"unknown collection {collection_id}")
+    if row["kind"] != "manual":
+        raise ValueError("only manual collections can be edited directly")
 
 
 _UPLOAD_CHUNK_BYTES = 1024 * 1024
@@ -407,6 +465,105 @@ class Mutation:
             )
             jobs.append(await _job_status(ctx, job_id))
         return jobs
+
+    @strawberry.mutation
+    async def create_collection(
+        self,
+        info: Info,
+        name: str,
+        description: str = "",
+        kind: str = "manual",
+        rule: JSON | None = None,
+        doc_type: str | None = None,
+        status: str | None = None,
+        tags: list[str] | None = None,
+    ) -> DocumentCollection:
+        """Create a manual or smart document collection and return it."""
+        ctx = info.context
+        await _require_write_audited(ctx, action="mutation.create_collection")
+        clean_name = name.strip()
+        if not clean_name:
+            raise ValueError("collection name is required")
+        clean_kind = _clean_collection_kind(kind)
+        clean_rule = (
+            _clean_collection_rule(rule, doc_type=doc_type, status=status, tags=tags)
+            if clean_kind == "smart"
+            else {}
+        )
+        cur = await ctx.conn.execute(
+            """
+            INSERT INTO document_collections (name, description, kind, rule)
+            VALUES (%s, %s, %s, %s::jsonb)
+            RETURNING id
+            """,
+            (clean_name, description.strip(), clean_kind, json.dumps(clean_rule, sort_keys=True)),
+        )
+        row = await cur.fetchone()
+        await _audit_mutation_event(
+            ctx,
+            action="mutation.create_collection",
+            target_type="collection",
+            target_id=str(row["id"]) if row else None,
+            outcome="success",
+        )
+        return await _collection_status(ctx, str(row["id"]))
+
+    @strawberry.mutation
+    async def add_document_to_collection(
+        self, info: Info, collection_id: strawberry.ID, document_id: strawberry.ID
+    ) -> DocumentCollection:
+        """Add one document to a manual collection."""
+        ctx = info.context
+        doc_id = str(document_id)
+        coll_id = str(collection_id)
+        await _require_document_write(ctx, doc_id, action="mutation.add_document_to_collection")
+        await _require_manual_collection(ctx, coll_id)
+        await ctx.conn.execute(
+            """
+            INSERT INTO document_collection_members (collection_id, document_id)
+            VALUES (%s, %s)
+            ON CONFLICT DO NOTHING
+            """,
+            (coll_id, doc_id),
+        )
+        await _audit_mutation_event(
+            ctx,
+            action="mutation.add_document_to_collection",
+            target_type="collection",
+            target_id=coll_id,
+            outcome="success",
+            details={"document_id": doc_id},
+        )
+        return await _collection_status(ctx, coll_id)
+
+    @strawberry.mutation
+    async def remove_document_from_collection(
+        self, info: Info, collection_id: strawberry.ID, document_id: strawberry.ID
+    ) -> DocumentCollection:
+        """Remove one document from a manual collection."""
+        ctx = info.context
+        doc_id = str(document_id)
+        coll_id = str(collection_id)
+        await _require_document_write(
+            ctx, doc_id, action="mutation.remove_document_from_collection"
+        )
+        await _require_manual_collection(ctx, coll_id)
+        await ctx.conn.execute(
+            """
+            DELETE FROM document_collection_members
+            WHERE collection_id = %s AND document_id = %s
+            """,
+            (coll_id, doc_id),
+        )
+        await _audit_mutation_event(
+            ctx,
+            action="mutation.remove_document_from_collection",
+            target_type="collection",
+            target_id=coll_id,
+            outcome="success",
+            details={"document_id": doc_id},
+        )
+        return await _collection_status(ctx, coll_id)
 
     @strawberry.mutation
     async def update_document_metadata(
