@@ -110,7 +110,7 @@ metadata:
   generated_by:     "Claude Sonnet 5 via Claude Code (merge of Claude Opus 4.8 backlog + OpenAI Codex improvement-proposal candidates)"
   generated_on:     "2026-07-05"
   system_of_record: "docs/backlog.yml"
-  total_items:      130
+  total_items:      131
 
 items:
 
@@ -4285,3 +4285,35 @@ items:
     owner:        "shared"
     source:       "Found 2026-07-12 during the gate-restoration sweep; confirmed pre-existing via stash round-trip on clean HEAD."
     tags:         ["testing", "jwt", "auth", "bug"]
+
+  - id:          "BL-131"
+    title:        "Webapp collection writes silently rolled back — created collections vanished after the redirect"
+    summary:      "Operator-reported: creating a collection redirected to /collections/<id> which rendered 'Collection not found'. The BL-057 collection routes write directly through the webapp's request connection (unlike every other webapp write, which goes through the GraphQL API), get_conn() opened psycopg without autocommit, and request teardown closed the connection — rolling back the open implicit transaction. INSERT ... RETURNING id fed the redirect from inside the doomed transaction, so creation looked successful while persisting nothing. Member add/remove suffered identically."
+    description: |
+      Fixed: the request-scoped connection is now autocommit=True, matching
+      every other psycopg connection in the codebase (worker, CLIs, test
+      harness); reads are unaffected and each direct write commits at
+      execute time.
+
+      Test-harness lesson recorded for posterity: the webapp suite's
+      ``client`` fixture monkeypatches ``q``/``q1`` wholesale, so the
+      existing collection tests asserted SQL strings against fakes and could
+      never observe transaction semantics. The regression test added here
+      drives the real request/connection lifecycle (create in one request,
+      read back in a second) and was verified to fail with the fix reverted.
+    category:     "webapp"
+    type:         "bug"
+    status:       "done"
+    complexity:   "XS"
+    priority:     "high"
+    rationale:    "A write path that reports success and persists nothing is worse than an error: the operator loses work with no signal. Every direct-write webapp route was affected."
+    acceptance_criteria:
+      - "Creating a collection in one request and fetching its detail page in a second request returns 200 with the collection rendered."
+      - "The regression test exercises the real connection lifecycle (no q/q1 fakes) and fails when autocommit is removed."
+    dependencies: []
+    references:
+      - "webapp/app.py"
+      - "tests/test_webapp.py"
+    owner:        "shared"
+    source:       "Operator bug report 2026-07-12 (screenshot: Collection not found after create). Added and completed the same session."
+    tags:         ["webapp", "collections", "transactions", "bug"]

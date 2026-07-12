@@ -290,6 +290,15 @@ consumption) and `BL-130` (ready/S/high — the signed-access-JWT acceptance
 test fails on clean main, root-cause required). Both stem from fleet landings
 running pytest but skipping the static gates.
 
+**2026-07-12 collection-rollback bug (operator report):** added and completed
+`BL-131` (XS/high). Collection create/member writes went directly through the
+webapp's request connection — opened without autocommit — so request teardown
+rolled back every write after the redirect had already been issued from inside
+the doomed transaction. Fixed with autocommit on the request connection; the
+regression test drives the real connection lifecycle across two requests,
+because the suite's `client` fixture fakes `q`/`q1` wholesale and structurally
+cannot see transaction bugs.
+
 ## Items
 
 | ID | Item | Category | Type | Status | Cx | Priority | Owner |
@@ -424,6 +433,7 @@ running pytest but skipping the static gates.
 | BL-128 | auth_admin CLI: raw traceback on unreachable DB, divergent host-side DB defaults, and no operator docs | tooling | bug | done | S | medium | shared |
 | BL-129 | Restore the D-015 400-net-LOC gate: 12 files are over the cap after tonight's landings | tooling | tech-debt | ready | L | high | shared |
 | BL-130 | test_api_jwt signed-access-JWT acceptance test fails on clean main | testing | bug | ready | S | high | shared |
+| BL-131 | Webapp collection writes silently rolled back — created collections vanished after the redirect | webapp | bug | done | XS | high | shared |
 
 See [`backlog.yml`](backlog.yml) for each item's full description, rationale,
 acceptance criteria, dependencies, related decisions (`D-###`), and references.

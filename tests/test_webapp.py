@@ -53,6 +53,45 @@ def _fake_health_q(s: str):
                 "heartbeat_age_s": 301,
             }
         ]
+    if "FROM jobs j LEFT JOIN documents d" in s:
+        return [
+            {
+                "id": "job-stale",
+                "kind": "annotate",
+                "status": "running",
+                "attempts": 3,
+                "max_attempts": 3,
+                "locked_by": "worker-7",
+                "document_id": DOC_ID,
+                "document_title": "orwell1984",
+                "progress_current": 3,
+                "progress_total": 7,
+                "progress_stage": "Registering token and entity spans",
+                "runtime_s": 4389,
+                "heartbeat_age_s": 14,
+                "queued_age_s": 4389,
+                "reclaim_after_s": 286,
+                "error": "reclaimed: stale heartbeat",
+            },
+            {
+                "id": "job-queued",
+                "kind": "ingest",
+                "status": "queued",
+                "attempts": 0,
+                "max_attempts": 3,
+                "locked_by": None,
+                "document_id": None,
+                "document_title": None,
+                "progress_current": None,
+                "progress_total": None,
+                "progress_stage": None,
+                "runtime_s": None,
+                "heartbeat_age_s": None,
+                "queued_age_s": 52,
+                "reclaim_after_s": None,
+                "error": "",
+            },
+        ]
     if "FROM pg_stat_activity" in s:
         return [
             {
@@ -951,9 +990,7 @@ def test_document_metadata_update_error_redirects_with_message(client, monkeypat
     monkeypatch.setattr(webapp, "gql", raising_gql)
 
     token = _csrf_token_from(client.get(f"/doc/{DOC_ID}").get_data(as_text=True))
-    resp = client.post(
-        f"/doc/{DOC_ID}/metadata", data={"title": "New Title", "csrf_token": token}
-    )
+    resp = client.post(f"/doc/{DOC_ID}/metadata", data={"title": "New Title", "csrf_token": token})
 
     assert resp.status_code == 302
     assert "metadata_error=permission+denied" in resp.headers["Location"]
@@ -1131,9 +1168,7 @@ def test_document_original_overlay_can_toggle_to_entity_canonical_boxes(client, 
 
     monkeypatch.setattr(webapp, "q", entity_q)
 
-    html = client.get(f"/doc/{DOC_ID}?view=original&page=2&overlay=entities").get_data(
-        as_text=True
-    )
+    html = client.get(f"/doc/{DOC_ID}?view=original&page=2&overlay=entities").get_data(as_text=True)
 
     assert 'href="?page=2&view=original&overlay=grammar"' in html
     assert 'href="?page=2&view=original&overlay=entities"' in html
@@ -1260,9 +1295,11 @@ def test_lexemes_empty_state(client, monkeypatch):
     monkeypatch.setattr(
         webapp,
         "q",
-        lambda sql, params=(): []
-        if "count(o.*) AS uses" in sql and "JOIN lexeme_occurrences" in sql
-        else fake_q(sql, params),
+        lambda sql, params=(): (
+            []
+            if "count(o.*) AS uses" in sql and "JOIN lexeme_occurrences" in sql
+            else fake_q(sql, params)
+        ),
     )
     html = client.get("/lexemes?q=zzzzz").get_data(as_text=True)
     assert "No lexemes match." in html
@@ -1295,7 +1332,12 @@ def test_search_highlights_the_term(client):
 
 def test_search_paginates_and_shows_next_link(client, monkeypatch):
     captured = {}
-    row = {"doc_id": DOC_ID, "title": "orwell1984", "ordinal": 3, "text": "Winston loved Big Brother."}
+    row = {
+        "doc_id": DOC_ID,
+        "title": "orwell1984",
+        "ordinal": 3,
+        "text": "Winston loved Big Brother.",
+    }
 
     def paginated_q(sql, params=()):
         s = _norm(sql)
@@ -1554,6 +1596,11 @@ def test_operator_health_renders_corpus_and_database_snapshots(client):
     assert "Operator health" in html
     assert "Corpus health" in html
     assert "Database health" in html
+    assert "Job spool" in html
+    assert "attempt 3 / 3" in html
+    assert "worker-7" in html
+    assert "Registering token and entity spans" in html
+    assert "reclaimed: stale heartbeat" in html
     assert "document-unannotated" in html
     assert "job-failed" in html
     assert "job-stalled" in html
@@ -1573,7 +1620,13 @@ def test_operator_health_json_has_stable_contract(client):
     payload = response.get_json()
     assert payload["schema_version"] == "operator-health.v1"
     assert set(payload) == {"schema_version", "corpus", "database"}
-    assert set(payload["corpus"]) == {"totals", "issues", "issue_groups", "jobs"}
+    assert set(payload["corpus"]) == {
+        "totals",
+        "issues",
+        "issue_groups",
+        "jobs",
+        "job_spool",
+    }
     assert set(payload["database"]) == {
         "size",
         "connections",
@@ -1582,6 +1635,26 @@ def test_operator_health_json_has_stable_contract(client):
         "issue_groups",
     }
     assert payload["corpus"]["totals"]["documents"] == 5
+    assert payload["corpus"]["job_spool"][0] == {
+        "id": "job-stale",
+        "kind": "annotate",
+        "status": "running",
+        "attempts": 3,
+        "max_attempts": 3,
+        "worker": "worker-7",
+        "document_id": DOC_ID,
+        "document_title": "orwell1984",
+        "progress": {
+            "current": 3,
+            "total": 7,
+            "stage": "Registering token and entity spans",
+        },
+        "runtime_seconds": 4389,
+        "heartbeat_age_seconds": 14,
+        "queued_age_seconds": 4389,
+        "reclaim_after_seconds": 286,
+        "last_error": "reclaimed: stale heartbeat",
+    }
     assert any(
         issue["code"] == "job-failed" and issue["severity"] == "error"
         for issue in payload["corpus"]["issues"]
@@ -1681,9 +1754,7 @@ def test_operator_metadata_correction_reuses_metadata_mutation(client, monkeypat
 
     monkeypatch.setattr(webapp, "gql", fake_gql)
 
-    form_html = client.get(f"/operator/doc/{DOC_ID}/metadata?token=secret").get_data(
-        as_text=True
-    )
+    form_html = client.get(f"/operator/doc/{DOC_ID}/metadata?token=secret").get_data(as_text=True)
     token = _csrf_token_from(form_html)
     resp = client.post(
         f"/operator/doc/{DOC_ID}/metadata",
@@ -2169,9 +2240,7 @@ def test_post_with_valid_csrf_token_dispatches_seeding_action(client, monkeypatc
     )
     html = client.get(f"/doc/{DOC_ID}/seeding").get_data(as_text=True)
     token = _csrf_token_from(html)
-    resp = client.post(
-        f"/doc/{DOC_ID}/seeding", data={"action": "mine", "csrf_token": token}
-    )
+    resp = client.post(f"/doc/{DOC_ID}/seeding", data={"action": "mine", "csrf_token": token})
     assert resp.status_code == 302
     assert calls
 
@@ -2297,3 +2366,50 @@ def test_stalled_running_job_is_flagged_and_not_active():
     assert decorated["j2"]["stalled"] is True
     assert decorated["j1"]["stalled"] is False
     assert "stalled" in decorated["j2"]["status_label"].lower()
+
+
+def test_created_collection_survives_the_creating_request():
+    """BL-131: collection INSERTs must COMMIT, not roll back at teardown.
+
+    The creating request redirects with a real id (RETURNING works inside the
+    open transaction), then the connection closes and the row evaporates. A
+    second request — a fresh connection — must still find the collection.
+
+    Deliberately does NOT use the ``client`` fixture: that fixture fakes
+    ``q``/``q1`` entirely, which is exactly why this bug shipped invisible.
+    This test drives the real request/connection lifecycle against the
+    database (skipped when unreachable, like the other live-DB suites).
+    """
+    import os
+
+    import psycopg
+
+    try:
+        probe = psycopg.connect(os.environ.get("DATABASE_URL", ""), connect_timeout=2)
+        probe.close()
+    except Exception:
+        pytest.skip("database unreachable")
+
+    webapp.app.config.update(TESTING=True)
+    real_client = webapp.app.test_client()
+    token = _csrf_token_from(real_client.get("/collections").get_data(as_text=True))
+    resp = real_client.post(
+        "/collections",
+        data={
+            "name": "bl131-commit-proof",
+            "description": "regression fixture",
+            "kind": "manual",
+            "csrf_token": token,
+        },
+    )
+    assert resp.status_code == 302
+    location = resp.headers["Location"]
+    try:
+        detail = real_client.get(location)
+        assert detail.status_code == 200, (
+            "collection vanished after the creating request — the INSERT was rolled back"
+        )
+        assert b"bl131-commit-proof" in detail.data
+    finally:
+        with psycopg.connect(os.environ["DATABASE_URL"], autocommit=True) as conn:
+            conn.execute("DELETE FROM document_collections WHERE name = 'bl131-commit-proof'")

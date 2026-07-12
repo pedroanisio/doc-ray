@@ -22,6 +22,17 @@ doc-ray carries **one global version** covering both the application package
 ## [Unreleased]
 
 ### Fixed
+- **Collections actually persist** (Claude Fable 5 via Claude Code) — BL-131,
+  from an operator screenshot ("Collection not found" right after creating
+  one). The BL-057 collection routes write directly through the webapp's
+  request connection; `get_conn()` opened psycopg without autocommit, and
+  request teardown closed the connection — rolling back every collection
+  create and member add/remove *after* the redirect had been issued from
+  inside the doomed transaction. The request connection is now
+  `autocommit=True` (matching every other connection in the codebase). The
+  regression test drives the real two-request lifecycle and was verified to
+  fail with the fix reverted — the suite's `client` fixture fakes `q`/`q1`
+  wholesale, which is why the original tests could not see this.
 - **auth_admin CLI operator UX** (Claude Fable 5 via Claude Code) — BL-128,
   from an operator traceback report:
   - An unreachable Postgres now exits 2 with an actionable, password-redacted

@@ -312,11 +312,17 @@ def get_conn():
     On first open the connection is configured for RLS enforcement when a
     principal is set (see :func:`_apply_principal`).
 
+    Autocommit matters (BL-131): teardown closes this connection, and closing
+    a psycopg connection with an open implicit transaction rolls it back —
+    the direct collection writes were silently discarded after redirecting.
+    Every other connection in the codebase (worker, CLIs, tests) is already
+    autocommit; reads are unaffected.
+
     Returns:
         The ``psycopg`` connection stored on Flask's request-global ``g``.
     """
     if "conn" not in g:
-        g.conn = psycopg.connect(DATABASE_URL, row_factory=dict_row)
+        g.conn = psycopg.connect(DATABASE_URL, row_factory=dict_row, autocommit=True)
         _apply_principal(g.conn)
     return g.conn
 
