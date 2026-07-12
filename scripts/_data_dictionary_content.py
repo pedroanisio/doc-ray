@@ -164,4 +164,13 @@ MIGRATIONS = [
         "063_audit_events_admin_read",
         "tenant-admin SELECT policy and grants for audit-event search/export",
     ),
+    (
+        "064_abac_sensitive_document_policy",
+        "ABAC sensitive-document write policy helper and explicit sensitive grant",
+    ),
+    (
+        "065_scim_provisioning",
+        "SCIM-managed principals, groups, and authoritative role-edit guard (BL-068)",
+    ),
+    ("066_schema_version_1_18_0", "advance the schema SemVer to 1.18.0"),
 ]

@@ -7,6 +7,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 
 ApiTokenMap = Mapping[str, tuple[str, frozenset[str]]]
+SCIMTokenMap = Mapping[str, str]
 
 
 def _env_bool(name: str, default: bool) -> bool:
@@ -68,6 +69,26 @@ def _parse_api_tokens(raw: str | None) -> ApiTokenMap:
     return tokens
 
 
+def _parse_scim_tokens(raw: str | None) -> SCIMTokenMap:
+    """Parse ``DOCRAY_SCIM_TOKENS`` into token -> tenant UUID mappings."""
+    if raw is None or raw.strip() == "":
+        return {}
+    tokens: dict[str, str] = {}
+    for entry in raw.replace(";", ",").split(","):
+        item = entry.strip()
+        if not item:
+            continue
+        if "=" not in item:
+            raise ValueError("DOCRAY_SCIM_TOKENS entries must use token=tenant_id")
+        token, tenant_id = item.split("=", 1)
+        token = token.strip()
+        tenant_id = tenant_id.strip()
+        if not token or not tenant_id:
+            raise ValueError("DOCRAY_SCIM_TOKENS entries need non-empty token and tenant")
+        tokens[token] = tenant_id
+    return tokens
+
+
 @dataclass(frozen=True)
 class Config:
     """Immutable runtime settings for the database and object store.
@@ -119,6 +140,9 @@ class Config:
             enabled (BL-108). False in production by default: an anonymous
             caller should not be able to enumerate the schema, including
             admin-only mutation shapes, for free reconnaissance.
+        scim_tokens: SCIM bearer-token map to tenant ids. Each token is scoped
+            to exactly one tenant's ``/scim/v2/{tenant_id}`` endpoint so a
+            tenant IdP cannot provision principals in another tenant.
         max_upload_bytes: Maximum accepted upload size in bytes, shared by the
             webapp's Flask route and the GraphQL ``ingestDocument`` mutation
             (BL-098) so both upload paths enforce the same ceiling.
@@ -154,6 +178,7 @@ class Config:
     api_oidc_auto_create_principals: bool = False
     api_oidc_allow_static_token_fallback: bool = False
     api_debug: bool = False
+    scim_tokens: SCIMTokenMap = field(default_factory=dict)
     max_upload_bytes: int = 200 * 1024 * 1024
     backup_schedule_seconds: int = 86_400
     backup_retention_count: int = 7
@@ -204,6 +229,7 @@ class Config:
                 "DOCRAY_API_OIDC_ALLOW_STATIC_TOKEN_FALLBACK", False
             ),
             api_debug=_env_bool("DOCRAY_API_DEBUG", False),
+            scim_tokens=_parse_scim_tokens(os.environ.get("DOCRAY_SCIM_TOKENS")),
             max_upload_bytes=_env_int("DOCRAY_MAX_UPLOAD_MB", 200) * 1024 * 1024,
             backup_schedule_seconds=_env_int("DOCRAY_BACKUP_SCHEDULE_SECONDS", 86_400),
             backup_retention_count=_env_int("DOCRAY_BACKUP_RETENTION_COUNT", 7),

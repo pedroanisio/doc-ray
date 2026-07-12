@@ -2215,20 +2215,20 @@ items:
 
   - id:          "BL-068"
     title:        "SCIM provisioning, authoritative for managed users"
-    summary:      "Principals are provisioned entirely by hand today (an operator INSERTs into principals/principal_roles, or edits the DOCRAY_API_TOKENS env var). No SCIM endpoint exists; nothing marks a principal as IdP-managed vs. locally-owned."
+    summary:      "SCIM IdPs can now provision tenant-scoped users/groups through /scim/v2, and SCIM-managed principals are marked as externally managed."
     description: |
-      There is no /scim path, no SCIM schema handling, and no concept of a
-      principal being "managed" by an external system anywhere in the code
-      or migrations (grepped: zero hits for scim/SCIM). Today, adding a user
-      means a manual SQL INSERT (018_rbac.sql's seed rows are the only
-      example in the repo) or appending a DOCRAY_API_TOKENS entry and
-      restarting the API. "SCIM is authoritative" additionally implies a
-      guard that currently doesn't exist anywhere: nothing stops a local
-      admin from hand-editing a SCIM-managed principal's roles today,
-      because there is no managed/unmanaged distinction at all yet.
+      The API exposes tenant-scoped SCIM 2.0 Users and Groups endpoints under
+      /scim/v2/{tenant_id}, authenticated by DOCRAY_SCIM_TOKENS entries that
+      bind each bearer token to exactly one tenant. SCIM users map onto the
+      same principals table used by OIDC/RBAC with managed_by='scim',
+      managed_source_id, active, tenant_id, and external_subject fields.
+      SCIM groups are stored in scim_groups/scim_group_members. A database
+      trigger rejects local principal_roles edits for SCIM-managed principals
+      unless the sync path marks app.scim_sync=on, making IdP authority
+      explicit instead of silently drifting.
     category:     "security"
     type:         "feature"
-    status:       "parked"
+    status:       "done"
     complexity:   "L"
     priority:     "medium"
     rationale:    "Manual provisioning does not scale past one operator and cannot deprovision automatically when an enterprise tenant removes a user from their IdP — the exact gap SCIM closes."
@@ -2241,7 +2241,7 @@ items:
     references:
       - "db/migrations/018_rbac.sql"
     owner:        "shared"
-    source:       "Gap-analysis 2026-07-05 against a supplied enterprise-IAM checklist; verified absent by grep and by reading the only existing provisioning path (manual SQL / env var)."
+    source:       "Gap-analysis 2026-07-05 against a supplied enterprise-IAM checklist; verified absent by grep and by reading the only existing provisioning path (manual SQL / env var). Completed 2026-07-12 with migration 065 adding SCIM-managed principal columns/groups plus an authoritative role-edit trigger, DOCRAY_SCIM_TOKENS tenant-scoped bearer auth, /scim/v2/{tenant_id}/Users and /Groups create/update/deactivate routes, and deprovision cleanup for principal_roles/document_acl grants."
     tags:         ["security", "provisioning", "scim", "enterprise"]
 
   - id:          "BL-069"

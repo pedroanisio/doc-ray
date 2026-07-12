@@ -97,6 +97,27 @@ def test_bl065_tenant_foundation_status_matches_implemented_surfaces():
     assert 'subcommands.add_parser("tenant"' in auth_admin
 
 
+def test_bl068_scim_status_matches_implemented_surfaces():
+    """BL-068 is done only when SCIM has schema, API, and authority guards."""
+    item = _backlog_item("BL-068")
+    migration = (_ROOT / "db" / "migrations" / "065_scim_provisioning.sql").read_text(
+        encoding="utf-8"
+    )
+    api = (_ROOT / "src" / "doc_ray" / "entrypoints" / "api" / "scim.py").read_text(
+        encoding="utf-8"
+    )
+    cfg = (_ROOT / "src" / "doc_ray" / "config.py").read_text(encoding="utf-8")
+
+    assert item["status"] == "done"
+    assert "ADD COLUMN IF NOT EXISTS managed_by" in migration
+    assert "CREATE TABLE IF NOT EXISTS scim_groups" in migration
+    assert "trg_reject_manual_scim_role_edit" in migration
+    assert '"/scim/v2/{tenant_id}/Users"' in api
+    assert '"/scim/v2/{tenant_id}/Groups"' in api
+    assert "deactivate_user" in api and "DELETE FROM document_acl" in api
+    assert "DOCRAY_SCIM_TOKENS" in cfg
+
+
 def test_dependencies_reference_real_backlog_ids():
     backlog = _backlog()
     ids = {item["id"] for item in backlog["items"]}
