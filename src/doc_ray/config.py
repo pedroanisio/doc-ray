@@ -148,6 +148,15 @@ class Config:
         scim_tokens: SCIM bearer-token map to tenant ids. Each token is scoped
             to exactly one tenant's ``/scim/v2/{tenant_id}`` endpoint so a
             tenant IdP cannot provision principals in another tenant.
+        auth_local_enabled: Whether first-party email/password login endpoints
+            are available.
+        auth_registration_enabled: Whether self-service local registration is
+            available. Admin principals remain seed/operator-managed.
+        auth_expose_verification_token: Whether local registration responses may
+            include the raw email verification token. Intended for tests/local
+            development only; production email delivery should keep this false.
+        auth_email_verification_ttl_seconds: Lifetime for required email
+            verification tokens.
         max_upload_bytes: Maximum accepted upload size in bytes, shared by the
             webapp's Flask route and the GraphQL ``ingestDocument`` mutation
             (BL-098) so both upload paths enforce the same ceiling.
@@ -184,6 +193,10 @@ class Config:
     api_oidc_allow_static_token_fallback: bool = False
     api_debug: bool = False
     scim_tokens: SCIMTokenMap = field(default_factory=dict)
+    auth_local_enabled: bool = False
+    auth_registration_enabled: bool = False
+    auth_expose_verification_token: bool = False
+    auth_email_verification_ttl_seconds: int = 86_400
     max_upload_bytes: int = 200 * 1024 * 1024
     backup_schedule_seconds: int = 86_400
     backup_retention_count: int = 7
@@ -229,6 +242,14 @@ class Config:
             ),
             api_debug=_env_bool("DOCRAY_API_DEBUG", False),
             scim_tokens=_parse_scim_tokens(os.environ.get("DOCRAY_SCIM_TOKENS")),
+            auth_local_enabled=_env_bool("DOCRAY_AUTH_LOCAL_ENABLED", False),
+            auth_registration_enabled=_env_bool("DOCRAY_AUTH_REGISTRATION_ENABLED", False),
+            auth_expose_verification_token=_env_bool(
+                "DOCRAY_AUTH_EXPOSE_VERIFICATION_TOKEN", False
+            ),
+            auth_email_verification_ttl_seconds=_env_int(
+                "DOCRAY_AUTH_EMAIL_VERIFICATION_TTL_SECONDS", 86_400
+            ),
             max_upload_bytes=_env_int("DOCRAY_MAX_UPLOAD_MB", 200) * 1024 * 1024,
             backup_schedule_seconds=_env_int("DOCRAY_BACKUP_SCHEDULE_SECONDS", 86_400),
             backup_retention_count=_env_int("DOCRAY_BACKUP_RETENTION_COUNT", 7),

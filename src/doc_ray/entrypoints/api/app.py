@@ -18,6 +18,7 @@ import uuid
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from csv import DictWriter
+from datetime import timedelta
 from io import StringIO
 from typing import Any, cast
 from urllib.parse import urlparse
@@ -34,8 +35,19 @@ from strawberry.fastapi import GraphQLRouter
 from doc_ray import __version__
 from doc_ray.adapters import queue_postgres as queue
 from doc_ray.adapters import security_audit_read
+from doc_ray.adapters.local_auth_postgres import PostgresLocalAuthRepository
 from doc_ray.adapters.object_store import ObjectStore
 from doc_ray.application.integrity import IntegrityError, verify_bytes
+from doc_ray.application.local_auth import (
+    DisabledPrincipal,
+    EmailAlreadyRegistered,
+    EmailNotVerified,
+    InvalidCredentials,
+    LocalAuthError,
+    LocalAuthService,
+    VerificationTokenExpired,
+    VerificationTokenInvalid,
+)
 from doc_ray.config import Config
 from doc_ray.correlation import (
     ensure_request_id_from_headers,
@@ -583,6 +595,118 @@ def _register_auth_token_route(app: FastAPI, settings: Config) -> None:
         }
 
 
+def _issue_jwt_pair(
+    *,
+    principal: Principal,
+    request: Request,
+    settings: Config,
+) -> dict[str, Any]:
+    if not settings.api_jwt_secret:
+        raise HTTPException(status_code=503, detail="JWT access tokens are not configured")
+    access_token = issue_access_jwt(
+        principal,
+        secret=settings.api_jwt_secret,
+        issuer=settings.api_jwt_issuer,
+        audience=settings.api_jwt_audience,
+        ttl_seconds=settings.api_jwt_ttl_seconds,
+    )
+    refresh_token = issue_refresh_token(
+        principal,
+        secret=settings.api_jwt_secret,
+        issuer=settings.api_jwt_issuer,
+        audience=settings.api_jwt_audience,
+        ttl_seconds=settings.api_refresh_token_ttl_seconds,
+        store=request.app.state.refresh_token_store,
+    )
+    return {
+        "access_token": access_token,
+        "refresh_token": refresh_token,
+        "token_type": "Bearer",
+        "expires_in": settings.api_jwt_ttl_seconds,
+        "refresh_expires_in": settings.api_refresh_token_ttl_seconds,
+    }
+
+
+def _register_local_auth_routes(app: FastAPI, settings: Config) -> None:  # noqa: C901
+    def service(request: Request) -> LocalAuthService:
+        if not settings.auth_local_enabled:
+            raise HTTPException(status_code=404, detail="local authentication is not enabled")
+        local_auth = getattr(request.app.state, "local_auth_service", None)
+        if local_auth is None:
+            raise HTTPException(status_code=503, detail="local authentication is not configured")
+        return cast(LocalAuthService, local_auth)
+
+    @app.post("/auth/register", status_code=202)
+    async def register_local_account(payload: dict[str, Any], request: Request) -> dict[str, Any]:
+        """Register a self-service local account pending email verification."""
+        if not settings.auth_registration_enabled:
+            raise HTTPException(status_code=404, detail="local registration is not enabled")
+        try:
+            display_name = (
+                str(payload["display_name"]) if payload.get("display_name") is not None else None
+            )
+            result = service(request).register(
+                email=str(payload.get("email", "")),
+                password=str(payload.get("password", "")),
+                display_name=display_name,
+            )
+        except EmailAlreadyRegistered as exc:
+            raise HTTPException(status_code=409, detail="email is already registered") from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        response: dict[str, Any] = {
+            "principal_id": result.principal_id,
+            "email": result.email_normalized,
+            "email_verification_required": True,
+        }
+        if settings.auth_expose_verification_token:
+            response["verification_token"] = result.verification_token
+        return response
+
+    @app.post("/auth/verify-email")
+    async def verify_local_email(payload: dict[str, Any], request: Request) -> dict[str, Any]:
+        """Verify a local account email address."""
+        try:
+            result = service(request).verify_email(str(payload.get("token", "")))
+        except VerificationTokenExpired as exc:
+            raise HTTPException(status_code=410, detail="email verification token expired") from exc
+        except VerificationTokenInvalid as exc:
+            raise HTTPException(
+                status_code=400,
+                detail="email verification token is invalid",
+            ) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return {
+            "principal_id": result.principal_id,
+            "email": result.email_normalized,
+            "verified": True,
+        }
+
+    @app.post("/auth/login")
+    async def login_local_account(payload: dict[str, Any], request: Request) -> dict[str, Any]:
+        """Authenticate a verified local account and return RLS-bound API tokens."""
+        try:
+            local_principal = service(request).login(
+                email=str(payload.get("email", "")),
+                password=str(payload.get("password", "")),
+            )
+        except EmailNotVerified as exc:
+            raise HTTPException(status_code=403, detail="email verification required") from exc
+        except DisabledPrincipal as exc:
+            raise HTTPException(status_code=403, detail="principal is disabled") from exc
+        except InvalidCredentials as exc:
+            raise HTTPException(status_code=401, detail="invalid email or password") from exc
+        except LocalAuthError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        principal = Principal(
+            subject=local_principal.subject,
+            principal_id=local_principal.principal_id,
+            scopes=local_principal.scopes,
+        )
+        return _issue_jwt_pair(principal=principal, request=request, settings=settings)
+
+
 def _build_authenticator(settings: Config, pool: AsyncConnectionPool[Any]) -> Authenticator:
     """Return the configured API authenticator."""
     fallback = HeaderTokenAuthenticator(
@@ -738,6 +862,14 @@ def create_app(cfg: Config | None = None, authenticator: Authenticator | None = 
     app.state.authenticator = auth
     app.state.object_store = store
     app.state.refresh_token_store = InMemoryRefreshTokenStore()
+    app.state.local_auth_service = (
+        LocalAuthService(
+            PostgresLocalAuthRepository(settings.database_url),
+            verification_ttl=timedelta(seconds=settings.auth_email_verification_ttl_seconds),
+        )
+        if settings.auth_local_enabled
+        else None
+    )
     # ``multipart_uploads_enabled`` is opt-in in Strawberry (>=0.243): without it the
     # transport rejects ``multipart/form-data`` with HTTP 400 before the resolver runs,
     # which silently breaks the ``ingestDocument`` upload mutation. Enable it and keep a
@@ -843,6 +975,7 @@ def create_app(cfg: Config | None = None, authenticator: Authenticator | None = 
         return await _document_page_png_response(document_id, page_number, request)
 
     _register_auth_token_route(app, settings)
+    _register_local_auth_routes(app, settings)
     _register_job_events_route(app)
     register_saml_routes(app)
     register_scim_routes(app, settings)

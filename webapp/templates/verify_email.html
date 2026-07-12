@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block title %}Verify email · doc-ray{% endblock %}
+{% block body %}
+<section class="page-head">
+  <p class="eyebrow">Account</p>
+  <h1>Verify email</h1>
+</section>
+
+<section class="auth-panel">
+  {% if error %}
+    <div class="errbox">{{ error }}</div>
+  {% else %}
+    <div class="notice">
+      {% if email %}Verification is pending for {{ email }}.{% else %}Verification is pending.{% endif %}
+    </div>
+    {% if verification_token %}
+      <p class="muted">Development token:</p>
+      <code>{{ verification_token }}</code>
+    {% endif %}
+  {% endif %}
+</section>
+{% endblock %}

@@ -17,6 +17,7 @@ from __future__ import annotations
 import json
 import os
 import secrets
+from datetime import timedelta
 from html import escape as html_escape
 
 import psycopg
@@ -35,6 +36,17 @@ from flask import (
 from psycopg import sql
 from psycopg.rows import dict_row
 
+from doc_ray.adapters.local_auth_postgres import PostgresLocalAuthRepository
+from doc_ray.application.local_auth import (
+    DisabledPrincipal,
+    EmailAlreadyRegistered,
+    EmailNotVerified,
+    InvalidCredentials,
+    LocalAuthError,
+    LocalAuthService,
+    VerificationTokenExpired,
+    VerificationTokenInvalid,
+)
 from doc_ray.config import DEFAULT_DATABASE_URL
 from doc_ray.entrypoints.api.context import MAX_BATCH_IDS
 
@@ -96,6 +108,7 @@ DATABASE_URL = os.environ.get("DATABASE_URL", DEFAULT_DATABASE_URL)
 # passthrough (local/dev only — no access control).
 DB_ROLE = os.environ.get("DOCRAY_DB_ROLE", "docray_client")
 PRINCIPAL_ID = os.environ.get("DOCRAY_PRINCIPAL_ID") or None
+_LOCAL_AUTH_SERVICE: LocalAuthService | None = None
 
 app = Flask(__name__)
 # Uploads are forwarded to the API, which buffers the file for hashing — cap
@@ -237,6 +250,59 @@ def _request_principal_id() -> str | None:
     return PRINCIPAL_ID
 
 
+def _env_bool(name: str, default: bool = False) -> bool:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _local_auth_enabled() -> bool:
+    return _env_bool("DOCRAY_AUTH_LOCAL_ENABLED", False)
+
+
+def _local_registration_enabled() -> bool:
+    return _env_bool("DOCRAY_AUTH_REGISTRATION_ENABLED", False)
+
+
+def _local_auth_service() -> LocalAuthService:
+    global _LOCAL_AUTH_SERVICE
+    if _LOCAL_AUTH_SERVICE is None:
+        _LOCAL_AUTH_SERVICE = LocalAuthService(
+            PostgresLocalAuthRepository(DATABASE_URL),
+            verification_ttl=timedelta(
+                seconds=int(os.environ.get("DOCRAY_AUTH_EMAIL_VERIFICATION_TTL_SECONDS", "86400"))
+            ),
+        )
+    return _LOCAL_AUTH_SERVICE
+
+
+def register_local_user(email: str, password: str, display_name: str | None = None):
+    """Register a self-service user pending email verification."""
+    return _local_auth_service().register(
+        email=email,
+        password=password,
+        display_name=display_name,
+    )
+
+
+def complete_local_login(email: str, password: str) -> AuthenticatedWebPrincipal:
+    """Authenticate a verified local user for a browser session."""
+    principal = _local_auth_service().login(email=email, password=password)
+    if principal.principal_id is None or principal.subject is None:
+        raise ValueError("local login did not resolve a principal")
+    return AuthenticatedWebPrincipal(principal_id=principal.principal_id, subject=principal.subject)
+
+
+def verify_local_email(token: str) -> AuthenticatedWebPrincipal:
+    """Consume an email verification token and resolve a browser principal."""
+    result = _local_auth_service().verify_email(token)
+    return AuthenticatedWebPrincipal(
+        principal_id=result.principal_id,
+        subject=f"local:{result.email_normalized}",
+    )
+
+
 @app.get("/login")
 def login():
     """Redirect the browser to the configured OIDC or SAML IdP."""
@@ -250,7 +316,109 @@ def login():
     saml_url = saml_login_redirect(state=state)
     if saml_url:
         return redirect(saml_url)
+    if _local_auth_enabled():
+        return render_template(
+            "login.html",
+            registration_enabled=_local_registration_enabled(),
+            email=request.args.get("email", ""),
+        )
     return "webapp login is not configured", 404
+
+
+@app.post("/login")
+def login_submit():
+    """Complete local email/password login and establish the web session."""
+    if not _local_auth_enabled():
+        return "webapp login is not configured", 404
+    email = request.form.get("email", "")
+    try:
+        principal = complete_local_login(email, request.form.get("password", ""))
+    except EmailNotVerified:
+        return (
+            render_template(
+                "login.html",
+                registration_enabled=_local_registration_enabled(),
+                email=email,
+                error="Email verification is required before login.",
+            ),
+            403,
+        )
+    except (InvalidCredentials, DisabledPrincipal):
+        return (
+            render_template(
+                "login.html",
+                registration_enabled=_local_registration_enabled(),
+                email=email,
+                error="Invalid email or password.",
+            ),
+            401,
+        )
+    except LocalAuthError as exc:
+        return (
+            render_template(
+                "login.html",
+                registration_enabled=_local_registration_enabled(),
+                email=email,
+                error=str(exc),
+            ),
+            400,
+        )
+    _establish_auth_session(principal)
+    return redirect(url_for("documents"))
+
+
+@app.get("/register")
+def register_form():
+    """Render the local registration form."""
+    if not (_local_auth_enabled() and _local_registration_enabled()):
+        return "webapp registration is not configured", 404
+    return render_template("register.html")
+
+
+@app.post("/register")
+def register_submit():
+    """Register a local account and wait for email verification."""
+    if not (_local_auth_enabled() and _local_registration_enabled()):
+        return "webapp registration is not configured", 404
+    email = request.form.get("email", "")
+    display_name = request.form.get("display_name") or None
+    try:
+        result = register_local_user(email, request.form.get("password", ""), display_name)
+    except EmailAlreadyRegistered:
+        return (
+            render_template("register.html", email=email, error="Email is already registered."),
+            409,
+        )
+    except ValueError as exc:
+        return render_template("register.html", email=email, error=str(exc)), 400
+    session["pending_verification_email"] = result.email_normalized
+    if _env_bool("DOCRAY_AUTH_EXPOSE_VERIFICATION_TOKEN", False):
+        session["pending_verification_token"] = result.verification_token
+    return redirect(url_for("verify_email_form"))
+
+
+@app.get("/verify-email")
+def verify_email_form():
+    """Verify local email tokens or render the pending-verification page."""
+    if not _local_auth_enabled():
+        return "webapp email verification is not configured", 404
+    token = request.args.get("token", "").strip()
+    if not token:
+        return render_template(
+            "verify_email.html",
+            email=session.get("pending_verification_email"),
+            verification_token=session.get("pending_verification_token"),
+        )
+    try:
+        principal = verify_local_email(token)
+    except VerificationTokenExpired:
+        return render_template("verify_email.html", error="Verification link expired."), 410
+    except (VerificationTokenInvalid, ValueError):
+        return render_template("verify_email.html", error="Verification link is invalid."), 400
+    _establish_auth_session(principal)
+    session.pop("pending_verification_email", None)
+    session.pop("pending_verification_token", None)
+    return redirect(url_for("documents"))
 
 
 @app.get("/auth/oidc/callback")

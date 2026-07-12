@@ -130,13 +130,13 @@ has a dedicated `/jobs/events` location with response buffering disabled; add
 Other query/mutation surface: `documents(docType:, status:, tags:)` /
 `document` / `documentMetadataHistory` / `searchSentences` / `fullTextSearch` /
 `lexeme(s)` / `entities` / `entityFrequency` / `job` / `jobs` /
-`documentMetadataSuggestions` (reads); `reannotate` / `deleteDocument` /
-`archiveDocument` / `restoreDocument` / `bulkArchiveDocuments` /
-`bulkTagDocuments` / `annotateDocument` / `reextractDocument` /
-`reextractDocuments` / `canonicalizeDocument(resolve:)` /
-`semanticEnrichDocument` / `updateDocumentMetadata` /
-`suggestDocumentMetadata` / `decideDocumentMetadataSuggestions` / `cancelJob`
-(pipeline
+`documentMetadataSuggestions` / `collections` / `collection` (reads);
+`createCollection` / `addDocumentToCollection` / `removeDocumentFromCollection`
+/ `reannotate` / `deleteDocument` / `archiveDocument` / `restoreDocument` /
+`bulkArchiveDocuments` / `bulkTagDocuments` / `annotateDocument` /
+`reextractDocument` / `reextractDocuments` / `canonicalizeDocument(resolve:)` /
+`semanticEnrichDocument` / `updateDocumentMetadata` / `suggestDocumentMetadata`
+/ `decideDocumentMetadataSuggestions` / `cancelJob` (pipeline
 writes — every mutation enqueues a worker job or records a curator decision;
 poll `job(id)` for completion, never a synchronous pipeline result). Entity
 canonicalization curation: `seedSuggestions` / `canonical` /
@@ -175,6 +175,15 @@ python3 -m doc_ray.entrypoints.auth_admin token mint \
 identity workflow; every subcommand accepts `--database-url` to target another
 database.
 
+Local self-service auth is opt-in. Set `DOCRAY_AUTH_LOCAL_ENABLED=true` for
+email/password login and `DOCRAY_AUTH_REGISTRATION_ENABLED=true` to expose
+self-registration. Registered accounts are created as verified-only-after-email
+reader principals; admin remains a seeded/operator-managed role. Document and
+data visibility still follows the same Postgres RLS policies after login. Set
+`DOCRAY_API_JWT_SECRET` so `/auth/login` can mint short-lived API access tokens;
+leave `DOCRAY_AUTH_EXPOSE_VERIFICATION_TOKEN=false` outside local diagnostics
+and deliver verification tokens by email.
+
 The webapp (`docker compose up -d webapp`, serving on
 `http://127.0.0.1:5001`; or locally `flask --app webapp.app run --port 5001`)
 is a read-only Postgres browser plus a thin GraphQL write path: upload
@@ -190,8 +199,8 @@ For HTTPS, `docker compose up -d nginx` starts a TLS front door on
 `https://localhost:${NGINX_HTTPS_PORT:-443}` (plain HTTP on
 `${NGINX_HTTP_PORT:-80}` 301-redirects there). A self-signed certificate is
 bootstrapped on first start — expect a browser warning until you replace it
-with a real one — and the webapp has no login, so keep the exposed ports
-inside a trusted network.
+with a real one. Keep exposed ports inside a trusted network even when login is
+enabled, because backup/restore and operator workflows can mutate the corpus.
 
 ## Backup & restore
 
