@@ -5,7 +5,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from doc_ray.adapters.auth_admin_postgres import PrincipalRecord, TenantRecord
+from doc_ray.adapters.auth_admin_postgres import (
+    PostgresAuthAdminRepository,
+    PrincipalRecord,
+    TenantRecord,
+)
 from doc_ray.entrypoints import auth_admin
 
 
@@ -79,6 +83,9 @@ class FakeRepository:
     ) -> str:
         self.logins.append((principal_id, role_name, password))
         return role_name
+
+    def close(self) -> None:
+        self.closed = True
 
 
 def test_principal_create_assigns_requested_roles(capsys):
@@ -220,3 +227,122 @@ def test_grant_document_records_acl_grant(capsys):
         )
     ]
     assert "permission=annotate" in capsys.readouterr().out
+
+
+def test_invalid_token_scope_reports_error_and_closes_repository(capsys):
+    repo = FakeRepository()
+    repo.closed = False
+
+    rc = auth_admin.main(
+        ["token", "mint", "--principal", "alice", "--scopes", "admin"],
+        repo_factory=lambda _database_url: repo,
+    )
+
+    assert rc == 1
+    assert repo.closed is True
+    assert "unknown scope(s): admin" in capsys.readouterr().err
+
+
+class _Rows:
+    def __init__(self, row):
+        self._row = row
+
+    def fetchone(self):
+        return self._row
+
+
+class _FakeAuthConn:
+    def __init__(self) -> None:
+        self.closed = False
+        self.executed: list[tuple[str, tuple]] = []
+
+    def close(self) -> None:
+        self.closed = True
+
+    def execute(self, query: str, params=()):
+        text = " ".join(query.split())
+        self.executed.append((text, tuple(params)))
+        if "FROM principals WHERE id = %s" in text:
+            return _Rows(
+                {
+                    "id": params[0],
+                    "display_name": "alice",
+                    "kind": "human",
+                    "external_subject": None,
+                    "tenant_id": "00000000-0000-0000-0000-000000000010",
+                }
+            )
+        if "FROM principals WHERE display_name = %s" in text:
+            return _Rows(None)
+        if "RETURNING id, display_name, kind, external_subject, tenant_id" in text:
+            return _Rows(
+                {
+                    "id": "00000000-0000-0000-0000-000000000002",
+                    "display_name": params[1],
+                    "kind": params[0],
+                    "external_subject": params[2],
+                    "tenant_id": params[3] or "00000000-0000-0000-0000-000000000010",
+                }
+            )
+        if "RETURNING id, slug, display_name" in text:
+            return _Rows(
+                {
+                    "id": "00000000-0000-0000-0000-000000000011",
+                    "slug": params[0],
+                    "display_name": params[1],
+                }
+            )
+        if "FROM tenants WHERE slug = %s" in text:
+            return _Rows(
+                {
+                    "id": "00000000-0000-0000-0000-000000000011",
+                    "slug": params[0],
+                    "display_name": "Acme",
+                }
+            )
+        if "SELECT id FROM roles WHERE name = %s" in text:
+            return _Rows({"id": "role-1"} if params[0] == "admin" else None)
+        if "docray_create_principal_login" in text:
+            return _Rows({"role_name": params[1]})
+        return _Rows(None)
+
+
+def test_postgres_auth_admin_repository_maps_common_operations():
+    conn = _FakeAuthConn()
+    repo = PostgresAuthAdminRepository(conn)
+
+    principal = repo.resolve_principal("00000000-0000-0000-0000-000000000001")
+    created = repo.create_principal(display_name="bot", kind="service")
+    tenant = repo.create_tenant(slug="acme", display_name="Acme")
+    resolved_tenant = repo.resolve_tenant("acme")
+    repo.assign_role(created.id, "admin")
+    repo.grant_document(created.id, "00000000-0000-0000-0000-000000000099", "read")
+    role_name = repo.create_db_login(created.id, "docray_bot", "pw")
+    repo.close()
+
+    assert principal.display_name == "alice"
+    assert created.kind == "service"
+    assert tenant.slug == "acme"
+    assert resolved_tenant.id == tenant.id
+    assert role_name == "docray_bot"
+    assert conn.closed is True
+    assert any("INSERT INTO document_acl" in query for query, _params in conn.executed)
+
+
+def test_postgres_auth_admin_repository_reports_unknown_rows():
+    conn = _FakeAuthConn()
+    repo = PostgresAuthAdminRepository(conn)
+
+    try:
+        repo.resolve_principal("missing")
+    except ValueError as exc:
+        assert "unknown principal: missing" in str(exc)
+    else:
+        raise AssertionError("expected unknown principal error")
+
+    try:
+        repo.assign_role("00000000-0000-0000-0000-000000000001", "missing")
+    except ValueError as exc:
+        assert "unknown role: missing" in str(exc)
+    else:
+        raise AssertionError("expected unknown role error")

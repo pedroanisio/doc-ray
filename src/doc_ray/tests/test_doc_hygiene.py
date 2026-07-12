@@ -147,13 +147,17 @@ _COMPOSE_ONLY_VARS = {
     "MINIO_CONSOLE_PORT",
 }
 
+#: Standard CI control-plane sentinels read by test safety helpers, not runtime
+#: configuration knobs that belong in `.env.example`.
+_CI_SENTINEL_VARS = {"CI", "GITHUB_ACTIONS"}
+
 
 def _env_vars_read_in_code() -> set[str]:
     found = set(_KNOWN_MULTILINE_VARS)
     for base in (_ROOT / "src" / "doc_ray", _ROOT / "webapp", _ROOT / "scripts"):
         for path in base.rglob("*.py"):
             found.update(_ENV_READ_RE.findall(path.read_text(encoding="utf-8")))
-    return found - _COMPOSE_ONLY_VARS
+    return found - _COMPOSE_ONLY_VARS - _CI_SENTINEL_VARS
 
 
 def _env_vars_documented_in_example() -> set[str]:

@@ -178,3 +178,88 @@ def test_candidate_resolution_verifier_rejects_hallucinated_ids_before_mapping()
         assert exc.result.issues[0].code == "canonical-id-not-offered"
     else:  # pragma: no cover - defensive
         raise AssertionError("hallucinated candidate id was accepted")
+
+
+def test_candidate_resolution_verifier_reports_malformed_output_fields():
+    verifier = CandidateResolutionVerifier(CANDS)
+
+    result = verifier.verify(
+        {
+            "verdict": "new_entity",
+            "canonical_id": None,
+            "confidence": "high",
+            "aliases": "Berlin",
+            "new_preferred": "",
+        }
+    )
+
+    assert result.ok is False
+    assert {issue.code for issue in result.issues} == {
+        "invalid-confidence",
+        "invalid-aliases",
+        "missing-new-preferred",
+    }
+
+
+def test_claude_resolver_maps_valid_tool_call(monkeypatch):
+    class FakeMessages:
+        def create(self, **kwargs):
+            assert kwargs["tool_choice"] == {"type": "tool", "name": "resolve_entity"}
+            assert "Mention: 'Berlin'" in kwargs["messages"][0]["content"]
+            return SimpleNamespace(
+                content=[
+                    SimpleNamespace(
+                        type="tool_use",
+                        input={
+                            "verdict": "select",
+                            "canonical_id": 7,
+                            "confidence": 0.8,
+                            "aliases": ["Berlin"],
+                        },
+                    )
+                ]
+            )
+
+    class FakeAnthropic:
+        def __init__(self, **kwargs):
+            self.messages = FakeMessages()
+
+    monkeypatch.setitem(sys.modules, "anthropic", SimpleNamespace(Anthropic=FakeAnthropic))
+
+    result = ClaudeResolver(model="fake-model", timeout_seconds=1).resolve(
+        "Berlin", "Berlin is in Germany.", CANDS
+    )
+
+    assert result.kind is ResolutionKind.SELECT
+    assert result.canonical_id == 7
+
+
+def test_claude_resolver_abstains_on_missing_or_invalid_tool_call(monkeypatch):
+    class FakeMessages:
+        def __init__(self, response):
+            self.response = response
+
+        def create(self, **kwargs):
+            return self.response
+
+    class FakeAnthropic:
+        response = SimpleNamespace(content=[SimpleNamespace(type="text", input={})])
+
+        def __init__(self, **kwargs):
+            self.messages = FakeMessages(self.response)
+
+    monkeypatch.setitem(sys.modules, "anthropic", SimpleNamespace(Anthropic=FakeAnthropic))
+    resolver = ClaudeResolver(model="fake-model", timeout_seconds=1)
+
+    assert resolver.resolve("Berlin", "", CANDS).kind is ResolutionKind.ABSTAIN
+
+    FakeAnthropic.response = SimpleNamespace(
+        content=[
+            SimpleNamespace(
+                type="tool_use",
+                input={"verdict": "select", "canonical_id": 12345, "confidence": 0.99},
+            )
+        ]
+    )
+
+    assert resolver.resolve("Berlin", "", CANDS).kind is ResolutionKind.ABSTAIN
