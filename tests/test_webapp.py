@@ -122,11 +122,11 @@ def _fake_document_q(s: str):
 
 
 def _fake_lexeme_q(s: str):
-    if "FROM lexemes l" in s and "LEFT JOIN lexeme_occurrences" in s:
+    if "FROM lexemes l" in s and "JOIN lexeme_occurrences" in s and "count(o.*) AS uses" in s:
         return [{"uid": LEX_UID, "lang": "en", "pos": "VERB", "lemma": "say", "uses": 496}]
-    if "DISTINCT lang FROM lexemes" in s:
+    if "SELECT DISTINCT l.lang" in s and "JOIN lexeme_occurrences" in s:
         return [{"lang": "en"}, {"lang": "pt"}]
-    if "DISTINCT pos FROM lexemes" in s:
+    if "SELECT DISTINCT l.pos" in s and "JOIN lexeme_occurrences" in s:
         return [{"pos": "NOUN"}, {"pos": "VERB"}]
     if "AS form" in s:
         return [{"form": "said"}, {"form": "says"}]
@@ -1260,7 +1260,9 @@ def test_lexemes_empty_state(client, monkeypatch):
     monkeypatch.setattr(
         webapp,
         "q",
-        lambda sql, params=(): [] if "LEFT JOIN lexeme_occurrences" in sql else fake_q(sql, params),
+        lambda sql, params=(): []
+        if "count(o.*) AS uses" in sql and "JOIN lexeme_occurrences" in sql
+        else fake_q(sql, params),
     )
     html = client.get("/lexemes?q=zzzzz").get_data(as_text=True)
     assert "No lexemes match." in html

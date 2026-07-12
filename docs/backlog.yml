@@ -110,7 +110,7 @@ metadata:
   generated_by:     "Claude Sonnet 5 via Claude Code (merge of Claude Opus 4.8 backlog + OpenAI Codex improvement-proposal candidates)"
   generated_on:     "2026-07-05"
   system_of_record: "docs/backlog.yml"
-  total_items:      126
+  total_items:      127
 
 items:
 
@@ -4159,3 +4159,39 @@ items:
     owner:        "shared"
     source:       "Operator request 2026-07-12: file the root-cause fix behind the BL-125 empty-page overlay bug (doc 060e4aeb, pages 1/4 without layout runs). Completed 2026-07-12 with document_pages, PyMuPDF page_metrics, ingest/reextract persistence, webapp authoritative page lookup, truncate classification, and isolated Docker validation."
     tags:         ["persistence", "extraction", "pdf", "overlay", "tech-debt"]
+
+  - id:          "BL-127"
+    title:        "GraphQL lexeme reads leak hidden-document vocabulary to anonymous callers"
+    summary:      "The GraphQL documents/sentences/entities surfaces correctly run through RLS, but lexemes were treated as global vocabulary. Anonymous callers with no readable documents could still enumerate corpus-derived lemmas, POS tags, and languages through lexemes/lexeme(uid:), with uses=0 after occurrence rows were filtered."
+    description: |
+      `lexeme_occurrences` is document-scoped through annotations and RLS, but
+      `lexemes` was explicitly granted as global vocabulary and the read adapter
+      used a left join for the corpus-wide lexeme list. That made vocabulary
+      itself visible even when the caller could not see any owning document.
+
+      Fix shape: GraphQL lexeme reads should return only lexemes with at least
+      one RLS-visible occurrence. Anonymous callers with no readable documents
+      receive an empty lexeme list and `lexeme(uid:) == null`; authenticated or
+      admin callers still see vocabulary for documents they can read.
+    category:     "security"
+    type:         "bug"
+    status:       "done"
+    complexity:   "S"
+    priority:     "high"
+    rationale:    "Vocabulary can reveal sensitive names, topics, domain terms, entities, or languages from otherwise hidden documents. Returning `uses=0` still confirms the hidden term exists in the corpus."
+    acceptance_criteria:
+      - "Anonymous GraphQL callers with no RLS-visible documents cannot enumerate lexemes derived only from hidden documents."
+      - "`lexeme(uid:)` returns null when the lexeme has no RLS-visible occurrence for the caller."
+      - "A principal with read visibility still sees the lexeme and its visible occurrence count."
+      - "A regression test exercises the real API RLS role/principal path rather than a superuser test connection."
+    dependencies: []
+    references:
+      - "src/doc_ray/adapters/persistence_read.py"
+      - "src/doc_ray/entrypoints/api/query.py"
+      - "src/doc_ray/tests/test_api_lexeme_rls.py"
+      - "webapp/app.py"
+      - "tests/test_read_surface_parity.py"
+      - "tests/test_webapp.py"
+    owner:        "shared"
+    source:       "Operator security finding 2026-07-12: anonymous GraphQL saw lexemes while RLS hid documents/entities/sentences. Completed 2026-07-12 by requiring RLS-visible lexeme_occurrences for lexeme list/detail reads and the webapp lexeme index, with isolated Docker red/green coverage."
+    tags:         ["security", "graphql", "rls", "lexemes", "metadata-leak"]

@@ -266,6 +266,13 @@ page at extract/reextract, letting BL-125's fallback simplify and unblocking
 future geometry consumers (BL-081 pagination, BL-087 overlays) from the same
 trap. Existing corpus gains coverage via the standard reextract job.
 
+**2026-07-12 lexeme metadata leak (operator request):** added and completed
+`BL-127` (S/high). Anonymous GraphQL requests correctly saw no documents,
+sentences, or entities under RLS, but `lexemes` was a global vocabulary surface:
+it exposed corpus-derived lemmas/POS/language even when `lexeme_occurrences`
+had been filtered away. Fixed by requiring at least one RLS-visible occurrence
+for `lexemes`, `lexeme(uid:)`, and the webapp lexeme index.
+
 ## Items
 
 | ID | Item | Category | Type | Status | Cx | Priority | Owner |
@@ -396,6 +403,7 @@ trap. Existing corpus gains coverage via the standard reextract job.
 | BL-124 | Test suites run destructively against the live/UAT database — provision an isolated test database | testing | infra | done | M | high | shared |
 | BL-125 | Original-overlay view mistakes a text-free PDF page for an un-reextracted document | webapp | bug | done | S | medium | shared |
 | BL-126 | Persist per-page dimensions for every PDF page so a text-free page is a representable fact | persistence | tech-debt | done | S | medium | shared |
+| BL-127 | GraphQL lexeme reads leak hidden-document vocabulary to anonymous callers | security | bug | done | S | high | shared |
 
 See [`backlog.yml`](backlog.yml) for each item's full description, rationale,
 acceptance criteria, dependencies, related decisions (`D-###`), and references.

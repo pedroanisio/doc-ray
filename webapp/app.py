@@ -1640,7 +1640,7 @@ def lexemes():
         """
         SELECT l.uid, l.lang, l.pos, l.lemma, count(o.*) AS uses
         FROM lexemes l
-        LEFT JOIN lexeme_occurrences o ON o.lexeme_uid = l.uid
+        JOIN lexeme_occurrences o ON o.lexeme_uid = l.uid
         WHERE (%(q)s = '' OR l.lemma ILIKE %(qpat)s)
           AND (%(pos)s = '' OR l.pos = %(pos)s)
           AND (%(lang)s = '' OR l.lang = %(lang)s)
@@ -1650,8 +1650,28 @@ def lexemes():
         """,
         params,
     )
-    langs = [r["lang"] for r in q("SELECT DISTINCT lang FROM lexemes ORDER BY lang")]
-    poses = [r["pos"] for r in q("SELECT DISTINCT pos FROM lexemes ORDER BY pos")]
+    langs = [
+        r["lang"]
+        for r in q(
+            """
+            SELECT DISTINCT l.lang
+            FROM lexemes l
+            JOIN lexeme_occurrences o ON o.lexeme_uid = l.uid
+            ORDER BY l.lang
+            """
+        )
+    ]
+    poses = [
+        r["pos"]
+        for r in q(
+            """
+            SELECT DISTINCT l.pos
+            FROM lexemes l
+            JOIN lexeme_occurrences o ON o.lexeme_uid = l.uid
+            ORDER BY l.pos
+            """
+        )
+    ]
     return render_template(
         "lexemes.html",
         rows=rows,
