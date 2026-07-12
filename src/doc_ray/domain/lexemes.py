@@ -169,7 +169,11 @@ def detect_language(
     Returns:
         The winning language code, or ``default`` if the signal is too weak.
     """
-    words = _DETECT_RE.findall(text.casefold())
+    # Single letters carry no lexical language signal, and in technical text
+    # they are mostly variables — which collide with pt/fr stopwords (e, a,
+    # o, u...). On a real English math handbook they outvoted every genuine
+    # English stopword and mis-routed annotation to the pt model.
+    words = [w for w in _DETECT_RE.findall(text.casefold()) if len(w) > 1]
     if not words:
         return default
     scores = {lang: sum(w in _STOPSETS[lang] for w in words) for lang in langs if lang in _STOPSETS}

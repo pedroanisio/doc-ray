@@ -90,10 +90,40 @@ def test_detect_english():
 
 
 def test_detect_portuguese():
-    text = "A metodologia que verifica antes de afirmar e a estrutura do processo."
+    # Multi-character stopwords only: single letters no longer score (they
+    # collide with math variables in technical English), so the fixture leans
+    # on distinctively Portuguese function words rather than "a"/"e" padding.
+    text = (
+        "A metodologia que verifica antes de afirmar não depende dos casos, "
+        "como em uma estrutura do processo que está entre as mais usadas."
+    )
     assert lex.detect_language(text) == "pt"
 
 
 def test_detect_weak_falls_back_to_default():
     assert lex.detect_language("xyz qwm zzt", default="en") == "en"
     assert lex.detect_language("", default="pt") == "pt"
+
+
+def test_detect_ignores_single_letter_math_variables():
+    """Notation-heavy English must not read as Portuguese.
+
+    Mathematical prose is saturated with single-letter variables that happen
+    to be Portuguese stopwords — e (edge), a, o (big-O), u/v (vertices). On a
+    real English graph-theory handbook these outnumbered every genuine English
+    stopword (pt: 4,129 hits of which 4,043 were single letters, vs en: 3,174)
+    and routed annotation to the uninstalled pt model (job
+    01KXC6JPE95WEQ16D2KY66C2BK, E050). Single letters carry no lexical
+    language signal and must not be scored.
+    """
+    notation = "e u v a o e G V E e a u o e v a e o u " * 40
+    prose = "the graph of and in for is with each "
+    assert lex.detect_language((notation + prose) * 3, default="en") == "en"
+
+
+def test_detect_portuguese_still_wins_on_real_portuguese_prose():
+    text = (
+        "os grafos que estudamos neste livro possuem uma estrutura simples "
+        "mas as suas propriedades para o caso geral com mais vértices "
+    ) * 5
+    assert lex.detect_language(text, default="en") == "pt"
