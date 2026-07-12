@@ -157,6 +157,17 @@ def test_worker_timeout_knobs_are_documented_and_passed_to_compose():
     assert "DOCRAY_RESOLVER_TIMEOUT_SECONDS=60" in env_text
 
 
+def test_makefile_exposes_default_three_worker_ops_path():
+    """Long document jobs must not depend on a tribal --scale incantation."""
+    makefile = (_ROOT / "Makefile").read_text(encoding="utf-8")
+
+    assert "DOCRAY_WORKERS ?= 3" in makefile
+    assert "workers-up:" in makefile
+    assert "docker compose up -d --scale worker=$(DOCRAY_WORKERS) worker" in makefile
+    assert "workers-status:" in makefile
+    assert "docker compose ps worker" in makefile
+
+
 def test_test_compose_stack_uses_dedicated_state_and_names():
     compose = _compose(_TEST_COMPOSE_FILE)
     services = compose["services"]

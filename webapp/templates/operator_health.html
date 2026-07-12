@@ -21,6 +21,11 @@
     text-transform:uppercase; color:var(--ink-soft); border:1px solid var(--line);
     border-radius:3px; padding:.08rem .4rem; margin-bottom:.25rem; }
   .empty { color:var(--ink-faint); font-size:.86rem; }
+  .job-spool td { vertical-align:top; }
+  .job-meta { display:flex; flex-wrap:wrap; gap:.25rem .4rem; margin-top:.2rem; }
+  .job-meta span { font-family:var(--mono); font-size:.68rem; color:var(--ink-soft); }
+  .job-stage { max-width:22rem; }
+  .job-error { color:var(--accent); font-size:.78rem; margin-top:.25rem; }
 </style>
 
 <p class="kicker">Restricted operations</p>
@@ -77,6 +82,59 @@
           <td class="num">{{ row.count }}</td></tr>
       {% else %}
         <tr><td colspan="3" class="empty">No jobs recorded.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+
+    <h2>Job spool</h2>
+    <table class="compact job-spool">
+      <thead>
+        <tr>
+          <th>Job</th>
+          <th>Document</th>
+          <th>Progress</th>
+          <th>Worker</th>
+          <th>Timing</th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for job in corpus.job_spool %}
+        <tr>
+          <td>
+            <div>{{ job.kind }} {{ terms.status_pill(job.status) }}</div>
+            <div class="job-meta">
+              <span>attempt {{ job.attempts }} / {{ job.max_attempts }}</span>
+              <span>{{ job.id }}</span>
+            </div>
+            {% if job.error %}<div class="job-error">{{ job.error }}</div>{% endif %}
+          </td>
+          <td>
+            {% if job.document_id %}
+              <a href="{{ url_for('document', doc_id=job.document_id) }}">{{ job.document_title or job.document_id }}</a>
+            {% else %}
+              <span class="empty">No document yet</span>
+            {% endif %}
+          </td>
+          <td class="job-stage">
+            {{ job.progress_stage or "No progress reported" }}
+            <div class="job-meta">
+              {% if job.progress_current is not none and job.progress_total is not none %}
+              <span>{{ job.progress_current }} / {{ job.progress_total }}</span>
+              {% endif %}
+            </div>
+          </td>
+          <td>{{ job.locked_by or "unclaimed" }}</td>
+          <td>
+            <div class="job-meta">
+              {% if job.runtime_s is not none %}<span>runtime {{ job.runtime_s }}s</span>{% endif %}
+              {% if job.heartbeat_age_s is not none %}<span>heartbeat {{ job.heartbeat_age_s }}s</span>{% endif %}
+              {% if job.queued_age_s is not none %}<span>age {{ job.queued_age_s }}s</span>{% endif %}
+              {% if job.reclaim_after_s is not none %}<span>reclaim in {{ job.reclaim_after_s }}s</span>{% endif %}
+            </div>
+          </td>
+        </tr>
+      {% else %}
+        <tr><td colspan="5" class="empty">No queued, running, failed, or reclaimed jobs.</td></tr>
       {% endfor %}
       </tbody>
     </table>

@@ -109,6 +109,12 @@ def _job_request_id(job: Job) -> str:
     return request_id_from_payload(job.payload) or "-"
 
 
+def _retry_label(retry_in_seconds: float | None) -> str:
+    if retry_in_seconds is None:
+        return "terminal failure"
+    return f"retry in {retry_in_seconds:g}s"
+
+
 @contextlib.contextmanager
 def _enforce_execution_timeout(job: Job, seconds: float | None) -> Iterator[None]:
     """Raise :class:`JobExecutionTimeout` if *job* exceeds *seconds*.
@@ -587,9 +593,32 @@ def run_once(
     registry = handlers if handlers is not None else HANDLERS
     job = queue.claim(conn, worker_id=worker_id)
     if job is None:
+        _logger.debug("worker %s found no queued job", worker_id)
         return None
+    request_id = _job_request_id(job)
+    _logger.info(
+        "worker %s claimed job %s (kind=%s, document_id=%s, attempt=%d/%d, request_id=%s)",
+        worker_id,
+        job.id,
+        job.kind,
+        job.document_id,
+        job.attempts,
+        job.max_attempts,
+        request_id,
+    )
     handler = registry.get(job.kind)
     if handler is None:
+        _logger.error(
+            "worker %s rejected job %s (unknown kind %s, document_id=%s, "
+            "attempt=%d/%d, request_id=%s)",
+            worker_id,
+            job.id,
+            job.kind,
+            job.document_id,
+            job.attempts,
+            job.max_attempts,
+            request_id,
+        )
         queue.fail(conn, job.id, error=f"unknown job kind {job.kind!r}", retry_in_seconds=None)
         return job
     stop_heartbeat = (
@@ -623,10 +652,11 @@ def run_once(
         with conn.transaction():
             if queue.is_canceled(conn, job.id):
                 _logger.info(
-                    "job %s (kind=%s, request_id=%s) was canceled before completion",
+                    "worker %s job %s (kind=%s, request_id=%s) was canceled before completion",
+                    worker_id,
                     job.id,
                     job.kind,
-                    _job_request_id(job),
+                    request_id,
                 )
                 return job
             _, total, _ = last_progress
@@ -646,19 +676,41 @@ def run_once(
                         (str(result["document_id"]), job.id),
                     )
                 _advance_chain(conn, job, result)
+                _logger.info(
+                    "worker %s completed job %s (kind=%s, document_id=%s, request_id=%s)",
+                    worker_id,
+                    job.id,
+                    job.kind,
+                    job.document_id
+                    or (str(result["document_id"]) if result.get("document_id") else None),
+                    request_id,
+                )
+            else:
+                _logger.warning(
+                    "worker %s could not complete job %s (kind=%s, document_id=%s, "
+                    "request_id=%s); claim may have been lost",
+                    worker_id,
+                    job.id,
+                    job.kind,
+                    job.document_id,
+                    request_id,
+                )
     except Exception as exc:  # the worker must survive any handler failure
         retry = None if job.attempts >= job.max_attempts else backoff_seconds(job.attempts)
         # BL-115: repr(exc) in the DB column is easy to miss (an operator has to
         # think to query it); the full traceback + job context goes to the log
         # too, so a real crash during ingest leaves a durable, discoverable trace.
         _logger.error(
-            "job %s (kind=%s, document_id=%s, request_id=%s) failed on attempt %d/%d: %s",
+            "job %s (kind=%s, document_id=%s, worker=%s, request_id=%s) "
+            "failed on attempt %d/%d (%s): %s",
             job.id,
             job.kind,
             job.document_id,
-            _job_request_id(job),
+            worker_id,
+            request_id,
             job.attempts,
             job.max_attempts,
+            _retry_label(retry),
             exc,
             exc_info=exc,
         )

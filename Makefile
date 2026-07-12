@@ -4,11 +4,18 @@
 
 SHELL := /bin/bash
 STAMP := $(shell date -u +%Y%m%dT%H%M%SZ)
+DOCRAY_WORKERS ?= 3
 
-.PHONY: help db-dump truncate-db
+.PHONY: help db-dump truncate-db workers-up workers-status
 
 help: ## List available tasks
 	@grep -E '^[a-z][a-zA-Z_-]*:.*## ' $(MAKEFILE_LIST) | awk -F ':.*## ' '{printf "  %-14s %s\n", $$1, $$2}'
+
+workers-up: ## Start/reconcile the worker pool (DOCRAY_WORKERS=3 by default)
+	docker compose up -d --scale worker=$(DOCRAY_WORKERS) worker
+
+workers-status: ## Show worker replica status
+	docker compose ps worker
 
 db-dump: ## Safety-dump the full database to backups/ (pg_dump -Fc)
 	docker exec docray-postgres pg_dump -U docray -d docray -Fc -f /tmp/docray-$(STAMP).dump

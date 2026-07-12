@@ -7,6 +7,8 @@ can claim, complete, or fail another process's real queued work.
 
 from __future__ import annotations
 
+import contextlib
+import logging
 import os
 import signal
 import threading
@@ -27,6 +29,7 @@ from doc_ray.domain.jobs import (
     KIND_SUGGEST_DOCUMENT_METADATA,
     KIND_UPDATE_METADATA,
     Job,
+    JobStatus,
 )
 from doc_ray.entrypoints import worker as worker_mod
 from doc_ray.ports.queue import Queue
@@ -83,6 +86,50 @@ def test_run_once_success_completes_job(qconn):
     assert seen and seen[0].payload == {"x": 1}
     row = qconn.execute("SELECT status, error FROM jobs WHERE id=%s", (jid,)).fetchone()
     assert row is not None and row["status"] == "succeeded"
+
+
+class _UnitConn:
+    def transaction(self):
+        return contextlib.nullcontext()
+
+    def execute(self, *_args: Any, **_kwargs: Any) -> None:
+        raise AssertionError("unit queue test should not execute SQL")
+
+
+def test_run_once_logs_claim_and_success_lifecycle(monkeypatch, caplog):
+    def ok_handler(conn: Any, store: Any, job: Job) -> dict[str, Any]:
+        return {"ok": True}
+
+    job = Job(
+        id="job-life",
+        kind="stub",
+        status=JobStatus.RUNNING,
+        payload={"_meta": {"request_id": "req-life"}},
+        attempts=1,
+        max_attempts=3,
+    )
+    monkeypatch.setattr(jobs_mod.queue, "claim", lambda *_args, **_kwargs: job)
+    monkeypatch.setattr(jobs_mod.queue, "update_progress", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(jobs_mod.queue, "is_canceled", lambda *_args, **_kwargs: False)
+    monkeypatch.setattr(jobs_mod.queue, "complete", lambda *_args, **_kwargs: True)
+
+    with caplog.at_level(logging.INFO, logger="doc_ray.jobs"):
+        jobs_mod.run_once(_UnitConn(), None, worker_id="t-life", handlers={"stub": ok_handler})
+
+    messages = [record.getMessage() for record in caplog.records]
+    assert any(
+        "worker t-life claimed job job-life" in message
+        and "kind=stub" in message
+        and "attempt=1/3" in message
+        and "request_id=req-life" in message
+        for message in messages
+    )
+    assert any(
+        "worker t-life completed job job-life" in message
+        and "kind=stub" in message
+        and "request_id=req-life" in message
+        for message in messages
+    )
 
 
 def test_run_once_exposes_handler_progress(qconn):
@@ -148,7 +195,50 @@ def test_run_once_failure_logs_exception_with_job_context(qconn, caplog):
     assert record.exc_info is not None, "expected the traceback to be attached"
     assert jid in record.getMessage()
     assert "stub" in record.getMessage()
+    assert "worker=t-fail-log" in record.getMessage()
     assert "request_id=req-worker-123" in record.getMessage()
+    assert "retry in 5s" in record.getMessage()
+
+
+def test_run_once_failure_logs_retry_lifecycle_without_database(monkeypatch, caplog):
+    failures: list[dict[str, Any]] = []
+
+    def boom(conn: Any, store: Any, job: Job) -> dict[str, Any]:
+        raise RuntimeError("kaput")
+
+    job = Job(
+        id="job-retry",
+        kind="stub",
+        status=JobStatus.RUNNING,
+        payload={"_meta": {"request_id": "req-retry"}},
+        attempts=1,
+        max_attempts=2,
+    )
+    monkeypatch.setattr(jobs_mod.queue, "claim", lambda *_args, **_kwargs: job)
+    monkeypatch.setattr(jobs_mod.queue, "update_progress", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        jobs_mod.queue,
+        "fail",
+        lambda _conn, job_id, **kwargs: failures.append({"job_id": job_id, **kwargs}),
+    )
+
+    with caplog.at_level(logging.ERROR, logger="doc_ray.jobs"):
+        jobs_mod.run_once(_UnitConn(), None, worker_id="t-retry", handlers={"stub": boom})
+
+    assert failures == [
+        {
+            "job_id": "job-retry",
+            "error": "RuntimeError('kaput')",
+            "retry_in_seconds": 5.0,
+        }
+    ]
+    record = caplog.records[-1]
+    assert record.exc_info is not None
+    assert "job-retry" in record.getMessage()
+    assert "kind=stub" in record.getMessage()
+    assert "worker=t-retry" in record.getMessage()
+    assert "request_id=req-retry" in record.getMessage()
+    assert "retry in 5s" in record.getMessage()
 
 
 def test_run_once_times_out_hung_handler(qconn):
@@ -181,6 +271,42 @@ def test_run_once_unknown_kind_is_poison(qconn):
     row = qconn.execute("SELECT status, error FROM jobs WHERE id=%s", (jid,)).fetchone()
     assert row is not None and row["status"] == "failed"
     assert "unknown job kind" in (row["error"] or "")
+
+
+def test_run_once_unknown_kind_logs_poison_lifecycle(monkeypatch, caplog):
+    failures: list[dict[str, Any]] = []
+    job = Job(
+        id="job-poison",
+        kind="mystery",
+        status=JobStatus.RUNNING,
+        payload={"_meta": {"request_id": "req-poison"}},
+        attempts=1,
+        max_attempts=3,
+    )
+    monkeypatch.setattr(jobs_mod.queue, "claim", lambda *_args, **_kwargs: job)
+    monkeypatch.setattr(
+        jobs_mod.queue,
+        "fail",
+        lambda _conn, job_id, **kwargs: failures.append({"job_id": job_id, **kwargs}),
+    )
+
+    with caplog.at_level(logging.ERROR, logger="doc_ray.jobs"):
+        jobs_mod.run_once(_UnitConn(), None, worker_id="t-poison-log", handlers={})
+
+    messages = [record.getMessage() for record in caplog.records]
+    assert any(
+        "worker t-poison-log rejected job job-poison" in message
+        and "unknown kind mystery" in message
+        and "request_id=req-poison" in message
+        for message in messages
+    )
+    assert failures == [
+        {
+            "job_id": "job-poison",
+            "error": "unknown job kind 'mystery'",
+            "retry_in_seconds": None,
+        }
+    ]
 
 
 def test_run_once_heartbeat_thread_runs(qconn):

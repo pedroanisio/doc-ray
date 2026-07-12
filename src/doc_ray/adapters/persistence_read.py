@@ -405,7 +405,12 @@ async def list_lexemes(
         # Restrict to lexemes present in the requested document; RLS still
         # decides whether that document is visible to the caller.
         joins += (
+<<<<<<< HEAD
             " JOIN annotations ann ON ann.id = o.annotation_id AND ann.document_id = %(doc)s::uuid"
+=======
+            " JOIN annotations ann ON ann.id = o.annotation_id "
+            "AND ann.document_id = %(doc)s::uuid"
+>>>>>>> 5fcf85508a711ee67338f7bf3e4c431d2be6bbfa
         )
         params["doc"] = document_id
     rows = await _rows(

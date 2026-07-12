@@ -110,7 +110,11 @@ metadata:
   generated_by:     "Claude Sonnet 5 via Claude Code (merge of Claude Opus 4.8 backlog + OpenAI Codex improvement-proposal candidates)"
   generated_on:     "2026-07-05"
   system_of_record: "docs/backlog.yml"
+<<<<<<< HEAD
   total_items:      131
+=======
+  total_items:      127
+>>>>>>> 5fcf85508a711ee67338f7bf3e4c431d2be6bbfa
 
 items:
 
@@ -4195,6 +4199,7 @@ items:
     owner:        "shared"
     source:       "Operator security finding 2026-07-12: anonymous GraphQL saw lexemes while RLS hid documents/entities/sentences. Completed 2026-07-12 by requiring RLS-visible lexeme_occurrences for lexeme list/detail reads and the webapp lexeme index, with isolated Docker red/green coverage."
     tags:         ["security", "graphql", "rls", "lexemes", "metadata-leak"]
+<<<<<<< HEAD
 
   - id:          "BL-128"
     title:        "auth_admin CLI: raw traceback on unreachable DB, divergent host-side DB defaults, and no operator docs"
@@ -4317,3 +4322,5 @@ items:
     owner:        "shared"
     source:       "Operator bug report 2026-07-12 (screenshot: Collection not found after create). Added and completed the same session."
     tags:         ["webapp", "collections", "transactions", "bug"]
+=======
+>>>>>>> 5fcf85508a711ee67338f7bf3e4c431d2be6bbfa

@@ -35,6 +35,7 @@ def operator_health_payload(report: dict[str, Any]) -> dict[str, Any]:
                 }
                 for row in corpus["jobs"]
             ],
+            "job_spool": [_job(row) for row in corpus["job_spool"]],
         },
         "database": {
             "size": {
@@ -75,6 +76,29 @@ def _issue(issue: dict[str, Any]) -> dict[str, Any]:
     return item
 
 
+def _job(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": str(row.get("id") or ""),
+        "kind": str(row.get("kind") or "unknown"),
+        "status": str(row.get("status") or "unknown"),
+        "attempts": _int(row.get("attempts")),
+        "max_attempts": _int(row.get("max_attempts")),
+        "worker": row.get("locked_by"),
+        "document_id": row.get("document_id"),
+        "document_title": row.get("document_title"),
+        "progress": {
+            "current": _nullable_int(row.get("progress_current")),
+            "total": _nullable_int(row.get("progress_total")),
+            "stage": row.get("progress_stage"),
+        },
+        "runtime_seconds": _nullable_int(row.get("runtime_s")),
+        "heartbeat_age_seconds": _nullable_int(row.get("heartbeat_age_s")),
+        "queued_age_seconds": _nullable_int(row.get("queued_age_s")),
+        "reclaim_after_seconds": _nullable_int(row.get("reclaim_after_s")),
+        "last_error": str(row.get("error") or ""),
+    }
+
+
 def _group(group: dict[str, Any]) -> dict[str, Any]:
     return {
         "severity": str(group.get("severity") or "info"),
@@ -86,4 +110,10 @@ def _group(group: dict[str, Any]) -> dict[str, Any]:
 def _int(value: Any) -> int:
     if value is None:
         return 0
+    return int(value)
+
+
+def _nullable_int(value: Any) -> int | None:
+    if value is None:
+        return None
     return int(value)

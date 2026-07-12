@@ -68,6 +68,45 @@ SELECT id, kind, locked_by,
  WHERE status = 'running'
 """
 
+_JOB_SPOOL_SQL = f"""
+SELECT j.id,
+       j.kind,
+       j.status,
+       j.attempts,
+       j.max_attempts,
+       j.locked_by,
+       j.document_id,
+       d.title AS document_title,
+       j.progress_current,
+       j.progress_total,
+       j.progress_stage,
+       CASE WHEN j.started_at IS NULL THEN NULL
+            ELSE extract(epoch FROM (now() - j.started_at))::int END AS runtime_s,
+       CASE WHEN j.heartbeat_at IS NULL THEN NULL
+            ELSE extract(epoch FROM (now() - j.heartbeat_at))::int END AS heartbeat_age_s,
+       extract(epoch FROM (now() - j.created_at))::int AS queued_age_s,
+       CASE WHEN j.status = 'running' AND j.heartbeat_at IS NOT NULL
+            THEN greatest(
+                0,
+                {STALE_HEARTBEAT_SECONDS}
+                - extract(epoch FROM (now() - j.heartbeat_at))::int
+            )
+            ELSE NULL END AS reclaim_after_s,
+       left(coalesce(j.error, ''), 240) AS error
+  FROM jobs j
+  LEFT JOIN documents d ON d.id = j.document_id
+ WHERE j.status IN ('queued', 'running', 'failed')
+    OR coalesce(j.error, '') <> ''
+ ORDER BY CASE j.status
+            WHEN 'running' THEN 0
+            WHEN 'queued' THEN 1
+            WHEN 'failed' THEN 2
+            ELSE 3
+          END,
+          j.created_at
+ LIMIT 40
+"""
+
 _SIZE_SQL = """
 SELECT pg_database_size(current_database()) AS bytes,
        pg_size_pretty(pg_database_size(current_database())) AS pretty
@@ -137,11 +176,13 @@ def _collect_corpus(q: Query, q1: QueryOne) -> dict[str, Any]:
     documents = [dict(row) for row in q(_DOCUMENTS_SQL)]
     jobs = [dict(row) for row in q(_JOBS_SQL)]
     running_jobs = [dict(row) for row in q(_RUNNING_JOBS_SQL)]
+    job_spool = [_job_spool_row(row) for row in q(_JOB_SPOOL_SQL)]
     return {
         "totals": totals,
         "documents": documents,
         "jobs": jobs,
         "running_jobs": running_jobs,
+        "job_spool": job_spool,
     }
 
 
@@ -183,6 +224,30 @@ def _corpus_issues(snapshot: dict[str, Any]) -> list[dict[str, Any]]:
                     f"{job.get('kind')} job {job.get('id')} "
                     f"(worker {job.get('locked_by')}) last heartbeat "
                     f"{job.get('heartbeat_age_s')}s ago",
+                )
+            )
+    for job in snapshot.get("job_spool", []):
+        if job.get("status") == "running" and _int(job.get("attempts")) >= _int(
+            job.get("max_attempts")
+        ):
+            issues.append(
+                _issue(
+                    "job-last-attempt",
+                    "warning",
+                    f"{job.get('kind')} job {job.get('id')} is on attempt "
+                    f"{job.get('attempts')}/{job.get('max_attempts')}: "
+                    f"{job.get('progress_stage') or 'no progress stage'}",
+                    document_id=job.get("document_id"),
+                )
+            )
+        if "reclaimed:" in str(job.get("error") or ""):
+            issues.append(
+                _issue(
+                    "job-reclaimed",
+                    "warning",
+                    f"{job.get('kind')} job {job.get('id')} was reclaimed after "
+                    f"a stale heartbeat; now {job.get('status')}",
+                    document_id=job.get("document_id"),
                 )
             )
     totals = snapshot["totals"]
@@ -290,6 +355,28 @@ def _database_issues(snapshot: dict[str, Any]) -> list[dict[str, Any]]:
     return issues
 
 
+def _job_spool_row(row: dict[str, Any]) -> dict[str, Any]:
+    item = dict(row)
+    item["id"] = str(item.get("id") or "")
+    item["kind"] = str(item.get("kind") or "unknown")
+    item["status"] = str(item.get("status") or "unknown")
+    item["attempts"] = _int(item.get("attempts"))
+    item["max_attempts"] = _int(item.get("max_attempts"))
+    doc = item.get("document_id")
+    item["document_id"] = str(doc) if doc is not None else None
+    item["document_title"] = item.get("document_title") or None
+    item["locked_by"] = item.get("locked_by") or None
+    item["progress_current"] = _nullable_int(item.get("progress_current"))
+    item["progress_total"] = _nullable_int(item.get("progress_total"))
+    item["progress_stage"] = item.get("progress_stage") or None
+    item["runtime_s"] = _nullable_int(item.get("runtime_s"))
+    item["heartbeat_age_s"] = _nullable_int(item.get("heartbeat_age_s"))
+    item["queued_age_s"] = _nullable_int(item.get("queued_age_s"))
+    item["reclaim_after_s"] = _nullable_int(item.get("reclaim_after_s"))
+    item["error"] = str(item.get("error") or "")
+    return item
+
+
 def _issue(code: str, severity: str, detail: str, **extra: Any) -> dict[str, Any]:
     return {"code": code, "severity": severity, "detail": detail, **extra}
 
@@ -304,4 +391,10 @@ def _issue_groups(issues: list[dict[str, Any]]) -> list[dict[str, Any]]:
 def _int(value: Any) -> int:
     if value is None:
         return 0
+    return int(value)
+
+
+def _nullable_int(value: Any) -> int | None:
+    if value is None:
+        return None
     return int(value)

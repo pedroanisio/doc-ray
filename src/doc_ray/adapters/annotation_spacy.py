@@ -61,6 +61,7 @@ SentenceLookup = Callable[[int], str | None]
 TokenRow = tuple[str, str, str | None, int, str | None, str, str]
 #: A dependency row: (dependent_token_id, head_token_id, deprel).
 DepRow = tuple[str, str | None, str]
+_ANNOTATE_PROGRESS_TOTAL = 12
 
 
 def lexeme_projection_from_tokens(tokens: list[TokenRow]) -> list[tuple[str, str]]:
@@ -217,7 +218,7 @@ class SpacyAnnotator:
         Returns:
             A summary mapping of per-layer counts plus ``lang`` and ``tool``.
         """
-        report_progress(0, 7, "Loading text and language model")
+        report_progress(0, _ANNOTATE_PROGRESS_TOTAL, "Loading text and language model")
         row = conn.execute(
             "SELECT full_text FROM document_content WHERE document_id=%s", (doc_id,)
         ).fetchone()
@@ -228,10 +229,10 @@ class SpacyAnnotator:
         language_resolution = self.resolve_language(detected_lang, lang_default=lang_default)
         lang = language_resolution.annotation_language
         nlp, tool = self.nlp_for(lang, lang_default=lang_default)
-        report_progress(1, 7, "Running spaCy pipeline")
+        report_progress(1, _ANNOTATE_PROGRESS_TOTAL, "Running spaCy pipeline")
         doc = nlp(text)
 
-        report_progress(2, 7, "Indexing sentences")
+        report_progress(2, _ANNOTATE_PROGRESS_TOTAL, "Indexing sentences")
         # sentence-span index for offset containment
         sent_spans = conn.execute(
             "SELECT s.id, sp.char_start, sp.char_end FROM sentences s "
@@ -247,15 +248,25 @@ class SpacyAnnotator:
             return None
 
         # Register every span we need (tokens, entities, chunks) in one bulk call.
-        report_progress(3, 7, "Registering token and entity spans")
+        report_progress(3, _ANNOTATE_PROGRESS_TOTAL, "Collecting token spans")
         tok_spans = [(t.idx, t.idx + len(t.text)) for t in doc if t.text.strip()]
-        ent_spans = [(e.start_char, e.end_char) for e in doc.ents]
-        chunk_spans = [(c.start_char, c.end_char) for c in doc.noun_chunks]
+        report_progress(4, _ANNOTATE_PROGRESS_TOTAL, "Collecting entity and chunk spans")
+        ents = list(doc.ents)
+        chunks = list(doc.noun_chunks)
+        ent_spans = [(e.start_char, e.end_char) for e in ents]
+        chunk_spans = [(c.start_char, c.end_char) for c in chunks]
+        span_count = len(tok_spans) + len(ent_spans) + len(chunk_spans)
+        report_progress(5, _ANNOTATE_PROGRESS_TOTAL, f"Registering {span_count} annotation spans")
         span_map = db.ensure_spans(conn, doc_id, tok_spans + ent_spans + chunk_spans)
 
-        report_progress(4, 7, "Building annotation layers")
+        report_progress(6, _ANNOTATE_PROGRESS_TOTAL, "Building token and morphology rows")
         token_rows, feat_rows, tok_id = self._build_tokens(conn, doc, span_map, sentence_of, lang)
 
+        report_progress(
+            7,
+            _ANNOTATE_PROGRESS_TOTAL,
+            "Building dependency, entity, chunk, and coreference rows",
+        )
         dep_rows: list[DepRow] = []
         for t in doc:
             if t.i not in tok_id:
@@ -263,18 +274,19 @@ class SpacyAnnotator:
             head = None if t.head.i == t.i else tok_id.get(t.head.i)
             dep_rows.append((tok_id[t.i], head, "root" if head is None else t.dep_))
 
-        ent_rows, coref = self._build_entities(doc, span_map)
+        ent_rows, coref = self._build_entities(ents, span_map)
         chunk_rows = [
             (new_ulid_str(), span_map[(c.start_char, c.end_char)], "NP", c.text)
-            for c in doc.noun_chunks
+            for c in chunks
         ]
 
         # Lexeme layer (real POS) — the projection the webapp reads. One pass,
         # so the whole mapping (spaCy tokens/deps/NER/chunks + lexeme POS) is
         # produced and committed together.
+        report_progress(8, _ANNOTATE_PROGRESS_TOTAL, "Projecting lexeme occurrences")
         lex_occ = lexeme_projection_from_tokens(token_rows)
         lex_tool, lex_version = _split_tool_tag(tool)
-        report_progress(5, 7, "Validating annotation output")
+        report_progress(9, _ANNOTATE_PROGRESS_TOTAL, "Validating annotation output")
         validation_summary = validate_spacy_annotation_output(
             text_length=len(text),
             span_map=span_map,
@@ -290,7 +302,7 @@ class SpacyAnnotator:
             language_resolution=language_resolution,
         )
 
-        report_progress(6, 7, "Persisting annotation layers")
+        report_progress(10, _ANNOTATE_PROGRESS_TOTAL, "Persisting annotation layers")
         self._write(
             conn,
             doc_id,
@@ -308,6 +320,7 @@ class SpacyAnnotator:
             language_resolution=language_resolution,
             validation_summary=validation_summary,
         )
+        report_progress(11, _ANNOTATE_PROGRESS_TOTAL, "Annotation layers persisted")
         return {
             "tokens": len(token_rows),
             "entities": len(ent_rows),
@@ -325,13 +338,13 @@ class SpacyAnnotator:
 
     def _build_entities(
         self,
-        doc: SpacyDoc,
+        ents: list[Any],
         span_map: dict[tuple[int, int], str],
     ) -> tuple[list[tuple[str, str, str, str]], dict[str, list[str]]]:
         """Build entity-mention rows and the string-match coref chains."""
         ent_rows: list[tuple[str, str, str, str]] = []
         ent_by_key: dict[str, list[str]] = {}
-        for e in doc.ents:
+        for e in ents:
             mid = new_ulid_str()
             ent_rows.append((mid, span_map[(e.start_char, e.end_char)], e.label_, e.text))
             if e.label_ in ("PERSON", "PER", "ORG", "GPE", "LOC"):
