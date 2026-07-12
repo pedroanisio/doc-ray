@@ -133,6 +133,27 @@ def test_svg_extracts_text_and_tspan_elements():
     assert "Nested tspan label." in e.full_text
 
 
+def test_svg_extracts_native_coordinate_page_runs():
+    e = extract(_minimal_svg(), "diagram", ".svg")
+
+    assert e.page_runs == [
+        {
+            "page": 0,
+            "page_width": 200.0,
+            "page_height": 100.0,
+            "bbox": (10.0, 8.0, 125.2, 20.0),
+            "text": "Golden SVG text.",
+        },
+        {
+            "page": 0,
+            "page_width": 200.0,
+            "page_height": 100.0,
+            "bbox": (10.0, 30.0, 146.8, 42.0),
+            "text": "Nested tspan label.",
+        },
+    ]
+
+
 def test_svg_extension_is_supported_for_upload_content_type():
     assert extraction.is_supported_extension(".svg")
     assert extraction.content_type_for_extension(".svg") == "image/svg+xml"
@@ -223,24 +244,47 @@ def test_pptx_extracts_slide_text_structure_and_speaker_notes(monkeypatch):
             paragraphs: list[_Paragraph],
             *,
             placeholder_type: str | None = None,
+            left: int = 0,
+            top: int = 0,
+            width: int = 0,
+            height: int = 0,
         ) -> None:
             self.has_text_frame = True
             self.text_frame = _TextFrame(paragraphs)
             self.is_placeholder = placeholder_type is not None
             self.placeholder_format = _PlaceholderFormat(placeholder_type or "")
+            self.left = left
+            self.top = top
+            self.width = width
+            self.height = height
 
     class _NotesSlide:
         notes_text_frame = _TextFrame([_Paragraph("Speaker note one.")])
 
     class _Slide:
         shapes = [
-            _Shape([_Paragraph("Deck Title")], placeholder_type="TITLE"),
-            _Shape([_Paragraph("First bullet", 0), _Paragraph("Nested bullet", 1)]),
+            _Shape(
+                [_Paragraph("Deck Title")],
+                placeholder_type="TITLE",
+                left=100,
+                top=200,
+                width=300,
+                height=50,
+            ),
+            _Shape(
+                [_Paragraph("First bullet", 0), _Paragraph("Nested bullet", 1)],
+                left=100,
+                top=300,
+                width=500,
+                height=120,
+            ),
         ]
         has_notes_slide = True
         notes_slide = _NotesSlide()
 
     class _Presentation:
+        slide_width = 1000
+        slide_height = 750
         slides = [_Slide()]
 
     fake_pptx = types.SimpleNamespace(Presentation=lambda stream: _Presentation())
@@ -255,6 +299,29 @@ def test_pptx_extracts_slide_text_structure_and_speaker_notes(monkeypatch):
         "- First bullet",
         "  - Nested bullet",
         "Speaker note one.",
+    ]
+    assert e.page_runs == [
+        {
+            "page": 0,
+            "page_width": 1000.0,
+            "page_height": 750.0,
+            "bbox": (100.0, 200.0, 400.0, 250.0),
+            "text": "# Deck Title",
+        },
+        {
+            "page": 0,
+            "page_width": 1000.0,
+            "page_height": 750.0,
+            "bbox": (100.0, 300.0, 600.0, 420.0),
+            "text": "- First bullet",
+        },
+        {
+            "page": 0,
+            "page_width": 1000.0,
+            "page_height": 750.0,
+            "bbox": (100.0, 300.0, 600.0, 420.0),
+            "text": "  - Nested bullet",
+        },
     ]
 
 

@@ -2834,7 +2834,7 @@ items:
       space, since text position there is exact, not inferred).
     category:     "webapp"
     type:         "feature"
-    status:       "parked"
+    status:       "done"
     complexity:   "M"
     priority:     "low"
     rationale:    "Sequenced after format ingestion exists (BL-084/BL-085) since there is nothing to overlay onto before that; kept as its own item rather than folded into BL-082 because the positioning mechanism for these two formats is genuinely different from PDF's (native vector coordinates for SVG; slide/shape coordinates for PPTX) even though the end-user-visible feature is the same 'see it overlaid on the original' idea."
@@ -2845,7 +2845,7 @@ items:
     references:
       - "src/doc_ray/adapters/extraction.py"
     owner:        "shared"
-    source:       "User correction 2026-07-05: 'document can also be docx, html, pptx, svgs'; see BL-084/BL-085."
+    source:       "User correction 2026-07-05: 'document can also be docx, html, pptx, svgs'; see BL-084/BL-085. Completed 2026-07-12 by surfacing `page_runs` for SVG text in native viewBox coordinates and PPTX text in slide/shape coordinates, allowing the existing layout-run/annotation geometry path to position highlights without treating either format as a PDF."
     tags:         ["webapp", "overlay", "pptx", "svg"]
 
   - id:          "BL-088"

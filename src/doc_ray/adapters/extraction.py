@@ -31,6 +31,7 @@ from doc_ray.domain import pdf_layout
 
 
 class _PyMuPDFRect(Protocol):
+    width: float
     height: float
 
 
@@ -653,6 +654,8 @@ class _SvgTextRun:
     text: str
     font_size: float | None
     bold: bool
+    x: float | None
+    y: float | None
 
 
 def _svg_style_declarations(raw: str | None) -> dict[str, str]:
@@ -694,6 +697,24 @@ def _svg_font_bold(style: Mapping[str, str]) -> bool:
     return False
 
 
+def _svg_number(raw: str | None) -> float | None:
+    if not raw:
+        return None
+    match = _re.search(r"[-+]?(?:\d+(?:\.\d*)?|\.\d+)", raw)
+    if not match:
+        return None
+    return float(match.group(0))
+
+
+def _svg_canvas_size(root: ET.Element) -> tuple[float | None, float | None]:
+    view_box = root.get("viewBox") or root.get("viewbox")
+    if view_box:
+        numbers = [_svg_number(part) for part in _re.split(r"[,\s]+", view_box.strip()) if part]
+        if len(numbers) == 4 and numbers[2] is not None and numbers[3] is not None:
+            return numbers[2], numbers[3]
+    return _svg_number(root.get("width")), _svg_number(root.get("height"))
+
+
 def _svg_title(root: ET.Element, fallback_title: str) -> str:
     for elem in root.iter():
         if _xml_local_name(elem.tag).lower() == "title":
@@ -725,6 +746,8 @@ def _svg_text_runs(root: ET.Element) -> list[_SvgTextRun]:
                         text=text,
                         font_size=_svg_font_size(style),
                         bold=_svg_font_bold(style),
+                        x=_svg_number(style.get("x")),
+                        y=_svg_number(style.get("y")),
                     )
                 )
             return
@@ -764,6 +787,33 @@ def _svg_structured_lines(runs: list[_SvgTextRun]) -> list[str]:
     return lines
 
 
+def _svg_page_runs(
+    root: ET.Element, runs: list[_SvgTextRun], lines: list[str]
+) -> list[dict[str, Any]] | None:
+    page_width, page_height = _svg_canvas_size(root)
+    out: list[dict[str, Any]] = []
+    for run, line in zip(runs, lines, strict=True):
+        if run.x is None or run.y is None:
+            continue
+        font_size = run.font_size or 12.0
+        bbox = (
+            run.x,
+            run.y - font_size,
+            run.x + (len(run.text) * font_size * 0.6),
+            run.y,
+        )
+        out.append(
+            {
+                "page": 0,
+                "page_width": page_width,
+                "page_height": page_height,
+                "bbox": tuple(round(value, 6) for value in bbox),
+                "text": line,
+            }
+        )
+    return out or None
+
+
 def extract_svg(data: bytes, fallback_title: str) -> Extracted:
     """Extract text from SVG <text>/<tspan> elements using hardened XML parsing."""
     root = ET.fromstring(data)
@@ -779,7 +829,11 @@ def extract_svg(data: bytes, fallback_title: str) -> Extracted:
             "render_html": "".join(f"<p>{_html_escape(run.text)}</p>" for run in runs),
         },
     )
-    return replace(extracted, title=_svg_title(root, fallback_title))
+    return replace(
+        extracted,
+        title=_svg_title(root, fallback_title),
+        page_runs=_svg_page_runs(root, runs, lines),
+    )
 
 
 def _docx_style_name(paragraph: object) -> str:
@@ -816,6 +870,23 @@ def _pptx_structured_line(text: str, placeholder_kind: str, paragraph: object) -
     return f"{indent}- {text}"
 
 
+def _pptx_float_attr(obj: object, name: str) -> float | None:
+    value = getattr(obj, name, None)
+    if value is None:
+        return None
+    return float(value)
+
+
+def _pptx_shape_bbox(shape: object) -> tuple[float, float, float, float] | None:
+    left = _pptx_float_attr(shape, "left")
+    top = _pptx_float_attr(shape, "top")
+    width = _pptx_float_attr(shape, "width")
+    height = _pptx_float_attr(shape, "height")
+    if left is None or top is None or width is None or height is None:
+        return None
+    return (left, top, left + width, top + height)
+
+
 def extract_pptx(data: bytes, fallback_title: str) -> Extracted:
     """Extract slide text from a PPTX using python-pptx.
 
@@ -838,17 +909,32 @@ def extract_pptx(data: bytes, fallback_title: str) -> Extracted:
     presentation = pptx.Presentation(io.BytesIO(data))
     lines: list[str] = []
     render_parts: list[str] = []
-    for slide in presentation.slides:
+    page_runs: list[dict[str, Any]] = []
+    page_width = _pptx_float_attr(presentation, "slide_width")
+    page_height = _pptx_float_attr(presentation, "slide_height")
+    for page, slide in enumerate(presentation.slides):
         for shape in getattr(slide, "shapes", []):
             if not getattr(shape, "has_text_frame", False):
                 continue
             placeholder_kind = _pptx_placeholder_kind(shape)
+            bbox = _pptx_shape_bbox(shape)
             for paragraph in getattr(shape.text_frame, "paragraphs", []):
                 text = _pptx_paragraph_text(paragraph)
                 if not text:
                     continue
-                lines.append(_pptx_structured_line(text, placeholder_kind, paragraph))
+                line = _pptx_structured_line(text, placeholder_kind, paragraph)
+                lines.append(line)
                 render_parts.append(f"<p>{_html_escape(text)}</p>")
+                if bbox is not None:
+                    page_runs.append(
+                        {
+                            "page": page,
+                            "page_width": page_width,
+                            "page_height": page_height,
+                            "bbox": bbox,
+                            "text": line,
+                        }
+                    )
         if getattr(slide, "has_notes_slide", False):
             notes_frame = getattr(slide.notes_slide, "notes_text_frame", None)
             for paragraph in getattr(notes_frame, "paragraphs", []):
@@ -856,7 +942,7 @@ def extract_pptx(data: bytes, fallback_title: str) -> Extracted:
                 if text:
                     lines.append(text)
                     render_parts.append(f"<p>{_html_escape(text)}</p>")
-    return _text_extracted(
+    extracted = _text_extracted(
         "\n".join(lines),
         fallback_title,
         doc_type="pptx",
@@ -864,6 +950,7 @@ def extract_pptx(data: bytes, fallback_title: str) -> Extracted:
         content_type="application/vnd.openxmlformats-officedocument.presentationml.presentation",
         metadata={"render_html": "".join(render_parts)},
     )
+    return replace(extracted, page_runs=page_runs or None)
 
 
 def extract_docx(data: bytes, fallback_title: str) -> Extracted:

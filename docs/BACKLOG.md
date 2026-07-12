@@ -326,7 +326,7 @@ which is modifying the same queue plumbing as this is written.
 | BL-084 | Extraction support for PPTX (PowerPoint) | extraction | feature | done | M | low | shared |
 | BL-085 | Extraction support for SVG | extraction | feature | done | S | low | shared |
 | BL-086 | Overlay strategy for non-paginated formats (docx/html/epub): highlight in a rendered view of the original markup | webapp | feature | done | L | low | shared |
-| BL-087 | Overlay support for PPTX/SVG once ingested (slide/vector-native positioning) | webapp | feature | parked | M | low | shared |
+| BL-087 | Overlay support for PPTX/SVG once ingested (slide/vector-native positioning) | webapp | feature | done | M | low | shared |
 | BL-088 | Harden zip/XML parsing against decompression-bomb and entity-expansion attacks | security | bug | done | M | high | shared |
 | BL-089 | Extraction support for PPTX: text and structure from slide/placeholder data | extraction | feature | done | M | medium | shared |
 | BL-090 | Extraction support for SVG: text and structure from font-size/weight classification | extraction | feature | done | S | medium | shared |
