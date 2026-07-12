@@ -236,6 +236,26 @@ the GraphQL `Job`, rendered as a real progress bar in the pipeline panel,
 and pushed over the SSE stream. Sequenced after BL-102 (job cancellation),
 which is modifying the same queue plumbing as this is written.
 
+**2026-07-12 test-isolation incident (operator question):** added and completed
+`BL-124` (M/high). Local full-suite runs executed against the live/UAT database —
+one evening of continuous fleet runs left 19 orphaned `itest` documents in
+the corpus (BL-059's soft delete broke the old cleanup assumption; failed
+runs skip teardown), `test_queue` claimed a real pipeline job off the shared
+queue, and the restore tests replace live corpus state, coinciding with an
+operator's uploads vanishing mid-demo. Fixed by a dedicated Dockerized test
+database plus a loud local refusal to run DB-backed tests against non-test
+databases unless `DOCRAY_TEST_ALLOW_LIVE_DB=1` is explicitly set; CI's
+ephemeral service DB remains allowed.
+
+**2026-07-12 overlay empty-page bug (operator report):** added and completed
+`BL-125` (S/medium, bug). On a fully-reextracted PDF, `view=original` on a
+text-free page (cover art, blank page) shows the document-level "re-extract
+this PDF" message because the per-page dimension lookup finds no
+`document_layout_runs` rows and conflates that with an unprocessed document —
+verified on doc `060e4aeb` (pages 1/4 empty, pages 2–8 rendering fine). The
+operator's hypothesis was exactly right; fixed by rendering the page image with
+zero boxes and an honest "No text detected on this page" state.
+
 ## Items
 
 | ID | Item | Category | Type | Status | Cx | Priority | Owner |
@@ -288,13 +308,13 @@ which is modifying the same queue plumbing as this is written.
 | BL-046 | docker-compose ingester exit code 2 reads as a startup failure (GH#3) | ops | tech-debt | done | XS | low | shared |
 | BL-047 | Drift-gate generated docs with a --check twin | tooling | infra | done | XS | high | shared |
 | BL-048 | Gate documentation prose against machine facts | testing | infra | done | S | high | shared |
-| BL-049 | Structured result/error envelope for jobs and the API | api | feature | parked | M | high | shared |
-| BL-050 | Property-based invariants for ingest and annotation | testing | infra | parked | S | medium | shared |
-| BL-051 | Graceful optional-dependency handling with install hints | tooling | feature | parked | S | medium | shared |
+| BL-049 | Structured result/error envelope for jobs and the API | api | feature | done | M | high | shared |
+| BL-050 | Property-based invariants for ingest and annotation | testing | infra | done | S | medium | shared |
+| BL-051 | Graceful optional-dependency handling with install hints | tooling | feature | done | S | medium | shared |
 | BL-052 | Test-enforce the hexagonal import direction | testing | infra | done | XS | medium | shared |
-| BL-053 | Golden-output harness with hash-lock and tolerance oracle | testing | infra | parked | L | medium | shared |
-| BL-054 | Expose phrase and semantic (vector) search on the GraphQL API | api | feature | parked | M | medium | shared |
-| BL-055 | Add index-health / corruption monitoring (amcheck + checksums) | ops | infra | parked | M | medium | shared |
+| BL-053 | Golden-output harness with hash-lock and tolerance oracle | testing | infra | done | L | medium | shared |
+| BL-054 | Expose phrase and semantic (vector) search on the GraphQL API | api | feature | done | M | medium | shared |
+| BL-055 | Add index-health / corruption monitoring (amcheck + checksums) | ops | infra | done | M | medium | shared |
 | BL-056 | Document thumbnails and visual previews | webapp | feature | done | L | medium | shared |
 | BL-057 | Document collections: manual and rule-based smart collections | webapp | feature | done | L | medium | shared |
 | BL-058 | Editable document metadata (rename, description, tags) with an audit log | api | feature | done | M | high | shared |
@@ -363,6 +383,8 @@ which is modifying the same queue plumbing as this is written.
 | BL-121 | GraphQL Job type omits the queue timing the jobs table already stores | api | tech-debt | done | XS | medium | shared |
 | BL-122 | Push-based pipeline progress: subscriptions, webhooks, or SSE instead of poll-only | api | feature | done | M | high | shared |
 | BL-123 | First-class async job progress: within-job progress reporting from worker handlers, surfaced live | ops | feature | done | M | high | shared |
+| BL-124 | Test suites run destructively against the live/UAT database — provision an isolated test database | testing | infra | done | M | high | shared |
+| BL-125 | Original-overlay view mistakes a text-free PDF page for an un-reextracted document | webapp | bug | done | S | medium | shared |
 
 See [`backlog.yml`](backlog.yml) for each item's full description, rationale,
 acceptance criteria, dependencies, related decisions (`D-###`), and references.

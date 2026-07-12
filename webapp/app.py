@@ -833,8 +833,14 @@ def _original_overlay(
     page_height = float(meta.get("page_height") or 0)
     if page_width <= 0 or page_height <= 0:
         return {
-            "available": False,
-            "message": "Original overlay is not available until this PDF is re-extracted.",
+            "kind": "pdf",
+            "available": True,
+            "image_src": url_for("document_page_image", doc_id=doc_id, page_number=page),
+            "page_width": None,
+            "page_height": None,
+            "mode": mode,
+            "boxes": [],
+            "message": "No text detected on this page — nothing to overlay.",
         }
     boxes = (
         _entity_overlay_boxes(doc_id, page, page_width, page_height)

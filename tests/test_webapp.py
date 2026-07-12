@@ -1036,6 +1036,31 @@ def test_document_original_overlay_renders_pdf_page_and_pos_boxes(client, monkey
     assert "say · VERB" in html
 
 
+def test_document_original_overlay_renders_text_free_pdf_page(client, monkeypatch):
+    def empty_page_q(sql, params=()):
+        s = _norm(sql)
+        if "DISTINCT sp.page_number" in s:
+            return [{"page_number": 2}]
+        if "sen.ordinal, sen.text" in s and "sp.page_number = %s" in s:
+            assert params == (DOC_ID, 1)
+            return []
+        if "document_layout_runs" in s and "page_width" in s:
+            assert params == (DOC_ID, 1)
+            return [{"page_width": None, "page_height": None}]
+        if "FROM lexeme_occurrences o" in s and "sp.char_start >=" in s:
+            return []
+        return fake_q(sql, params)
+
+    monkeypatch.setattr(webapp, "q", empty_page_q)
+
+    html = client.get(f"/doc/{DOC_ID}?view=original&page=1").get_data(as_text=True)
+
+    assert 'class="original-overlay"' in html
+    assert f'src="/doc/{DOC_ID}/page/1.png"' in html
+    assert "No text detected on this page" in html
+    assert "Original overlay is not available until this PDF is re-extracted" not in html
+
+
 def test_document_original_overlay_explains_missing_pdf_geometry(client, monkeypatch):
     def missing_q(sql, params=()):
         s = _norm(sql)

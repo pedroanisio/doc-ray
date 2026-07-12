@@ -80,6 +80,20 @@ def test_backlog_md_lists_exactly_the_same_ids_as_backlog_yml():
     assert md_ids == yaml_ids
 
 
+def test_backlog_md_statuses_match_backlog_yml():
+    """The rendered status table must not drift from the YAML source of truth."""
+    yaml_status = {item["id"]: item["status"] for item in _backlog()["items"]}
+    md_status: dict[str, str] = {}
+    for line in _BACKLOG_MD.read_text(encoding="utf-8").splitlines():
+        if not line.startswith("| BL-"):
+            continue
+        cells = [cell.strip() for cell in line.strip("|").split("|")]
+        if len(cells) >= 5:
+            md_status[cells[0]] = cells[4]
+
+    assert md_status == yaml_status
+
+
 def test_bl065_tenant_foundation_status_matches_implemented_surfaces():
     """BL-065 is foundational for tenant-aware items, so its status must track code."""
     item = _backlog_item("BL-065")

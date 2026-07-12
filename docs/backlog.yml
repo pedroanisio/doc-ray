@@ -110,7 +110,7 @@ metadata:
   generated_by:     "Claude Sonnet 5 via Claude Code (merge of Claude Opus 4.8 backlog + OpenAI Codex improvement-proposal candidates)"
   generated_on:     "2026-07-05"
   system_of_record: "docs/backlog.yml"
-  total_items:      123
+  total_items:      125
 
 items:
 
@@ -4039,3 +4039,82 @@ items:
     owner:        "shared"
     source:       "Operator requirement 2026-07-12 (this session): 'the ingestion, processing, extraction, need a first class async progress indicator or eventsource full' — the same message selected SSE for BL-122. Completed 2026-07-12 with domain-level progress reporting usable from adapters, page-level PyMuPDF extraction reports, inner ingest/reextract/backup/annotation/semantic-enrichment progress stages, queue progress notifications, GraphQL/SSE exposure, and webapp progress rendering; validated locally and in the isolated Docker test stack."
     tags:         ["ops", "jobs", "progress", "observability", "feature"]
+
+  - id:          "BL-124"
+    title:        "Test suites run destructively against the live/UAT database — provision an isolated test database"
+    summary:      "Local full-suite runs point at the same Postgres the webapp/UAT serves (DATABASE_URL from .env); only CI gets an ephemeral instance. Verified damage from one evening of agent runs: 19 orphaned itest fixture documents accumulated in the corpus (soft-delete semantics from BL-059 broke the old cleanup assumption; failed runs skip teardown entirely), test_queue claimed a real queued job off the shared queue and orphaned it under a test worker-id, and the backup/restore tests replace live corpus state — coinciding with an operator's fresh uploads vanishing mid-demo."
+    description: |
+      Confirmed live 2026-07-12: documents held 19 itest rows (all
+      lifecycle_state='deleted', created 05:52-06:00 during suite runs)
+      alongside 3 real documents; test_queue::test_enqueue_claim_complete
+      failed by claiming a real pipeline job (claim takes the next eligible
+      job globally); the restore-path tests run session_replication_role
+      replica restores against whatever database they are pointed at.
+
+      Fixed by the existing docker-compose.test.yml / scripts/test-in-docker.sh
+      isolated stack plus a session-start guard in src/doc_ray/tests/_itdb.py:
+      DB-backed integration tests refuse local non-test databases unless
+      DOCRAY_TEST_ALLOW_LIVE_DB=1 is explicitly set, while the dedicated
+      docray-test stack and CI's ephemeral database remain allowed. Direct
+      integration call sites now route through _itdb.connect() or the same
+      guard before creating throwaway databases.
+    category:     "testing"
+    type:         "infra"
+    status:       "done"
+    complexity:   "M"
+    priority:     "high"
+    rationale:    "Every agent task close-out runs the full suite; with the fleet operating continuously, the shared corpus is corrupted by test fixtures and destructive tests many times per day. The cost is no longer hypothetical: an operator's uploads were destroyed mid-session and test residue polluted UAT the same night."
+    acceptance_criteria:
+      - "A local full-suite run creates zero rows in the operator's corpus database: fixtures run against an ephemeral database provisioned and dropped by the suite (or a dedicated compose test profile)."
+      - "The suite refuses to run against a database containing non-fixture documents unless an explicit opt-in env var is set."
+      - "test_queue-style claim tests cannot interact with real jobs (isolated DB makes the shared-queue race impossible)."
+      - "README/docs describe the test-database setup; CI behavior is unchanged."
+    dependencies: []
+    references:
+      - "src/doc_ray/tests/_itdb.py"
+      - "tests/conftest.py"
+      - "src/doc_ray/tests/conftest.py"
+      - ".github/workflows/ci.yml"
+    owner:        "shared"
+    source:       "Operator question 2026-07-12 ('why is the UAT database full of test documents?') after a night of continuous fleet suite runs; residue and mechanisms verified live in this session. Completed 2026-07-12 with local non-test DATABASE_URL refusal in _itdb, direct DB-backed tests routed through the guard, README documentation, and isolated Docker validation in commit e5789e3."
+    tags:         ["testing", "isolation", "infra", "database"]
+
+  - id:          "BL-125"
+    title:        "Original-overlay view mistakes a text-free PDF page for an un-reextracted document"
+    summary:      "On a document with full page geometry, opening view=original on a page that contains no extractable text (cover art, full-page image, blank page) shows 'Original overlay is not available until this PDF is re-extracted' — the same message as a never-processed document — while the adjacent pages render their overlays fine. Reproduced live on doc 060e4aeb (Form Design Patterns): page 2 renders, pages 1 and 4 show the re-extract message; spans/document_layout_runs confirm those two pages simply have zero text runs."
+    description: |
+      Root cause (webapp/app.py, _pdf_original_overlay context builder): the
+      document-level availability check is correct (no positioned pages at
+      all -> re-extract message), but the subsequent per-page lookup reads
+      max(page_width/page_height) FROM document_layout_runs for the current
+      page and returns the SAME document-level re-extract message when no
+      rows exist. Extraction only writes layout runs for pages that contain
+      text runs, so any text-free page has no rows and no dimensions — an
+      expected, permanent condition that re-extracting will never change
+      (the operator's exact trap: the message sends them to a re-extract
+      that cannot help).
+
+      Fixed by treating page-level missing layout dimensions differently
+      from document-level missing geometry: when the document has positioned
+      pages but the requested page has no layout runs, the webapp renders the
+      original page image with zero overlay boxes and an honest "No text
+      detected on this page" state. The document-level re-extract message is
+      still reserved for PDFs with no positioned pages at all.
+    category:     "webapp"
+    type:         "bug"
+    status:       "done"
+    complexity:   "S"
+    priority:     "medium"
+    rationale:    "Every real-world PDF starts with a cover page, so the overlay feature's first impression on most documents is a false 'needs re-extraction' claim — and following that advice queues a pointless reextract job that changes nothing, eroding trust in the pipeline's own status reporting."
+    acceptance_criteria:
+      - "view=original on a text-free page of a document with geometry renders the page image with no overlay boxes and a 'no text on this page' notice — not the re-extract message."
+      - "The re-extract message appears only when the document has no positioned pages at all."
+      - "A regression test covers a document whose page 1 has no layout runs but whose page 2 does (the reproduced shape of doc 060e4aeb)."
+    dependencies: []
+    references:
+      - "webapp/app.py"
+      - "webapp/templates/document.html"
+      - "src/doc_ray/application/reextract.py"
+    owner:        "shared"
+    source:       "Operator bug report 2026-07-12 with the correct hypothesis (empty page treated as not-processed); verified live: doc 060e4aeb pages 1/4 have zero spans/layout runs while pages 2-8 render overlays. Completed 2026-07-12 with a webapp overlay model that renders text-free pages as image-only overlays plus regression coverage in tests/test_webapp.py."
+    tags:         ["webapp", "overlay", "pdf", "bug"]

@@ -242,6 +242,7 @@
                  aria-label="{{ b.aria_label }}"><span class="sr-only">{{ b.tip }}</span></a>
             {% endfor %}
           </div>
+          {% if overlay.message %}<div class="reader-note">{{ overlay.message }}</div>{% endif %}
         {% elif overlay and overlay.available and overlay.kind == "markup" %}
           <div class="markup-original">{{ overlay.html|safe }}</div>
         {% else %}
