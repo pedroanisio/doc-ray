@@ -323,6 +323,25 @@ CI and the Docker image install the runtime dependency set from the committed
 `uv.lock` (`uv sync --locked`, D-024) — after editing `requirements.txt`, run
 `uv lock` and commit the refreshed lockfile alongside it.
 
+### Dockerized test environment
+
+Do not run the test suite against the current/UAT Compose stack. Use the
+isolated test project instead:
+
+```bash
+scripts/test-in-docker.sh
+```
+
+The script uses [`docker-compose.test.yml`](docker-compose.test.yml) with Compose
+project `docray-test`, `docray-test-*` containers, `pgdata-test` /
+`miniodata-test` volumes, loopback ports `15432`, `19000`, and `19001`, and a
+separate `.env.test` file. It resets only the test project volumes before and
+after each run. Pass pytest args to narrow a run:
+
+```bash
+scripts/test-in-docker.sh tests/test_compose_security.py -q
+```
+
 ## Extending
 
 - **New file types**: add an extractor to `src/doc_ray/adapters/extraction.py`

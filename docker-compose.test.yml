@@ -1,0 +1,103 @@
+name: docray-test
+
+services:
+  test-postgres:
+    image: pgvector/pgvector:pg16@sha256:ad2e18408bf447f62092a8a5259e7df10505c5a0360bd1a1853ac8b8b0763da2
+    container_name: docray-test-postgres
+    restart: "no"
+    entrypoint:
+      - /bin/sh
+      - -ec
+      - |
+        case "$${POSTGRES_PASSWORD:-}" in
+          ""|docray|change-me|change-me-docray|change-me-docray-test)
+            echo "Refusing to start test Postgres with an unset/default TEST_POSTGRES_PASSWORD" >&2
+            exit 64
+            ;;
+        esac
+        exec docker-entrypoint.sh postgres
+    environment:
+      POSTGRES_USER: ${TEST_POSTGRES_USER:-docray_test}
+      POSTGRES_PASSWORD: ${TEST_POSTGRES_PASSWORD:?Set TEST_POSTGRES_PASSWORD to a non-default test secret}
+      POSTGRES_DB: ${TEST_POSTGRES_DB:-docray_test}
+    ports:
+      - "127.0.0.1:${TEST_POSTGRES_PORT:-15432}:5432"
+    volumes:
+      - pgdata-test:/var/lib/postgresql/data
+      - ./db/migrations:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${TEST_POSTGRES_USER:-docray_test} -d ${TEST_POSTGRES_DB:-docray_test}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  test-minio:
+    image: minio/minio:latest
+    container_name: docray-test-minio
+    restart: "no"
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${TEST_S3_ACCESS_KEY:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${TEST_S3_SECRET_KEY:-minioadmin}
+    ports:
+      - "127.0.0.1:${TEST_MINIO_PORT:-19000}:9000"
+      - "127.0.0.1:${TEST_MINIO_CONSOLE_PORT:-19001}:9001"
+    volumes:
+      - miniodata-test:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  test-createbucket:
+    image: minio/mc:latest
+    restart: "no"
+    depends_on:
+      test-minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set local http://test-minio:9000 ${TEST_S3_ACCESS_KEY:-minioadmin} ${TEST_S3_SECRET_KEY:-minioadmin};
+      mc mb --ignore-existing local/${TEST_S3_BUCKET:-documents-test};
+      echo 'test bucket ready';
+      "
+
+  test-migrate:
+    build: .
+    restart: "no"
+    depends_on:
+      test-postgres:
+        condition: service_healthy
+    environment:
+      PYTHONPATH: /app/src
+      DATABASE_URL: postgresql://${TEST_POSTGRES_USER:-docray_test}:${TEST_POSTGRES_PASSWORD:?Set TEST_POSTGRES_PASSWORD to a non-default test secret}@test-postgres:5432/${TEST_POSTGRES_DB:-docray_test}
+    entrypoint: ["python", "-m", "doc_ray.entrypoints.migrate"]
+
+  test-runner:
+    build:
+      context: .
+      dockerfile: Dockerfile.test
+    restart: "no"
+    depends_on:
+      test-createbucket:
+        condition: service_completed_successfully
+      test-migrate:
+        condition: service_completed_successfully
+    environment:
+      PYTHONPATH: /app/src:/app:/app/scripts:/app/src/doc_ray/tests
+      DATABASE_URL: postgresql://${TEST_POSTGRES_USER:-docray_test}:${TEST_POSTGRES_PASSWORD:?Set TEST_POSTGRES_PASSWORD to a non-default test secret}@test-postgres:5432/${TEST_POSTGRES_DB:-docray_test}
+      S3_ENDPOINT: http://test-minio:9000
+      S3_ACCESS_KEY: ${TEST_S3_ACCESS_KEY:-minioadmin}
+      S3_SECRET_KEY: ${TEST_S3_SECRET_KEY:-minioadmin}
+      S3_BUCKET: ${TEST_S3_BUCKET:-documents-test}
+      COVERAGE_FILE: /tmp/docray-test.coverage
+      PYTEST_ARGS: ${TEST_PYTEST_ARGS:---cov=doc_ray --cov-fail-under=90 tests src/doc_ray/tests -q}
+    volumes:
+      - ./:/app
+    entrypoint: ["/bin/sh", "-ec"]
+    command: ["python -m pytest -o cache_dir=/tmp/docray-pytest-cache $${PYTEST_ARGS}"]
+
+volumes:
+  pgdata-test:
+  miniodata-test:

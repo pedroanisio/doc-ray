@@ -9,6 +9,7 @@ import yaml
 
 _ROOT = Path(__file__).resolve().parents[1]
 _COMPOSE_FILES = ("docker-compose.yml", "docker-compose.api.yml")
+_TEST_COMPOSE_FILE = "docker-compose.test.yml"
 _DOCKERFILE = _ROOT / "Dockerfile"
 _PINNED_PGVECTOR_IMAGE = (
     "pgvector/pgvector:pg16@sha256:ad2e18408bf447f62092a8a5259e7df10505c5a0360bd1a1853ac8b8b0763da2"
@@ -119,3 +120,80 @@ def test_backup_scheduler_runs_with_the_default_stack():
     assert scheduler["environment"]["DOCRAY_BACKUP_SCHEDULE_SECONDS"] == (
         "${DOCRAY_BACKUP_SCHEDULE_SECONDS:-86400}"
     )
+
+
+def test_test_compose_stack_uses_dedicated_state_and_names():
+    compose = _compose(_TEST_COMPOSE_FILE)
+    services = compose["services"]
+
+    assert compose["name"] == "docray-test"
+    assert set(services) == {
+        "test-postgres",
+        "test-minio",
+        "test-createbucket",
+        "test-migrate",
+        "test-runner",
+    }
+    assert services["test-postgres"]["container_name"] == "docray-test-postgres"
+    assert services["test-minio"]["container_name"] == "docray-test-minio"
+    assert services["test-postgres"]["ports"] == [
+        "127.0.0.1:${TEST_POSTGRES_PORT:-15432}:5432"
+    ]
+    assert services["test-minio"]["ports"] == [
+        "127.0.0.1:${TEST_MINIO_PORT:-19000}:9000",
+        "127.0.0.1:${TEST_MINIO_CONSOLE_PORT:-19001}:9001",
+    ]
+    assert services["test-postgres"]["volumes"][0] == "pgdata-test:/var/lib/postgresql/data"
+    assert services["test-minio"]["volumes"] == ["miniodata-test:/data"]
+    assert set(compose["volumes"]) == {"pgdata-test", "miniodata-test"}
+
+
+def test_test_compose_does_not_reuse_uat_credentials_or_database_urls():
+    compose = _compose(_TEST_COMPOSE_FILE)
+    postgres_env = compose["services"]["test-postgres"]["environment"]
+    runner_env = compose["services"]["test-runner"]["environment"]
+
+    assert postgres_env["POSTGRES_USER"] == "${TEST_POSTGRES_USER:-docray_test}"
+    assert postgres_env["POSTGRES_PASSWORD"].startswith("${TEST_POSTGRES_PASSWORD:?")
+    assert postgres_env["POSTGRES_DB"] == "${TEST_POSTGRES_DB:-docray_test}"
+    assert "test-postgres:5432/${TEST_POSTGRES_DB:-docray_test}" in runner_env["DATABASE_URL"]
+    assert "postgres:5432/${POSTGRES_DB:-docray}" not in runner_env["DATABASE_URL"]
+    assert runner_env["S3_ENDPOINT"] == "http://test-minio:9000"
+
+
+def test_test_environment_example_and_script_are_test_stack_only():
+    env_text = (_ROOT / ".env.test.example").read_text(encoding="utf-8")
+    script_text = (_ROOT / "scripts" / "test-in-docker.sh").read_text(encoding="utf-8")
+    gitignore_text = (_ROOT / ".gitignore").read_text(encoding="utf-8")
+    env_lines = env_text.splitlines()
+
+    assert "TEST_POSTGRES_PASSWORD=" in env_text
+    assert "TEST_POSTGRES_PORT=15432" in env_text
+    assert not any(line.startswith("POSTGRES_PASSWORD=") for line in env_lines)
+    assert not any(line.startswith("DATABASE_URL=") for line in env_lines)
+    assert "docker-compose.test.yml" in script_text
+    assert ".env.test" in script_text
+    assert "--project-name" in script_text and "docray-test" in script_text
+    assert "docker-compose.yml" not in script_text
+    assert ".env.test" in gitignore_text
+
+
+def test_dockerignore_excludes_local_test_build_noise():
+    ignored = {
+        line.strip()
+        for line in (_ROOT / ".dockerignore").read_text(encoding="utf-8").splitlines()
+        if line.strip() and not line.startswith("#")
+    }
+
+    assert ".venv" in ignored
+    assert ".venv-proto/" in ignored
+    assert ".pytest_cache/" in ignored
+    assert ".agent-tasks/" in ignored
+    assert "backups/" in ignored
+
+
+def test_test_runner_writes_pytest_and_coverage_outputs_to_container_tmp():
+    runner = _compose(_TEST_COMPOSE_FILE)["services"]["test-runner"]
+
+    assert runner["environment"]["COVERAGE_FILE"] == "/tmp/docray-test.coverage"
+    assert "cache_dir=/tmp/docray-pytest-cache" in runner["command"][0]

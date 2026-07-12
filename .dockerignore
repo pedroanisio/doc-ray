@@ -2,6 +2,15 @@
 __pycache__/
 *.pyc
 .env
+.env.test
+.venv
+.venv-proto/
+.agent-tasks/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+backups/
 *.pdf
 # NOTE: do NOT ignore db/ — the Dockerfile copies db/migrations into the image
 # for the runtime migration runner (doc_ray.adapters.migrate).
