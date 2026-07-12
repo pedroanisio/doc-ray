@@ -74,6 +74,30 @@ def test_html_strips_scripts_and_tags():
     assert "x=1" not in e.full_text and "<p>" not in e.full_text  # tags/scripts gone
 
 
+def _minimal_svg() -> bytes:
+    return b"""<?xml version="1.0" encoding="UTF-8"?>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 100">
+      <title>Fixture diagram</title>
+      <text x="10" y="20">Golden SVG text.</text>
+      <text x="10" y="42"><tspan>Nested tspan label.</tspan></text>
+    </svg>"""
+
+
+def test_svg_extracts_text_and_tspan_elements():
+    e = extract(_minimal_svg(), "diagram", ".svg")
+
+    assert e.doc_type == "svg"
+    assert e.content_type == "image/svg+xml"
+    assert e.title == "Fixture diagram"
+    assert "Golden SVG text." in e.full_text
+    assert "Nested tspan label." in e.full_text
+
+
+def test_svg_extension_is_supported_for_upload_content_type():
+    assert extraction.is_supported_extension(".svg")
+    assert extraction.content_type_for_extension(".svg") == "image/svg+xml"
+
+
 def _minimal_epub() -> bytes:
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w") as z:
@@ -123,6 +147,7 @@ _GOLDEN_FORMATS: dict[str, GoldenCase] = {
         "html",
         "Golden HTM alias fixture.",
     ),
+    ".svg": (_minimal_svg, "svg", "Golden SVG text."),
     ".epub": (_minimal_epub, "epub", "First chapter."),
     ".docx": (_minimal_docx, "docx", "Golden DOCX text."),
 }

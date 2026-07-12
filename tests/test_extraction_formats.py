@@ -50,6 +50,21 @@ def test_extract_epub_retains_sanitized_spine_render_html_for_original_view():
     assert extracted.metadata["render_html"] == "<h1>Chapter</h1><p>Visible text</p>"
 
 
+def test_extract_svg_retains_sanitized_text_render_html_for_original_view():
+    data = b"""
+    <svg xmlns="http://www.w3.org/2000/svg">
+      <script>alert(1)</script>
+      <text>Visible <tspan>Label</tspan></text>
+    </svg>
+    """
+
+    extracted = extraction.extract_svg(data, "diagram")
+
+    assert extracted.doc_type == "svg"
+    assert "Visible Label" in " ".join(extracted.full_text.split())
+    assert extracted.metadata["render_html"] == "<p>Visible Label</p>"
+
+
 def test_extract_docx_retains_paragraph_render_html_for_original_view():
     import io
 

@@ -2754,7 +2754,7 @@ items:
 
   - id:          "BL-085"
     title:        "Extraction support for SVG"
-    summary:      "SVG is not an ingestable format today — a repo-wide grep for 'svg' returns zero hits in src/ (outside unrelated code), and no SVG library is a dependency. This is a prerequisite for any overlay feature on SVG documents, not an extension of one."
+    summary:      "SVG is now an ingestable format: the extractor parses SVG XML with defusedxml, pulls text from <text>/<tspan>, records doc_type='svg', and registers .svg in the same dispatch/content-type maps the upload path uses."
     description: |
       Confirmed live alongside the BL-084 investigation: no .svg handling
       exists in extraction.py's dispatch table or anywhere else in src/.
@@ -2766,7 +2766,7 @@ items:
       pulling text content from <text>/<tspan> nodes.
     category:     "extraction"
     type:         "feature"
-    status:       "parked"
+    status:       "done"
     complexity:   "S"
     priority:     "low"
     rationale:    "Named directly in the request ('document can also be ... svgs'), and confirmed absent — this blocks SVG ingestion entirely today, independent of any overlay work."
@@ -2777,7 +2777,7 @@ items:
     references:
       - "src/doc_ray/adapters/extraction.py"
     owner:        "shared"
-    source:       "User correction 2026-07-05: 'document can also be docx, html, pptx, svgs' — verified svg has zero extraction code or dependency in the live tree."
+    source:       "User correction 2026-07-05: 'document can also be docx, html, pptx, svgs' — verified svg had zero extraction code or dependency in the live tree. Completed 2026-07-12 with defusedxml-backed extract_svg, .svg registration in _EXTRACTORS/_CONTENT_TYPES, doc_type='svg', sanitized render_html metadata, and golden/dispatch regression tests."
     tags:         ["extraction", "svg", "format-support"]
 
   - id:          "BL-086"

@@ -618,6 +618,71 @@ def extract_epub(data: bytes, fallback_title: str) -> Extracted:
     )
 
 
+def _xml_local_name(tag: str) -> str:
+    """Return an XML tag's local name without its namespace URI."""
+    return tag.rsplit("}", 1)[-1] if tag.startswith("{") else tag
+
+
+def _xml_text_content(elem: ET.Element) -> str:
+    """Return visible text under an XML element, skipping executable/style nodes."""
+    if _xml_local_name(elem.tag).lower() in {"script", "style"}:
+        return ""
+    parts: list[str] = []
+    if elem.text:
+        parts.append(elem.text)
+    for child in elem:
+        parts.append(_xml_text_content(child))
+        if child.tail:
+            parts.append(child.tail)
+    return " ".join("".join(parts).split())
+
+
+def _svg_title(root: ET.Element, fallback_title: str) -> str:
+    for elem in root.iter():
+        if _xml_local_name(elem.tag).lower() == "title":
+            title = _xml_text_content(elem)
+            if title:
+                return title
+    return fallback_title
+
+
+def _svg_text_runs(root: ET.Element) -> list[str]:
+    """Extract text runs from SVG <text> nodes, including nested <tspan> text."""
+    runs: list[str] = []
+
+    def visit(elem: ET.Element, *, inside_text: bool = False) -> None:
+        name = _xml_local_name(elem.tag).lower()
+        if name in {"script", "style"}:
+            return
+        if name == "text" or (name == "tspan" and not inside_text):
+            text = _xml_text_content(elem)
+            if text:
+                runs.append(text)
+            return
+        for child in elem:
+            visit(child, inside_text=inside_text or name in {"text", "tspan"})
+
+    visit(root)
+    return runs
+
+
+def extract_svg(data: bytes, fallback_title: str) -> Extracted:
+    """Extract text from SVG <text>/<tspan> elements using hardened XML parsing."""
+    root = ET.fromstring(data)
+    runs = _svg_text_runs(root)
+    extracted = _text_extracted(
+        "\n".join(runs),
+        fallback_title,
+        doc_type="svg",
+        content_type="image/svg+xml",
+        extractor="defusedxml-svg",
+        metadata={
+            "render_html": "".join(f"<p>{_html_escape(run)}</p>" for run in runs),
+        },
+    )
+    return replace(extracted, title=_svg_title(root, fallback_title))
+
+
 def extract_docx(data: bytes, fallback_title: str) -> Extracted:
     """Extract text from a DOCX using python-docx.
 
@@ -661,6 +726,7 @@ _EXTRACTORS = {
     ".html": extract_html,
     ".htm": extract_html,
     ".epub": extract_epub,
+    ".svg": extract_svg,
     ".docx": extract_docx,
 }
 
@@ -673,6 +739,7 @@ _CONTENT_TYPES = {
     ".html": "text/html",
     ".htm": "text/html",
     ".epub": "application/epub+zip",
+    ".svg": "image/svg+xml",
     ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
 }
 
