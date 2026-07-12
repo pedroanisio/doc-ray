@@ -2345,7 +2345,7 @@ items:
       implementation does not automatically get for free.
     category:     "security"
     type:         "feature"
-    status:       "parked"
+    status:       "done"
     complexity:   "M"
     priority:     "medium"
     rationale:    "Without rotation, a stolen refresh token is as dangerous as today's static bearer tokens — rotation-with-reuse-detection is what makes 'refresh tokens where needed' actually safer than the status quo rather than a same-risk rename of it."
@@ -2357,7 +2357,7 @@ items:
     references:
       - "src/doc_ray/entrypoints/api/security.py"
     owner:        "shared"
-    source:       "Gap-analysis 2026-07-05 against a supplied enterprise-IAM checklist."
+    source:       "Gap-analysis 2026-07-05 against a supplied enterprise-IAM checklist. Completed 2026-07-12 with access+refresh token issuance, `/auth/refresh` rotation, process-local refresh token family state, reuse detection that revokes the whole family and logs the event, configurable refresh-token TTL, and TDD coverage for rotation, replay, and expiry."
     tags:         ["security", "auth", "jwt", "refresh-token"]
 
   - id:          "BL-073"

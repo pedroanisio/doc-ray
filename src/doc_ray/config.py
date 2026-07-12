@@ -101,6 +101,8 @@ class Config:
         api_jwt_audience: Optional expected ``aud`` claim for locally issued
             access JWTs.
         api_jwt_ttl_seconds: Default lifetime for issued access JWTs.
+        api_refresh_token_ttl_seconds: Default lifetime for refresh tokens used
+            to rotate API access credentials.
         api_debug: Whether GraphQL introspection and the GraphiQL IDE are
             enabled (BL-108). False in production by default: an anonymous
             caller should not be able to enumerate the schema, including
@@ -133,6 +135,7 @@ class Config:
     api_jwt_issuer: str = "doc-ray"
     api_jwt_audience: str | None = None
     api_jwt_ttl_seconds: int = 900
+    api_refresh_token_ttl_seconds: int = 86_400
     api_debug: bool = False
     max_upload_bytes: int = 200 * 1024 * 1024
     backup_schedule_seconds: int = 86_400
@@ -171,6 +174,9 @@ class Config:
             or "doc-ray",
             api_jwt_audience=_env_optional_str("DOCRAY_API_JWT_AUDIENCE"),
             api_jwt_ttl_seconds=_env_int("DOCRAY_API_JWT_TTL_SECONDS", 900),
+            api_refresh_token_ttl_seconds=_env_int(
+                "DOCRAY_API_REFRESH_TOKEN_TTL_SECONDS", 86_400
+            ),
             api_debug=_env_bool("DOCRAY_API_DEBUG", False),
             max_upload_bytes=_env_int("DOCRAY_MAX_UPLOAD_MB", 200) * 1024 * 1024,
             backup_schedule_seconds=_env_int("DOCRAY_BACKUP_SCHEDULE_SECONDS", 86_400),

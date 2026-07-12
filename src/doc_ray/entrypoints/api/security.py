@@ -15,6 +15,8 @@ import base64
 import hashlib
 import hmac
 import json
+import logging
+import uuid
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
@@ -28,6 +30,7 @@ from fastapi import HTTPException, Request, status
 # from docray_client under their own LOGIN role instead; only docray_api may
 # assert app.principal_id.
 _CLIENT_ROLE = "docray_api"
+_LOGGER = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -65,6 +68,81 @@ class NoopAuthenticator:
     async def authenticate(self, request: Request) -> Principal:
         """Return :data:`ANONYMOUS` regardless of the request."""
         return ANONYMOUS
+
+
+@dataclass(frozen=True)
+class RefreshTokenRecord:
+    """Server-side state for one issued refresh token."""
+
+    token_id: str
+    family_id: str
+    principal: Principal
+    expires_at: datetime
+    status: str = "active"
+
+
+class InMemoryRefreshTokenStore:
+    """Process-local refresh token rotation state.
+
+    This keeps rotation semantics explicit and testable. Deployments that need
+    refresh tokens across process restarts can replace this with a durable store
+    behind the same small method surface.
+    """
+
+    def __init__(self) -> None:
+        """Initialize an empty refresh-token registry."""
+        self._records: dict[str, RefreshTokenRecord] = {}
+
+    def remember(self, record: RefreshTokenRecord) -> None:
+        """Record a newly-issued active refresh token."""
+        self._records[record.token_id] = record
+
+    def consume(self, token_id: str, *, now: datetime) -> RefreshTokenRecord:
+        """Consume one active refresh token, marking it rotated.
+
+        Reuse of a rotated/revoked token revokes the whole family before
+        raising, which is the detection behavior BL-072 requires.
+        """
+        record = self._records.get(token_id)
+        if record is None:
+            raise ValueError("refresh token is unknown")
+        if record.expires_at <= _as_utc(now):
+            self._records[token_id] = RefreshTokenRecord(
+                record.token_id,
+                record.family_id,
+                record.principal,
+                record.expires_at,
+                "expired",
+            )
+            raise ValueError("refresh token expired")
+        if record.status != "active":
+            self.revoke_family(record.family_id)
+            _LOGGER.warning(
+                "refresh token reuse detected; revoked family %s for principal %s",
+                record.family_id,
+                record.principal.principal_id,
+            )
+            raise ValueError("refresh token reused")
+        self._records[token_id] = RefreshTokenRecord(
+            record.token_id,
+            record.family_id,
+            record.principal,
+            record.expires_at,
+            "rotated",
+        )
+        return record
+
+    def revoke_family(self, family_id: str) -> None:
+        """Mark every token in *family_id* revoked."""
+        for token_id, record in list(self._records.items()):
+            if record.family_id == family_id:
+                self._records[token_id] = RefreshTokenRecord(
+                    record.token_id,
+                    record.family_id,
+                    record.principal,
+                    record.expires_at,
+                    "revoked",
+                )
 
 
 class HeaderTokenAuthenticator:
@@ -167,6 +245,7 @@ def issue_access_jwt(
         "scopes": sorted(principal.scopes),
         "iat": int(issued_at.timestamp()),
         "exp": int(expires_at.timestamp()),
+        "jti": str(uuid.uuid4()),
         "typ": "access",
     }
     if audience is not None:
@@ -226,6 +305,129 @@ def verify_access_jwt(
         principal_id=principal_id,
         scopes=frozenset(scopes),
     )
+
+
+def issue_refresh_token(
+    principal: Principal,
+    *,
+    secret: str,
+    issuer: str,
+    audience: str | None,
+    ttl_seconds: int,
+    store: InMemoryRefreshTokenStore,
+    now: datetime | None = None,
+    family_id: str | None = None,
+) -> str:
+    """Issue and remember a refresh token for *principal*."""
+    if not secret:
+        raise ValueError("JWT secret is required")
+    if principal.principal_id is None:
+        raise ValueError("refresh token principal_id is required")
+    issued_at = _as_utc(now or datetime.now(UTC))
+    expires_at = issued_at + timedelta(seconds=ttl_seconds)
+    token_id = str(uuid.uuid4())
+    refresh_family_id = family_id or str(uuid.uuid4())
+    claims: dict[str, Any] = {
+        "iss": issuer,
+        "sub": principal.subject or principal.principal_id,
+        "principal_id": principal.principal_id,
+        "scopes": sorted(principal.scopes),
+        "iat": int(issued_at.timestamp()),
+        "exp": int(expires_at.timestamp()),
+        "jti": token_id,
+        "family_id": refresh_family_id,
+        "typ": "refresh",
+    }
+    if audience is not None:
+        claims["aud"] = audience
+    signing_input = ".".join((_b64url_json({"alg": "HS256", "typ": "JWT"}), _b64url_json(claims)))
+    token = f"{signing_input}.{_sign(signing_input, secret)}"
+    store.remember(
+        RefreshTokenRecord(
+            token_id=token_id,
+            family_id=refresh_family_id,
+            principal=Principal(
+                subject=str(claims["sub"]),
+                principal_id=principal.principal_id,
+                scopes=principal.scopes,
+            ),
+            expires_at=expires_at,
+        )
+    )
+    return token
+
+
+def rotate_refresh_token(
+    token: str,
+    *,
+    secret: str,
+    issuer: str,
+    audience: str | None,
+    ttl_seconds: int,
+    access_ttl_seconds: int,
+    store: InMemoryRefreshTokenStore,
+    now: datetime | None = None,
+) -> tuple[str, str]:
+    """Consume *token* and return a fresh ``(access_token, refresh_token)`` pair."""
+    claims = _verify_refresh_token_claims(
+        token, secret=secret, issuer=issuer, audience=audience, now=now
+    )
+    current = _as_utc(now or datetime.now(UTC))
+    token_id = str(claims["jti"])
+    record = store.consume(token_id, now=current)
+    access_token = issue_access_jwt(
+        record.principal,
+        secret=secret,
+        issuer=issuer,
+        audience=audience,
+        ttl_seconds=access_ttl_seconds,
+        now=current,
+    )
+    refresh_token = issue_refresh_token(
+        record.principal,
+        secret=secret,
+        issuer=issuer,
+        audience=audience,
+        ttl_seconds=ttl_seconds,
+        store=store,
+        now=current,
+        family_id=record.family_id,
+    )
+    return access_token, refresh_token
+
+
+def _verify_refresh_token_claims(
+    token: str,
+    *,
+    secret: str,
+    issuer: str,
+    audience: str | None,
+    now: datetime | None,
+) -> dict[str, Any]:
+    try:
+        header_segment, claims_segment, signature = token.split(".", 2)
+    except ValueError as exc:
+        raise ValueError("refresh token must have three segments") from exc
+    signing_input = f"{header_segment}.{claims_segment}"
+    if not hmac.compare_digest(signature, _sign(signing_input, secret)):
+        raise ValueError("refresh token signature mismatch")
+    header = _b64url_json_loads(header_segment)
+    claims = _b64url_json_loads(claims_segment)
+    if header.get("alg") != "HS256" or claims.get("typ") != "refresh":
+        raise ValueError("unsupported refresh token")
+    if claims.get("iss") != issuer:
+        raise ValueError("refresh token issuer mismatch")
+    if audience is not None and claims.get("aud") != audience:
+        raise ValueError("refresh token audience mismatch")
+    current = int(_as_utc(now or datetime.now(UTC)).timestamp())
+    if not isinstance(claims.get("exp"), int) or claims["exp"] <= current:
+        raise ValueError("refresh token expired")
+    for key in ("jti", "family_id", "principal_id", "sub", "scopes"):
+        if key not in claims:
+            raise ValueError(f"refresh token missing {key}")
+    if not isinstance(claims["scopes"], list):
+        raise ValueError("refresh token scopes must be a list")
+    return claims
 
 
 def _looks_like_jwt(token: str) -> bool:

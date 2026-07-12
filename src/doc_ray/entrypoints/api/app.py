@@ -41,10 +41,13 @@ from doc_ray.entrypoints.api.schema import build_schema
 from doc_ray.entrypoints.api.security import (
     Authenticator,
     HeaderTokenAuthenticator,
+    InMemoryRefreshTokenStore,
     Principal,
     apply_principal,
     issue_access_jwt,
+    issue_refresh_token,
     reset_principal,
+    rotate_refresh_token,
 )
 from doc_ray.logging_setup import configure_logging
 
@@ -402,10 +405,48 @@ def _register_auth_token_route(app: FastAPI, settings: Config) -> None:
             audience=settings.api_jwt_audience,
             ttl_seconds=settings.api_jwt_ttl_seconds,
         )
+        refresh_token = issue_refresh_token(
+            principal,
+            secret=settings.api_jwt_secret,
+            issuer=settings.api_jwt_issuer,
+            audience=settings.api_jwt_audience,
+            ttl_seconds=settings.api_refresh_token_ttl_seconds,
+            store=request.app.state.refresh_token_store,
+        )
         return {
             "access_token": token,
+            "refresh_token": refresh_token,
             "token_type": "Bearer",
             "expires_in": settings.api_jwt_ttl_seconds,
+            "refresh_expires_in": settings.api_refresh_token_ttl_seconds,
+        }
+
+    @app.post("/auth/refresh")
+    async def refresh_api_access_token(payload: dict[str, str], request: Request) -> dict[str, Any]:
+        """Rotate a refresh token and return a fresh access+refresh pair."""
+        if not settings.api_jwt_secret:
+            raise HTTPException(status_code=503, detail="JWT access tokens are not configured")
+        refresh_token = str(payload.get("refresh_token", "")).strip()
+        if not refresh_token:
+            raise HTTPException(status_code=400, detail="refresh_token is required")
+        try:
+            access_token, next_refresh_token = rotate_refresh_token(
+                refresh_token,
+                secret=settings.api_jwt_secret,
+                issuer=settings.api_jwt_issuer,
+                audience=settings.api_jwt_audience,
+                ttl_seconds=settings.api_refresh_token_ttl_seconds,
+                access_ttl_seconds=settings.api_jwt_ttl_seconds,
+                store=request.app.state.refresh_token_store,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=401, detail="Invalid refresh token") from exc
+        return {
+            "access_token": access_token,
+            "refresh_token": next_refresh_token,
+            "token_type": "Bearer",
+            "expires_in": settings.api_jwt_ttl_seconds,
+            "refresh_expires_in": settings.api_refresh_token_ttl_seconds,
         }
 
 
@@ -474,6 +515,7 @@ def create_app(cfg: Config | None = None, authenticator: Authenticator | None = 
     app.state.pool = pool
     app.state.authenticator = auth
     app.state.object_store = store
+    app.state.refresh_token_store = InMemoryRefreshTokenStore()
     # ``multipart_uploads_enabled`` is opt-in in Strawberry (>=0.243): without it the
     # transport rejects ``multipart/form-data`` with HTTP 400 before the resolver runs,
     # which silently breaks the ``ingestDocument`` upload mutation. Enable it and keep a

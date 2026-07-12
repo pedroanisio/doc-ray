@@ -311,7 +311,7 @@ which is modifying the same queue plumbing as this is written.
 | BL-069 | Demote static bearer tokens to an explicit local/break-glass fallback | security | tech-debt | parked | S | medium | shared |
 | BL-070 | Webapp session: real per-user login with a secure HttpOnly cookie | security | feature | parked | M | high | shared |
 | BL-071 | Short-lived signed access JWTs for the GraphQL/REST API | security | feature | done | M | medium | shared |
-| BL-072 | Refresh-token rotation with reuse detection | security | feature | parked | M | medium | shared |
+| BL-072 | Refresh-token rotation with reuse detection | security | feature | done | M | medium | shared |
 | BL-073 | ABAC layer for sensitive and contextual authorization rules | security | feature | parked | L | medium | shared |
 | BL-074 | Append-only security audit-event log distinct from document_provenance | security | feature | parked | L | high | shared |
 | BL-075 | Tenant-admin audit surface: search by actor/action/target/time/IP, exportable | security | feature | parked | M | medium | shared |
