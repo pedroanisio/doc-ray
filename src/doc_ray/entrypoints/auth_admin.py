@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import argparse
+import re
 import sys
 from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Protocol
+
+import psycopg
 
 from doc_ray.adapters.auth_admin_postgres import (
     PostgresAuthAdminRepository,
@@ -145,6 +148,11 @@ def _add_token_mint_args(parser: argparse.ArgumentParser) -> None:
     )
 
 
+def _redact_dsn(database_url: str) -> str:
+    """Return *database_url* with any password replaced by ``***``."""
+    return re.sub(r"(?<=:)[^:@/]+(?=@)", "***", database_url)
+
+
 def main(
     argv: Sequence[str] | None = None,
     *,
@@ -156,7 +164,20 @@ def main(
     cfg = Config.from_env()
     database_url = args.database_url or cfg.database_url
     factory = repo_factory or PostgresAuthAdminRepository.from_database_url
-    repo = factory(database_url)
+    try:
+        repo = factory(database_url)
+    except psycopg.OperationalError as exc:
+        # A dead/unreachable Postgres is an expected operational condition for
+        # a host-side CLI, not a crash (BL-127) — say what to do, leak nothing.
+        first_line = str(exc).strip().splitlines()[0] if str(exc).strip() else "no details"
+        print(
+            f"error: cannot connect to Postgres at {_redact_dsn(database_url)} ({first_line}).\n"
+            "Is the compose stack running? Load the deployment settings with\n"
+            "`set -a; source .env; set +a` (sets DATABASE_URL with the real host\n"
+            "port and password), or pass --database-url explicitly.",
+            file=sys.stderr,
+        )
+        return 2
     try:
         if args.command == "tenant" and args.tenant_command == "create":
             return _tenant_create(args, repo)
@@ -183,9 +204,7 @@ def main(
 
 def _tenant_create(args: argparse.Namespace, repo: AuthAdminRepository) -> int:
     tenant = repo.create_tenant(slug=args.slug, display_name=args.display_name)
-    print(
-        f"tenant_id={tenant.id} slug={tenant.slug} display_name={tenant.display_name}"
-    )
+    print(f"tenant_id={tenant.id} slug={tenant.slug} display_name={tenant.display_name}")
     return 0
 
 

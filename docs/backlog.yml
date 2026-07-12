@@ -110,7 +110,7 @@ metadata:
   generated_by:     "Claude Sonnet 5 via Claude Code (merge of Claude Opus 4.8 backlog + OpenAI Codex improvement-proposal candidates)"
   generated_on:     "2026-07-05"
   system_of_record: "docs/backlog.yml"
-  total_items:      127
+  total_items:      128
 
 items:
 
@@ -4195,3 +4195,35 @@ items:
     owner:        "shared"
     source:       "Operator security finding 2026-07-12: anonymous GraphQL saw lexemes while RLS hid documents/entities/sentences. Completed 2026-07-12 by requiring RLS-visible lexeme_occurrences for lexeme list/detail reads and the webapp lexeme index, with isolated Docker red/green coverage."
     tags:         ["security", "graphql", "rls", "lexemes", "metadata-leak"]
+
+  - id:          "BL-128"
+    title:        "auth_admin CLI: raw traceback on unreachable DB, divergent host-side DB defaults, and no operator docs"
+    summary:      "Reported by the operator following an undocumented principal/token snippet: the CLI crashed with a 20-line psycopg traceback because DATABASE_URL was not loaded and the built-in default (localhost:5432) does not match the stack's published port — while webapp/app.py and the test harness defaulted to localhost:5455, two contradictory host-side defaults in one codebase. `token mint` appeared nowhere in README or docs/."
+    description: |
+      Three defects fixed together: (1) entrypoints/auth_admin.py treated an
+      unreachable Postgres — a predictable operational condition for a
+      host-side CLI — as a crash instead of applying the repo's
+      graceful-handling standard; (2) config.py, webapp/app.py, and
+      src/doc_ray/tests/_itdb.py each carried their own DATABASE_URL
+      fallback (5432 vs 5455); (3) the auth workflow shipped with no
+      operator documentation, and circulating snippets used angle-bracket
+      placeholders that zsh parses as redirects.
+    category:     "tooling"
+    type:         "bug"
+    status:       "done"
+    complexity:   "S"
+    priority:     "medium"
+    rationale:    "First contact with the identity tooling for any operator or agent is exactly this flow; a traceback plus a wrong-port default plus no docs turns a two-command task into a debugging session."
+    acceptance_criteria:
+      - "auth_admin exits 2 with an actionable message (mentions `set -a; source .env; set +a` and --database-url), prints no traceback, and never echoes the password when Postgres is unreachable."
+      - "One shared DEFAULT_DATABASE_URL constant in doc_ray.config is the only host-side fallback; webapp and the test harness consume it, and a regression test fails on any reintroduced divergent literal."
+      - "README documents the principal/token quickstart with copy-paste-safe snippets that source .env first."
+    dependencies: []
+    references:
+      - "src/doc_ray/entrypoints/auth_admin.py"
+      - "src/doc_ray/config.py"
+      - "webapp/app.py"
+      - "README.md"
+    owner:        "shared"
+    source:       "Operator bug report 2026-07-12 (traceback paste). Added and completed the same session: graceful OperationalError path with redacted DSN (exit 2), DEFAULT_DATABASE_URL single-sourced in config.py and consumed by webapp/_itdb, README auth quickstart; TDD (red-first tests for the graceful path and the single-source invariant, incl. a no-divergent-literal guard)."
+    tags:         ["tooling", "cli", "auth", "ux", "bug"]

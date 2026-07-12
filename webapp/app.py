@@ -3,10 +3,11 @@
 Navigates the layers built by the pipeline:
     documents → sentences → lexemes → occurrences (keyword-in-context)
 
-Read-only. Connects to the same Postgres the ingester writes to.
+Read-only. Connects to the same Postgres the ingester writes to. Load the
+deployment settings first so DATABASE_URL carries the real host port/password:
 
-    DATABASE_URL=postgresql://docray:docray@localhost:5455/docray \
-        .venv/bin/flask --app webapp.app run --port 5001
+    set -a; source .env; set +a
+    .venv/bin/flask --app webapp.app run --port 5001
 or simply:
     .venv/bin/python -m webapp.app          # serves on http://localhost:5001
 """
@@ -34,6 +35,7 @@ from flask import (
 from psycopg import sql
 from psycopg.rows import dict_row
 
+from doc_ray.config import DEFAULT_DATABASE_URL
 from doc_ray.entrypoints.api.context import MAX_BATCH_IDS
 
 try:
@@ -75,7 +77,7 @@ except ModuleNotFoundError:  # pragma: no cover - direct ``python webapp/app.py`
     from reader_blocks import attach_page_blocks, latest_annotation_state
     from security_headers import apply_security_headers
 
-DATABASE_URL = os.environ.get("DATABASE_URL", "postgresql://docray:docray@localhost:5455/docray")
+DATABASE_URL = os.environ.get("DATABASE_URL", DEFAULT_DATABASE_URL)
 
 # Row-Level Security enforcement (see db/migrations/018_rbac.sql). The superuser
 # connection BYPASSES RLS by design. To actually enforce document-level access

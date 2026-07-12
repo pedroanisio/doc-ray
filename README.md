@@ -154,6 +154,27 @@ RLS-limited `docray_api` role with no principal id; set
 are explicit through `DOCRAY_API_POOL_MIN_SIZE`, `DOCRAY_API_POOL_MAX_SIZE`, and
 `DOCRAY_API_POOL_TIMEOUT`.
 
+Provision principals and tokens with the `auth_admin` CLI. Load the deployment
+settings first — the CLI reads `DATABASE_URL` and otherwise falls back to the
+factory default (`localhost:5432`), not your stack's real port/password:
+
+```bash
+set -a; source .env; set +a
+
+# 1) Create a service identity; note the printed principal UUID
+python3 -m doc_ray.entrypoints.auth_admin principal create \
+  --display-name "claude-agent" --kind service --role reader
+
+# 2) Mint a read-scoped token bound to it (paste the UUID from step 1)
+PRINCIPAL_ID="00000000-0000-0000-0000-000000000000"
+python3 -m doc_ray.entrypoints.auth_admin token mint \
+  --principal "$PRINCIPAL_ID" --scopes read
+```
+
+`tenant create`, `grant document`, and `db-login create` cover the rest of the
+identity workflow; every subcommand accepts `--database-url` to target another
+database.
+
 The webapp (`docker compose up -d webapp`, serving on
 `http://127.0.0.1:5001`; or locally `flask --app webapp.app run --port 5001`)
 is a read-only Postgres browser plus a thin GraphQL write path: upload

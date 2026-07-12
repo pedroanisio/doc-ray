@@ -9,6 +9,11 @@ from dataclasses import dataclass, field
 ApiTokenMap = Mapping[str, tuple[str, frozenset[str]]]
 SCIMTokenMap = Mapping[str, str]
 
+#: The one host-side fallback when DATABASE_URL is unset (BL-127). Matches the
+#: compose factory default (POSTGRES_PORT 5432); local overrides — a remapped
+#: port, a real password — belong in .env, never in per-module literals.
+DEFAULT_DATABASE_URL = "postgresql://docray:docray@localhost:5432/docray"
+
 
 def _env_bool(name: str, default: bool) -> bool:
     """Read a boolean environment variable."""
@@ -193,10 +198,7 @@ class Config:
             environment variables, falling back to local development defaults.
         """
         return cls(
-            database_url=os.environ.get(
-                "DATABASE_URL",
-                "postgresql://docray:docray@localhost:5432/docray",
-            ),
+            database_url=os.environ.get("DATABASE_URL", DEFAULT_DATABASE_URL),
             s3_endpoint=os.environ.get("S3_ENDPOINT", "http://localhost:9000"),
             s3_access_key=os.environ.get("S3_ACCESS_KEY", "minioadmin"),
             s3_secret_key=os.environ.get("S3_SECRET_KEY", "minioadmin"),
@@ -212,13 +214,10 @@ class Config:
             api_tokens=_parse_api_tokens(os.environ.get("DOCRAY_API_TOKENS")),
             api_allow_anonymous=_env_bool("DOCRAY_API_ALLOW_ANONYMOUS", True),
             api_jwt_secret=_env_optional_str("DOCRAY_API_JWT_SECRET"),
-            api_jwt_issuer=os.environ.get("DOCRAY_API_JWT_ISSUER", "doc-ray").strip()
-            or "doc-ray",
+            api_jwt_issuer=os.environ.get("DOCRAY_API_JWT_ISSUER", "doc-ray").strip() or "doc-ray",
             api_jwt_audience=_env_optional_str("DOCRAY_API_JWT_AUDIENCE"),
             api_jwt_ttl_seconds=_env_int("DOCRAY_API_JWT_TTL_SECONDS", 900),
-            api_refresh_token_ttl_seconds=_env_int(
-                "DOCRAY_API_REFRESH_TOKEN_TTL_SECONDS", 86_400
-            ),
+            api_refresh_token_ttl_seconds=_env_int("DOCRAY_API_REFRESH_TOKEN_TTL_SECONDS", 86_400),
             api_oidc_issuer=_env_optional_str("DOCRAY_API_OIDC_ISSUER"),
             api_oidc_audience=_env_optional_str("DOCRAY_API_OIDC_AUDIENCE"),
             api_oidc_jwks_json=_env_optional_str("DOCRAY_API_OIDC_JWKS_JSON"),

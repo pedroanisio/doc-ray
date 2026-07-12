@@ -15,11 +15,12 @@ import psycopg
 from psycopg.rows import dict_row
 
 from doc_ray.adapters import persistence as db
+from doc_ray.config import DEFAULT_DATABASE_URL
 from doc_ray.domain import lexemes as lex
 from doc_ray.domain.sentences import build_sentences
 from doc_ray.domain.ulid import new_ulid_str
 
-DB_URL = os.environ.get("DATABASE_URL", "postgresql://docray:docray@localhost:5455/docray")
+DB_URL = os.environ.get("DATABASE_URL", DEFAULT_DATABASE_URL)
 _TEST_DB_PREFIXES = ("docray_test", "pytest_", "test_")
 _TEST_HOSTS = {"test-postgres"}
 _TEST_PORTS = {15432}
@@ -66,9 +67,7 @@ def require_safe_test_database(conn, *, db_url: str = DB_URL) -> None:
     if _looks_like_dedicated_test_database(db_url) or _running_in_ci():
         return
 
-    table_row = conn.execute(
-        "SELECT to_regclass('public.documents') AS documents_table"
-    ).fetchone()
+    table_row = conn.execute("SELECT to_regclass('public.documents') AS documents_table").fetchone()
     if not table_row or _row_value(table_row, "documents_table") is None:
         return
     count_row = conn.execute(
@@ -104,7 +103,6 @@ def connect() -> psycopg.Connection:
         conn.close()
         raise
     return conn
-
 
 
 def unique_sha() -> str:

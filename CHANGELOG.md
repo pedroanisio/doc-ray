@@ -22,6 +22,18 @@ doc-ray carries **one global version** covering both the application package
 ## [Unreleased]
 
 ### Fixed
+- **auth_admin CLI operator UX** (Claude Fable 5 via Claude Code) — BL-128,
+  from an operator traceback report:
+  - An unreachable Postgres now exits 2 with an actionable, password-redacted
+    message (points at `set -a; source .env; set +a` and `--database-url`)
+    instead of a raw psycopg traceback.
+  - `doc_ray.config.DEFAULT_DATABASE_URL` is the single host-side fallback
+    (factory port 5432); `webapp/app.py` and the test harness previously
+    hardcoded a divergent `localhost:5455`. A regression test fails on any
+    reintroduced divergent literal.
+  - README gains a copy-paste-safe `principal create` / `token mint`
+    quickstart (shell-variable placeholders, `.env` sourcing first) — the
+    workflow previously had no operator docs at all.
 - **GraphQL lexeme vocabulary visibility** (Codex GPT-5) — BL-127 makes
   `lexemes` and `lexeme(uid:)` require at least one RLS-visible occurrence, so
   anonymous callers can no longer enumerate vocabulary derived only from hidden

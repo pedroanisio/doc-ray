@@ -346,3 +346,46 @@ def test_postgres_auth_admin_repository_reports_unknown_rows():
         assert "unknown role: missing" in str(exc)
     else:
         raise AssertionError("expected unknown role error")
+
+
+def test_unreachable_database_fails_gracefully_without_traceback(capsys):
+    """BL-127: a dead Postgres is an operational condition, not a crash.
+
+    The CLI must exit non-zero with an actionable message (mention .env and
+    --database-url), never a raw psycopg traceback, and never echo a password.
+    """
+    rc = auth_admin.main(
+        [
+            "--database-url",
+            "postgresql://docray:sekret@127.0.0.1:1/docray",
+            "principal",
+            "create",
+            "--display-name",
+            "x",
+            "--kind",
+            "service",
+        ]
+    )
+    captured = capsys.readouterr()
+    assert rc == 2
+    assert "cannot connect" in captured.err.lower()
+    assert "source .env" in captured.err
+    assert "--database-url" in captured.err
+    assert "sekret" not in captured.err + captured.out
+    assert "Traceback" not in captured.err + captured.out
+
+
+def test_host_side_database_defaults_are_single_sourced():
+    """BL-127: config.DEFAULT_DATABASE_URL is the one host-side default."""
+    from doc_ray import config as doc_ray_config
+
+    assert hasattr(doc_ray_config, "DEFAULT_DATABASE_URL")
+    default = doc_ray_config.DEFAULT_DATABASE_URL
+    assert default.startswith("postgresql://")
+
+    root = Path(__file__).resolve().parents[3]
+    webapp_source = (root / "webapp" / "app.py").read_text(encoding="utf-8")
+    itdb_source = (root / "src" / "doc_ray" / "tests" / "_itdb.py").read_text(encoding="utf-8")
+    for name, source in (("webapp/app.py", webapp_source), ("_itdb.py", itdb_source)):
+        assert "DEFAULT_DATABASE_URL" in source, f"{name} does not use the shared default"
+        assert "localhost:5455" not in source, f"{name} still hardcodes a divergent port"

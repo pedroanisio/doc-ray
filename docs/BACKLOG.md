@@ -273,6 +273,16 @@ it exposed corpus-derived lemmas/POS/language even when `lexeme_occurrences`
 had been filtered away. Fixed by requiring at least one RLS-visible occurrence
 for `lexemes`, `lexeme(uid:)`, and the webapp lexeme index.
 
+**2026-07-12 auth_admin operator UX (operator bug report):** added and
+completed `BL-128` (S/medium). Following an undocumented principal/token
+snippet crashed the CLI with a raw psycopg traceback: `DATABASE_URL` was
+unloaded and three modules carried contradictory host-side defaults
+(`config.py` 5432 vs `webapp/app.py`/`_itdb.py` 5455). Fixed with a graceful
+unreachable-DB path (exit 2, redacted DSN, points at `source .env` /
+`--database-url`), one shared `DEFAULT_DATABASE_URL` in `doc_ray.config`
+consumed everywhere (with a no-divergent-literal regression guard), and a
+copy-paste-safe README quickstart for `principal create` / `token mint`.
+
 ## Items
 
 | ID | Item | Category | Type | Status | Cx | Priority | Owner |
@@ -404,6 +414,7 @@ for `lexemes`, `lexeme(uid:)`, and the webapp lexeme index.
 | BL-125 | Original-overlay view mistakes a text-free PDF page for an un-reextracted document | webapp | bug | done | S | medium | shared |
 | BL-126 | Persist per-page dimensions for every PDF page so a text-free page is a representable fact | persistence | tech-debt | done | S | medium | shared |
 | BL-127 | GraphQL lexeme reads leak hidden-document vocabulary to anonymous callers | security | bug | done | S | high | shared |
+| BL-128 | auth_admin CLI: raw traceback on unreachable DB, divergent host-side DB defaults, and no operator docs | tooling | bug | done | S | medium | shared |
 
 See [`backlog.yml`](backlog.yml) for each item's full description, rationale,
 acceptance criteria, dependencies, related decisions (`D-###`), and references.
