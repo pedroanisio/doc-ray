@@ -5,6 +5,8 @@ services:
     image: pgvector/pgvector:pg16@sha256:ad2e18408bf447f62092a8a5259e7df10505c5a0360bd1a1853ac8b8b0763da2
     container_name: docray-test-postgres
     restart: "no"
+    networks:
+      - test-net
     entrypoint:
       - /bin/sh
       - -ec
@@ -35,6 +37,8 @@ services:
     image: minio/minio:latest
     container_name: docray-test-minio
     restart: "no"
+    networks:
+      - test-net
     command: server /data --console-address ":9001"
     environment:
       MINIO_ROOT_USER: ${TEST_S3_ACCESS_KEY:-minioadmin}
@@ -53,6 +57,8 @@ services:
   test-createbucket:
     image: minio/mc:latest
     restart: "no"
+    networks:
+      - test-net
     depends_on:
       test-minio:
         condition: service_healthy
@@ -68,6 +74,8 @@ services:
       context: .
       dockerfile: docker/test/Dockerfile
     restart: "no"
+    networks:
+      - test-net
     depends_on:
       test-postgres:
         condition: service_healthy
@@ -81,6 +89,8 @@ services:
       context: .
       dockerfile: docker/test/Dockerfile
     restart: "no"
+    networks:
+      - test-net
     depends_on:
       test-createbucket:
         condition: service_completed_successfully
@@ -101,3 +111,8 @@ services:
 volumes:
   pgdata-test:
   miniodata-test:
+
+networks:
+  test-net:
+    name: docray-test-net
+    driver: bridge

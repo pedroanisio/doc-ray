@@ -149,6 +149,17 @@ def test_test_compose_stack_uses_dedicated_state_and_names():
     assert set(compose["volumes"]) == {"pgdata-test", "miniodata-test"}
 
 
+def test_test_compose_stack_uses_a_dedicated_network():
+    compose = _compose(_TEST_COMPOSE_FILE)
+    services = compose["services"]
+
+    assert set(compose["networks"]) == {"test-net"}
+    assert compose["networks"]["test-net"]["name"] == "docray-test-net"
+    assert compose["networks"]["test-net"]["driver"] == "bridge"
+    for service in services.values():
+        assert service["networks"] == ["test-net"]
+
+
 def test_test_compose_does_not_reuse_uat_credentials_or_database_urls():
     compose = _compose(_TEST_COMPOSE_FILE)
     postgres_env = compose["services"]["test-postgres"]["environment"]
