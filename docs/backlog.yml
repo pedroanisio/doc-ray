@@ -2891,7 +2891,7 @@ items:
 
   - id:          "BL-089"
     title:        "Extraction support for PPTX: text and structure from slide/placeholder data"
-    summary:      "PPTX is not ingestable today (confirmed: zero pptx code in extraction.py, python-pptx not installed). Unlike PDF, PowerPoint files carry explicit structure — placeholder type (title vs body/content) and per-paragraph indent/bullet level — so extraction can emit clean heading/list Markdown directly from that structure instead of a font-size heuristic."
+    summary:      "PPTX extraction is now structure-aware: extraction.py registers .pptx with python-pptx, emits Markdown headings/lists from placeholder type and paragraph level, preserves speaker notes, and records doc_type='pptx' with the PowerPoint content type."
     description: |
       python-pptx exposes, per slide, shapes with a placeholder type
       (title/body/content/etc.) and, per paragraph within a text frame, a
@@ -2912,7 +2912,7 @@ items:
       wiring the extraction function in isolation.
     category:     "extraction"
     type:         "feature"
-    status:       "parked"
+    status:       "done"
     complexity:   "M"
     priority:     "medium"
     rationale:    "Named directly in the request ('document can also be ... pptx'), confirmed absent (no code, no dependency) rather than merely unverified, and a natural extension of the same structural-Markdown approach the reader now depends on for PDF."
@@ -2926,7 +2926,7 @@ items:
       - "src/doc_ray/adapters/extraction.py"
       - "src/doc_ray/domain/pdf_layout.py"
     owner:        "shared"
-    source:       "Feature request 2026-07-05: full ingest feature design for pptx/svg; verified python-pptx exposes placeholder type and paragraph.level, confirmed neither pptx code nor the python-pptx dependency exists today."
+    source:       "Feature request 2026-07-05: full ingest feature design for pptx/svg; verified python-pptx exposes placeholder type and paragraph.level, confirmed neither pptx code nor the python-pptx dependency existed then. Completed 2026-07-12 with extract_pptx registered in _EXTRACTORS, .pptx content-type support, hardened zip-bound checking before python-pptx parsing, title/body/list Markdown structure, speaker-note extraction, render_html metadata, pinned python-pptx dependency, and regression coverage in src/doc_ray/tests/test_extract_formats.py."
     tags:         ["extraction", "pptx", "format-support", "structure"]
 
   - id:          "BL-090"
