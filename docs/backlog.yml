@@ -3040,7 +3040,7 @@ items:
       and the same applies to any format added after this lands.
     category:     "testing"
     type:         "infra"
-    status:       "parked"
+    status:       "done"
     complexity:   "XS"
     priority:     "medium"
     rationale:    "The backlog already treats this class of guard as valuable precedent (BL-047 drift-gates generated docs, BL-052 test-enforces the hexagonal import direction) — extraction format coverage is the same shape of problem: a registration a test suite can silently fall behind."
@@ -3052,7 +3052,7 @@ items:
       - "src/doc_ray/adapters/extraction.py"
       - "tests/test_extract_formats.py"
     owner:        "shared"
-    source:       "Feature request 2026-07-05: full ingest feature design for pptx/svg, decomposed to include a durable test-coverage component rather than one-off tests per format."
+    source:       "Feature request 2026-07-05: full ingest feature design for pptx/svg, decomposed to include a durable test-coverage component rather than one-off tests per format. Completed 2026-07-12 with a golden-case coverage guard over extraction.py's _EXTRACTORS dispatch table; simulated future .pptx registration fails the guard until a case is added, while every current extension and alias has a fixture-backed extraction assertion."
     tags:         ["testing", "extraction", "drift-guard"]
 
   # ==================== FULL-CODEBASE GAP ANALYSIS (2026-07-10) ====================

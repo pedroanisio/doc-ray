@@ -27,6 +27,11 @@ doc-ray carries **one global version** covering both the application package
   upload, so re-uploading an already-ingested file no longer downgrades object
   metadata to `application/octet-stream`.
 
+### Testing
+- **Extraction format coverage guard** (Codex GPT-5) — BL-093 adds a
+  golden-case drift guard for every registered extractor extension, so future
+  PPTX/SVG registrations fail tests until they ship with format coverage.
+
 ## [1.15.0] - 2026-07-12
 
 ### Added

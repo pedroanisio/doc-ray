@@ -6,16 +6,50 @@ import io
 import json
 import subprocess
 import zipfile
+from collections.abc import Callable, Mapping
 
 import pytest
 
 from doc_ray.adapters import extraction
 from doc_ray.adapters.extraction import _EXTRACTORS, extract
 
+GoldenCase = tuple[Callable[[], bytes], str, str]
 
-def test_all_formats_registered():
-    for ext in (".pdf", ".txt", ".text", ".md", ".markdown", ".html", ".htm", ".epub", ".docx"):
-        assert ext in _EXTRACTORS, ext
+
+def _missing_golden_extensions(registered: Mapping[str, object]) -> list[str]:
+    """Return registered extractor extensions that lack a golden case."""
+    return sorted(set(registered) - set(_GOLDEN_FORMATS))
+
+
+def test_extractor_coverage_guard_detects_uncovered_extension():
+    registered = {**_EXTRACTORS, ".pptx": object()}
+
+    assert _missing_golden_extensions(registered) == [".pptx"]
+
+
+def test_all_registered_extractors_have_golden_fixture_case():
+    assert _missing_golden_extensions(_EXTRACTORS) == []
+
+
+def _bytes(value: bytes) -> Callable[[], bytes]:
+    return lambda: value
+
+
+def _minimal_pdf() -> bytes:
+    fitz = pytest.importorskip("fitz", reason="PyMuPDF not installed")
+    doc = fitz.open()
+    page = doc.new_page(width=300, height=200)
+    page.insert_text((40, 80), "Golden PDF text.", fontsize=12)
+    return doc.tobytes()
+
+
+def _minimal_docx() -> bytes:
+    docx = pytest.importorskip("docx", reason="python-docx not installed")
+    document = docx.Document()
+    document.add_paragraph("Golden DOCX text.")
+    out = io.BytesIO()
+    document.save(out)
+    return out.getvalue()
 
 
 def test_plain_text():
@@ -67,6 +101,41 @@ def _minimal_epub() -> bytes:
             '<html xmlns="http://www.w3.org/1999/xhtml"><body><p>Second chapter.</p></body></html>',
         )
     return buf.getvalue()
+
+
+_GOLDEN_FORMATS: dict[str, GoldenCase] = {
+    ".pdf": (_minimal_pdf, "pdf", "Golden PDF text."),
+    ".txt": (_bytes(b"Golden text fixture."), "text", "Golden text fixture."),
+    ".text": (_bytes(b"Golden text alias fixture."), "text", "Golden text alias fixture."),
+    ".md": (_bytes(b"# Title\n\nGolden Markdown fixture."), "text", "Golden Markdown fixture."),
+    ".markdown": (
+        _bytes(b"# Title\n\nGolden Markdown alias fixture."),
+        "text",
+        "Golden Markdown alias fixture.",
+    ),
+    ".html": (
+        _bytes(b"<html><body><p>Golden HTML fixture.</p></body></html>"),
+        "html",
+        "Golden HTML fixture.",
+    ),
+    ".htm": (
+        _bytes(b"<html><body><p>Golden HTM alias fixture.</p></body></html>"),
+        "html",
+        "Golden HTM alias fixture.",
+    ),
+    ".epub": (_minimal_epub, "epub", "First chapter."),
+    ".docx": (_minimal_docx, "docx", "Golden DOCX text."),
+}
+
+
+@pytest.mark.parametrize("extension", sorted(_GOLDEN_FORMATS))
+def test_registered_extractor_golden_fixture(extension):
+    data_factory, expected_doc_type, expected_text = _GOLDEN_FORMATS[extension]
+
+    extracted = extract(data_factory(), f"golden-{extension.lstrip('.')}", extension)
+
+    assert extracted.doc_type == expected_doc_type
+    assert expected_text in extracted.full_text
 
 
 def test_epub_reads_in_spine_order():

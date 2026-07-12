@@ -301,7 +301,7 @@ uv-built image.
 | BL-090 | Extraction support for SVG: text and structure from font-size/weight classification | extraction | feature | parked | S | medium | shared |
 | BL-091 | DOCX: reconstruct heading/list structure from paragraph styles | extraction | tech-debt | parked | S | medium | shared |
 | BL-092 | HTML/EPUB: reconstruct heading/list structure instead of flattening all block tags | extraction | tech-debt | parked | M | medium | shared |
-| BL-093 | Format-extraction coverage guard: every registered extractor has a golden-fixture test | testing | infra | parked | XS | medium | shared |
+| BL-093 | Format-extraction coverage guard: every registered extractor has a golden-fixture test | testing | infra | done | XS | medium | shared |
 | BL-094 | Backup download route is completely unauthenticated and bypasses RLS | security | bug | done | S | critical | shared |
 | BL-095 | Duplicate re-upload silently downgrades a document's stored Content-Type | persistence | bug | done | XS | low | shared |
 | BL-096 | No read-side integrity verification despite content_sha256 being threaded for exactly that purpose | persistence | tech-debt | parked | S | medium | shared |
