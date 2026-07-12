@@ -2156,7 +2156,7 @@ items:
 
   - id:          "BL-066"
     title:        "OIDC authentication as the default authenticator"
-    summary:      "The API only has a static bearer/X-DocRay-API-Token authenticator (HeaderTokenAuthenticator); D-010 explicitly named 'bearer/OIDC -> principal' as the federation slot for app-layer auth, and it was never filled."
+    summary:      "The API now has an OIDC-first authenticator: configured issuer/JWKS bearer JWTs validate before the static-token fallback, OIDC `sub` resolves through principals.external_subject, and an explicit policy switch can create a principal row on first login."
     description: |
       src/doc_ray/entrypoints/api/security.py implements exactly one
       Authenticator besides the test NoopAuthenticator: HeaderTokenAuthenticator,
@@ -2170,7 +2170,7 @@ items:
       for later, not an oversight.
     category:     "security"
     type:         "feature"
-    status:       "parked"
+    status:       "done"
     complexity:   "L"
     priority:     "high"
     rationale:    "OIDC is the named default in the request; it is also the only path to a real per-human identity (today every caller behind a shared bearer token is administratively indistinguishable from any other holder of that same string)."
@@ -2184,7 +2184,7 @@ items:
       - "src/doc_ray/entrypoints/api/security.py"
       - "db/migrations/018_rbac.sql"
     owner:        "shared"
-    source:       "Gap-analysis 2026-07-05 against a supplied enterprise-IAM checklist; verified against security.py and D-010's own decision text naming this as the deferred federation slot."
+    source:       "Gap-analysis 2026-07-05 against a supplied enterprise-IAM checklist; verified against security.py and D-010's own decision text naming this as the deferred federation slot. Completed 2026-07-12 with OIDCAuthenticator, JWKS-backed JWT validation, PostgresOIDCPrincipalResolver over principals.external_subject, opt-in OIDC first-login principal creation via DOCRAY_API_OIDC_AUTO_CREATE_PRINCIPALS, OIDC-first create_app wiring, static-token fallback, and regression tests in test_api_oidc.py."
     tags:         ["security", "auth", "oidc", "federation"]
 
   - id:          "BL-067"

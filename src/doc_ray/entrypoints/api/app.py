@@ -37,6 +37,7 @@ from doc_ray.config import Config
 from doc_ray.entrypoints.api import health
 from doc_ray.entrypoints.api.context import RequestContext
 from doc_ray.entrypoints.api.loaders import Loaders
+from doc_ray.entrypoints.api.oidc import OIDCAuthenticator, PostgresOIDCPrincipalResolver
 from doc_ray.entrypoints.api.schema import build_schema
 from doc_ray.entrypoints.api.security import (
     Authenticator,
@@ -108,7 +109,7 @@ def _render_pdf_page_png(pdf_bytes: bytes, page_number: int) -> bytes:
             raise IndexError(page_number)
         page = doc.load_page(page_number - 1)
         pixmap = page.get_pixmap(dpi=_PDF_PAGE_RENDER_DPI, alpha=False)
-        return pixmap.tobytes("png")
+        return cast(bytes, pixmap.tobytes("png"))
 
 
 async def _get_cached_object(store: ObjectStore, key: str) -> bytes | None:
@@ -450,6 +451,32 @@ def _register_auth_token_route(app: FastAPI, settings: Config) -> None:
         }
 
 
+def _build_authenticator(settings: Config, pool: AsyncConnectionPool[Any]) -> Authenticator:
+    """Return the configured API authenticator."""
+    fallback = HeaderTokenAuthenticator(
+        tokens=settings.api_tokens,
+        allow_anonymous=settings.api_allow_anonymous,
+        jwt_secret=settings.api_jwt_secret,
+        jwt_issuer=settings.api_jwt_issuer,
+        jwt_audience=settings.api_jwt_audience,
+    )
+    if settings.api_oidc_issuer and settings.api_oidc_jwks_json:
+        jwks = json.loads(settings.api_oidc_jwks_json)
+        if not isinstance(jwks, dict):
+            raise ValueError("DOCRAY_API_OIDC_JWKS_JSON must be a JWKS object")
+        return OIDCAuthenticator(
+            issuer=settings.api_oidc_issuer,
+            audience=settings.api_oidc_audience,
+            jwks=jwks,
+            resolve_principal=PostgresOIDCPrincipalResolver(
+                pool,
+                auto_create=settings.api_oidc_auto_create_principals,
+            ),
+            fallback=fallback,
+        )
+    return fallback
+
+
 async def _get_context(request: Request) -> AsyncIterator[RequestContext]:
     """Yield a per-request context: a pooled connection bound to the principal.
 
@@ -482,13 +509,6 @@ def create_app(cfg: Config | None = None, authenticator: Authenticator | None = 
     """
     configure_logging()
     settings = cfg or Config.from_env()
-    auth = authenticator or HeaderTokenAuthenticator(
-        tokens=settings.api_tokens,
-        allow_anonymous=settings.api_allow_anonymous,
-        jwt_secret=settings.api_jwt_secret,
-        jwt_issuer=settings.api_jwt_issuer,
-        jwt_audience=settings.api_jwt_audience,
-    )
     store = ObjectStore(settings)
     pool = AsyncConnectionPool(
         settings.database_url,
@@ -502,6 +522,7 @@ def create_app(cfg: Config | None = None, authenticator: Authenticator | None = 
             "options": f"-c statement_timeout={settings.api_statement_timeout_ms}",
         },
     )
+    auth = authenticator or _build_authenticator(settings, pool)
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:

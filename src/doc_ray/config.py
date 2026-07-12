@@ -103,6 +103,15 @@ class Config:
         api_jwt_ttl_seconds: Default lifetime for issued access JWTs.
         api_refresh_token_ttl_seconds: Default lifetime for refresh tokens used
             to rotate API access credentials.
+        api_oidc_issuer: Optional expected OIDC issuer. When set with
+            ``api_oidc_jwks_json``, OIDC bearer JWTs become the default API
+            authenticator and static tokens remain only as fallback credentials.
+        api_oidc_audience: Optional required OIDC audience.
+        api_oidc_jwks_json: JWKS document JSON used to verify OIDC bearer JWTs.
+        api_oidc_auto_create_principals: Whether OIDC login may create a
+            ``principals`` row for a previously unseen ``sub`` claim. This is
+            the local policy switch BL-066 needs before BL-068 adds full SCIM
+            authority.
         api_debug: Whether GraphQL introspection and the GraphiQL IDE are
             enabled (BL-108). False in production by default: an anonymous
             caller should not be able to enumerate the schema, including
@@ -136,6 +145,10 @@ class Config:
     api_jwt_audience: str | None = None
     api_jwt_ttl_seconds: int = 900
     api_refresh_token_ttl_seconds: int = 86_400
+    api_oidc_issuer: str | None = None
+    api_oidc_audience: str | None = None
+    api_oidc_jwks_json: str | None = None
+    api_oidc_auto_create_principals: bool = False
     api_debug: bool = False
     max_upload_bytes: int = 200 * 1024 * 1024
     backup_schedule_seconds: int = 86_400
@@ -176,6 +189,12 @@ class Config:
             api_jwt_ttl_seconds=_env_int("DOCRAY_API_JWT_TTL_SECONDS", 900),
             api_refresh_token_ttl_seconds=_env_int(
                 "DOCRAY_API_REFRESH_TOKEN_TTL_SECONDS", 86_400
+            ),
+            api_oidc_issuer=_env_optional_str("DOCRAY_API_OIDC_ISSUER"),
+            api_oidc_audience=_env_optional_str("DOCRAY_API_OIDC_AUDIENCE"),
+            api_oidc_jwks_json=_env_optional_str("DOCRAY_API_OIDC_JWKS_JSON"),
+            api_oidc_auto_create_principals=_env_bool(
+                "DOCRAY_API_OIDC_AUTO_CREATE_PRINCIPALS", False
             ),
             api_debug=_env_bool("DOCRAY_API_DEBUG", False),
             max_upload_bytes=_env_int("DOCRAY_MAX_UPLOAD_MB", 200) * 1024 * 1024,

@@ -448,7 +448,7 @@ def _b64url_json(value: Mapping[str, Any]) -> str:
 
 def _b64url_json_loads(segment: str) -> dict[str, Any]:
     """Decode a compact base64url JSON object."""
-    raw = base64.urlsafe_b64decode(segment + "=" * (-len(segment) % 4))
+    raw = _b64url_decode(segment)
     value = json.loads(raw)
     if not isinstance(value, dict):
         raise ValueError("JWT segment must be a JSON object")
@@ -464,6 +464,11 @@ def _sign(signing_input: str, secret: str) -> str:
 def _b64url(raw: bytes) -> str:
     """Encode bytes using base64url without padding."""
     return base64.urlsafe_b64encode(raw).decode().rstrip("=")
+
+
+def _b64url_decode(segment: str) -> bytes:
+    """Decode base64url data with optional omitted padding."""
+    return base64.urlsafe_b64decode(segment + "=" * (-len(segment) % 4))
 
 
 def _request_token(request: Request) -> str | None:

@@ -305,7 +305,7 @@ which is modifying the same queue plumbing as this is written.
 | BL-063 | Paginate the main document list and add filter arguments to the documents query | api | tech-debt | done | S | medium | shared |
 | BL-064 | Mutation resolvers never check per-document write ACL (any write token can mutate any document) | security | bug | done | M | high | shared |
 | BL-065 | Introduce a tenant model as the foundation for tenant-aware RBAC | security | feature | parked | XL | high | shared |
-| BL-066 | OIDC authentication as the default authenticator | security | feature | parked | L | high | shared |
+| BL-066 | OIDC authentication as the default authenticator | security | feature | done | L | high | shared |
 | BL-067 | SAML SSO for enterprise tenants | security | feature | parked | L | medium | shared |
 | BL-068 | SCIM provisioning, authoritative for managed users | security | feature | parked | L | medium | shared |
 | BL-069 | Demote static bearer tokens to an explicit local/break-glass fallback | security | tech-debt | parked | S | medium | shared |
