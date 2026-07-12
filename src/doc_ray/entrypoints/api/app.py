@@ -37,6 +37,7 @@ from doc_ray.config import Config
 from doc_ray.entrypoints.api import health
 from doc_ray.entrypoints.api.context import RequestContext
 from doc_ray.entrypoints.api.loaders import Loaders
+from doc_ray.entrypoints.api.metrics import register_metrics_route
 from doc_ray.entrypoints.api.oidc import OIDCAuthenticator, PostgresOIDCPrincipalResolver
 from doc_ray.entrypoints.api.schema import build_schema
 from doc_ray.entrypoints.api.security import (
@@ -553,6 +554,7 @@ def create_app(cfg: Config | None = None, authenticator: Authenticator | None = 
     )
     app.state.graphql_router = graphql_router
     app.include_router(graphql_router, prefix="/graphql")
+    register_metrics_route(app)
 
     @app.get("/health")
     async def health_endpoint() -> dict[str, str]:
