@@ -77,6 +77,46 @@ def test_readme_documents_full_graphql_surface():
 
 
 # ---------------------------------------------------------------------------
+# README: the Layout table's `src/doc_ray/entrypoints/` row must name every
+# live entrypoint module — and only live ones (drift-risk-map C01: the row
+# had silently fallen three modules behind the package).
+# ---------------------------------------------------------------------------
+
+_ENTRYPOINTS_DIR = _ROOT / "src" / "doc_ray" / "entrypoints"
+
+
+def _live_entrypoint_names() -> set[str]:
+    modules = {p.stem for p in _ENTRYPOINTS_DIR.glob("*.py")} - {"__init__"}
+    packages = {
+        d.name for d in _ENTRYPOINTS_DIR.iterdir() if d.is_dir() and (d / "__init__.py").exists()
+    }
+    return modules | packages
+
+
+def _readme_entrypoints_row(readme: str) -> str:
+    for line in readme.splitlines():
+        if line.startswith("| `src/doc_ray/entrypoints/`"):
+            return line
+    raise AssertionError("README Layout table has no `src/doc_ray/entrypoints/` row")
+
+
+def test_readme_layout_lists_every_live_entrypoint():
+    row = _readme_entrypoints_row(_README.read_text(encoding="utf-8"))
+    documented = set(re.findall(r"`(\w+)`", row))
+    live = _live_entrypoint_names()
+    missing = sorted(live - documented)
+    phantom = sorted(documented - live)
+    assert not missing, (
+        f"README's Layout row for src/doc_ray/entrypoints/ omits live module(s): {missing}. "
+        "New entrypoints must be added to the README inventory."
+    )
+    assert not phantom, (
+        f"README's Layout row for src/doc_ray/entrypoints/ names module(s) that don't "
+        f"exist: {phantom}. Remove or rename them to match the package."
+    )
+
+
+# ---------------------------------------------------------------------------
 # .env.example: every environment variable the running code reads must be
 # documented somewhere in the file (commented-out opt-in flags count).
 # ---------------------------------------------------------------------------
@@ -191,3 +231,11 @@ def test_env_example_completeness_check_detects_an_undocumented_var(tmp_path, mo
 
 def test_claude_md_placeholder_check_detects_a_marker():
     assert any(marker in "some [PROJECT] text" for marker in _TEMPLATE_MARKERS)
+
+
+def test_readme_entrypoint_guard_detects_missing_and_phantom_modules():
+    row = "| `src/doc_ray/entrypoints/` | Driving adapters: `cli`, `ghost_module` |"
+    documented = set(re.findall(r"`(\w+)`", row))
+    live = _live_entrypoint_names()
+    assert "worker" in live - documented  # a real module the fake row omits
+    assert "ghost_module" in documented - live  # a fake module the row invents
