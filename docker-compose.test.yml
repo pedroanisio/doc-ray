@@ -64,7 +64,9 @@ services:
       "
 
   test-migrate:
-    build: .
+    build:
+      context: .
+      dockerfile: docker/test/Dockerfile
     restart: "no"
     depends_on:
       test-postgres:

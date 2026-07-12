@@ -207,6 +207,13 @@ def test_test_runner_builds_from_a_dedicated_self_contained_test_image():
     assert "volumes" not in runner
 
 
+def test_test_migrate_uses_the_dedicated_test_image_not_the_uat_app_image():
+    migrate = _compose(_TEST_COMPOSE_FILE)["services"]["test-migrate"]
+
+    assert migrate["build"] == {"context": ".", "dockerfile": "docker/test/Dockerfile"}
+    assert "volumes" not in migrate
+
+
 def test_test_dockerfile_copies_sources_tests_and_migrations_into_the_image():
     text = _TEST_DOCKERFILE.read_text(encoding="utf-8")
 
