@@ -2403,7 +2403,7 @@ items:
       corresponding audit trail of who did what.
     category:     "security"
     type:         "feature"
-    status:       "parked"
+    status:       "done"
     complexity:   "L"
     priority:     "high"
     rationale:    "Without this, BL-064's exact bug class (a scoped principal reaching an out-of-grant document) would have been invisible after the fact — there is currently no way to answer 'who accessed/mutated what, from where, and when' for this system at all, tenant or no tenant."
@@ -2417,7 +2417,7 @@ items:
       - "src/doc_ray/domain/provenance.py"
       - "db/migrations/018_rbac.sql"
     owner:        "shared"
-    source:       "Gap-analysis 2026-07-05 against a supplied enterprise-IAM checklist; verified against provenance.py showing the existing audit trail is domain/pipeline-scoped, not a security access log."
+    source:       "Implemented 2026-07-12: db/migrations/062_security_audit_events.sql creates append-only audit_events with INSERT-only docray_client grants; security_audit.py writes actor/action/target/outcome/source_ip rows; auth token/refresh routes, document reads, and mutation success/denial paths emit audit events. Verified by src/doc_ray/tests/test_security_audit.py and src/doc_ray/tests/test_api_security_audit.py."
     tags:         ["security", "audit", "compliance"]
 
   - id:          "BL-075"

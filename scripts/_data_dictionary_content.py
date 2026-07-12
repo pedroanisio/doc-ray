@@ -46,6 +46,7 @@ RLS_PATH = {
     "sentiment": "annotation_id → annotations",
     "embedding": "span_id → spans",
     "backups": "docray_is_admin()",
+    "audit_events": "insert-only security audit log",
 }
 
 MIGRATIONS = [
@@ -154,5 +155,9 @@ MIGRATIONS = [
     (
         "061_tenant_foundation",
         "tenant catalogue plus tenant-scoped principals, documents, and RLS helpers",
+    ),
+    (
+        "062_security_audit_events",
+        "append-only security audit log for auth, reads, mutations, and denials",
     ),
 ]

@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import asyncio
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
+import httpx
 import pytest
-from fastapi.testclient import TestClient
 
+import doc_ray.entrypoints.api.app as api_app
 from doc_ray.config import Config
 from doc_ray.entrypoints.api.app import create_app
 from doc_ray.entrypoints.api.security import (
@@ -16,6 +18,27 @@ from doc_ray.entrypoints.api.security import (
     issue_refresh_token,
     rotate_refresh_token,
 )
+
+
+class _ClosedAuditPool:
+    closed = True
+    _opened = False
+
+    async def open(self) -> None:
+        return None
+
+    async def close(self) -> None:
+        return None
+
+
+def _disable_route_db_pool(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(api_app, "AsyncConnectionPool", lambda *args, **kwargs: _ClosedAuditPool())
+
+
+async def _post(app: object, path: str, **kwargs: object) -> httpx.Response:
+    transport = httpx.ASGITransport(app=app)  # type: ignore[arg-type]
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        return await client.post(path, **kwargs)
 
 
 def _cfg(principal_id: str) -> Config:
@@ -42,10 +65,13 @@ def test_config_reads_refresh_token_ttl(monkeypatch):
     assert Config.from_env().api_refresh_token_ttl_seconds == 43_200
 
 
-def test_token_exchange_returns_access_and_refresh_tokens():
+def test_token_exchange_returns_access_and_refresh_tokens(monkeypatch):
+    _disable_route_db_pool(monkeypatch)
     app = create_app(_cfg(str(uuid4())))
 
-    response = TestClient(app).post("/auth/token", headers={"authorization": "Bearer static-token"})
+    response = asyncio.run(
+        _post(app, "/auth/token", headers={"authorization": "Bearer static-token"})
+    )
 
     assert response.status_code == 200
     body = response.json()
@@ -57,12 +83,14 @@ def test_token_exchange_returns_access_and_refresh_tokens():
     assert body["access_token"] != body["refresh_token"]
 
 
-def test_refresh_endpoint_rotates_presented_refresh_token():
+def test_refresh_endpoint_rotates_presented_refresh_token(monkeypatch):
+    _disable_route_db_pool(monkeypatch)
     app = create_app(_cfg(str(uuid4())))
-    client = TestClient(app)
-    first = client.post("/auth/token", headers={"authorization": "Bearer static-token"}).json()
+    first = asyncio.run(
+        _post(app, "/auth/token", headers={"authorization": "Bearer static-token"})
+    ).json()
 
-    response = client.post("/auth/refresh", json={"refresh_token": first["refresh_token"]})
+    response = asyncio.run(_post(app, "/auth/refresh", json={"refresh_token": first["refresh_token"]}))
 
     assert response.status_code == 200
     second = response.json()
@@ -71,14 +99,20 @@ def test_refresh_endpoint_rotates_presented_refresh_token():
     assert second["refresh_expires_in"] == 86_400
 
 
-def test_reusing_rotated_refresh_token_revokes_token_family():
+def test_reusing_rotated_refresh_token_revokes_token_family(monkeypatch):
+    _disable_route_db_pool(monkeypatch)
     app = create_app(_cfg(str(uuid4())))
-    client = TestClient(app)
-    first = client.post("/auth/token", headers={"authorization": "Bearer static-token"}).json()
-    second = client.post("/auth/refresh", json={"refresh_token": first["refresh_token"]}).json()
+    first = asyncio.run(
+        _post(app, "/auth/token", headers={"authorization": "Bearer static-token"})
+    ).json()
+    second = asyncio.run(
+        _post(app, "/auth/refresh", json={"refresh_token": first["refresh_token"]})
+    ).json()
 
-    replay = client.post("/auth/refresh", json={"refresh_token": first["refresh_token"]})
-    after_replay = client.post("/auth/refresh", json={"refresh_token": second["refresh_token"]})
+    replay = asyncio.run(_post(app, "/auth/refresh", json={"refresh_token": first["refresh_token"]}))
+    after_replay = asyncio.run(
+        _post(app, "/auth/refresh", json={"refresh_token": second["refresh_token"]})
+    )
 
     assert replay.status_code == 401
     assert replay.json()["detail"] == "Invalid refresh token"

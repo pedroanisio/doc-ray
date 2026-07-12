@@ -1,6 +1,6 @@
 # doc-ray — Database ERD & Data Dictionary
 
-**Schema version `1.17.0`** (SemVer) · 61 migrations applied
+**Schema version `1.17.0`** (SemVer) · 62 migrations applied
 
 > Generated from the live schema by `scripts/gen_data_dictionary.py`. Do not edit by hand — re-run the generator.
 
@@ -924,7 +924,40 @@ Tenant partition catalogue; the default tenant preserves existing deployments.
 - **Index** `idx_document_acl_document`: public.document_acl USING btree (document_id)
 - **Index** `idx_document_acl_principal`: public.document_acl USING btree (principal_id)
 
-### 5.11 Evaluation & drift artifacts
+### 5.11 Security audit trail
+
+Append-only access and authentication events: who did what, against which target, from which source
+address, and whether it succeeded or was denied.
+
+#### `audit_events`
+
+| Column | Type | Null | Key | Default | Notes |
+|---|---|---|---|---|---|
+| `id` | uuid |  | PK | `gen_random_uuid()` |  |
+| `tenant_id` | uuid | yes | FK→tenants |  |  |
+| `actor_principal_id` | uuid | yes | FK→principals |  |  |
+| `actor_subject` | text | yes |  |  |  |
+| `action` | text |  |  |  |  |
+| `target_type` | text |  |  |  |  |
+| `target_id` | text | yes |  |  |  |
+| `outcome` | text |  |  |  |  |
+| `source_ip` | text | yes |  |  |  |
+| `request_id` | text | yes |  |  |  |
+| `details` | jsonb |  |  | `'{}'::jsonb` |  |
+| `occurred_at` | timestamp with time zone |  |  | `now()` |  |
+
+- **Primary key:** (id)
+- **FK:** FOREIGN KEY (actor_principal_id) REFERENCES principals(id) ON DELETE SET NULL
+- **FK:** FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE SET NULL
+- **Check:** CHECK ((outcome = ANY (ARRAY['success'::text, 'failure'::text, 'denied'::text])))
+- **Index** `idx_audit_events_action`: public.audit_events USING btree (action, occurred_at DESC)
+- **Index** `idx_audit_events_actor`: public.audit_events USING btree (actor_principal_id, actor_subject, occurred_at DESC)
+- **Index** `idx_audit_events_source_ip`: public.audit_events USING btree (source_ip, occurred_at DESC)
+- **Index** `idx_audit_events_target`: public.audit_events USING btree (target_type, target_id, occurred_at DESC)
+- **Index** `idx_audit_events_tenant`: public.audit_events USING btree (tenant_id, occurred_at DESC)
+- **Index** `idx_audit_events_time`: public.audit_events USING btree (occurred_at DESC)
+
+### 5.12 Evaluation & drift artifacts
 
 Corpus snapshots, evaluation runs, metric rows, and gold samples make quality and drift measurements
 durable and citeable instead of one-off operator observations.
@@ -1005,7 +1038,7 @@ durable and citeable instead of one-off operator observations.
 - **FK:** FOREIGN KEY (span_id) REFERENCES spans(id) ON DELETE CASCADE
 - **Index** `idx_gold_sample_label`: public.gold_sample USING btree (label, created_at DESC)
 
-### 5.12 Meta
+### 5.13 Meta
 
 Applied-migration ledger, the schema's SemVer, and the corpus-backup catalogue. `backups` is
 operational: it and the `jobs` queue are excluded from every snapshot and from restore, so a restore
@@ -1109,6 +1142,7 @@ SELECT a.document_id,
 | `docray_default_tenant_id()` | `uuid` | DEFINER | sql |
 | `docray_effective_actor()` | `name` | invoker | sql |
 | `docray_is_admin()` | `boolean` | DEFINER | sql |
+| `docray_prevent_audit_event_mutation()` | `trigger` | invoker | plpgsql |
 | `docray_readable_documents()` | `SETOF uuid` | DEFINER | sql |
 | `docray_schema_version()` | `text` | invoker | sql |
 | `docray_ts_config(lang text)` | `regconfig` | invoker | sql |
@@ -1117,6 +1151,7 @@ SELECT a.document_id,
 | `set_document_content_fts()` | `trigger` | invoker | plpgsql |
 | `set_updated_at()` | `trigger` | invoker | plpgsql |
 
+- **audit_events** `trg_audit_events_append_only`: CREATE TRIGGER trg_audit_events_append_only BEFORE DELETE OR UPDATE …
 - **backups** `trg_backups_updated_at`: CREATE TRIGGER trg_backups_updated_at BEFORE UPDATE …
 - **canonical** `trg_canonical_updated_at`: CREATE TRIGGER trg_canonical_updated_at BEFORE UPDATE …
 - **document_collections** `trg_document_collections_updated_at`: CREATE TRIGGER trg_document_collections_updated_at BEFORE UPDATE …
@@ -1233,3 +1268,4 @@ owner's bypass.
 | 059 | `059_job_progress.sql` | first-class async job progress fields on jobs (BL-123) |
 | 060 | `060_schema_version_1_17_0.sql` | advance the schema SemVer to 1.17.0 |
 | 061 | `061_tenant_foundation.sql` | tenant catalogue plus tenant-scoped principals, documents, and RLS helpers |
+| 062 | `062_security_audit_events.sql` | append-only security audit log for auth, reads, mutations, and denials |

@@ -39,6 +39,7 @@ from doc_ray.domain.jobs import (
     KIND_UPDATE_METADATA,
 )
 from doc_ray.entrypoints.api.context import MAX_BATCH_IDS, RequestContext
+from doc_ray.entrypoints.api.security_audit import record_audit_event
 from doc_ray.entrypoints.api.types import Info, Job
 
 #: The default post-ingest pipeline: Stage-1 annotation, deterministic semantic
@@ -47,13 +48,53 @@ from doc_ray.entrypoints.api.types import Info, Job
 _PIPELINE_CHAIN = [KIND_ANNOTATE, KIND_SEMANTIC_ENRICH, KIND_CANONICALIZE]
 
 
+async def _audit_mutation_event(
+    ctx: RequestContext,
+    *,
+    action: str,
+    target_type: str,
+    target_id: str | None,
+    outcome: str,
+    details: dict[str, Any] | None = None,
+) -> None:
+    await record_audit_event(
+        ctx.conn,
+        principal=ctx.principal,
+        action=action,
+        target_type=target_type,
+        target_id=target_id,
+        outcome=outcome,
+        details=details,
+    )
+
+
+def _has_write_scope(ctx: RequestContext) -> bool:
+    """Return true when the context principal may attempt write mutations."""
+    return ctx.principal.principal_id is not None and "write" in ctx.principal.scopes
+
+
 def _require_write(ctx: RequestContext) -> None:
     """Require an authenticated principal with write scope for API mutations."""
-    if ctx.principal.principal_id is None or "write" not in ctx.principal.scopes:
+    if not _has_write_scope(ctx):
         raise PermissionError("API mutation requires an authenticated principal with write scope")
 
 
-async def _require_document_write(ctx: RequestContext, document_id: str) -> None:
+async def _require_write_audited(ctx: RequestContext, *, action: str) -> None:
+    """Require write scope and record permission-denied attempts."""
+    if ctx.principal.principal_id is None or "write" not in ctx.principal.scopes:
+        await _audit_mutation_event(
+            ctx,
+            action=action,
+            target_type="mutation",
+            target_id=None,
+            outcome="denied",
+        )
+        raise PermissionError("API mutation requires an authenticated principal with write scope")
+
+
+async def _require_document_write(
+    ctx: RequestContext, document_id: str, *, action: str = "mutation.document.write"
+) -> None:
     """Require a write grant on *document_id* specifically (BL-064).
 
     Global write scope (:func:`_require_write`) is necessary but not
@@ -67,10 +108,18 @@ async def _require_document_write(ctx: RequestContext, document_id: str) -> None
     a bare ``%s::uuid`` cast raises Postgres's raw input-syntax error on a
     malformed id — validate in Python first so that never reaches the client).
     """
-    _require_write(ctx)
+    await _require_write_audited(ctx, action=action)
     try:
         uuid.UUID(document_id)
     except ValueError as exc:
+        await _audit_mutation_event(
+            ctx,
+            action=action,
+            target_type="document",
+            target_id=document_id,
+            outcome="denied",
+            details={"reason": "malformed_document_id"},
+        )
         raise PermissionError(f"no write grant for document {document_id}") from exc
     cur = await ctx.conn.execute(
         "SELECT %s::uuid IN (SELECT * FROM docray_writable_documents()) AS ok",
@@ -78,10 +127,18 @@ async def _require_document_write(ctx: RequestContext, document_id: str) -> None
     )
     row = await cur.fetchone()
     if not row or not row["ok"]:
+        await _audit_mutation_event(
+            ctx,
+            action=action,
+            target_type="document",
+            target_id=document_id,
+            outcome="denied",
+            details={"reason": "missing_document_write_grant"},
+        )
         raise PermissionError(f"no write grant for document {document_id}")
 
 
-async def _require_admin(ctx: RequestContext) -> None:
+async def _require_admin(ctx: RequestContext, *, action: str = "mutation.admin") -> None:
     """Require an admin principal, for corpus-wide mutations (backup/restore).
 
     Backup/restore affect the whole corpus, not one document, so there is no
@@ -89,10 +146,18 @@ async def _require_admin(ctx: RequestContext) -> None:
     call these (BL-064). ``jobs``/``backups`` RLS (migration 043) is the
     backstop; this turns a raw policy violation into a clean error.
     """
-    _require_write(ctx)
+    await _require_write_audited(ctx, action=action)
     cur = await ctx.conn.execute("SELECT docray_is_admin() AS ok")
     row = await cur.fetchone()
     if not row or not row["ok"]:
+        await _audit_mutation_event(
+            ctx,
+            action=action,
+            target_type="corpus",
+            target_id=None,
+            outcome="denied",
+            details={"reason": "admin_required"},
+        )
         raise PermissionError("this mutation requires an admin principal")
 
 
@@ -125,6 +190,15 @@ async def _job_status(ctx: RequestContext, job_id: str) -> Job:
     row = await queue.status_async(ctx.conn, job_id)
     if row is None:  # pragma: no cover - the row was just inserted
         raise RuntimeError(f"enqueued job {job_id} vanished")
+    document_id = row.get("document_id")
+    await _audit_mutation_event(
+        ctx,
+        action=f"mutation.{row['kind']}",
+        target_type="document" if document_id is not None else "job",
+        target_id=str(document_id) if document_id is not None else str(job_id),
+        outcome="success",
+        details={"job_id": str(job_id)},
+    )
     return Job.from_row(row)
 
 
@@ -144,7 +218,7 @@ class Mutation:
     async def reannotate(self, info: Info, document_id: strawberry.ID, lang: str = "en") -> Job:
         """Enqueue a re-annotation of a document; returns the queued job."""
         ctx = info.context
-        await _require_document_write(ctx, str(document_id))
+        await _require_document_write(ctx, str(document_id), action="mutation.reannotate")
         job_id = await queue.enqueue_async(
             ctx.conn, KIND_REANNOTATE, {"lang": lang}, document_id=str(document_id)
         )
@@ -154,7 +228,7 @@ class Mutation:
     async def reextract_document(self, info: Info, document_id: strawberry.ID) -> Job:
         """Enqueue PDF geometry backfill for one document; returns the queued job."""
         ctx = info.context
-        await _require_document_write(ctx, str(document_id))
+        await _require_document_write(ctx, str(document_id), action="mutation.reextract")
         job_id = await queue.enqueue_async(
             ctx.conn, KIND_REEXTRACT, {}, document_id=str(document_id)
         )
@@ -166,12 +240,19 @@ class Mutation:
     ) -> Job:
         """Cancel a queued or running job; admin-only."""
         ctx = info.context
-        await _require_admin(ctx)
+        await _require_admin(ctx, action="mutation.cancel_job")
         row = await queue.cancel_async(ctx.conn, str(job_id), reason=reason)
         if row is None:
             raise ValueError(f"unknown job {job_id}")
         if row["status"] != "canceled":
             raise ValueError(f"job {job_id} is {row['status']} and cannot be canceled")
+        await _audit_mutation_event(
+            ctx,
+            action="mutation.cancel_job",
+            target_type="job",
+            target_id=str(job_id),
+            outcome="success",
+        )
         return Job.from_row(row)
 
     @strawberry.mutation
@@ -180,7 +261,7 @@ class Mutation:
     ) -> list[Job]:
         """Enqueue PDF geometry backfill jobs for the corpus; admin-only."""
         ctx = info.context
-        await _require_admin(ctx)
+        await _require_admin(ctx, action="mutation.reextract_documents")
         missing_clause = (
             "AND NOT EXISTS ("
             " SELECT 1 FROM spans sp WHERE sp.document_id = d.id AND sp.page_number IS NOT NULL"
@@ -206,13 +287,22 @@ class Mutation:
                 ctx.conn, KIND_REEXTRACT, {}, document_id=str(row["id"])
             )
             jobs.append(await _job_status(ctx, job_id))
+        if not jobs:
+            await _audit_mutation_event(
+                ctx,
+                action="mutation.reextract_documents",
+                target_type="corpus",
+                target_id=None,
+                outcome="success",
+                details={"jobs_enqueued": 0},
+            )
         return jobs
 
     @strawberry.mutation
     async def delete_document(self, info: Info, document_id: strawberry.ID) -> Job:
         """Enqueue a recoverable soft delete of a document; returns the job."""
         ctx = info.context
-        await _require_document_write(ctx, str(document_id))
+        await _require_document_write(ctx, str(document_id), action="mutation.delete")
         job_id = await queue.enqueue_async(
             ctx.conn,
             KIND_DELETE,
@@ -225,7 +315,7 @@ class Mutation:
     async def archive_document(self, info: Info, document_id: strawberry.ID) -> Job:
         """Enqueue archival of a document without changing ingestion status."""
         ctx = info.context
-        await _require_document_write(ctx, str(document_id))
+        await _require_document_write(ctx, str(document_id), action="mutation.archive_document")
         job_id = await queue.enqueue_async(
             ctx.conn,
             KIND_ARCHIVE_DOCUMENT,
@@ -238,7 +328,7 @@ class Mutation:
     async def restore_document(self, info: Info, document_id: strawberry.ID) -> Job:
         """Enqueue restoring an archived or soft-deleted document to active."""
         ctx = info.context
-        await _require_document_write(ctx, str(document_id))
+        await _require_document_write(ctx, str(document_id), action="mutation.restore_document")
         job_id = await queue.enqueue_async(
             ctx.conn,
             KIND_RESTORE_DOCUMENT,
@@ -256,7 +346,9 @@ class Mutation:
         ids = _clean_bulk_ids(document_ids)
         jobs: list[Job] = []
         for document_id in ids:
-            await _require_document_write(ctx, document_id)
+            await _require_document_write(
+                ctx, document_id, action="mutation.bulk_archive_documents"
+            )
             job_id = await queue.enqueue_async(
                 ctx.conn,
                 KIND_ARCHIVE_DOCUMENT,
@@ -278,7 +370,7 @@ class Mutation:
         ids = _clean_bulk_ids(document_ids)
         jobs: list[Job] = []
         for document_id in ids:
-            await _require_document_write(ctx, document_id)
+            await _require_document_write(ctx, document_id, action="mutation.bulk_tag_documents")
             job_id = await queue.enqueue_async(
                 ctx.conn,
                 KIND_ADD_DOCUMENT_TAGS,
@@ -305,7 +397,7 @@ class Mutation:
         document itself, like every other document-scoped mutation (BL-064).
         """
         ctx = info.context
-        await _require_document_write(ctx, str(document_id))
+        await _require_document_write(ctx, str(document_id), action="mutation.update_metadata")
         payload: dict[str, Any] = {"actor": ctx.principal.principal_id}
         if title is not None:
             payload["title"] = title
@@ -324,7 +416,7 @@ class Mutation:
     ) -> Job:
         """Enqueue Stage-1 annotation (tokens/NER/coref) for a document."""
         ctx = info.context
-        await _require_document_write(ctx, str(document_id))
+        await _require_document_write(ctx, str(document_id), action="mutation.annotate")
         job_id = await queue.enqueue_async(
             ctx.conn, KIND_ANNOTATE, {"lang": lang}, document_id=str(document_id)
         )
@@ -334,7 +426,7 @@ class Mutation:
     async def semantic_enrich_document(self, info: Info, document_id: strawberry.ID) -> Job:
         """Enqueue deterministic semantic enrichment for a document."""
         ctx = info.context
-        await _require_document_write(ctx, str(document_id))
+        await _require_document_write(ctx, str(document_id), action="mutation.semantic_enrich")
         job_id = await queue.enqueue_async(
             ctx.conn, KIND_SEMANTIC_ENRICH, {}, document_id=str(document_id)
         )
@@ -350,7 +442,7 @@ class Mutation:
         LLM cost is always an explicit request, never a default.
         """
         ctx = info.context
-        await _require_document_write(ctx, str(document_id))
+        await _require_document_write(ctx, str(document_id), action="mutation.canonicalize")
         payload = {"resolve": True} if resolve else {}
         job_id = await queue.enqueue_async(
             ctx.conn, KIND_CANONICALIZE, payload, document_id=str(document_id)
@@ -365,7 +457,7 @@ class Mutation:
         nothing reaches the canonical registry without an approval.
         """
         ctx = info.context
-        await _require_document_write(ctx, str(document_id))
+        await _require_document_write(ctx, str(document_id), action="mutation.seed_suggest")
         job_id = await queue.enqueue_async(
             ctx.conn,
             KIND_SEED_SUGGEST,
@@ -378,7 +470,9 @@ class Mutation:
     async def suggest_document_metadata(self, info: Info, document_id: strawberry.ID) -> Job:
         """Enqueue verified title/tag/duplicate suggestions for one document."""
         ctx = info.context
-        await _require_document_write(ctx, str(document_id))
+        await _require_document_write(
+            ctx, str(document_id), action="mutation.suggest_document_metadata"
+        )
         job_id = await queue.enqueue_async(
             ctx.conn,
             KIND_SUGGEST_DOCUMENT_METADATA,
@@ -396,7 +490,9 @@ class Mutation:
     ) -> int:
         """Approve or reject verified metadata suggestions without auto-applying them."""
         ctx = info.context
-        _require_write(ctx)
+        await _require_write_audited(
+            ctx, action="mutation.decide_document_metadata_suggestions"
+        )
         for name, ids in (("approveIds", approve_ids), ("rejectIds", reject_ids)):
             if ids is not None and len(ids) > MAX_BATCH_IDS:
                 raise ValueError(f"{name} cannot exceed {MAX_BATCH_IDS} ids per call")
@@ -409,6 +505,14 @@ class Mutation:
             updated += await metadata_suggestions.decide_async(
                 ctx.conn, [str(i) for i in reject_ids], "rejected"
             )
+        await _audit_mutation_event(
+            ctx,
+            action="mutation.decide_document_metadata_suggestions",
+            target_type="document_metadata_suggestion",
+            target_id=None,
+            outcome="success",
+            details={"rows_updated": updated},
+        )
         return updated
 
     @strawberry.mutation
@@ -428,7 +532,7 @@ class Mutation:
                 truncated, so a caller never has some of its decisions dropped.
         """
         ctx = info.context
-        _require_write(ctx)
+        await _require_write_audited(ctx, action="mutation.decide_seeds")
         for name, ids in (("approveIds", approve_ids), ("rejectIds", reject_ids)):
             if ids is not None and len(ids) > MAX_BATCH_IDS:
                 raise ValueError(f"{name} cannot exceed {MAX_BATCH_IDS} ids per call")
@@ -438,13 +542,21 @@ class Mutation:
             updated += await seeds.decide_async(conn, [str(i) for i in approve_ids], "approved")
         if reject_ids:
             updated += await seeds.decide_async(conn, [str(i) for i in reject_ids], "rejected")
+        await _audit_mutation_event(
+            ctx,
+            action="mutation.decide_seeds",
+            target_type="seed_suggestion",
+            target_id=None,
+            outcome="success",
+            details={"rows_updated": updated},
+        )
         return updated
 
     @strawberry.mutation
     async def seed_approved(self, info: Info, document_id: strawberry.ID) -> Job:
         """Enqueue seeding of a document's approved suggestions into the registry."""
         ctx = info.context
-        await _require_document_write(ctx, str(document_id))
+        await _require_document_write(ctx, str(document_id), action="mutation.seed_approved")
         job_id = await queue.enqueue_async(
             ctx.conn, KIND_SEED_APPROVED, {}, document_id=str(document_id)
         )
@@ -458,7 +570,7 @@ class Mutation:
         in the ``backups`` table. Poll ``job(id)`` for completion.
         """
         ctx = info.context
-        await _require_admin(ctx)
+        await _require_admin(ctx, action="mutation.backup")
         payload = {"note": note} if note else {}
         job_id = await queue.enqueue_async(ctx.conn, KIND_BACKUP, payload, document_id=None)
         return await _job_status(ctx, job_id)
@@ -471,7 +583,7 @@ class Mutation:
         from the archive. The target must be at the archive's schema version.
         """
         ctx = info.context
-        await _require_admin(ctx)
+        await _require_admin(ctx, action="mutation.restore")
         job_id = await queue.enqueue_async(
             ctx.conn, KIND_RESTORE, {"backup_id": str(backup_id)}, document_id=None
         )
@@ -498,7 +610,7 @@ class Mutation:
         from doc_ray.config import Config
 
         ctx = info.context
-        _require_write(ctx)
+        await _require_write_audited(ctx, action="mutation.ingest")
         settings = Config.from_env()
         # The Upload scalar resolves to a Starlette UploadFile at runtime.
         upload = cast(UploadFile, file)

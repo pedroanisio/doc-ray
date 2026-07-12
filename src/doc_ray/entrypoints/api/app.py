@@ -50,6 +50,12 @@ from doc_ray.entrypoints.api.security import (
     issue_refresh_token,
     reset_principal,
     rotate_refresh_token,
+    verify_access_jwt,
+)
+from doc_ray.entrypoints.api.security_audit import (
+    record_audit_event_from_pool,
+    request_id_from_request,
+    source_ip_from_request,
 )
 from doc_ray.logging_setup import configure_logging
 
@@ -391,14 +397,51 @@ def _register_job_events_route(app: FastAPI) -> None:
 
 
 def _register_auth_token_route(app: FastAPI, settings: Config) -> None:
+    async def audit_auth_event(
+        request: Request,
+        *,
+        principal: Principal | None,
+        action: str,
+        outcome: str,
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        await record_audit_event_from_pool(
+            request.app.state.pool,
+            principal=principal,
+            action=action,
+            target_type="auth",
+            target_id=None,
+            outcome=outcome,
+            source_ip=source_ip_from_request(request),
+            request_id=request_id_from_request(request),
+            details=details,
+        )
+
     @app.post("/auth/token")
     async def issue_api_access_token(request: Request) -> dict[str, Any]:
         """Exchange an authenticated API credential for a short-lived access JWT."""
         if not settings.api_jwt_secret:
             raise HTTPException(status_code=503, detail="JWT access tokens are not configured")
         authenticator: Authenticator = request.app.state.authenticator
-        principal = await authenticator.authenticate(request)
+        try:
+            principal = await authenticator.authenticate(request)
+        except HTTPException as exc:
+            await audit_auth_event(
+                request,
+                principal=None,
+                action="auth.token.issue",
+                outcome="failure",
+                details={"status_code": exc.status_code},
+            )
+            raise
         if principal.principal_id is None:
+            await audit_auth_event(
+                request,
+                principal=principal,
+                action="auth.token.issue",
+                outcome="failure",
+                details={"status_code": 401},
+            )
             raise HTTPException(status_code=401, detail="authentication required")
         token = issue_access_jwt(
             principal,
@@ -415,6 +458,12 @@ def _register_auth_token_route(app: FastAPI, settings: Config) -> None:
             ttl_seconds=settings.api_refresh_token_ttl_seconds,
             store=request.app.state.refresh_token_store,
         )
+        await audit_auth_event(
+            request,
+            principal=principal,
+            action="auth.token.issue",
+            outcome="success",
+        )
         return {
             "access_token": token,
             "refresh_token": refresh_token,
@@ -430,6 +479,13 @@ def _register_auth_token_route(app: FastAPI, settings: Config) -> None:
             raise HTTPException(status_code=503, detail="JWT access tokens are not configured")
         refresh_token = str(payload.get("refresh_token", "")).strip()
         if not refresh_token:
+            await audit_auth_event(
+                request,
+                principal=None,
+                action="auth.refresh.rotate",
+                outcome="failure",
+                details={"status_code": 400},
+            )
             raise HTTPException(status_code=400, detail="refresh_token is required")
         try:
             access_token, next_refresh_token = rotate_refresh_token(
@@ -442,7 +498,26 @@ def _register_auth_token_route(app: FastAPI, settings: Config) -> None:
                 store=request.app.state.refresh_token_store,
             )
         except ValueError as exc:
+            await audit_auth_event(
+                request,
+                principal=None,
+                action="auth.refresh.rotate",
+                outcome="failure",
+                details={"status_code": 401},
+            )
             raise HTTPException(status_code=401, detail="Invalid refresh token") from exc
+        principal = verify_access_jwt(
+            access_token,
+            secret=settings.api_jwt_secret,
+            issuer=settings.api_jwt_issuer,
+            audience=settings.api_jwt_audience,
+        )
+        await audit_auth_event(
+            request,
+            principal=principal,
+            action="auth.refresh.rotate",
+            outcome="success",
+        )
         return {
             "access_token": access_token,
             "refresh_token": next_refresh_token,

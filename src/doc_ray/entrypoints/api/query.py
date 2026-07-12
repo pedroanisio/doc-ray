@@ -22,6 +22,7 @@ from doc_ray.entrypoints.api.canonical_types import (
     ResolutionReview,
     UnresolvedMention,
 )
+from doc_ray.entrypoints.api.security_audit import record_audit_event
 from doc_ray.entrypoints.api.types import (
     Document,
     DocumentHit,
@@ -92,7 +93,17 @@ class Query:
         doc_id = _clean_uuid(str(id))
         if doc_id is None:
             return None
-        row = await read.get_document(info.context.conn, doc_id)
+        ctx = info.context
+        row = await read.get_document(ctx.conn, doc_id)
+        if row is not None:
+            await record_audit_event(
+                ctx.conn,
+                principal=ctx.principal,
+                action="graphql.document.read",
+                target_type="document",
+                target_id=doc_id,
+                outcome="success",
+            )
         return Document.from_row(row) if row is not None else None
 
     @strawberry.field

@@ -6,10 +6,11 @@ import asyncio
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
+import httpx
 import pytest
 from fastapi import HTTPException
-from fastapi.testclient import TestClient
 
+import doc_ray.entrypoints.api.app as api_app
 from doc_ray.config import Config
 from doc_ray.entrypoints.api.app import create_app
 from doc_ray.entrypoints.api.security import (
@@ -22,6 +23,27 @@ from doc_ray.entrypoints.api.security import (
 class _Request:
     def __init__(self, token: str) -> None:
         self.headers = {"authorization": f"Bearer {token}"}
+
+
+class _ClosedAuditPool:
+    closed = True
+    _opened = False
+
+    async def open(self) -> None:
+        return None
+
+    async def close(self) -> None:
+        return None
+
+
+def _disable_route_db_pool(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(api_app, "AsyncConnectionPool", lambda *args, **kwargs: _ClosedAuditPool())
+
+
+async def _post(app: object, path: str, **kwargs: object) -> httpx.Response:
+    transport = httpx.ASGITransport(app=app)  # type: ignore[arg-type]
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        return await client.post(path, **kwargs)
 
 
 def test_config_reads_api_jwt_settings(monkeypatch):
@@ -143,7 +165,8 @@ def test_header_token_authenticator_keeps_static_token_fallback_with_jwt_enabled
     asyncio.run(check())
 
 
-def test_api_issues_access_jwt_from_authenticated_static_token():
+def test_api_issues_access_jwt_from_authenticated_static_token(monkeypatch):
+    _disable_route_db_pool(monkeypatch)
     principal_id = str(uuid4())
     app = create_app(
         Config(
@@ -162,7 +185,9 @@ def test_api_issues_access_jwt_from_authenticated_static_token():
         )
     )
 
-    response = TestClient(app).post("/auth/token", headers={"authorization": "Bearer static-token"})
+    response = asyncio.run(
+        _post(app, "/auth/token", headers={"authorization": "Bearer static-token"})
+    )
 
     assert response.status_code == 200
     body = response.json()

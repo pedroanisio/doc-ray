@@ -123,6 +123,12 @@ GROUPS: list[tuple[str, str, list[str]]] = [
         ],
     ),
     (
+        "Security audit trail",
+        "Append-only access and authentication events: who did what, against which "
+        "target, from which source address, and whether it succeeded or was denied.",
+        ["audit_events"],
+    ),
+    (
         "Evaluation & drift artifacts",
         "Corpus snapshots, evaluation runs, metric rows, and gold samples make quality and drift "
         "measurements durable and citeable instead of one-off operator observations.",
