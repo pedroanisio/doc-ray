@@ -24,6 +24,60 @@ _PLACE_START = _TEXT.index(_PLACE)
 _PLACE_END = _PLACE_START + len(_PLACE)
 
 
+class _FakeCursor:
+    def __init__(self, rows):
+        self._rows = rows
+
+    def fetchall(self):
+        return self._rows
+
+    def fetchone(self):
+        return self._rows[0] if self._rows else None
+
+
+class _FakeConn:
+    """Records executed SQL; serves canned full_text and mention rows (no DB)."""
+
+    def __init__(self, full_text, mention_rows):
+        self._full_text = full_text
+        self._mention_rows = mention_rows
+        self.statements = []
+
+    def execute(self, sql, params=()):
+        s = " ".join(sql.split())
+        self.statements.append(s)
+        if s.startswith("SELECT full_text FROM document_content"):
+            return _FakeCursor([{"full_text": self._full_text}])
+        if "FROM entity_mention" in s:
+            return _FakeCursor([dict(r) for r in self._mention_rows])
+        raise AssertionError(f"unexpected query: {s}")
+
+
+def test_mentions_for_document_slices_surfaces_in_python_not_sql():
+    """Same anti-pattern as semantic_enrichment._tokens: substring(full_text)
+    per mention row detoasts the whole document text once per mention."""
+    rows = [
+        {
+            "mention_id": "m1",
+            "entity_type": "PLACE",
+            "char_start": _PLACE_START,
+            "char_end": _PLACE_END,
+        },
+    ]
+    conn = _FakeConn(_TEXT, rows)
+
+    result = store.mentions_for_document(conn, "doc-1")
+
+    assert not any("substring(" in s.lower() for s in conn.statements), (
+        "mention surfaces must be sliced in Python from a single full_text "
+        "fetch, not computed per-row in SQL"
+    )
+    assert result[0]["surface"] == _PLACE
+    assert result[0]["mention_id"] == "m1"
+    assert result[0]["entity_type"] == "PLACE"
+    assert (result[0]["char_start"], result[0]["char_end"]) == (_PLACE_START, _PLACE_END)
+
+
 def _connect_or_skip():
     import _itdb
 

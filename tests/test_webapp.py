@@ -800,6 +800,7 @@ def test_document_page_shows_pipeline_reprocess_controls(client):
     assert "Reprocess pipeline" in html
     assert f'action="/doc/{DOC_ID}/reprocess"' in html
     assert 'name="step" value="reextract"' in html
+    assert 'name="step" value="annotate"' in html
     assert 'name="step" value="reannotate"' in html
     assert 'name="step" value="semantic_enrich"' in html
     assert 'name="step" value="canonicalize"' in html
@@ -827,6 +828,86 @@ def test_document_reprocess_posts_graphql_mutation(client, monkeypatch):
     assert captured["variables"] == {"id": DOC_ID}
 
 
+def test_document_reprocess_annotate_step_posts_annotate_document_mutation(client, monkeypatch):
+    """The full-annotate step must fire annotateDocument, not the lighter
+    reannotate mutation — reannotate never touches tokens/entity_mention, so
+    the two must never be interchangeable."""
+    captured = {}
+
+    def fake_gql(query, variables=None):
+        captured["query"] = query
+        captured["variables"] = variables
+        return {"annotateDocument": {"id": "job-2"}}
+
+    monkeypatch.setattr(webapp, "gql", fake_gql)
+
+    token = _csrf_token_from(client.get(f"/doc/{DOC_ID}").get_data(as_text=True))
+    resp = client.post(
+        f"/doc/{DOC_ID}/reprocess",
+        data={"step": "annotate", "csrf_token": token},
+    )
+
+    assert resp.status_code == 302
+    assert "reprocess_queued=annotate" in resp.headers["Location"]
+    assert "annotateDocument" in captured["query"]
+    assert "reannotate(" not in captured["query"]
+
+
+def test_document_reprocess_word_frequency_step_posts_reannotate_mutation(client, monkeypatch):
+    captured = {}
+
+    def fake_gql(query, variables=None):
+        captured["query"] = query
+        return {"reannotate": {"id": "job-3"}}
+
+    monkeypatch.setattr(webapp, "gql", fake_gql)
+
+    token = _csrf_token_from(client.get(f"/doc/{DOC_ID}").get_data(as_text=True))
+    client.post(f"/doc/{DOC_ID}/reprocess", data={"step": "reannotate", "csrf_token": token})
+
+    assert "reannotate(" in captured["query"]
+    assert "annotateDocument" not in captured["query"]
+
+
+def test_document_reprocess_failed_annotate_does_not_mask_by_reannotate_success(
+    client, monkeypatch
+):
+    """Regression: annotate and reannotate used to share one UI card, so a
+    reannotate success (a different, lighter operation) hid a real annotate
+    failure. They are now separate steps and must stay independently tracked."""
+
+    def mixed_kinds_q(sql, params=()):
+        s = _norm(sql)
+        if "FROM jobs WHERE document_id" in s and "AND status IN" not in s:
+            return [
+                {
+                    "id": "job-reannotate-ok",
+                    "kind": "reannotate",
+                    "status": "succeeded",
+                    "attempts": 1,
+                    "max_attempts": 3,
+                    "error": None,
+                },
+                {
+                    "id": "job-annotate-failed",
+                    "kind": "annotate",
+                    "status": "failed",
+                    "attempts": 3,
+                    "max_attempts": 3,
+                    "error": "reclaimed: stale heartbeat, attempts exhausted",
+                },
+            ]
+        return fake_q(sql, params)
+
+    monkeypatch.setattr(webapp, "q", mixed_kinds_q)
+
+    html = client.get(f"/doc/{DOC_ID}").get_data(as_text=True)
+
+    assert "Annotate text did not finish." in html
+    assert "Retry Re-annotate" in html
+    assert 'name="step" value="annotate"' in html
+
+
 def test_document_reprocess_controls_show_active_job_instead_of_duplicate_button(
     client, monkeypatch
 ):
@@ -840,9 +921,72 @@ def test_document_reprocess_controls_show_active_job_instead_of_duplicate_button
 
     html = client.get(f"/doc/{DOC_ID}").get_data(as_text=True)
 
-    assert "Re-annotate is running" in html
+    assert "Refresh word frequency is running" in html
     assert 'name="step" value="reannotate"' not in html
+    assert 'name="step" value="annotate"' in html
     assert 'name="step" value="semantic_enrich"' in html
+
+
+def test_document_reprocess_controls_show_failed_job_error(client, monkeypatch):
+    def failed_job_q(sql, params=()):
+        s = _norm(sql)
+        if "FROM jobs WHERE document_id" in s and "AND status IN" not in s:
+            return [
+                {
+                    "id": "job-annotate-3",
+                    "kind": "reannotate",
+                    "status": "failed",
+                    "attempts": 3,
+                    "max_attempts": 3,
+                    "error": "reclaimed: stale heartbeat, attempts exhausted",
+                }
+            ]
+        return fake_q(sql, params)
+
+    monkeypatch.setattr(webapp, "q", failed_job_q)
+
+    html = client.get(f"/doc/{DOC_ID}").get_data(as_text=True)
+
+    assert "Refresh word frequency did not finish." in html
+    assert "3/3 attempts used" in html
+    assert "stale heartbeat" in html
+    assert "Retry Refresh word frequency" in html
+    # the step must still be actionable, not silently blocked like an active job.
+    assert 'name="step" value="reannotate"' in html
+
+
+def test_document_reprocess_controls_hide_superseded_failure(client, monkeypatch):
+    """A later succeeded attempt must clear the earlier failure banner."""
+
+    def superseded_q(sql, params=()):
+        s = _norm(sql)
+        if "FROM jobs WHERE document_id" in s and "AND status IN" not in s:
+            return [
+                {
+                    "id": "job-annotate-2",
+                    "kind": "reannotate",
+                    "status": "succeeded",
+                    "attempts": 1,
+                    "max_attempts": 3,
+                    "error": None,
+                },
+                {
+                    "id": "job-annotate-1",
+                    "kind": "reannotate",
+                    "status": "failed",
+                    "attempts": 3,
+                    "max_attempts": 3,
+                    "error": "reclaimed: stale heartbeat, attempts exhausted",
+                },
+            ]
+        return fake_q(sql, params)
+
+    monkeypatch.setattr(webapp, "q", superseded_q)
+
+    html = client.get(f"/doc/{DOC_ID}").get_data(as_text=True)
+
+    assert "did not finish" not in html
+    assert 'name="step" value="reannotate"' in html
 
 
 def test_document_overlay_missing_geometry_embeds_reextract_action(client, monkeypatch):
@@ -1184,14 +1328,21 @@ def test_document_original_view_renders_markup_highlights_for_html(client, monke
             return dict(_DOC, doc_type="html", page_count=None)
         if "FROM document_metadata" in s and "render_html" in s:
             return {"value": "<h1>Heading</h1><p>Hello World</p>"}
+        if s.startswith("SELECT full_text FROM document_content"):
+            return {"full_text": "Heading Hello World"}
         return fake_q1(sql, params)
 
     def html_q(sql, params=()):
         s = _norm(sql)
-        if "substring(c.full_text FROM" in s and "lexeme_occurrences" in s:
+        if (
+            "FROM lexeme_occurrences o" in s
+            and "an.document_id" in s
+            and "sp.char_start >=" not in s
+        ):
             return [
                 {
-                    "surface": "World",
+                    "char_start": 14,
+                    "char_end": 19,
                     "uid": LEX_UID,
                     "lemma": "world",
                     "pos": "NOUN",
@@ -1319,6 +1470,110 @@ def test_lexeme_kwic_highlights_the_surface(client):
 
 def test_lexeme_missing_returns_404(client):
     assert client.get("/lexeme/lx_en.v_nope").status_code == 404
+
+
+def test_lexeme_page_computes_substring_only_over_limited_subquery(client, monkeypatch):
+    """KWIC/forms must apply LIMIT before substring(full_text): computing the
+    snippet for every occurrence first (105k rows for the hottest lexeme,
+    measured ~10s per query live) then discarding all but 25/80 is the page's
+    entire cost. The performance contract is `substring` over a bounded
+    subquery only."""
+    captured = []
+
+    def recording_q(sql, params=()):
+        s = _norm(sql)
+        captured.append(s)
+        return fake_q(sql, params)
+
+    monkeypatch.setattr(webapp, "q", recording_q)
+
+    assert client.get(f"/lexeme/{LEX_UID}").status_code == 200
+
+    snippet_queries = [
+        s for s in captured if "substring(" in s and ("AS kwic" in s or "AS form" in s)
+    ]
+    assert snippet_queries, "expected the lexeme page to build forms/KWIC snippets"
+    for s in snippet_queries:
+        assert "FROM (SELECT" in s, (
+            "substring(full_text) must only run over a LIMITed subquery, "
+            f"not over every occurrence: {s[:160]}"
+        )
+
+
+def test_markup_grammar_highlights_slice_surfaces_from_one_fulltext_fetch(monkeypatch):
+    """The grammar overlay computed substring(full_text) per occurrence row
+    (314k rows on the largest live document, measured 44.7s). Surfaces must be
+    sliced in Python from one full_text fetch instead."""
+    captured = []
+
+    def recording_q(sql, params=()):
+        s = _norm(sql)
+        captured.append(s)
+        if "FROM lexeme_occurrences o" in s:
+            return [
+                {"char_start": 0, "char_end": 2, "uid": "lx_en.o_he", "lemma": "he", "pos": "PRON"},
+                {"char_start": 3, "char_end": 7, "uid": LEX_UID, "lemma": "say", "pos": "VERB"},
+            ]
+        return []
+
+    def recording_q1(sql, params=()):
+        s = _norm(sql)
+        captured.append(s)
+        if "full_text" in s:
+            return {"full_text": "He said hello"}
+        return None
+
+    monkeypatch.setattr(webapp, "q", recording_q)
+    monkeypatch.setattr(webapp, "q1", recording_q1)
+
+    with webapp.app.test_request_context("/"):
+        highlights = webapp._markup_highlights(DOC_ID, "grammar")
+
+    assert not any("substring(" in s for s in captured), (
+        "highlight surfaces must be sliced in Python from a single "
+        "full_text fetch, not computed per-row in SQL"
+    )
+    assert [h["surface"] for h in highlights] == ["He", "said"]
+    assert highlights[1]["class_name"] == "w p-VERB"
+
+
+def test_apply_markup_highlights_single_surface_parity():
+    html = "<p>He said hello</p>"
+    highlight = {
+        "surface": "said",
+        "href": "/lexeme/lx_en.v_say",
+        "class_name": "w p-VERB",
+        "tip": "say · VERB",
+        "aria_label": "say, part of speech VERB",
+    }
+    out = webapp._apply_markup_highlights(html, [highlight])
+    assert out == (
+        '<p>He <a href="/lexeme/lx_en.v_say" class="w p-VERB" '
+        'data-t="say · VERB" aria-label="say, part of speech VERB">said</a> hello</p>'
+    )
+
+
+def test_apply_markup_highlights_wraps_repeated_surfaces_without_nesting():
+    """Each occurrence of a repeated surface must get its own anchor, in
+    document order. The old replace-from-the-top loop re-scanned its own
+    output, so the second identical surface matched inside the first anchor's
+    data-t attribute and corrupted it (and the real second occurrence was
+    never wrapped)."""
+    import re as _re
+
+    html = "<p>alpha beta alpha</p>"
+    highlight = {
+        "surface": "alpha",
+        "href": "/lexeme/lx_en.x_alpha",
+        "class_name": "w p-X",
+        "tip": "alpha · X",
+        "aria_label": "alpha, part of speech X",
+    }
+    out = webapp._apply_markup_highlights(html, [highlight, dict(highlight)])
+
+    assert out.count('data-t="alpha · X"') == 2, "both anchors must keep intact attributes"
+    assert "beta <a" in out, "the second textual occurrence must be the one wrapped"
+    assert not _re.search(r"<a[^>]*<a", out), "anchors must never nest into attributes"
 
 
 # --- search ----------------------------------------------------------------
@@ -2307,9 +2562,17 @@ def test_responses_carry_security_headers(client):
 
 
 # ---------------------------------------------------------------------------
-# BL-123 gap — a running job must show an ETA once progress advances, and a
-# running job whose heartbeat went stale must read as stalled (and stop
-# blocking the reprocess controls) instead of wearing "running" forever.
+# BL-123 gap — a running job must show real elapsed time once progress
+# advances, and a running job whose heartbeat went stale must read as stalled
+# (and stop blocking the reprocess controls) instead of wearing "running"
+# forever.
+#
+# No ETA: pipeline stages are not equally sized (the dominant stage for large
+# documents can run minutes to hours), so a linear elapsed/remaining
+# extrapolation is not "rough" — it is confidently wrong, sometimes by an
+# order of magnitude (verified live: a job reporting "~5m left" whose owning
+# worker container no longer existed). Elapsed time is always true; an
+# extrapolated ETA from unequal stages is not.
 # ---------------------------------------------------------------------------
 
 
@@ -2319,7 +2582,7 @@ def _dt(seconds_ago: float):
     return datetime.now(timezone.utc) - timedelta(seconds=seconds_ago)
 
 
-def test_summarize_progress_derives_an_eta_from_started_at():
+def test_summarize_progress_reports_elapsed_time_once_running():
     from webapp.job_view import summarize_progress
 
     job = {
@@ -2331,24 +2594,56 @@ def test_summarize_progress_derives_an_eta_from_started_at():
     }
     progress = summarize_progress(job)
     assert progress is not None
-    # 60s elapsed for 1/4 -> ~180s remaining, humanized to minutes.
-    assert progress["eta_seconds"] == pytest.approx(180, rel=0.2)
-    assert progress["eta_label"] == "~3m left"
+    assert progress["elapsed_seconds"] == pytest.approx(60, rel=0.2)
+    assert progress["elapsed_label"] == "60s"
+    assert "eta_seconds" not in progress
+    assert "eta_label" not in progress
 
 
-def test_summarize_progress_omits_eta_without_signal():
+def test_summarize_progress_omits_elapsed_without_signal():
     from webapp.job_view import summarize_progress
 
-    no_advance = summarize_progress(
-        {"progress_current": 0, "progress_total": 4, "started_at": _dt(60), "status": "running"}
+    too_fresh = summarize_progress(
+        {"progress_current": 0, "progress_total": 4, "started_at": _dt(1), "status": "running"}
     )
-    assert no_advance is not None and "eta_label" not in no_advance
+    assert too_fresh is not None and "elapsed_label" not in too_fresh
     no_start = summarize_progress({"progress_current": 2, "progress_total": 4, "status": "running"})
-    assert no_start is not None and "eta_label" not in no_start
+    assert no_start is not None and "elapsed_label" not in no_start
     finished = summarize_progress(
         {"progress_current": 4, "progress_total": 4, "started_at": _dt(60), "status": "succeeded"}
     )
-    assert finished is not None and "eta_label" not in finished
+    assert finished is not None and "elapsed_label" not in finished
+
+
+def test_summarize_progress_flags_heartbeat_uncertain_past_reclaim_window():
+    """Warn once the heartbeat is older than the backend's own reclaim-eligibility
+    window (120s default) — well before is_stalled's looser 300s threshold would
+    say so, matching what the backend already considers reclaimable."""
+    from webapp.job_view import summarize_progress
+
+    likely_dead = summarize_progress(
+        {
+            "progress_current": 1,
+            "progress_total": 4,
+            "started_at": _dt(200),
+            "heartbeat_at": _dt(150),
+            "status": "running",
+        }
+    )
+    assert likely_dead is not None
+    assert likely_dead["heartbeat_uncertain"] is True
+
+    healthy = summarize_progress(
+        {
+            "progress_current": 1,
+            "progress_total": 4,
+            "started_at": _dt(60),
+            "heartbeat_at": _dt(10),
+            "status": "running",
+        }
+    )
+    assert healthy is not None
+    assert "heartbeat_uncertain" not in healthy
 
 
 def test_stalled_running_job_is_flagged_and_not_active():

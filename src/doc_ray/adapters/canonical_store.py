@@ -115,18 +115,28 @@ def forms_for(conn: _Conn, canonical_id: int) -> list[Row]:
 
 
 def mentions_for_document(conn: _Conn, document_id: str) -> list[Row]:
-    """Return a document's entity mentions with their surface text and span offsets."""
-    return conn.execute(
-        "SELECT em.id AS mention_id, em.entity_type, sp.char_start, sp.char_end, "
-        "       substring(c.full_text FROM sp.char_start + 1 FOR sp.char_end - sp.char_start) "
-        "         AS surface "
+    """Return a document's entity mentions with their surface text and span offsets.
+
+    Surfaces are sliced in Python from one ``full_text`` fetch: ``substring()``
+    in the row query detoasts the entire document text once per mention row.
+    """
+    text_row = conn.execute(
+        "SELECT full_text FROM document_content WHERE document_id = %s", (document_id,)
+    ).fetchone()
+    full_text = str(text_row["full_text"]) if text_row else ""
+    mentions = []
+    for row in conn.execute(
+        "SELECT em.id AS mention_id, em.entity_type, sp.char_start, sp.char_end "
         "FROM entity_mention em "
         "JOIN annotations a       ON a.id = em.annotation_id "
         "JOIN spans sp            ON sp.id = em.span_id "
-        "JOIN document_content c  ON c.document_id = a.document_id "
         "WHERE a.document_id = %s ORDER BY sp.char_start",
         (document_id,),
-    ).fetchall()
+    ).fetchall():
+        mention = dict(row)
+        mention["surface"] = full_text[mention["char_start"] : mention["char_end"]]
+        mentions.append(mention)
+    return mentions
 
 
 def link_mention(

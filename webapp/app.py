@@ -52,7 +52,12 @@ try:
     from webapp.document_metadata import submit_metadata_update
     from webapp.graphql_client import API_URL, api_auth_headers, gql
     from webapp.health_contract import operator_health_payload
-    from webapp.job_view import decorate_job_rows, is_active_job, summarize_progress
+    from webapp.job_view import (
+        decorate_job_rows,
+        is_active_job,
+        summarize_outcome,
+        summarize_progress,
+    )
     from webapp.operator_health import build_operator_health, require_operator_health
     from webapp.rate_limit import FixedWindowRateLimiter, rate_limit_rule_from_env
     from webapp.reader_blocks import attach_page_blocks, latest_annotation_state
@@ -71,7 +76,12 @@ except ModuleNotFoundError:  # pragma: no cover - direct ``python webapp/app.py`
     from document_metadata import submit_metadata_update
     from graphql_client import API_URL, api_auth_headers, gql
     from health_contract import operator_health_payload
-    from job_view import decorate_job_rows, is_active_job, summarize_progress
+    from job_view import (
+        decorate_job_rows,
+        is_active_job,
+        summarize_outcome,
+        summarize_progress,
+    )
     from operator_health import build_operator_health, require_operator_health
     from rate_limit import FixedWindowRateLimiter, rate_limit_rule_from_env
     from reader_blocks import attach_page_blocks, latest_annotation_state
@@ -379,12 +389,27 @@ _REPROCESS_CONFIG = {
         "active_kinds": {"reextract"},
         "pdf_only": True,
     },
-    "reannotate": {
+    "annotate": {
         "label": "Re-annotate",
-        "description": "Run the annotation pipeline over the document text again.",
+        "description": (
+            "Run full annotation (tokens, part-of-speech, named entities) again. "
+            "This deletes and replaces entity mentions — re-run Re-canonicalize "
+            "afterward if this document has been canonicalized."
+        ),
+        "mutation": "mutation($id: ID!) { annotateDocument(documentId: $id) { id } }",
+        "response_key": "annotateDocument",
+        "active_kinds": {"annotate"},
+        "pdf_only": False,
+    },
+    "reannotate": {
+        "label": "Refresh word frequency",
+        "description": (
+            "Recompute word-frequency/lexicon data from the current text, without "
+            "re-running full annotation. Does not touch entities or part-of-speech."
+        ),
         "mutation": "mutation($id: ID!) { reannotate(documentId: $id) { id } }",
         "response_key": "reannotate",
-        "active_kinds": {"annotate", "reannotate"},
+        "active_kinds": {"reannotate"},
         "pdf_only": False,
     },
     "semantic_enrich": {
@@ -432,14 +457,48 @@ def _active_reprocess_jobs(doc_id: str) -> dict[str, dict]:
     return active
 
 
+def _failed_reprocess_jobs(doc_id: str) -> dict[str, dict]:
+    """Return the most recent job per reprocess step, if that attempt failed.
+
+    ``_active_reprocess_jobs`` only sees queued/running jobs, so a step whose
+    last attempt permanently failed (retries exhausted, or reclaimed after a
+    stale heartbeat) looked identical to a step that was never run — the
+    reprocess control just offered to run it again with no explanation. A
+    step is only reported here when its single most recent job (of any
+    status) is the failed one; once a later attempt succeeds, the failure
+    is superseded and stops showing.
+    """
+    rows = q(
+        """
+        SELECT id, kind, status, attempts, max_attempts, error
+        FROM jobs
+        WHERE document_id = %s
+        ORDER BY id DESC
+        """,
+        (doc_id,),
+    )
+    latest_seen: set[str] = set()
+    failed: dict[str, dict] = {}
+    for row in rows:
+        for step, cfg in _REPROCESS_CONFIG.items():
+            if row.get("kind") not in cfg["active_kinds"] or step in latest_seen:
+                continue
+            latest_seen.add(step)
+            if row.get("status") == "failed":
+                failed[step] = row
+    return failed
+
+
 def _reprocess_steps(doc: dict, doc_id: str) -> list[dict]:
     """Build document-page reprocess controls from live job state."""
     active_jobs = _active_reprocess_jobs(doc_id)
+    failed_jobs = _failed_reprocess_jobs(doc_id)
     is_pdf = str(doc.get("doc_type") or "").lower() == "pdf"
     steps = []
     for step, cfg in _REPROCESS_CONFIG.items():
         available = is_pdf or not cfg["pdf_only"]
         active = active_jobs.get(step)
+        failed = failed_jobs.get(step) if not active else None
         steps.append(
             {
                 "step": step,
@@ -449,6 +508,9 @@ def _reprocess_steps(doc: dict, doc_id: str) -> list[dict]:
                 "active": active,
                 "active_status": active.get("status") if active else None,
                 "progress": summarize_progress(active) if active else None,
+                "outcome": summarize_outcome(failed) if failed else None,
+                "attempts": failed.get("attempts") if failed else None,
+                "max_attempts": failed.get("max_attempts") if failed else None,
             }
         )
     return steps
@@ -721,10 +783,11 @@ def _markup_highlights(doc_id, mode: str) -> list[dict]:
                    el.scheme, el.kb_id, c.preferred
             FROM entity_mention em
             JOIN annotations an ON an.id = em.annotation_id
+            JOIN spans sp ON sp.id = em.span_id
             LEFT JOIN entity_link el ON el.mention_id = em.id
             LEFT JOIN canonical c ON c.id::text = el.kb_id
             WHERE an.document_id = %s
-            ORDER BY em.id
+            ORDER BY sp.char_start
             """,
             (str(doc_id),),
         )
@@ -743,24 +806,26 @@ def _markup_highlights(doc_id, mode: str) -> list[dict]:
                 }
             )
         return highlights
+    # Surfaces are sliced in Python from one full_text fetch: substring() in
+    # the row query detoasts the entire document text once per occurrence row
+    # (measured 44.7 s for the largest live document's 314k occurrences).
     rows = q(
         """
-        SELECT substring(c.full_text FROM sp.char_start + 1
-                         FOR sp.char_end - sp.char_start) AS surface,
-               l.uid, l.lemma, l.pos
+        SELECT sp.char_start, sp.char_end, l.uid, l.lemma, l.pos
         FROM lexeme_occurrences o
         JOIN annotations an      ON an.id = o.annotation_id
         JOIN spans sp            ON sp.id = o.span_id
         JOIN lexemes l           ON l.uid = o.lexeme_uid
-        JOIN document_content c  ON c.document_id = an.document_id
         WHERE an.document_id = %s
         ORDER BY sp.char_start
         """,
         (str(doc_id),),
     )
+    text_row = q1("SELECT full_text FROM document_content WHERE document_id = %s", (str(doc_id),))
+    full_text = str((text_row or {}).get("full_text") or "")
     return [
         {
-            "surface": row.get("surface") or "",
+            "surface": full_text[row["char_start"] : row["char_end"]],
             "href": url_for("lexeme", uid=row["uid"]),
             "class_name": f"w p-{row['pos']}",
             "tip": f"{row['lemma']} · {row['pos']}",
@@ -770,22 +835,42 @@ def _markup_highlights(doc_id, mode: str) -> list[dict]:
     ]
 
 
+#: How far past the cursor one highlight may search before being skipped.
+#: Bounds the cost of a surface that never appears in the rendered html; the
+#: forward cursor otherwise finds each occurrence near the previous one.
+_MARKUP_SEARCH_WINDOW = 4000
+
+
 def _apply_markup_highlights(render_html: str, highlights: list[dict]) -> str:
-    """Wrap the first matching escaped surface for each highlight in sanitized HTML."""
-    result = render_html
+    """Wrap each highlight's escaped surface in a sanitized anchor, in order.
+
+    Highlights arrive in document (char_start) order and the rendered markup
+    preserves the document's text order, so a single forward cursor visits the
+    html exactly once. The old replace-from-the-top loop rescanned its own
+    output per highlight — quadratic over hundreds of thousands of highlights,
+    and a repeated surface matched inside an earlier anchor's attributes and
+    corrupted it.
+    """
+    parts: list[str] = []
+    cursor = 0
     for item in highlights:
         surface = str(item.get("surface") or "")
         if not surface:
             continue
         needle = html_escape(surface, quote=False)
-        replacement = (
+        idx = render_html.find(needle, cursor, cursor + _MARKUP_SEARCH_WINDOW + len(needle))
+        if idx < 0:
+            continue
+        parts.append(render_html[cursor:idx])
+        parts.append(
             f'<a href="{html_escape(item["href"], quote=True)}" '
             f'class="{html_escape(item["class_name"], quote=True)}" '
             f'data-t="{html_escape(item["tip"], quote=True)}" '
             f'aria-label="{html_escape(item["aria_label"], quote=True)}">{needle}</a>'
         )
-        result = result.replace(needle, replacement, 1)
-    return result
+        cursor = idx + len(needle)
+    parts.append(render_html[cursor:])
+    return "".join(parts)
 
 
 def _original_markup(doc: dict, doc_id, mode: str = "grammar") -> dict:
@@ -1520,7 +1605,7 @@ def job_status(job_id):
     """
     job = q1(
         "SELECT id, kind, status, document_id, error, result, created_at, finished_at, "
-        "progress_current, progress_total, progress_stage "
+        "started_at, heartbeat_at, progress_current, progress_total, progress_stage "
         "FROM jobs WHERE id = %s",
         (job_id,),
     )
@@ -1532,7 +1617,7 @@ def job_status(job_id):
     if doc_id:
         cascade = q(
             "SELECT id, kind, status, error, result, created_at, finished_at, "
-            "progress_current, progress_total, progress_stage "
+            "started_at, heartbeat_at, progress_current, progress_total, progress_stage "
             "FROM jobs WHERE document_id = %s ORDER BY id",
             (doc_id,),
         )
@@ -1702,32 +1787,42 @@ def lexeme(uid):
     lex = q1("SELECT * FROM lexemes WHERE uid = %s", (uid,))
     if not lex:
         return ("Lexeme not found", 404)
+    # Both snippet queries bound the occurrence scan BEFORE touching
+    # full_text: substring() detoasts the whole document text per row, so
+    # computing it for every occurrence of a hot lexeme (105k rows measured
+    # live) and then keeping 25/80 cost ~10 s per query. The distinct-offsets
+    # subquery keeps the forms list stable for lexemes under the cap while
+    # never expanding more than 400 snippets.
     forms = q(
         """
-        SELECT DISTINCT substring(c.full_text FROM s.char_start + 1
-                                  FOR s.char_end - s.char_start) AS form
-        FROM lexeme_occurrences o
-        JOIN spans s            ON s.id = o.span_id
-        JOIN document_content c ON c.document_id = s.document_id
-        WHERE o.lexeme_uid = %s LIMIT 25
+        SELECT DISTINCT substring(c.full_text FROM x.char_start + 1
+                                  FOR x.char_end - x.char_start) AS form
+        FROM (SELECT DISTINCT s.document_id, s.char_start, s.char_end
+              FROM lexeme_occurrences o
+              JOIN spans s ON s.id = o.span_id
+              WHERE o.lexeme_uid = %s LIMIT 400) x
+        JOIN document_content c ON c.document_id = x.document_id
+        LIMIT 25
         """,
         (uid,),
     )
     n_occ = q1("SELECT count(*) n FROM lexeme_occurrences WHERE lexeme_uid = %s", (uid,))["n"]
     occ = q(
         """
-        SELECT d.id AS doc_id, d.title, s.char_start,
-               substring(c.full_text FROM greatest(s.char_start - 45, 0) + 1
-                         FOR (s.char_end - s.char_start) + 90) AS kwic,
-               substring(c.full_text FROM s.char_start + 1
-                         FOR s.char_end - s.char_start) AS surface
-        FROM lexeme_occurrences o
-        JOIN annotations a      ON a.id = o.annotation_id
-        JOIN spans s            ON s.id = o.span_id
-        JOIN documents d        ON d.id = a.document_id
-        JOIN document_content c ON c.document_id = d.id
-        WHERE o.lexeme_uid = %s
-        ORDER BY d.title, s.char_start LIMIT 80
+        SELECT x.doc_id, x.title, x.char_start,
+               substring(c.full_text FROM greatest(x.char_start - 45, 0) + 1
+                         FOR (x.char_end - x.char_start) + 90) AS kwic,
+               substring(c.full_text FROM x.char_start + 1
+                         FOR x.char_end - x.char_start) AS surface
+        FROM (SELECT d.id AS doc_id, d.title, s.char_start, s.char_end
+              FROM lexeme_occurrences o
+              JOIN annotations a ON a.id = o.annotation_id
+              JOIN spans s       ON s.id = o.span_id
+              JOIN documents d   ON d.id = a.document_id
+              WHERE o.lexeme_uid = %s
+              ORDER BY d.title, s.char_start LIMIT 80) x
+        JOIN document_content c ON c.document_id = x.doc_id
+        ORDER BY x.title, x.char_start
         """,
         (uid,),
     )
