@@ -26,6 +26,9 @@
 {% if bulk_queued %}
 <p class="notice">Queued {{ bulk_queued }} bulk document jobs.</p>
 {% endif %}
+{% if bulk_skipped %}
+<p class="notice">{{ bulk_skipped }} selected document(s) were skipped.</p>
+{% endif %}
 {% if bulk_error %}
 <p class="notice error">{{ bulk_error }}</p>
 {% endif %}
@@ -39,6 +42,8 @@
     </label>
     <button type="submit" name="bulk_action" value="tag">Tag selected</button>
     <button type="submit" name="bulk_action" value="archive">Archive selected</button>
+    <button type="submit" name="bulk_action" value="reannotate">Re-annotate selected</button>
+    <button type="submit" name="bulk_action" value="reextract">Re-extract selected PDFs</button>
   </div>
   <table>
     <thead><tr>

@@ -23,6 +23,8 @@ from flask import Flask, g, jsonify, redirect, render_template, request, url_for
 from psycopg import sql
 from psycopg.rows import dict_row
 
+from doc_ray.entrypoints.api.context import MAX_BATCH_IDS
+
 try:
     from webapp.csrf import csrf_token, require_csrf_token
     from webapp.document_metadata import submit_metadata_update
@@ -223,6 +225,25 @@ def _reprocess_steps(doc: dict, doc_id: str) -> list[dict]:
             }
         )
     return steps
+
+
+def _selected_document_types(ids: list[str]) -> dict[str, str]:
+    """Return selected document types keyed by id."""
+    rows = q(
+        "SELECT id, doc_type FROM documents WHERE id = ANY(%s::uuid[])",
+        (ids,),
+    )
+    return {str(row["id"]): str(row.get("doc_type") or "") for row in rows}
+
+
+def _enqueue_each(ids: list[str], mutation: str, response_key: str) -> int:
+    """Run one per-document GraphQL mutation for each selected id."""
+    queued = 0
+    for doc_id in ids:
+        data = gql(mutation, {"id": doc_id})
+        if data.get(response_key):
+            queued += 1
+    return queued
 
 
 def _document_preview(doc: dict) -> dict[str, str | None]:
@@ -646,6 +667,7 @@ def documents():
         page=page,
         has_next=len(rows) == per_page,
         bulk_queued=request.args.get("bulk_queued"),
+        bulk_skipped=request.args.get("bulk_skipped"),
         bulk_error=request.args.get("bulk_error"),
     )
 
@@ -657,6 +679,8 @@ def documents_bulk_action():
     action = request.form.get("bulk_action")
     if not ids:
         return redirect(url_for("documents", bulk_error="select at least one document"))
+    if len(ids) > MAX_BATCH_IDS:
+        return redirect(url_for("documents", bulk_error=f"batch size exceeds {MAX_BATCH_IDS}"))
     try:
         if action == "archive":
             data = gql(
@@ -678,6 +702,22 @@ def documents_bulk_action():
                 {"ids": ids, "tags": tags},
             )
             queued = len(data["bulkTagDocuments"])
+        elif action == "reannotate":
+            queued = _enqueue_each(
+                ids,
+                "mutation($id: ID!) { reannotate(documentId: $id) { id } }",
+                "reannotate",
+            )
+        elif action == "reextract":
+            doc_types = _selected_document_types(ids)
+            pdf_ids = [doc_id for doc_id in ids if doc_types.get(doc_id) == "pdf"]
+            queued = _enqueue_each(
+                pdf_ids,
+                "mutation($id: ID!) { reextractDocument(documentId: $id) { id } }",
+                "reextractDocument",
+            )
+            skipped = len(ids) - len(pdf_ids)
+            return redirect(url_for("documents", bulk_queued=queued, bulk_skipped=skipped))
         else:
             return redirect(url_for("documents", bulk_error="choose a bulk action"))
     except Exception as exc:

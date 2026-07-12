@@ -358,6 +358,8 @@ def test_home_supports_bulk_document_selection(client):
     assert f'name="document_id" value="{DOC_ID}"' in html
     assert 'name="bulk_action" value="tag"' in html
     assert 'name="bulk_action" value="archive"' in html
+    assert 'name="bulk_action" value="reannotate"' in html
+    assert 'name="bulk_action" value="reextract"' in html
     assert 'name="tags"' in html
 
 
@@ -408,6 +410,85 @@ def test_bulk_document_archive_posts_graphql_mutation(client, monkeypatch):
     assert "bulk_queued=1" in resp.headers["Location"]
     assert "bulkArchiveDocuments" in captured["query"]
     assert captured["variables"] == {"ids": [DOC_ID]}
+
+
+def test_bulk_document_reannotate_posts_per_document_mutations(client, monkeypatch):
+    calls = []
+
+    def fake_gql(query, variables=None):
+        calls.append((query, variables))
+        return {"reannotate": {"id": f"job-{len(calls)}"}}
+
+    monkeypatch.setattr(webapp, "gql", fake_gql)
+
+    token = _csrf_token_from(client.get("/").get_data(as_text=True))
+    resp = client.post(
+        "/documents/bulk",
+        data={
+            "document_id": [DOC_ID, MISSING_ID],
+            "bulk_action": "reannotate",
+            "csrf_token": token,
+        },
+    )
+
+    assert resp.status_code == 302
+    assert "bulk_queued=2" in resp.headers["Location"]
+    assert all("reannotate" in query for query, _variables in calls)
+    assert [variables for _query, variables in calls] == [{"id": DOC_ID}, {"id": MISSING_ID}]
+
+
+def test_bulk_document_reextract_skips_non_pdf_and_reports_skip_count(client, monkeypatch):
+    calls = []
+
+    def docs_by_id_q(sql, params=()):
+        if "FROM documents WHERE id = ANY" in _norm(sql):
+            return [
+                {"id": DOC_ID, "doc_type": "pdf"},
+                {"id": MISSING_ID, "doc_type": "html"},
+            ]
+        return fake_q(sql, params)
+
+    def fake_gql(query, variables=None):
+        calls.append((query, variables))
+        return {"reextractDocument": {"id": "job-1"}}
+
+    monkeypatch.setattr(webapp, "q", docs_by_id_q)
+    monkeypatch.setattr(webapp, "gql", fake_gql)
+
+    token = _csrf_token_from(client.get("/").get_data(as_text=True))
+    resp = client.post(
+        "/documents/bulk",
+        data={
+            "document_id": [DOC_ID, MISSING_ID],
+            "bulk_action": "reextract",
+            "csrf_token": token,
+        },
+    )
+
+    assert resp.status_code == 302
+    assert "bulk_queued=1" in resp.headers["Location"]
+    assert "bulk_skipped=1" in resp.headers["Location"]
+    assert len(calls) == 1
+    assert "reextractDocument" in calls[0][0]
+    assert calls[0][1] == {"id": DOC_ID}
+
+
+def test_bulk_document_reprocess_rejects_batches_over_api_limit(client, monkeypatch):
+    from doc_ray.entrypoints.api.context import MAX_BATCH_IDS
+
+    calls = []
+    monkeypatch.setattr(webapp, "gql", lambda *args, **kwargs: calls.append((args, kwargs)))
+
+    token = _csrf_token_from(client.get("/").get_data(as_text=True))
+    ids = [DOC_ID] * (MAX_BATCH_IDS + 1)
+    resp = client.post(
+        "/documents/bulk",
+        data={"document_id": ids, "bulk_action": "reannotate", "csrf_token": token},
+    )
+
+    assert resp.status_code == 302
+    assert f"bulk_error=batch+size+exceeds+{MAX_BATCH_IDS}" in resp.headers["Location"]
+    assert calls == []
 
 
 def test_header_groups_reading_and_admin_navigation(client):
