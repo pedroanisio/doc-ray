@@ -348,6 +348,11 @@ after each run. Pass pytest args to narrow a run:
 scripts/test-in-docker.sh tests/test_compose_security.py -q
 ```
 
+DB-backed integration tests refuse to run against a non-test database that
+already contains non-fixture documents. Use the Dockerized test environment for
+local validation; set `DOCRAY_TEST_ALLOW_LIVE_DB=1` only for an explicit operator
+override.
+
 ## Extending
 
 - **New file types**: add an extractor to `src/doc_ray/adapters/extraction.py`

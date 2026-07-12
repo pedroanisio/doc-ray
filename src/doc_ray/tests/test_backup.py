@@ -46,6 +46,11 @@ def isolated():
         admin = psycopg.connect(_itdb.DB_URL, autocommit=True)
     except psycopg.OperationalError as exc:
         pytest.skip(f"isolated backup env unavailable: {exc}")
+    try:
+        _itdb.require_safe_test_database(admin)
+    except _itdb.UnsafeTestDatabaseError:
+        admin.close()
+        raise
     admin.execute(f"DROP DATABASE IF EXISTS {_DBNAME} WITH (FORCE)")
     admin.execute(f"CREATE DATABASE {_DBNAME} TEMPLATE template0")
     url = _itdb.DB_URL.rsplit("/", 1)[0] + f"/{_DBNAME}"

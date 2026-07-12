@@ -10,14 +10,13 @@ from __future__ import annotations
 import hashlib
 import os
 
+import _itdb
 import pytest
 
 from doc_ray.adapters import annotation as annotate
 from doc_ray.adapters import persistence as db
 from doc_ray.domain import lexemes as lex
 from doc_ray.domain.sentences import build_sentences
-
-DB_URL = os.environ.get("DATABASE_URL", "postgresql://docray:docray@localhost:5455/docray")
 
 
 def _unique_sha() -> str:
@@ -36,11 +35,10 @@ def _columns(conn, table: str) -> set[str]:
 
 @pytest.fixture
 def conn():
-    import psycopg
-    from psycopg.rows import dict_row
-
     try:
-        c = psycopg.connect(DB_URL, row_factory=dict_row, autocommit=True)
+        c = _itdb.connect()
+    except _itdb.UnsafeTestDatabaseError:
+        raise
     except Exception as e:  # pragma: no cover - env dependent
         pytest.skip(f"DB unreachable: {e}")
     yield c

@@ -17,6 +17,19 @@ if str(_REPO) not in sys.path:
     sys.path.insert(0, str(_REPO))
 
 
+def pytest_sessionstart(session):
+    """Refuse DB integration tests when DATABASE_URL points at live corpus data."""
+    import _itdb
+
+    try:
+        conn = _itdb.connect()
+    except _itdb.UnsafeTestDatabaseError as exc:
+        raise pytest.UsageError(str(exc)) from exc
+    except Exception:  # pragma: no cover - env dependent
+        return
+    conn.close()
+
+
 @pytest.fixture
 def pg():
     """A live DB connection + a doc-id cleanup registry for integration tests.
@@ -28,6 +41,8 @@ def pg():
 
     try:
         conn = _itdb.connect()
+    except _itdb.UnsafeTestDatabaseError:
+        raise
     except Exception as e:  # pragma: no cover - env dependent
         pytest.skip(f"DB unreachable: {e}")
     created: list[str] = []

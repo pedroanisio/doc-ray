@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import hashlib
 import os
+import urllib.parse
+from collections.abc import Mapping
 
 import psycopg
 from psycopg.rows import dict_row
@@ -18,13 +20,91 @@ from doc_ray.domain.sentences import build_sentences
 from doc_ray.domain.ulid import new_ulid_str
 
 DB_URL = os.environ.get("DATABASE_URL", "postgresql://docray:docray@localhost:5455/docray")
+_TEST_DB_PREFIXES = ("docray_test", "pytest_", "test_")
+_TEST_HOSTS = {"test-postgres"}
+_TEST_PORTS = {15432}
 
 # The worked example from nlp_annotation_layers.md.
 EXAMPLE = "Elena founded a startup in Berlin."
 
 
+class UnsafeTestDatabaseError(RuntimeError):
+    """Raised when an integration test is pointed at a live/UAT corpus."""
+
+
+def _truthy(value: str | None) -> bool:
+    return str(value or "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _running_in_ci() -> bool:
+    return _truthy(os.environ.get("GITHUB_ACTIONS")) or _truthy(os.environ.get("CI"))
+
+
+def _row_value(row, key: str, index: int = 0):
+    if isinstance(row, Mapping):
+        return row[key]
+    return row[index]
+
+
+def _looks_like_dedicated_test_database(db_url: str) -> bool:
+    parsed = urllib.parse.urlparse(db_url)
+    db_name = parsed.path.rsplit("/", 1)[-1]
+    username = parsed.username or ""
+    host = parsed.hostname or ""
+    return (
+        db_name.startswith(_TEST_DB_PREFIXES)
+        or username.endswith("_test")
+        or host in _TEST_HOSTS
+        or parsed.port in _TEST_PORTS
+    )
+
+
+def require_safe_test_database(conn, *, db_url: str = DB_URL) -> None:
+    """Refuse DB-backed tests when they target a live/UAT corpus."""
+    if _truthy(os.environ.get("DOCRAY_TEST_ALLOW_LIVE_DB")):
+        return
+    if _looks_like_dedicated_test_database(db_url) or _running_in_ci():
+        return
+
+    table_row = conn.execute(
+        "SELECT to_regclass('public.documents') AS documents_table"
+    ).fetchone()
+    if not table_row or _row_value(table_row, "documents_table") is None:
+        return
+    count_row = conn.execute(
+        """
+        SELECT count(*) AS n
+        FROM documents
+        WHERE NOT (
+            title = 'itest'
+            AND coalesce(source_uri, '') LIKE 's3://it%'
+        )
+        """
+    ).fetchone()
+    non_fixture_count = int(_row_value(count_row, "n"))
+    if non_fixture_count:
+        raise UnsafeTestDatabaseError(
+            "refusing to run DB-backed tests against a database containing "
+            f"{non_fixture_count} non-fixture documents; use "
+            "scripts/test-in-docker.sh or set DOCRAY_TEST_ALLOW_LIVE_DB=1 "
+            "for an explicit operator override"
+        )
+    raise UnsafeTestDatabaseError(
+        "refusing to run DB-backed tests against a non-test database; use "
+        "scripts/test-in-docker.sh or set DOCRAY_TEST_ALLOW_LIVE_DB=1 for an "
+        "explicit operator override"
+    )
+
+
 def connect() -> psycopg.Connection:
-    return psycopg.connect(DB_URL, row_factory=dict_row, autocommit=True)
+    conn = psycopg.connect(DB_URL, row_factory=dict_row, autocommit=True)
+    try:
+        require_safe_test_database(conn)
+    except Exception:
+        conn.close()
+        raise
+    return conn
+
 
 
 def unique_sha() -> str:

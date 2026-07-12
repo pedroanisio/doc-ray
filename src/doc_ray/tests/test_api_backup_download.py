@@ -17,9 +17,7 @@ import contextlib
 from uuid import uuid4
 
 import _itdb
-import psycopg
 import pytest
-from psycopg.rows import dict_row
 
 from doc_ray.adapters.object_store import ObjectStore
 from doc_ray.config import Config
@@ -48,7 +46,7 @@ def test_download_serves_available_archive_and_404s_for_admin() -> None:
     from doc_ray.entrypoints.api.app import create_app
 
     admin_id = str(uuid4())
-    conn = psycopg.connect(_itdb.DB_URL, row_factory=dict_row, autocommit=True)
+    conn = _itdb.connect()
     # display_name must vary with admin_id: it's independently UNIQUE, and a fixed
     # literal here would collide with a prior run's row on this persistent DB, silently
     # no-op the insert (ON CONFLICT DO NOTHING), and FK-violate on principal_roles below.
@@ -114,7 +112,7 @@ def test_download_rejects_non_admin_write_scoped_caller() -> None:
 
     from doc_ray.entrypoints.api.app import create_app
 
-    conn = psycopg.connect(_itdb.DB_URL, row_factory=dict_row, autocommit=True)
+    conn = _itdb.connect()
     principal_id = conn.execute(
         "INSERT INTO principals (kind, display_name) VALUES ('human', %s) RETURNING id",
         (f"test-non-admin-{new_ulid_str()}",),
