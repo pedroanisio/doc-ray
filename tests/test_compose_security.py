@@ -236,6 +236,9 @@ def test_dockerignore_excludes_local_test_build_noise():
     assert ".pytest_cache/" in ignored
     assert ".agent-tasks/" in ignored
     assert "backups/" in ignored
+    assert "static/*" in ignored
+    assert "!static/fixtures/" in ignored
+    assert "!static/fixtures/**" in ignored
 
 
 def test_test_runner_writes_pytest_and_coverage_outputs_to_container_tmp():
@@ -262,12 +265,18 @@ def test_test_migrate_uses_the_dedicated_test_image_not_the_uat_app_image():
 def test_test_dockerfile_copies_sources_tests_and_migrations_into_the_image():
     text = _TEST_DOCKERFILE.read_text(encoding="utf-8")
 
+    assert "apt-get install -y --no-install-recommends" in text
+    assert "tesseract-ocr" in text
+    assert "tesseract-ocr-eng" in text
     assert "COPY Dockerfile docker-compose.yml docker-compose.api.yml docker-compose.test.yml ./" in text
     assert "COPY .dockerignore .env.example .env.test.example .gitignore ./" in text
+    assert "COPY .pre-commit-config.yaml CLAUDE.md ./" in text
+    assert "COPY .github ./.github" in text
     assert "COPY README.md CHANGELOG.md engineering_decisions.yml uv.lock ./" in text
     assert "COPY src ./src" in text
     assert "COPY tests ./tests" in text
     assert "COPY scripts ./scripts" in text
+    assert "COPY static/fixtures ./static/fixtures" in text
     assert "COPY webapp ./webapp" in text
     assert "COPY db ./db" in text
     assert "COPY docs ./docs" in text

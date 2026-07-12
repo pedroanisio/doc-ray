@@ -14,4 +14,6 @@ backups/
 *.pdf
 # NOTE: do NOT ignore db/ — the Dockerfile copies db/migrations into the image
 # for the runtime migration runner (doc_ray.adapters.migrate).
-static/
+static/*
+!static/fixtures/
+!static/fixtures/**

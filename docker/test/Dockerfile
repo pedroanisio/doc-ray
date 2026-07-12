@@ -7,16 +7,25 @@ WORKDIR /app
 ENV PYTHONPATH=/app/src:/app:/app/scripts:/app/src/doc_ray/tests \
     UV_COMPILE_BYTECODE=1
 
+RUN apt-get update \
+      && apt-get install -y --no-install-recommends \
+        tesseract-ocr \
+        tesseract-ocr-eng \
+      && rm -rf /var/lib/apt/lists/*
+
 COPY requirements.txt requirements-dev.txt ./
 RUN uv pip install --system -r requirements.txt -r requirements-dev.txt
 
 COPY pyproject.toml ./
 COPY Dockerfile docker-compose.yml docker-compose.api.yml docker-compose.test.yml ./
 COPY .dockerignore .env.example .env.test.example .gitignore ./
+COPY .pre-commit-config.yaml CLAUDE.md ./
+COPY .github ./.github
 COPY README.md CHANGELOG.md engineering_decisions.yml uv.lock ./
 COPY src ./src
 COPY tests ./tests
 COPY scripts ./scripts
+COPY static/fixtures ./static/fixtures
 COPY webapp ./webapp
 COPY db ./db
 COPY docs ./docs
