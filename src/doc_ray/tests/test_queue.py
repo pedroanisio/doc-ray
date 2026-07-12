@@ -13,6 +13,7 @@ from pathlib import Path
 import pytest
 
 from doc_ray.adapters import queue_postgres as q
+from doc_ray.correlation import reset_current_request_id, set_current_request_id
 from doc_ray.domain.jobs import JobStatus
 
 _MIGRATIONS = Path(__file__).resolve().parents[3] / "db" / "migrations"
@@ -59,6 +60,20 @@ def test_enqueue_claim_complete(qconn):
     q.complete(conn, job_id, result={"document_id": "d1"})
     done = q.get(conn, job_id)
     assert done is not None and done.status is JobStatus.SUCCEEDED
+
+
+def test_enqueue_stamps_current_request_id_into_payload_metadata(qconn):
+    conn, created = qconn
+    token = set_current_request_id("req-queue-123")
+    try:
+        job_id = q.enqueue(conn, "ingest", {"path": "/x"})
+        created.append(job_id)
+        job = q.get(conn, job_id)
+    finally:
+        reset_current_request_id(token)
+
+    assert job is not None
+    assert job.payload["_meta"]["request_id"] == "req-queue-123"
 
 
 def test_job_status_transitions_emit_notifications(qconn):

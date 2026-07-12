@@ -21,6 +21,7 @@ from typing import Any
 import psycopg
 from psycopg.types.json import Jsonb
 
+from doc_ray.correlation import payload_with_request_metadata
 from doc_ray.domain.jobs import Job, JobStatus
 from doc_ray.domain.ulid import new_ulid_str
 
@@ -112,6 +113,7 @@ def enqueue(
 ) -> str:
     """Insert a queued job (sync) and return its new id."""
     job_id = new_ulid_str()
+    payload = payload_with_request_metadata(payload)
     conn.execute(_INSERT, (job_id, kind, priority, Jsonb(payload), max_attempts, document_id))
     _notify_job_event(
         conn,
@@ -139,6 +141,7 @@ async def enqueue_async(
 ) -> str:
     """Insert a queued job (async, for the API) and return its new id."""
     job_id = new_ulid_str()
+    payload = payload_with_request_metadata(payload)
     await conn.execute(_INSERT, (job_id, kind, priority, Jsonb(payload), max_attempts, document_id))
     await _notify_job_event_async(
         conn,

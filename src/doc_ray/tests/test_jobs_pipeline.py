@@ -58,7 +58,11 @@ def test_chain_enqueues_next_kind_on_success(qconn):
 
     doc_id = _itdb.make_doc(conn, "Chain me. Second sentence.")
     job_id = q.enqueue(
-        conn, "step-a", {"chain": ["step-b", "step-c"]}, priority=0, document_id=doc_id
+        conn,
+        "step-a",
+        {"chain": ["step-b", "step-c"], "_meta": {"request_id": "req-chain-123"}},
+        priority=0,
+        document_id=doc_id,
     )
     created.append(job_id)
     try:
@@ -69,6 +73,7 @@ def test_chain_enqueues_next_kind_on_success(qconn):
         ).fetchone()
         assert nxt is not None
         assert nxt["payload"]["chain"] == ["step-c"]
+        assert nxt["payload"]["_meta"]["request_id"] == "req-chain-123"
         created.append(nxt["id"])
     finally:
         conn.execute("DELETE FROM documents WHERE id = %s", (doc_id,))

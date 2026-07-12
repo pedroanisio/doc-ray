@@ -9,6 +9,10 @@ from __future__ import annotations
 
 import os
 
+from flask import has_request_context, request
+
+from doc_ray.correlation import REQUEST_ID_HEADER, ensure_request_id_from_headers, new_request_id
+
 API_URL = os.environ.get("DOCRAY_API_URL", "http://localhost:8000/graphql")
 
 # The API's mutations always require a write-scoped principal (anonymous callers
@@ -20,8 +24,14 @@ API_TOKEN = os.environ.get("DOCRAY_WEBAPP_API_TOKEN") or None
 
 
 def api_auth_headers() -> dict[str, str]:
-    """Bearer header for API calls, or empty (falls back to anonymous read-only)."""
-    return {"Authorization": f"Bearer {API_TOKEN}"} if API_TOKEN else {}
+    """Auth plus request-id headers for API calls."""
+    headers = {"Authorization": f"Bearer {API_TOKEN}"} if API_TOKEN else {}
+    headers[REQUEST_ID_HEADER] = (
+        ensure_request_id_from_headers(request.headers)
+        if has_request_context()
+        else new_request_id()
+    )
+    return headers
 
 
 def gql(query: str, variables: dict | None = None) -> dict:

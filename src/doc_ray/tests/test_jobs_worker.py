@@ -140,7 +140,7 @@ def test_run_once_failure_logs_exception_with_job_context(qconn, caplog):
     def boom(conn: Any, store: Any, job: Job) -> dict[str, Any]:
         raise RuntimeError("kaput")
 
-    jid = queue.enqueue(qconn, "stub", {}, max_attempts=2)
+    jid = queue.enqueue(qconn, "stub", {"_meta": {"request_id": "req-worker-123"}}, max_attempts=2)
     with caplog.at_level("ERROR", logger="doc_ray.jobs"):
         jobs_mod.run_once(qconn, None, worker_id="t-fail-log", handlers={"stub": boom})
     assert caplog.records, "expected a log record for the failed handler"
@@ -148,6 +148,7 @@ def test_run_once_failure_logs_exception_with_job_context(qconn, caplog):
     assert record.exc_info is not None, "expected the traceback to be attached"
     assert jid in record.getMessage()
     assert "stub" in record.getMessage()
+    assert "request_id=req-worker-123" in record.getMessage()
 
 
 def test_run_once_times_out_hung_handler(qconn):

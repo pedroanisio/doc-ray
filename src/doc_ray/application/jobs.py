@@ -23,6 +23,7 @@ from typing import TYPE_CHECKING, Any, cast
 import psycopg
 
 from doc_ray.adapters import queue_postgres as queue
+from doc_ray.correlation import request_id_from_payload
 from doc_ray.domain.jobs import (
     KIND_ADD_DOCUMENT_TAGS,
     KIND_ANNOTATE,
@@ -102,6 +103,10 @@ def execution_timeout_seconds(
         return _timeout_value(per_kind)
     default = os.environ.get("WORKER_JOB_TIMEOUT_SECONDS", _DEFAULT_JOB_TIMEOUT_SECONDS)
     return _timeout_value(default)
+
+
+def _job_request_id(job: Job) -> str:
+    return request_id_from_payload(job.payload) or "-"
 
 
 @contextlib.contextmanager
@@ -617,7 +622,12 @@ def run_once(
         # pipeline stall, and no recorded-success-without-successor window.
         with conn.transaction():
             if queue.is_canceled(conn, job.id):
-                _logger.info("job %s (kind=%s) was canceled before completion", job.id, job.kind)
+                _logger.info(
+                    "job %s (kind=%s, request_id=%s) was canceled before completion",
+                    job.id,
+                    job.kind,
+                    _job_request_id(job),
+                )
                 return job
             _, total, _ = last_progress
             if total is None:
@@ -642,10 +652,11 @@ def run_once(
         # think to query it); the full traceback + job context goes to the log
         # too, so a real crash during ingest leaves a durable, discoverable trace.
         _logger.error(
-            "job %s (kind=%s, document_id=%s) failed on attempt %d/%d: %s",
+            "job %s (kind=%s, document_id=%s, request_id=%s) failed on attempt %d/%d: %s",
             job.id,
             job.kind,
             job.document_id,
+            _job_request_id(job),
             job.attempts,
             job.max_attempts,
             exc,
@@ -683,4 +694,7 @@ def _advance_chain(conn: psycopg.Connection[Any], job: Job, result: dict[str, An
     )
     if document_id is None:
         return
-    queue.enqueue(conn, chain[0], {"chain": chain[1:]}, document_id=str(document_id))
+    payload: dict[str, Any] = {"chain": chain[1:]}
+    if isinstance(job.payload.get("_meta"), dict):
+        payload["_meta"] = dict(job.payload["_meta"])
+    queue.enqueue(conn, chain[0], payload, document_id=str(document_id))

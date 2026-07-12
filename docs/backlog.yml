@@ -3792,7 +3792,7 @@ items:
       for a user or operator to search logs by.
     category:     "ops"
     type:         "feature"
-    status:       "parked"
+    status:       "done"
     complexity:   "M"
     priority:     "low"
     rationale:    "Only valuable once BL-115 gives the system something to correlate in the first place — sequenced as a follow-on, not standalone value today."
@@ -3804,7 +3804,7 @@ items:
       - "src/doc_ray/entrypoints/api/context.py"
       - "src/doc_ray/application/jobs.py"
     owner:        "shared"
-    source:       "Full-codebase gap-analysis 2026-07-10 (observability subsystem audit)."
+    source:       "Full-codebase gap-analysis 2026-07-10 (observability subsystem audit). Completed 2026-07-12 with sanitized request-id helpers, webapp X-Request-ID forwarding/generation, API RequestContext binding, queued job `_meta.request_id` stamping, pipeline-chain metadata propagation, and worker log messages that include the job request id."
     tags:         ["ops", "observability", "tracing", "feature"]
 
   - id:          "BL-118"

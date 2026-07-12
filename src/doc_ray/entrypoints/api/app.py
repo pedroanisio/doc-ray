@@ -37,6 +37,11 @@ from doc_ray.adapters import security_audit_read
 from doc_ray.adapters.object_store import ObjectStore
 from doc_ray.application.integrity import IntegrityError, verify_bytes
 from doc_ray.config import Config
+from doc_ray.correlation import (
+    ensure_request_id_from_headers,
+    reset_current_request_id,
+    set_current_request_id,
+)
 from doc_ray.entrypoints.api import health
 from doc_ray.entrypoints.api.context import RequestContext
 from doc_ray.entrypoints.api.loaders import Loaders
@@ -614,14 +619,24 @@ async def _get_context(request: Request) -> AsyncIterator[RequestContext]:
     pool: AsyncConnectionPool = request.app.state.pool
     authenticator: Authenticator = request.app.state.authenticator
     principal = await authenticator.authenticate(request)
-    async with pool.connection() as raw_conn:
-        # The pool sets row_factory=dict_row at runtime; reflect that in the type.
-        conn = cast(psycopg.AsyncConnection[dict[str, Any]], raw_conn)
-        await apply_principal(conn, principal)
-        try:
-            yield RequestContext(conn=conn, principal=principal, loaders=Loaders(conn))
-        finally:
-            await reset_principal(conn, principal)
+    request_id = ensure_request_id_from_headers(request.headers)
+    request_token = set_current_request_id(request_id)
+    try:
+        async with pool.connection() as raw_conn:
+            # The pool sets row_factory=dict_row at runtime; reflect that in the type.
+            conn = cast(psycopg.AsyncConnection[dict[str, Any]], raw_conn)
+            await apply_principal(conn, principal)
+            try:
+                yield RequestContext(
+                    conn=conn,
+                    principal=principal,
+                    loaders=Loaders(conn),
+                    request_id=request_id,
+                )
+            finally:
+                await reset_principal(conn, principal)
+    finally:
+        reset_current_request_id(request_token)
 
 
 async def _export_audit_events_endpoint(

@@ -473,6 +473,7 @@ def test_ingest_document_upload_mutation(pg):
         pytest.skip(f"object store unreachable: {exc}")
 
     conn, _created = pg
+    _itdb.ensure_admin_principal(conn, WRITE_PRINCIPAL.principal_id, "test-writer-app")
     schema = build_schema()
     body = b"Uploaded through GraphQL."
     upload = UploadFile(
@@ -514,6 +515,7 @@ def test_ingest_document_upload_mutation_pipeline_false_skips_chain(pg):
         pytest.skip(f"object store unreachable: {exc}")
 
     conn, _created = pg
+    _itdb.ensure_admin_principal(conn, WRITE_PRINCIPAL.principal_id, "test-writer-app")
     schema = build_schema()
     body = b"Ingest-only through GraphQL."
     upload = UploadFile(
@@ -528,7 +530,12 @@ def test_ingest_document_upload_mutation_pipeline_false_skips_chain(pg):
         )
         try:
             await aconn.execute("CREATE TEMP TABLE jobs (LIKE public.jobs INCLUDING ALL)")
-            ctx = RequestContext(conn=aconn, principal=WRITE_PRINCIPAL, loaders=Loaders(aconn))
+            ctx = RequestContext(
+                conn=aconn,
+                principal=WRITE_PRINCIPAL,
+                loaders=Loaders(aconn),
+                request_id="req-api-ingest",
+            )
             r = await schema.execute(
                 "mutation($f: Upload!){ ingestDocument(file: $f, pipeline: false) { kind } }",
                 variable_values={"f": upload},
@@ -538,6 +545,7 @@ def test_ingest_document_upload_mutation_pipeline_false_skips_chain(pg):
             cur = await aconn.execute("SELECT payload FROM jobs")
             payload = (await cur.fetchone())["payload"]
             assert "chain" not in payload
+            assert payload["_meta"]["request_id"] == "req-api-ingest"
         finally:
             await aconn.close()
 

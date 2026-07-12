@@ -21,6 +21,7 @@ from doc_ray.adapters import abac
 from doc_ray.adapters import document_metadata_suggestion_store as metadata_suggestions
 from doc_ray.adapters import queue_postgres as queue
 from doc_ray.adapters import seed_suggestion_store as seeds
+from doc_ray.correlation import payload_with_request_metadata
 from doc_ray.domain.jobs import (
     KIND_ADD_DOCUMENT_TAGS,
     KIND_ANNOTATE,
@@ -215,6 +216,26 @@ async def _job_status(ctx: RequestContext, job_id: str) -> Job:
     return Job.from_row(row)
 
 
+async def _enqueue_job(
+    ctx: RequestContext,
+    kind: str,
+    payload: dict[str, Any],
+    *,
+    priority: int = 100,
+    max_attempts: int = 3,
+    document_id: str | None = None,
+) -> str:
+    """Enqueue a job with this GraphQL request's correlation metadata."""
+    return await queue.enqueue_async(
+        ctx.conn,
+        kind,
+        payload_with_request_metadata(payload, ctx.request_id),
+        priority=priority,
+        max_attempts=max_attempts,
+        document_id=document_id,
+    )
+
+
 def _clean_bulk_ids(document_ids: list[strawberry.ID]) -> list[str]:
     """Return unique document ids in caller order, enforcing the batch ceiling."""
     ids = [str(document_id) for document_id in document_ids]
@@ -232,8 +253,8 @@ class Mutation:
         """Enqueue a re-annotation of a document; returns the queued job."""
         ctx = info.context
         await _require_document_write(ctx, str(document_id), action="mutation.reannotate")
-        job_id = await queue.enqueue_async(
-            ctx.conn, KIND_REANNOTATE, {"lang": lang}, document_id=str(document_id)
+        job_id = await _enqueue_job(
+            ctx, KIND_REANNOTATE, {"lang": lang}, document_id=str(document_id)
         )
         return await _job_status(ctx, job_id)
 
@@ -242,15 +263,11 @@ class Mutation:
         """Enqueue PDF geometry backfill for one document; returns the queued job."""
         ctx = info.context
         await _require_document_write(ctx, str(document_id), action="mutation.reextract")
-        job_id = await queue.enqueue_async(
-            ctx.conn, KIND_REEXTRACT, {}, document_id=str(document_id)
-        )
+        job_id = await _enqueue_job(ctx, KIND_REEXTRACT, {}, document_id=str(document_id))
         return await _job_status(ctx, job_id)
 
     @strawberry.mutation
-    async def cancel_job(
-        self, info: Info, job_id: strawberry.ID, reason: str | None = None
-    ) -> Job:
+    async def cancel_job(self, info: Info, job_id: strawberry.ID, reason: str | None = None) -> Job:
         """Cancel a queued or running job; admin-only."""
         ctx = info.context
         await _require_admin(ctx, action="mutation.cancel_job")
@@ -296,9 +313,7 @@ class Mutation:
         rows = await cur.fetchall()
         jobs: list[Job] = []
         for row in rows:
-            job_id = await queue.enqueue_async(
-                ctx.conn, KIND_REEXTRACT, {}, document_id=str(row["id"])
-            )
+            job_id = await _enqueue_job(ctx, KIND_REEXTRACT, {}, document_id=str(row["id"]))
             jobs.append(await _job_status(ctx, job_id))
         if not jobs:
             await _audit_mutation_event(
@@ -316,8 +331,8 @@ class Mutation:
         """Enqueue a recoverable soft delete of a document; returns the job."""
         ctx = info.context
         await _require_document_write(ctx, str(document_id), action="mutation.delete")
-        job_id = await queue.enqueue_async(
-            ctx.conn,
+        job_id = await _enqueue_job(
+            ctx,
             KIND_DELETE,
             {"actor": ctx.principal.principal_id},
             document_id=str(document_id),
@@ -329,8 +344,8 @@ class Mutation:
         """Enqueue archival of a document without changing ingestion status."""
         ctx = info.context
         await _require_document_write(ctx, str(document_id), action="mutation.archive_document")
-        job_id = await queue.enqueue_async(
-            ctx.conn,
+        job_id = await _enqueue_job(
+            ctx,
             KIND_ARCHIVE_DOCUMENT,
             {"actor": ctx.principal.principal_id},
             document_id=str(document_id),
@@ -342,8 +357,8 @@ class Mutation:
         """Enqueue restoring an archived or soft-deleted document to active."""
         ctx = info.context
         await _require_document_write(ctx, str(document_id), action="mutation.restore_document")
-        job_id = await queue.enqueue_async(
-            ctx.conn,
+        job_id = await _enqueue_job(
+            ctx,
             KIND_RESTORE_DOCUMENT,
             {"actor": ctx.principal.principal_id},
             document_id=str(document_id),
@@ -362,8 +377,8 @@ class Mutation:
             await _require_document_write(
                 ctx, document_id, action="mutation.bulk_archive_documents"
             )
-            job_id = await queue.enqueue_async(
-                ctx.conn,
+            job_id = await _enqueue_job(
+                ctx,
                 KIND_ARCHIVE_DOCUMENT,
                 {"actor": ctx.principal.principal_id},
                 document_id=document_id,
@@ -384,8 +399,8 @@ class Mutation:
         jobs: list[Job] = []
         for document_id in ids:
             await _require_document_write(ctx, document_id, action="mutation.bulk_tag_documents")
-            job_id = await queue.enqueue_async(
-                ctx.conn,
+            job_id = await _enqueue_job(
+                ctx,
                 KIND_ADD_DOCUMENT_TAGS,
                 {"actor": ctx.principal.principal_id, "tags": clean_tags},
                 document_id=document_id,
@@ -418,8 +433,8 @@ class Mutation:
             payload["description"] = description
         if tags is not None:
             payload["tags"] = list(tags)
-        job_id = await queue.enqueue_async(
-            ctx.conn, KIND_UPDATE_METADATA, payload, document_id=str(document_id)
+        job_id = await _enqueue_job(
+            ctx, KIND_UPDATE_METADATA, payload, document_id=str(document_id)
         )
         return await _job_status(ctx, job_id)
 
@@ -430,8 +445,8 @@ class Mutation:
         """Enqueue Stage-1 annotation (tokens/NER/coref) for a document."""
         ctx = info.context
         await _require_document_write(ctx, str(document_id), action="mutation.annotate")
-        job_id = await queue.enqueue_async(
-            ctx.conn, KIND_ANNOTATE, {"lang": lang}, document_id=str(document_id)
+        job_id = await _enqueue_job(
+            ctx, KIND_ANNOTATE, {"lang": lang}, document_id=str(document_id)
         )
         return await _job_status(ctx, job_id)
 
@@ -440,9 +455,7 @@ class Mutation:
         """Enqueue deterministic semantic enrichment for a document."""
         ctx = info.context
         await _require_document_write(ctx, str(document_id), action="mutation.semantic_enrich")
-        job_id = await queue.enqueue_async(
-            ctx.conn, KIND_SEMANTIC_ENRICH, {}, document_id=str(document_id)
-        )
+        job_id = await _enqueue_job(ctx, KIND_SEMANTIC_ENRICH, {}, document_id=str(document_id))
         return await _job_status(ctx, job_id)
 
     @strawberry.mutation
@@ -457,9 +470,7 @@ class Mutation:
         ctx = info.context
         await _require_document_write(ctx, str(document_id), action="mutation.canonicalize")
         payload = {"resolve": True} if resolve else {}
-        job_id = await queue.enqueue_async(
-            ctx.conn, KIND_CANONICALIZE, payload, document_id=str(document_id)
-        )
+        job_id = await _enqueue_job(ctx, KIND_CANONICALIZE, payload, document_id=str(document_id))
         return await _job_status(ctx, job_id)
 
     @strawberry.mutation
@@ -471,8 +482,8 @@ class Mutation:
         """
         ctx = info.context
         await _require_document_write(ctx, str(document_id), action="mutation.seed_suggest")
-        job_id = await queue.enqueue_async(
-            ctx.conn,
+        job_id = await _enqueue_job(
+            ctx,
             KIND_SEED_SUGGEST,
             {"limit": ctx.page_size(limit)},
             document_id=str(document_id),
@@ -486,8 +497,8 @@ class Mutation:
         await _require_document_write(
             ctx, str(document_id), action="mutation.suggest_document_metadata"
         )
-        job_id = await queue.enqueue_async(
-            ctx.conn,
+        job_id = await _enqueue_job(
+            ctx,
             KIND_SUGGEST_DOCUMENT_METADATA,
             {},
             document_id=str(document_id),
@@ -503,9 +514,7 @@ class Mutation:
     ) -> int:
         """Approve or reject verified metadata suggestions without auto-applying them."""
         ctx = info.context
-        await _require_write_audited(
-            ctx, action="mutation.decide_document_metadata_suggestions"
-        )
+        await _require_write_audited(ctx, action="mutation.decide_document_metadata_suggestions")
         for name, ids in (("approveIds", approve_ids), ("rejectIds", reject_ids)):
             if ids is not None and len(ids) > MAX_BATCH_IDS:
                 raise ValueError(f"{name} cannot exceed {MAX_BATCH_IDS} ids per call")
@@ -570,9 +579,7 @@ class Mutation:
         """Enqueue seeding of a document's approved suggestions into the registry."""
         ctx = info.context
         await _require_document_write(ctx, str(document_id), action="mutation.seed_approved")
-        job_id = await queue.enqueue_async(
-            ctx.conn, KIND_SEED_APPROVED, {}, document_id=str(document_id)
-        )
+        job_id = await _enqueue_job(ctx, KIND_SEED_APPROVED, {}, document_id=str(document_id))
         return await _job_status(ctx, job_id)
 
     @strawberry.mutation
@@ -585,7 +592,7 @@ class Mutation:
         ctx = info.context
         await _require_admin(ctx, action="mutation.backup")
         payload = {"note": note} if note else {}
-        job_id = await queue.enqueue_async(ctx.conn, KIND_BACKUP, payload, document_id=None)
+        job_id = await _enqueue_job(ctx, KIND_BACKUP, payload, document_id=None)
         return await _job_status(ctx, job_id)
 
     @strawberry.mutation
@@ -597,8 +604,8 @@ class Mutation:
         """
         ctx = info.context
         await _require_admin(ctx, action="mutation.restore")
-        job_id = await queue.enqueue_async(
-            ctx.conn, KIND_RESTORE, {"backup_id": str(backup_id)}, document_id=None
+        job_id = await _enqueue_job(
+            ctx, KIND_RESTORE, {"backup_id": str(backup_id)}, document_id=None
         )
         return await _job_status(ctx, job_id)
 
@@ -651,5 +658,5 @@ class Mutation:
         }
         if pipeline:
             payload["chain"] = list(_PIPELINE_CHAIN)
-        job_id = await queue.enqueue_async(ctx.conn, KIND_INGEST, payload, document_id=None)
+        job_id = await _enqueue_job(ctx, KIND_INGEST, payload, document_id=None)
         return await _job_status(ctx, job_id)
