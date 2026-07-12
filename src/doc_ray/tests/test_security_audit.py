@@ -77,6 +77,8 @@ def test_record_audit_event_inserts_actor_action_target_and_ip() -> None:
     assert len(conn.calls) == 1
     query, params = conn.calls[0]
     assert "INSERT INTO audit_events" in query
+    assert "docray_audit_tenant_for_principal" in query
+    assert "FROM principals WHERE id" not in query
     assert params[:8] == (
         principal_id,
         "oidc:user-123",

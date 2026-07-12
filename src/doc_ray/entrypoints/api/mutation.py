@@ -17,6 +17,7 @@ import strawberry
 from starlette.datastructures import UploadFile
 from strawberry.file_uploads import Upload
 
+from doc_ray.adapters import abac
 from doc_ray.adapters import document_metadata_suggestion_store as metadata_suggestions
 from doc_ray.adapters import queue_postgres as queue
 from doc_ray.adapters import seed_suggestion_store as seeds
@@ -136,6 +137,18 @@ async def _require_document_write(
             details={"reason": "missing_document_write_grant"},
         )
         raise PermissionError(f"no write grant for document {document_id}")
+    try:
+        await abac.require_document_write_policy(ctx.conn, document_id)
+    except PermissionError as exc:
+        await _audit_mutation_event(
+            ctx,
+            action=action,
+            target_type="document",
+            target_id=document_id,
+            outcome="denied",
+            details={"reason": "abac_policy_denied", "policy_error": str(exc)},
+        )
+        raise
 
 
 async def _require_admin(ctx: RequestContext, *, action: str = "mutation.admin") -> None:

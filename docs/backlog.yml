@@ -2373,7 +2373,7 @@ items:
       templates, not a rule engine.
     category:     "security"
     type:         "feature"
-    status:       "parked"
+    status:       "done"
     complexity:   "L"
     priority:     "medium"
     rationale:    "Named explicitly in the request ('ABAC for sensitive and contextual rules'); RBAC alone cannot express 'this document is sensitive, so requires elevated context' — that needs attributes on the resource and the request, not just a role on the principal."
@@ -2385,7 +2385,7 @@ items:
     references:
       - "db/migrations/018_rbac.sql"
     owner:        "shared"
-    source:       "Gap-analysis 2026-07-05 against a supplied enterprise-IAM checklist; verified against 018_rbac.sql's RBAC-only policy templates."
+    source:       "Gap-analysis 2026-07-05 against a supplied enterprise-IAM checklist; verified against 018_rbac.sql's RBAC-only policy templates. Completed 2026-07-12 with a security-definer `docray_abac_document_write_allowed(uuid)` helper plus API enforcement: documents carrying `document_metadata.sensitivity=sensitive` deny otherwise-valid document writes unless the caller is admin or has an explicit `document_acl.permission='sensitive'` grant."
     tags:         ["security", "abac", "authorization"]
 
   - id:          "BL-074"

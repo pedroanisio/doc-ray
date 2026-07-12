@@ -72,7 +72,7 @@ async def record_audit_event(
              outcome, source_ip, request_id, details, tenant_id)
         VALUES
             (%s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb,
-             (SELECT tenant_id FROM principals WHERE id = %s))
+             docray_audit_tenant_for_principal(%s::uuid))
         """,
         (
             principal_id,

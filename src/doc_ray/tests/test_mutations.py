@@ -274,6 +274,89 @@ def test_reannotate_allows_write_scope_with_document_grant(pg):
     conn.execute("DELETE FROM principals WHERE id = %s", (grantee,))
 
 
+def test_reannotate_rejects_sensitive_document_without_extra_abac_grant(pg):
+    """BL-073: a sensitive document requires an extra explicit ABAC grant."""
+    from pathlib import Path
+
+    conn, created = pg
+    migration = Path(__file__).resolve().parents[3] / "db/migrations/064_abac_sensitive_document_policy.sql"
+    conn.execute(migration.read_text(encoding="utf-8"))
+    doc_id = _seed(pg)
+    grantee = _make_principal(conn, display_name=f"sensitive-grantee-{new_ulid_str()}")
+    conn.execute(
+        "INSERT INTO document_metadata (document_id, key, value) "
+        "VALUES (%s, 'sensitivity', 'sensitive')",
+        (doc_id,),
+    )
+    conn.execute(
+        "INSERT INTO document_acl (document_id, principal_id, permission) VALUES "
+        "(%s, %s, 'annotate')",
+        (doc_id, grantee),
+    )
+    schema = build_schema()
+
+    async def check_denied():
+        aconn = await _aconn_as(str(grantee))
+        try:
+            ctx = RequestContext(
+                conn=aconn,
+                principal=Principal(
+                    subject="sensitive-grantee",
+                    principal_id=str(grantee),
+                    scopes=frozenset({"read", "write"}),
+                ),
+                loaders=Loaders(aconn),
+            )
+            result = await schema.execute(
+                'mutation ($id: ID!) { reannotate(documentId: $id, lang: "en") { kind status } }',
+                variable_values={"id": doc_id},
+                context_value=ctx,
+            )
+            assert result.errors is not None
+            assert "sensitive document" in str(result.errors[0]).lower()
+        finally:
+            await aconn.close()
+
+    asyncio.run(check_denied())
+    assert (
+        conn.execute("SELECT count(*) AS n FROM jobs WHERE document_id = %s", (doc_id,)).fetchone()[
+            "n"
+        ]
+        == 0
+    )
+
+    conn.execute(
+        "INSERT INTO document_acl (document_id, principal_id, permission) VALUES "
+        "(%s, %s, 'sensitive')",
+        (doc_id, grantee),
+    )
+
+    async def check_allowed():
+        aconn = await _aconn_as(str(grantee))
+        try:
+            ctx = RequestContext(
+                conn=aconn,
+                principal=Principal(
+                    subject="sensitive-grantee",
+                    principal_id=str(grantee),
+                    scopes=frozenset({"read", "write"}),
+                ),
+                loaders=Loaders(aconn),
+            )
+            result = await schema.execute(
+                'mutation ($id: ID!) { reannotate(documentId: $id, lang: "en") { kind status } }',
+                variable_values={"id": doc_id},
+                context_value=ctx,
+            )
+            assert result.errors is None, result.errors
+            assert result.data["reannotate"]["status"] == "queued"
+        finally:
+            await aconn.close()
+
+    asyncio.run(check_allowed())
+    conn.execute("DELETE FROM principals WHERE id = %s", (grantee,))
+
+
 def test_create_backup_requires_admin_not_just_write_scope(pg):
     """create_backup/restore_backup are corpus-wide — a non-admin write token must be refused."""
     conn, created = pg

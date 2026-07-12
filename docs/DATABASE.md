@@ -884,6 +884,11 @@ Tenant partition catalogue; the default tenant preserves existing deployments.
 - **Unique:** UNIQUE (action)
 - **Index** `permissions_action_key`: public.permissions USING btree (action)
 
+Seeded actions include `read`, `annotate`, `delete`, `redact`, `admin`, and
+`sensitive`. The `sensitive` action is an ABAC overlay grant: it does not grant
+normal write access by itself, but permits a write that already passed RBAC when
+the target document is marked `document_metadata.sensitivity=sensitive`.
+
 #### `role_permissions`
 
 | Column | Type | Null | Key | Default | Notes |
@@ -1137,6 +1142,8 @@ SELECT a.document_id,
 | Function | Returns | Security | Lang |
 |---|---|---|---|
 | `docray_attach_rls(tbl regclass, tmpl text)` | `void` | invoker | plpgsql |
+| `docray_abac_document_write_allowed(target_document uuid)` | `TABLE(ok boolean, reason text)` | DEFINER | sql |
+| `docray_audit_tenant_for_principal(actor uuid)` | `uuid` | DEFINER | sql |
 | `docray_create_principal_login(principal uuid, role_name name, password text DEFAULT NULL::text)` | `name` | DEFINER | plpgsql |
 | `docray_current_principal()` | `uuid` | DEFINER | sql |
 | `docray_current_tenant()` | `uuid` | DEFINER | sql |
@@ -1167,6 +1174,14 @@ Authorization is decided **per tenant and per document** and inherited by every
 document-scoped table. A principal may **read** a same-tenant document iff it is
 *admin* or holds any `document_acl` row on it, and may **write** iff *admin* or
 holds an `annotate`/`delete`/`admin` grant.
+
+An ABAC layer runs after the RBAC/document ACL decision for API document writes.
+The shipped policy uses resource attributes: if
+`document_metadata.sensitivity=sensitive`, the write is denied unless the caller
+is admin or holds an additional explicit `document_acl.permission='sensitive'`
+grant for that same document. The helper
+`docray_abac_document_write_allowed(uuid)` is `SECURITY DEFINER`, so the app role
+can evaluate this rule without receiving raw `document_acl` table access.
 
 **Enforcement.** RLS is `ENABLE`d (not `FORCE`) on 36 tables (incl. `jobs` and
 `backups` since migration 043 — BL-064). The `docray`
@@ -1271,3 +1286,4 @@ owner's bypass.
 | 061 | `061_tenant_foundation.sql` | tenant catalogue plus tenant-scoped principals, documents, and RLS helpers |
 | 062 | `062_security_audit_events.sql` | append-only security audit log for auth, reads, mutations, and denials |
 | 063 | `063_audit_events_admin_read.sql` | tenant-admin SELECT policy and grants for audit-event search/export |
+| 064 | `064_abac_sensitive_document_policy.sql` | ABAC sensitive-document write policy helper and explicit sensitive grant |
