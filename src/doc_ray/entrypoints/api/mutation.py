@@ -161,6 +161,20 @@ class Mutation:
         return await _job_status(ctx, job_id)
 
     @strawberry.mutation
+    async def cancel_job(
+        self, info: Info, job_id: strawberry.ID, reason: str | None = None
+    ) -> Job:
+        """Cancel a queued or running job; admin-only."""
+        ctx = info.context
+        await _require_admin(ctx)
+        row = await queue.cancel_async(ctx.conn, str(job_id), reason=reason)
+        if row is None:
+            raise ValueError(f"unknown job {job_id}")
+        if row["status"] != "canceled":
+            raise ValueError(f"job {job_id} is {row['status']} and cannot be canceled")
+        return Job.from_row(row)
+
+    @strawberry.mutation
     async def reextract_documents(
         self, info: Info, only_missing_geometry: bool = True
     ) -> list[Job]:

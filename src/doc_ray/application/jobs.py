@@ -504,6 +504,9 @@ def run_once(
         # 'running', so the reaper requeues it and the step re-runs — no silent
         # pipeline stall, and no recorded-success-without-successor window.
         with conn.transaction():
+            if queue.is_canceled(conn, job.id):
+                _logger.info("job %s (kind=%s) was canceled before completion", job.id, job.kind)
+                return job
             if queue.complete(conn, job.id, result=result, worker_id=worker_id):
                 if (
                     job.document_id is None

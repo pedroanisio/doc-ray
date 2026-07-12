@@ -544,6 +544,80 @@ def test_create_backup_allows_admin_principal(pg):
     conn.execute("DELETE FROM principals WHERE id = %s", (admin,))
 
 
+def test_cancel_job_requires_admin_and_marks_job_canceled(pg):
+    from doc_ray.adapters import queue_postgres as queue
+    from doc_ray.domain.jobs import JobStatus
+
+    conn, created = pg
+    admin = conn.execute(
+        "INSERT INTO principals (kind, display_name) VALUES ('human', %s) RETURNING id",
+        (f"cancel-admin-{new_ulid_str()}",),
+    ).fetchone()["id"]
+    non_admin = conn.execute(
+        "INSERT INTO principals (kind, display_name) VALUES ('human', %s) RETURNING id",
+        (f"cancel-non-admin-{new_ulid_str()}",),
+    ).fetchone()["id"]
+    admin_role_id = conn.execute("SELECT id FROM roles WHERE name = 'admin'").fetchone()["id"]
+    conn.execute(
+        "INSERT INTO principal_roles (principal_id, role_id) VALUES (%s, %s)",
+        (admin, admin_role_id),
+    )
+    job_id = queue.enqueue(conn, "canonicalize", {"resolve": True}, document_id=None)
+    schema = build_schema()
+
+    async def check():
+        non_admin_conn = await _aconn_as(str(non_admin))
+        try:
+            non_admin_ctx = RequestContext(
+                conn=non_admin_conn,
+                principal=Principal(
+                    subject="non-admin",
+                    principal_id=str(non_admin),
+                    scopes=frozenset({"read", "write"}),
+                ),
+                loaders=Loaders(non_admin_conn),
+            )
+            rejected = await schema.execute(
+                "mutation($id: ID!) { cancelJob(jobId: $id) { status } }",
+                variable_values={"id": job_id},
+                context_value=non_admin_ctx,
+            )
+            assert rejected.errors is not None
+            assert "admin" in str(rejected.errors[0]).lower()
+        finally:
+            await non_admin_conn.close()
+
+        admin_conn = await _aconn_as(str(admin))
+        try:
+            admin_ctx = RequestContext(
+                conn=admin_conn,
+                principal=Principal(
+                    subject="admin",
+                    principal_id=str(admin),
+                    scopes=frozenset({"read", "write"}),
+                ),
+                loaders=Loaders(admin_conn),
+            )
+            canceled = await schema.execute(
+                "mutation($id: ID!) { cancelJob(jobId: $id) { id status } }",
+                variable_values={"id": job_id},
+                context_value=admin_ctx,
+            )
+            assert canceled.errors is None, canceled.errors
+            assert canceled.data["cancelJob"]["id"] == job_id
+            assert canceled.data["cancelJob"]["status"] == "canceled"
+        finally:
+            await admin_conn.close()
+
+    try:
+        asyncio.run(check())
+        assert queue.get(conn, job_id).status is JobStatus.CANCELED
+    finally:
+        conn.execute("DELETE FROM jobs WHERE id = %s", (job_id,))
+        conn.execute("DELETE FROM principal_roles WHERE principal_id = %s", (admin,))
+        conn.execute("DELETE FROM principals WHERE id IN (%s, %s)", (admin, non_admin))
+
+
 # ---------------------------------------------------------------------------
 # BL-109 — write-mutation arguments must carry the same bounds read resolvers
 # enforce: suggestSeeds.limit clamped through page_size(), decideSeeds's

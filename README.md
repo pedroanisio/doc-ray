@@ -121,7 +121,8 @@ Other query/mutation surface: `documents(docType:, status:, tags:)` /
 `bulkTagDocuments` / `annotateDocument` / `reextractDocument` /
 `reextractDocuments` / `canonicalizeDocument(resolve:)` /
 `semanticEnrichDocument` / `updateDocumentMetadata` /
-`suggestDocumentMetadata` / `decideDocumentMetadataSuggestions` (pipeline
+`suggestDocumentMetadata` / `decideDocumentMetadataSuggestions` / `cancelJob`
+(pipeline
 writes — every mutation enqueues a worker job or records a curator decision;
 poll `job(id)` for completion, never a synchronous pipeline result). Entity
 canonicalization curation: `seedSuggestions` / `canonical` /

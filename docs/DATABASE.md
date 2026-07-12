@@ -1,6 +1,6 @@
 # doc-ray — Database ERD & Data Dictionary
 
-**Schema version `1.15.0`** (SemVer) · 56 migrations applied
+**Schema version `1.16.0`** (SemVer) · 58 migrations applied
 
 > Generated from the live schema by `scripts/gen_data_dictionary.py`. Do not edit by hand — re-run the generator.
 
@@ -1201,3 +1201,5 @@ owner's bypass.
 | 054 | `054_document_layout_run_page_dimensions.sql` | repair document_layout_runs page dimensions for already-migrated databases |
 | 055 | `055_document_metadata_suggestions.sql` | verified document metadata suggestions for human review (BL-061) |
 | 056 | `056_schema_version_1_15_0.sql` | advance the schema SemVer to 1.15.0 |
+| 057 | `057_job_cancel_update_policy.sql` | admin-only cancellation update policy for queued/running jobs (BL-102) |
+| 058 | `058_schema_version_1_16_0.sql` | advance the schema SemVer to 1.16.0 |

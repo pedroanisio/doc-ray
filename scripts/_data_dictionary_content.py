@@ -141,4 +141,9 @@ MIGRATIONS = [
         "verified document metadata suggestions for human review (BL-061)",
     ),
     ("056_schema_version_1_15_0", "advance the schema SemVer to 1.15.0"),
+    (
+        "057_job_cancel_update_policy",
+        "admin-only cancellation update policy for queued/running jobs (BL-102)",
+    ),
+    ("058_schema_version_1_16_0", "advance the schema SemVer to 1.16.0"),
 ]

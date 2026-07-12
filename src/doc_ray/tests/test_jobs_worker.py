@@ -138,6 +138,30 @@ def test_run_once_heartbeat_thread_runs(qconn):
         hb_conn.close()
 
 
+def test_run_once_does_not_complete_job_canceled_during_handler(qconn, monkeypatch):
+    def cancel_during_handler(conn: Any, store: Any, job: Job) -> dict[str, Any]:
+        conn.execute(
+            "UPDATE jobs SET status = 'canceled', finished_at = now(), locked_by = NULL "
+            "WHERE id = %s",
+            (job.id,),
+        )
+        return {"ok": True}
+
+    def complete_must_not_run(*_args: Any, **_kwargs: Any) -> bool:
+        raise AssertionError("canceled jobs must not be completed")
+
+    jid = queue.enqueue(qconn, "cancelable", {"chain": ["unreachable"]}, priority=-10_000)
+    monkeypatch.setattr(jobs_mod.queue, "complete", complete_must_not_run)
+
+    jobs_mod.run_once(qconn, None, worker_id="t-cancel", handlers={"cancelable": cancel_during_handler})
+
+    row = qconn.execute("SELECT status, result FROM jobs WHERE id=%s", (jid,)).fetchone()
+    assert row is not None
+    assert row["status"] == "canceled"
+    assert row["result"] is None
+    assert qconn.execute("SELECT 1 FROM jobs WHERE kind = 'unreachable'").fetchone() is None
+
+
 def test_handle_delete_soft_deletes_document_and_records_history(qconn, pg):
     conn, created = pg
     doc_id = _itdb.make_doc(conn, "To be deleted.")

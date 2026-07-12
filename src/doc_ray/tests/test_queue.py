@@ -106,6 +106,24 @@ def test_fail_retry_then_terminal(qconn):
     assert q.get(conn, job_id).status is JobStatus.FAILED  # terminal
 
 
+def test_cancel_transitions_queued_and_running_jobs(qconn):
+    conn, created = qconn
+    queued_id = q.enqueue(conn, "ingest", {}, priority=-10_000)
+    running_id = q.enqueue(conn, "annotate", {}, priority=-9_999)
+    created += [queued_id, running_id]
+
+    assert q.cancel(conn, queued_id, reason="operator request") is True
+    assert q.get(conn, queued_id).status is JobStatus.CANCELED
+    claimed = q.claim(conn, worker_id="w-cancel")
+    assert claimed is not None
+    assert claimed.id == running_id
+
+    assert q.cancel(conn, running_id, reason="operator request") is True
+    assert q.get(conn, running_id).status is JobStatus.CANCELED
+    assert q.heartbeat(conn, running_id, worker_id="w-cancel") is False
+    assert q.cancel(conn, running_id, reason="again") is False
+
+
 def test_heartbeat_and_reap_stale(qconn):
     conn, created = qconn
     job_id = q.enqueue(conn, "ingest", {})

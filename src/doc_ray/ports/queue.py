@@ -39,9 +39,24 @@ class Queue(Protocol):
         """Refresh a running job's liveness; ``False`` if it was reclaimed/canceled."""
         ...
 
+    def is_canceled(self, conn: psycopg.Connection[Any], job_id: str) -> bool:
+        """Return whether *job_id* is currently canceled."""
+        ...
+
+    def cancel(
+        self, conn: psycopg.Connection[Any], job_id: str, *, reason: str | None = None
+    ) -> bool:
+        """Cancel a queued or running job, returning whether it transitioned."""
+        ...
+
     def complete(
-        self, conn: psycopg.Connection[Any], job_id: str, *, result: dict[str, Any] | None = None
-    ) -> None:
+        self,
+        conn: psycopg.Connection[Any],
+        job_id: str,
+        *,
+        result: dict[str, Any] | None = None,
+        worker_id: str | None = None,
+    ) -> bool:
         """Mark a running job succeeded, recording an optional result."""
         ...
 

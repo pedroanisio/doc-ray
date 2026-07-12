@@ -115,6 +115,41 @@ async def status_async(conn: psycopg.AsyncConnection[Any], job_id: str) -> dict[
     return row
 
 
+def is_canceled(conn: psycopg.Connection[Any], job_id: str) -> bool:
+    """Return whether *job_id* is currently canceled."""
+    row = conn.execute("SELECT status = 'canceled' AS canceled FROM jobs WHERE id = %s", (job_id,))
+    result = row.fetchone()
+    return bool(result and result["canceled"])
+
+
+def cancel(conn: psycopg.Connection[Any], job_id: str, *, reason: str | None = None) -> bool:
+    """Cancel a queued or running job, returning whether it transitioned."""
+    cur = conn.execute(
+        "UPDATE jobs SET status = 'canceled', started_at = COALESCE(started_at, now()), "
+        "finished_at = now(), error = %s, locked_by = NULL "
+        "WHERE id = %s AND status IN ('queued', 'running')",
+        (reason or "canceled by operator", job_id),
+    )
+    return cur.rowcount > 0
+
+
+async def cancel_async(
+    conn: psycopg.AsyncConnection[Any], job_id: str, *, reason: str | None = None
+) -> dict[str, Any] | None:
+    """Cancel a queued or running job and return its API status row."""
+    cur = await conn.execute(
+        "UPDATE jobs SET status = 'canceled', started_at = COALESCE(started_at, now()), "
+        "finished_at = now(), error = %s, locked_by = NULL "
+        "WHERE id = %s AND status IN ('queued', 'running') "
+        "RETURNING id, kind, status, document_id, error, result",
+        (reason or "canceled by operator", job_id),
+    )
+    row: dict[str, Any] | None = await cur.fetchone()
+    if row is not None:
+        return row
+    return await status_async(conn, job_id)
+
+
 async def list_async(
     conn: psycopg.AsyncConnection[Any],
     *,
