@@ -112,6 +112,9 @@ class Config:
             ``principals`` row for a previously unseen ``sub`` claim. This is
             the local policy switch BL-066 needs before BL-068 adds full SCIM
             authority.
+        api_oidc_allow_static_token_fallback: Whether static bearer tokens
+            remain accepted when OIDC is configured. Defaults false so the
+            weaker local/break-glass path is explicit instead of implicit.
         api_debug: Whether GraphQL introspection and the GraphiQL IDE are
             enabled (BL-108). False in production by default: an anonymous
             caller should not be able to enumerate the schema, including
@@ -149,6 +152,7 @@ class Config:
     api_oidc_audience: str | None = None
     api_oidc_jwks_json: str | None = None
     api_oidc_auto_create_principals: bool = False
+    api_oidc_allow_static_token_fallback: bool = False
     api_debug: bool = False
     max_upload_bytes: int = 200 * 1024 * 1024
     backup_schedule_seconds: int = 86_400
@@ -195,6 +199,9 @@ class Config:
             api_oidc_jwks_json=_env_optional_str("DOCRAY_API_OIDC_JWKS_JSON"),
             api_oidc_auto_create_principals=_env_bool(
                 "DOCRAY_API_OIDC_AUTO_CREATE_PRINCIPALS", False
+            ),
+            api_oidc_allow_static_token_fallback=_env_bool(
+                "DOCRAY_API_OIDC_ALLOW_STATIC_TOKEN_FALLBACK", False
             ),
             api_debug=_env_bool("DOCRAY_API_DEBUG", False),
             max_upload_bytes=_env_int("DOCRAY_MAX_UPLOAD_MB", 200) * 1024 * 1024,

@@ -472,7 +472,8 @@ def _build_authenticator(settings: Config, pool: AsyncConnectionPool[Any]) -> Au
                 pool,
                 auto_create=settings.api_oidc_auto_create_principals,
             ),
-            fallback=fallback,
+            fallback=fallback if settings.api_oidc_allow_static_token_fallback else None,
+            allow_anonymous=settings.api_allow_anonymous,
         )
     return fallback
 

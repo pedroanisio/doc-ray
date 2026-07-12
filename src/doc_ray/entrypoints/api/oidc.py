@@ -15,7 +15,7 @@ from typing import Any, Protocol
 import psycopg
 from fastapi import HTTPException, Request, status
 
-from doc_ray.entrypoints.api.security import Authenticator, Principal
+from doc_ray.entrypoints.api.security import ANONYMOUS, Authenticator, Principal
 
 PrincipalResolver = Callable[
     [str, dict[str, Any]], Principal | None | Awaitable[Principal | None]
@@ -32,7 +32,8 @@ class OIDCAuthenticator:
         audience: str | None,
         jwks: Mapping[str, Any],
         resolve_principal: PrincipalResolver,
-        fallback: Authenticator,
+        fallback: Authenticator | None,
+        allow_anonymous: bool = True,
         now: Callable[[], datetime] | None = None,
     ) -> None:
         """Build an OIDC-first authenticator.
@@ -45,13 +46,28 @@ class OIDCAuthenticator:
         self._jwks = jwks
         self._resolve_principal = resolve_principal
         self._fallback = fallback
+        self._allow_anonymous = allow_anonymous
         self._now = now or (lambda: datetime.now(UTC))
 
     async def authenticate(self, request: Request) -> Principal:
         """Resolve an OIDC bearer JWT or delegate non-JWT credentials."""
         token = _request_token(request)
-        if token is None or token.count(".") != 2:
+        if token is None:
+            if self._allow_anonymous:
+                return ANONYMOUS
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="API authentication required",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        if token.count(".") != 2 and self._fallback is not None:
             return await self._fallback.authenticate(request)
+        if token.count(".") != 2:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Static API tokens require explicit OIDC fallback opt-in",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
         try:
             claims = verify_oidc_jwt(
                 token,

@@ -76,6 +76,13 @@ def test_config_reads_oidc_settings(monkeypatch: pytest.MonkeyPatch) -> None:
     assert cfg.api_oidc_audience == "docray-api"
     assert json.loads(cfg.api_oidc_jwks_json or "{}")["keys"][0]["kid"] == "oidc-test-key"
     assert cfg.api_oidc_auto_create_principals is True
+    assert cfg.api_oidc_allow_static_token_fallback is False
+
+
+def test_config_reads_oidc_static_token_fallback_flag(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("DOCRAY_API_OIDC_ALLOW_STATIC_TOKEN_FALLBACK", "true")
+
+    assert Config.from_env().api_oidc_allow_static_token_fallback is True
 
 
 def test_oidc_authenticator_validates_jwks_jwt_and_resolves_external_subject() -> None:
@@ -172,6 +179,56 @@ def test_create_app_uses_oidc_authenticator_when_issuer_and_jwks_are_configured(
     app = create_app(cfg)
 
     assert isinstance(app.state.authenticator, OIDCAuthenticator)
+
+
+def test_create_app_oidc_rejects_static_tokens_without_explicit_fallback() -> None:
+    cfg = Config(
+        database_url="postgresql://example",
+        s3_endpoint="http://localhost:9000",
+        s3_access_key="minioadmin",
+        s3_secret_key="minioadmin",
+        s3_bucket="documents",
+        s3_region="us-east-1",
+        api_oidc_issuer="https://issuer.example",
+        api_oidc_audience="docray-api",
+        api_oidc_jwks_json=json.dumps(_oct_jwks("oidc-secret")),
+        api_tokens={"break-glass": (str(uuid4()), frozenset({"read"}))},
+        api_allow_anonymous=False,
+    )
+    app = create_app(cfg)
+
+    async def check() -> None:
+        with pytest.raises(HTTPException) as exc:
+            await app.state.authenticator.authenticate(_Request("break-glass"))
+        assert exc.value.status_code == 401
+
+    asyncio.run(check())
+
+
+def test_create_app_oidc_accepts_static_tokens_when_fallback_is_explicitly_enabled() -> None:
+    principal_id = str(uuid4())
+    cfg = Config(
+        database_url="postgresql://example",
+        s3_endpoint="http://localhost:9000",
+        s3_access_key="minioadmin",
+        s3_secret_key="minioadmin",
+        s3_bucket="documents",
+        s3_region="us-east-1",
+        api_oidc_issuer="https://issuer.example",
+        api_oidc_audience="docray-api",
+        api_oidc_jwks_json=json.dumps(_oct_jwks("oidc-secret")),
+        api_oidc_allow_static_token_fallback=True,
+        api_tokens={"break-glass": (principal_id, frozenset({"read"}))},
+        api_allow_anonymous=False,
+    )
+    app = create_app(cfg)
+
+    async def check() -> None:
+        principal = await app.state.authenticator.authenticate(_Request("break-glass"))
+        assert principal.subject == "token:break-glass"
+        assert principal.principal_id == principal_id
+
+    asyncio.run(check())
 
 
 def test_postgres_oidc_resolver_can_populate_external_subject_when_policy_allows() -> None:
