@@ -85,7 +85,9 @@ def test_spacy_annotate_reports_fine_grained_inner_phases(monkeypatch):
     text = "Elena founded Berlin."
 
     class _Rows:
-        def __init__(self, *, one: dict[str, Any] | None = None, many: list[dict[str, Any]] | None = None):
+        def __init__(
+            self, *, one: dict[str, Any] | None = None, many: list[dict[str, Any]] | None = None
+        ):
             self._one = one
             self._many = many or []
 
@@ -151,7 +153,9 @@ def test_spacy_annotate_reports_fine_grained_inner_phases(monkeypatch):
     monkeypatch.setattr(annotation_spacy.lex, "detect_language", lambda *_args, **_kwargs: "en")
     monkeypatch.setattr(annotation_spacy.db, "get_or_create_lexeme", lambda *_args: ("lx", True))
     monkeypatch.setattr(annotation_spacy.db, "ensure_spans", lambda *_args: span_map)
-    monkeypatch.setattr(SpacyAnnotator, "nlp_for", lambda *_args, **_kwargs: (lambda _text: doc, "spacy/fake@1"))
+    monkeypatch.setattr(
+        SpacyAnnotator, "nlp_for", lambda *_args, **_kwargs: (lambda _text: doc, "spacy/fake@1")
+    )
     monkeypatch.setattr(SpacyAnnotator, "_write", lambda *_args, **_kwargs: None)
 
     events, token = _capture()

@@ -276,8 +276,7 @@ class SpacyAnnotator:
 
         ent_rows, coref = self._build_entities(ents, span_map)
         chunk_rows = [
-            (new_ulid_str(), span_map[(c.start_char, c.end_char)], "NP", c.text)
-            for c in chunks
+            (new_ulid_str(), span_map[(c.start_char, c.end_char)], "NP", c.text) for c in chunks
         ]
 
         # Lexeme layer (real POS) — the projection the webapp reads. One pass,

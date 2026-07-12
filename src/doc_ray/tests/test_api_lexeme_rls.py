@@ -29,8 +29,7 @@ def _seed_private_lexeme(pg) -> str:
     span_id = db.ensure_spans(conn, doc_id, [(0, 10)])[(0, 10)]
     lexeme_uid, _created = db.get_or_create_lexeme(conn, {}, "zyzzogeton", "NOUN", "en")
     conn.execute(
-        "INSERT INTO lexeme_occurrences (annotation_id, span_id, lexeme_uid) "
-        "VALUES (%s, %s, %s)",
+        "INSERT INTO lexeme_occurrences (annotation_id, span_id, lexeme_uid) VALUES (%s, %s, %s)",
         (annotation_id, span_id, lexeme_uid),
     )
     return lexeme_uid
