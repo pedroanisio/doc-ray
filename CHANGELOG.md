@@ -22,7 +22,6 @@ doc-ray carries **one global version** covering both the application package
 ## [Unreleased]
 
 ### Fixed
-<<<<<<< HEAD
 - **Collections actually persist** (Claude Fable 5 via Claude Code) — BL-131,
   from an operator screenshot ("Collection not found" right after creating
   one). The BL-057 collection routes write directly through the webapp's
@@ -46,8 +45,6 @@ doc-ray carries **one global version** covering both the application package
   - README gains a copy-paste-safe `principal create` / `token mint`
     quickstart (shell-variable placeholders, `.env` sourcing first) — the
     workflow previously had no operator docs at all.
-=======
->>>>>>> 5fcf85508a711ee67338f7bf3e4c431d2be6bbfa
 - **GraphQL lexeme vocabulary visibility** (Codex GPT-5) — BL-127 makes
   `lexemes` and `lexeme(uid:)` require at least one RLS-visible occurrence, so
   anonymous callers can no longer enumerate vocabulary derived only from hidden

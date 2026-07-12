@@ -1295,17 +1295,11 @@ def test_lexemes_empty_state(client, monkeypatch):
     monkeypatch.setattr(
         webapp,
         "q",
-<<<<<<< HEAD
         lambda sql, params=(): (
             []
             if "count(o.*) AS uses" in sql and "JOIN lexeme_occurrences" in sql
             else fake_q(sql, params)
         ),
-=======
-        lambda sql, params=(): []
-        if "count(o.*) AS uses" in sql and "JOIN lexeme_occurrences" in sql
-        else fake_q(sql, params),
->>>>>>> 5fcf85508a711ee67338f7bf3e4c431d2be6bbfa
     )
     html = client.get("/lexemes?q=zzzzz").get_data(as_text=True)
     assert "No lexemes match." in html
