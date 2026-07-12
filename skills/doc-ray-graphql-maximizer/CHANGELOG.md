@@ -5,6 +5,16 @@ All notable changes to `doc-ray-graphql-maximizer` are recorded here.
 The format follows Keep a Changelog conventions and the skill uses Semantic
 Versioning through the repo-local `VERSION` file.
 
+## [0.2.1] - 2026-07-12
+
+### Fixed
+
+- `SKILL.md` frontmatter now carries a machine-readable `version:` field (the
+  surface skill loaders actually read; previously the version lived only in
+  the `VERSION` file, referenced from prose). `check_doc_ray_drift.py` fails
+  hard when the frontmatter version and `VERSION` disagree, so installed
+  copies can no longer mis-report themselves.
+
 ## [0.2.0] - 2026-07-12
 
 ### Added

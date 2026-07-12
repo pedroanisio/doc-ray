@@ -1,5 +1,6 @@
 ---
 name: doc-ray-graphql-maximizer
+version: 0.2.1
 description: Enable AI agents to extract maximum value from the Doc-Ray GraphQL API. Use when an agent needs to explore, query, audit, extend, test, or operate Doc-Ray's Strawberry GraphQL surface; discover corpus contents; drill into documents, sentences, lexemes, entities, canonicalization, annotation layers, jobs, backups, uploads, or schema capabilities; or turn GraphQL access into evidence-grounded answers and next actions.
 ---
 

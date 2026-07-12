@@ -144,6 +144,14 @@ def check_package_metadata(root: Path, errors: list[str]) -> None:
         errors.append("README.md does not mention the current VERSION")
     if changelog.exists() and f"## [{version}]" not in read_text(changelog):
         errors.append("CHANGELOG.md has no entry for the current VERSION")
+    skill_md = root / "SKILL.md"
+    if skill_md.exists():
+        # The frontmatter version is what skill loaders read; it must track
+        # the VERSION file exactly or installed copies mis-report themselves.
+        if f"version: {version}" not in read_text(skill_md).split("---", 2)[1]:
+            errors.append("SKILL.md frontmatter version does not match VERSION")
+    else:
+        errors.append("missing SKILL.md")
 
 
 def schema_digest(root: Path) -> dict[str, object]:
