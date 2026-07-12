@@ -30,7 +30,7 @@ try:
     from webapp.document_metadata import submit_metadata_update
     from webapp.graphql_client import API_URL, api_auth_headers, gql
     from webapp.health_contract import operator_health_payload
-    from webapp.job_view import decorate_job_rows
+    from webapp.job_view import decorate_job_rows, summarize_progress
     from webapp.operator_health import build_operator_health, require_operator_health
     from webapp.reader_blocks import attach_page_blocks, latest_annotation_state
     from webapp.security_headers import apply_security_headers
@@ -39,7 +39,7 @@ except ModuleNotFoundError:  # pragma: no cover - direct ``python webapp/app.py`
     from document_metadata import submit_metadata_update
     from graphql_client import API_URL, api_auth_headers, gql
     from health_contract import operator_health_payload
-    from job_view import decorate_job_rows
+    from job_view import decorate_job_rows, summarize_progress
     from operator_health import build_operator_health, require_operator_health
     from reader_blocks import attach_page_blocks, latest_annotation_state
     from security_headers import apply_security_headers
@@ -189,7 +189,7 @@ def _active_reprocess_jobs(doc_id: str) -> dict[str, dict]:
     """Return active pipeline jobs keyed by reprocess step."""
     rows = q(
         """
-        SELECT id, kind, status
+        SELECT id, kind, status, progress_current, progress_total, progress_stage
         FROM jobs
         WHERE document_id = %s AND status IN ('queued', 'running')
         ORDER BY id DESC
@@ -222,6 +222,7 @@ def _reprocess_steps(doc: dict, doc_id: str) -> list[dict]:
                 "available": available,
                 "active": active,
                 "active_status": active.get("status") if active else None,
+                "progress": summarize_progress(active) if active else None,
             }
         )
     return steps
@@ -1269,7 +1270,8 @@ def job_status(job_id):
     annotate/canonicalize steps are visible as they land.
     """
     job = q1(
-        "SELECT id, kind, status, document_id, error, result, created_at, finished_at "
+        "SELECT id, kind, status, document_id, error, result, created_at, finished_at, "
+        "progress_current, progress_total, progress_stage "
         "FROM jobs WHERE id = %s",
         (job_id,),
     )
@@ -1280,7 +1282,8 @@ def job_status(job_id):
     doc = None
     if doc_id:
         cascade = q(
-            "SELECT id, kind, status, error, result, created_at, finished_at "
+            "SELECT id, kind, status, error, result, created_at, finished_at, "
+            "progress_current, progress_total, progress_stage "
             "FROM jobs WHERE document_id = %s ORDER BY id",
             (doc_id,),
         )

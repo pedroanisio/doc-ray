@@ -10,6 +10,7 @@ from __future__ import annotations
 import os
 import signal
 import threading
+from pathlib import Path
 from typing import Any
 
 import _itdb
@@ -29,11 +30,14 @@ from doc_ray.domain.jobs import (
 from doc_ray.entrypoints import worker as worker_mod
 from doc_ray.ports.queue import Queue
 
+_MIGRATIONS = Path(__file__).resolve().parents[3] / "db" / "migrations"
+
 
 @pytest.fixture()
 def qconn():
     """A connection whose ``jobs`` table is a private temp shadow."""
     conn = _itdb.connect()
+    conn.execute((_MIGRATIONS / "059_job_progress.sql").read_text())
     conn.execute("CREATE TEMP TABLE jobs (LIKE public.jobs INCLUDING ALL)")
     yield conn
     conn.close()
@@ -48,7 +52,15 @@ def test_backoff_grows_and_caps():
 
 def test_queue_port_is_satisfied_by_the_postgres_adapter():
     # The Protocol names the adapter's contract; the module provides every method.
-    for member in ("enqueue", "claim", "heartbeat", "complete", "fail", "reap_stale"):
+    for member in (
+        "enqueue",
+        "claim",
+        "heartbeat",
+        "update_progress",
+        "complete",
+        "fail",
+        "reap_stale",
+    ):
         assert callable(getattr(queue, member))
     assert isinstance(Queue, object)
 
@@ -70,6 +82,38 @@ def test_run_once_success_completes_job(qconn):
     assert seen and seen[0].payload == {"x": 1}
     row = qconn.execute("SELECT status, error FROM jobs WHERE id=%s", (jid,)).fetchone()
     assert row is not None and row["status"] == "succeeded"
+
+
+def test_run_once_exposes_handler_progress(qconn):
+    seen: list[dict[str, Any]] = []
+
+    def progress_handler(conn: Any, store: Any, job: Job) -> dict[str, Any]:
+        jobs_mod.report_progress(2, 5, "inside handler")
+        row = conn.execute(
+            "SELECT progress_current, progress_total, progress_stage FROM jobs WHERE id=%s",
+            (job.id,),
+        ).fetchone()
+        seen.append(dict(row))
+        return {"ok": True}
+
+    jid = queue.enqueue(qconn, "stub", {"x": 1})
+    jobs_mod.run_once(qconn, None, worker_id="t-progress", handlers={"stub": progress_handler})
+
+    assert seen == [
+        {
+            "progress_current": 2,
+            "progress_total": 5,
+            "progress_stage": "inside handler",
+        }
+    ]
+    row = qconn.execute(
+        "SELECT status, progress_current, progress_total, progress_stage FROM jobs WHERE id=%s",
+        (jid,),
+    ).fetchone()
+    assert row is not None
+    assert row["status"] == "succeeded"
+    assert row["progress_current"] == row["progress_total"] == 5
+    assert row["progress_stage"] == "Completed"
 
 
 def test_run_once_failure_requeues_with_backoff_then_terminal(qconn):

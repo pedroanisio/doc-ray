@@ -32,6 +32,14 @@ doc-ray carries **one global version** covering both the application package
   golden-case drift guard for every registered extractor extension, so future
   PPTX/SVG registrations fail tests until they ship with format coverage.
 
+## [1.17.0] - 2026-07-12
+
+### Added
+- **First-class async job progress** (Codex GPT-5) — BL-123 adds
+  `progress_current`, `progress_total`, and `progress_stage` to jobs; exposes
+  progress through the queue adapter, GraphQL `Job`, SSE job events, worker
+  handlers, and the webapp pipeline status views.
+
 ## [1.16.0] - 2026-07-12
 
 ### Added

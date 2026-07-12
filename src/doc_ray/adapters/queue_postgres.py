@@ -43,10 +43,12 @@ UPDATE jobs j
   FROM picked
  WHERE j.id = picked.id
 RETURNING j.id, j.kind, j.status, j.payload, j.attempts, j.max_attempts, j.document_id
+        , j.progress_current, j.progress_total, j.progress_stage
 """
 
 _SELECT = (
-    "SELECT id, kind, status, payload, attempts, max_attempts, document_id FROM jobs WHERE id = %s"
+    "SELECT id, kind, status, payload, attempts, max_attempts, document_id, "
+    "progress_current, progress_total, progress_stage FROM jobs WHERE id = %s"
 )
 
 JOB_EVENTS_CHANNEL = "docray_job_events"
@@ -60,6 +62,9 @@ def _event_payload(row: dict[str, Any]) -> str:
             "kind": str(row["kind"]),
             "status": str(row["status"]),
             "document_id": str(doc) if doc is not None else None,
+            "progress_current": row.get("progress_current"),
+            "progress_total": row.get("progress_total"),
+            "progress_stage": row.get("progress_stage"),
         },
         separators=(",", ":"),
     )
@@ -90,6 +95,9 @@ def _to_job(row: dict[str, Any]) -> Job:
         attempts=row["attempts"],
         max_attempts=row["max_attempts"],
         document_id=str(doc) if doc is not None else None,
+        progress_current=row.get("progress_current"),
+        progress_total=row.get("progress_total"),
+        progress_stage=row.get("progress_stage"),
     )
 
 
@@ -107,7 +115,15 @@ def enqueue(
     conn.execute(_INSERT, (job_id, kind, priority, Jsonb(payload), max_attempts, document_id))
     _notify_job_event(
         conn,
-        {"id": job_id, "kind": kind, "status": JobStatus.QUEUED.value, "document_id": document_id},
+        {
+            "id": job_id,
+            "kind": kind,
+            "status": JobStatus.QUEUED.value,
+            "document_id": document_id,
+            "progress_current": None,
+            "progress_total": None,
+            "progress_stage": None,
+        },
     )
     return job_id
 
@@ -126,7 +142,15 @@ async def enqueue_async(
     await conn.execute(_INSERT, (job_id, kind, priority, Jsonb(payload), max_attempts, document_id))
     await _notify_job_event_async(
         conn,
-        {"id": job_id, "kind": kind, "status": JobStatus.QUEUED.value, "document_id": document_id},
+        {
+            "id": job_id,
+            "kind": kind,
+            "status": JobStatus.QUEUED.value,
+            "document_id": document_id,
+            "progress_current": None,
+            "progress_total": None,
+            "progress_stage": None,
+        },
     )
     return job_id
 
@@ -148,7 +172,8 @@ async def status_async(conn: psycopg.AsyncConnection[Any], job_id: str) -> dict[
     """Return a job's status row for the API (id, kind, status, document_id, error, result)."""
     cur = await conn.execute(
         "SELECT id, kind, status, document_id, created_at, started_at, finished_at, "
-        "attempts, max_attempts, error, result FROM jobs WHERE id = %s",
+        "attempts, max_attempts, error, result, "
+        "progress_current, progress_total, progress_stage FROM jobs WHERE id = %s",
         (job_id,),
     )
     row: dict[str, Any] | None = await cur.fetchone()
@@ -168,7 +193,7 @@ def cancel(conn: psycopg.Connection[Any], job_id: str, *, reason: str | None = N
         "UPDATE jobs SET status = 'canceled', started_at = COALESCE(started_at, now()), "
         "finished_at = now(), error = %s, locked_by = NULL "
         "WHERE id = %s AND status IN ('queued', 'running') "
-        "RETURNING id, kind, status, document_id",
+        "RETURNING id, kind, status, document_id, progress_current, progress_total, progress_stage",
         (reason or "canceled by operator", job_id),
     )
     row = cur.fetchone()
@@ -185,7 +210,8 @@ async def cancel_async(
         "finished_at = now(), error = %s, locked_by = NULL "
         "WHERE id = %s AND status IN ('queued', 'running') "
         "RETURNING id, kind, status, document_id, created_at, started_at, finished_at, "
-        "attempts, max_attempts, error, result",
+        "attempts, max_attempts, error, result, "
+        "progress_current, progress_total, progress_stage",
         (reason or "canceled by operator", job_id),
     )
     row: dict[str, Any] | None = await cur.fetchone()
@@ -209,7 +235,8 @@ async def list_async(
     """
     cur = await conn.execute(
         "SELECT id, kind, status, document_id, created_at, started_at, finished_at, "
-        "attempts, max_attempts, error, result "
+        "attempts, max_attempts, error, result, "
+        "progress_current, progress_total, progress_stage "
         "FROM jobs WHERE (%s::uuid IS NULL OR document_id = %s) "
         "AND (%s::ulid IS NULL OR id < %s::ulid) ORDER BY id DESC LIMIT %s",
         (document_id, document_id, after, after, limit),
@@ -230,6 +257,29 @@ def heartbeat(conn: psycopg.Connection[Any], job_id: str, *, worker_id: str) -> 
     return cur.rowcount > 0
 
 
+def update_progress(
+    conn: psycopg.Connection[Any],
+    job_id: str,
+    *,
+    current: int | None,
+    total: int | None,
+    stage: str | None,
+    worker_id: str | None = None,
+) -> bool:
+    """Persist a running job's progress and emit a job-status notification."""
+    cur = conn.execute(
+        "UPDATE jobs SET progress_current = %s, progress_total = %s, progress_stage = %s, "
+        "heartbeat_at = now() "
+        "WHERE id = %s AND status = 'running' "
+        "AND (%s::text IS NULL OR locked_by = %s) "
+        "RETURNING id, kind, status, document_id, progress_current, progress_total, progress_stage",
+        (current, total, stage, job_id, worker_id, worker_id),
+    )
+    row = cur.fetchone()
+    _notify_job_event(conn, row)
+    return row is not None
+
+
 def complete(
     conn: psycopg.Connection[Any],
     job_id: str,
@@ -247,10 +297,13 @@ def complete(
         Whether this call actually transitioned the row.
     """
     cur = conn.execute(
-        "UPDATE jobs SET status = 'succeeded', finished_at = now(), result = %s "
+        "UPDATE jobs SET status = 'succeeded', finished_at = now(), result = %s, "
+        "progress_total = COALESCE(progress_total, progress_current, 1), "
+        "progress_current = COALESCE(progress_total, progress_current, 1), "
+        "progress_stage = COALESCE(progress_stage, 'Completed') "
         "WHERE id = %s AND status = 'running' "
         "AND (%s::text IS NULL OR locked_by = %s) "
-        "RETURNING id, kind, status, document_id",
+        "RETURNING id, kind, status, document_id, progress_current, progress_total, progress_stage",
         (Jsonb(result) if result is not None else None, job_id, worker_id, worker_id),
     )
     row = cur.fetchone()
@@ -270,7 +323,8 @@ def fail(
         row = conn.execute(
             "UPDATE jobs SET status = 'failed', finished_at = now(), error = %s, locked_by = NULL "
             "WHERE id = %s "
-            "RETURNING id, kind, status, document_id",
+            "RETURNING id, kind, status, document_id, "
+            "progress_current, progress_total, progress_stage",
             (error, job_id),
         ).fetchone()
         _notify_job_event(conn, row)
@@ -278,7 +332,7 @@ def fail(
     row = conn.execute(
         "UPDATE jobs SET status = 'queued', run_after = now() + (%s * interval '1 second'), "
         "error = %s, locked_by = NULL WHERE id = %s "
-        "RETURNING id, kind, status, document_id",
+        "RETURNING id, kind, status, document_id, progress_current, progress_total, progress_stage",
         (retry_in_seconds, error, job_id),
     ).fetchone()
     _notify_job_event(conn, row)
@@ -296,7 +350,8 @@ def reap_stale(conn: psycopg.Connection[Any], *, older_than_seconds: float) -> i
         f"UPDATE jobs SET status = 'queued', locked_by = NULL, run_after = now(), "
         f"error = 'reclaimed: stale heartbeat' "
         f"WHERE status = 'running' AND heartbeat_at < {cutoff} AND attempts < max_attempts "
-        f"RETURNING id, kind, status, document_id",
+        f"RETURNING id, kind, status, document_id, "
+        f"progress_current, progress_total, progress_stage",
         (older_than_seconds,),
     ).fetchall()
     for row in requeued_rows:
@@ -305,7 +360,8 @@ def reap_stale(conn: psycopg.Connection[Any], *, older_than_seconds: float) -> i
         f"UPDATE jobs SET status = 'failed', finished_at = now(), locked_by = NULL, "
         f"error = 'reclaimed: stale heartbeat, attempts exhausted' "
         f"WHERE status = 'running' AND heartbeat_at < {cutoff} AND attempts >= max_attempts "
-        f"RETURNING id, kind, status, document_id",
+        f"RETURNING id, kind, status, document_id, "
+        f"progress_current, progress_total, progress_stage",
         (older_than_seconds,),
     ).fetchall()
     for row in exhausted_rows:

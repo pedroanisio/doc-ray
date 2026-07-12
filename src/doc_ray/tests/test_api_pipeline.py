@@ -175,6 +175,44 @@ def test_job_queries_expose_queue_timing_and_attempts(api_env):
         conn.execute("DELETE FROM jobs WHERE id IN (%s, %s)", (queued_id, finished_id))
 
 
+def test_job_query_exposes_progress_fields(api_env):
+    conn, doc_id, principal_id = api_env
+    job_id = queue.enqueue(
+        conn, "annotate", {"chain": []}, priority=-9_999, max_attempts=5, document_id=doc_id
+    )
+    claimed = queue.claim(conn, worker_id="api-progress-test")
+    assert claimed is not None and claimed.id == job_id
+    assert queue.update_progress(
+        conn,
+        job_id,
+        current=4,
+        total=12,
+        stage="annotating sentence batch",
+        worker_id="api-progress-test",
+    )
+    try:
+        with _client(principal_id) as client:
+            data = _gql(
+                client,
+                """
+                query($id: ID!) {
+                  job(id: $id) {
+                    id progressCurrent progressTotal progressStage
+                  }
+                }
+                """,
+                {"id": job_id},
+            )["job"]
+        assert data == {
+            "id": job_id,
+            "progressCurrent": 4,
+            "progressTotal": 12,
+            "progressStage": "annotating sentence batch",
+        }
+    finally:
+        conn.execute("DELETE FROM jobs WHERE id = %s", (job_id,))
+
+
 def test_job_events_streams_visible_document_jobs(api_env):
     conn, doc_id, principal_id = api_env
     job_id = queue.enqueue(

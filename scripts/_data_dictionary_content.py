@@ -146,4 +146,9 @@ MIGRATIONS = [
         "admin-only cancellation update policy for queued/running jobs (BL-102)",
     ),
     ("058_schema_version_1_16_0", "advance the schema SemVer to 1.16.0"),
+    (
+        "059_job_progress",
+        "first-class async job progress fields on jobs (BL-123)",
+    ),
+    ("060_schema_version_1_17_0", "advance the schema SemVer to 1.17.0"),
 ]

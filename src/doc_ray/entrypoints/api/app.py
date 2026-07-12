@@ -275,6 +275,9 @@ def _job_event_data(row: dict[str, Any]) -> dict[str, Any]:
         "attempts": int(row["attempts"]),
         "maxAttempts": int(row["max_attempts"]),
         "error": row.get("error"),
+        "progressCurrent": row.get("progress_current"),
+        "progressTotal": row.get("progress_total"),
+        "progressStage": row.get("progress_stage"),
     }
 
 

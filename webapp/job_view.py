@@ -106,6 +106,29 @@ def summarize_outcome(job: Mapping[str, Any]) -> dict[str, str | None]:
     }
 
 
+def summarize_progress(job: Mapping[str, Any]) -> dict[str, Any] | None:
+    """Build a display model for a job's persisted progress fields."""
+    current = job.get("progress_current")
+    total = job.get("progress_total")
+    stage = str(job.get("progress_stage") or "").strip() or None
+    try:
+        current_int = int(current) if current is not None else None
+        total_int = int(total) if total is not None else None
+    except (TypeError, ValueError):
+        return {"stage": stage} if stage else None
+    if current_int is None or total_int is None or total_int <= 0:
+        return {"stage": stage} if stage else None
+    current_int = max(0, min(current_int, total_int))
+    percent = round((current_int / total_int) * 100)
+    return {
+        "current": current_int,
+        "total": total_int,
+        "percent": percent,
+        "label": f"{percent}%",
+        "stage": stage,
+    }
+
+
 def decorate_job_rows(rows: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
     """Copy raw job rows and attach presentation labels/outcome fields."""
     decorated = []
@@ -114,5 +137,6 @@ def decorate_job_rows(rows: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]
         item["kind_label"] = humanize_kind(item.get("kind"))
         item["status_label"] = humanize_status(item.get("status"))
         item["outcome"] = summarize_outcome(item)
+        item["progress"] = summarize_progress(item)
         decorated.append(item)
     return decorated

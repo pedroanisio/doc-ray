@@ -478,6 +478,9 @@ class Job:
     max_attempts: int
     error: str | None
     result: JSON | None
+    progress_current: int | None
+    progress_total: int | None
+    progress_stage: str | None
     cursor: str
 
     @classmethod
@@ -497,6 +500,9 @@ class Job:
             max_attempts=row["max_attempts"],
             error=row.get("error"),
             result=cast(JSON, res) if res is not None else None,
+            progress_current=row.get("progress_current"),
+            progress_total=row.get("progress_total"),
+            progress_stage=row.get("progress_stage"),
             cursor=row.get("cursor") or str(row["id"]),
         )
 

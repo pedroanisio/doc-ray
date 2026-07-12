@@ -56,6 +56,9 @@ class Job:
         attempts: How many times this job has been claimed.
         max_attempts: Attempt ceiling before it is marked ``failed``.
         document_id: Owning document UUID, or ``None`` until known.
+        progress_current: Completed progress units, or ``None`` before a report.
+        progress_total: Total progress units when known.
+        progress_stage: Human-readable current stage.
     """
 
     id: str
@@ -65,3 +68,6 @@ class Job:
     attempts: int = 0
     max_attempts: int = 3
     document_id: str | None = None
+    progress_current: int | None = None
+    progress_total: int | None = None
+    progress_stage: str | None = None

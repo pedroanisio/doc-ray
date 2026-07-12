@@ -26,6 +26,7 @@ def _connect_or_skip():
     except Exception as exc:  # pragma: no cover - env dependent
         pytest.skip(f"DB unreachable: {exc}")
     conn.execute((_MIGRATIONS / "020_jobs.sql").read_text())  # idempotent
+    conn.execute((_MIGRATIONS / "059_job_progress.sql").read_text())  # idempotent
     return conn
 
 
@@ -85,6 +86,47 @@ def test_job_status_transitions_emit_notifications(qconn):
     assert [event["status"] for event in events] == ["queued", "running", "succeeded"]
     assert {event["job_id"] for event in events} == {job_id}
     assert all(event["kind"] == "ingest" for event in events)
+
+
+def test_job_progress_update_persists_and_notifies(qconn):
+    import _itdb
+
+    conn, created = qconn
+    listener = _itdb.connect()
+    listener.execute("LISTEN docray_job_events")
+    try:
+        job_id = q.enqueue(conn, "ingest", {"path": "/x"}, priority=-100_000)
+        created.append(job_id)
+        claimed = q.claim(conn, worker_id="w-progress")
+        assert claimed is not None and claimed.id == job_id
+
+        assert q.update_progress(
+            conn,
+            job_id,
+            current=3,
+            total=10,
+            stage="extracting page 3 of 10",
+            worker_id="w-progress",
+        )
+        row = conn.execute(
+            "SELECT progress_current, progress_total, progress_stage "
+            "FROM jobs WHERE id = %s",
+            (job_id,),
+        ).fetchone()
+        events = [
+            json.loads(n.payload)
+            for n in listener.notifies(timeout=1.0, stop_after=3)
+            if n.channel == "docray_job_events"
+        ]
+    finally:
+        listener.close()
+
+    assert row == {
+        "progress_current": 3,
+        "progress_total": 10,
+        "progress_stage": "extracting page 3 of 10",
+    }
+    assert any(event["job_id"] == job_id and event["status"] == "running" for event in events)
 
 
 def test_skip_locked_claims_are_disjoint(qconn):

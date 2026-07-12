@@ -10,6 +10,7 @@ registry — without those heavy dependencies present.
 from __future__ import annotations
 
 import contextlib
+import contextvars
 import logging
 import tempfile
 import threading
@@ -51,14 +52,27 @@ if TYPE_CHECKING:
 
 #: A handler runs one job and returns a JSON-able result recorded on the job row.
 Handler = Callable[[psycopg.Connection[Any], ObjectStore | None, Job], dict[str, Any]]
+ProgressReporter = Callable[[int | None, int | None, str | None], None]
 
 _BACKOFF_BASE_SECONDS = 5.0
 _BACKOFF_CAP_SECONDS = 300.0
+_PROGRESS_REPORTER: contextvars.ContextVar[ProgressReporter | None] = contextvars.ContextVar(
+    "doc_ray_job_progress_reporter", default=None
+)
 
 
 def backoff_seconds(attempts: int) -> float:
     """Return the exponential backoff (capped) for the *attempts*-th failure."""
     return float(min(_BACKOFF_BASE_SECONDS * 2 ** max(0, attempts - 1), _BACKOFF_CAP_SECONDS))
+
+
+def report_progress(
+    current: int | None = None, total: int | None = None, stage: str | None = None
+) -> None:
+    """Persist progress for the currently running worker job, when one exists."""
+    reporter = _PROGRESS_REPORTER.get()
+    if reporter is not None:
+        reporter(current, total, stage)
 
 
 def handle_delete(
@@ -157,6 +171,7 @@ def handle_reannotate(
     if job.document_id is None:
         raise RuntimeError("reannotate requires a document_id")
     lang = job.payload.get("lang", "en")
+    report_progress(0, 1, "Re-annotating document")
     info = reann.reannotate_document(conn, job.document_id, cache={}, lang_default=lang)
     return info or {"skipped": True}
 
@@ -171,6 +186,7 @@ def handle_reextract(
         raise RuntimeError("reextract requires a document_id")
     if store is None:
         raise RuntimeError("reextract requires an object store")
+    report_progress(0, 1, "Re-extracting document geometry")
     return reextract.backfill_document_geometry_from_store(conn, store, job.document_id)
 
 
@@ -189,12 +205,14 @@ def handle_ingest(
 
     if store is None:
         raise RuntimeError("ingest requires an object store")
+    report_progress(0, 3, "Reading upload")
     storage_key = str(job.payload["storage_key"])
     data = verify_bytes(
         store.get(storage_key),
         job.payload.get("sha256"),
         context=f"ingest upload {storage_key}",
     )
+    report_progress(1, 3, "Preparing uploaded file")
     original = job.payload.get("original_filename") or f"upload{job.payload.get('extension', '')}"
     safe_name = Path(str(original)).name or "upload"
     # pipeline.ingest_file is path-based; materialise the blob under its real name so
@@ -203,6 +221,7 @@ def handle_ingest(
         tmp_path = Path(tmpdir) / safe_name
         tmp_path.write_bytes(data)
         # store is the concrete S3 adapter at runtime; the pipeline is typed against it.
+        report_progress(2, 3, "Extracting and storing document")
         result = ingest_file(conn, cast("S3ObjectStore", store), tmp_path)
 
     title = job.payload.get("title")
@@ -226,6 +245,7 @@ def handle_annotate(
 
     if job.document_id is None:
         raise RuntimeError("annotate requires a document_id")
+    report_progress(0, 1, "Annotating document")
     info = SpacyAnnotator().annotate(
         conn, job.document_id, lang_default=str(job.payload.get("lang", "en"))
     )
@@ -249,6 +269,7 @@ def handle_semantic_enrich(
 
     if job.document_id is None:
         raise RuntimeError("semantic_enrich requires a document_id")
+    report_progress(0, 1, "Enriching semantic layers")
     return semantic_enrichment.annotate_document(conn, job.document_id)
 
 
@@ -286,6 +307,7 @@ def handle_seed_suggest(
 
     if job.document_id is None:
         raise RuntimeError("seed_suggest requires a document_id")
+    report_progress(0, 1, "Mining seed candidates")
     wiki = WikipediaClient()
     kb = WikidataClient()
     try:
@@ -317,6 +339,7 @@ def handle_seed_approved(
 
     if job.document_id is None:
         raise RuntimeError("seed_approved requires a document_id")
+    report_progress(0, 1, "Seeding approved entities")
     qids = sstore.approved_qids(conn, job.document_id)
     if not qids:
         return {"seeded": 0}
@@ -337,6 +360,7 @@ def handle_suggest_document_metadata(
 
     if job.document_id is None:
         raise RuntimeError("suggest_document_metadata requires a document_id")
+    report_progress(0, 1, "Generating metadata suggestions")
     return document_metadata_suggest.generate_suggestions(
         cast(psycopg.Connection[dict[str, Any]], conn), job.document_id
     )
@@ -358,7 +382,9 @@ def handle_canonicalize(
 
     if job.document_id is None:
         raise RuntimeError("canonicalize requires a document_id")
+    report_progress(0, 2, "Scanning registry terms")
     terms = term_scan.scan_document(conn, job.document_id)
+    report_progress(1, 2, "Linking entity mentions")
     result = canonicalize.autolink_document(conn, job.document_id)
     out: dict[str, Any] = {
         "term_mentions": terms,
@@ -366,6 +392,7 @@ def handle_canonicalize(
         "residue": len(result.residue),
     }
     if job.payload.get("resolve") and result.residue:
+        report_progress(2, 3, "Resolving remaining mentions")
         from doc_ray.adapters.resolver_claude import ClaudeResolver
         from doc_ray.application.resolution import resolve_residue
 
@@ -388,6 +415,7 @@ def handle_backup(
 
     if store is None:
         raise RuntimeError("backup requires an object store")
+    report_progress(0, 1, "Creating backup archive")
     summary = bk.create_backup(conn, store, note=job.payload.get("note"))
     # Keep the recorded result compact; the per-table breakdown lives in the archive.
     return {
@@ -407,6 +435,7 @@ def handle_restore(
     backup_id = job.payload.get("backup_id")
     if not backup_id:
         raise RuntimeError("restore requires a backup_id")
+    report_progress(0, 1, "Restoring backup archive")
     return bk.restore_backup(conn, store, str(backup_id))
 
 
@@ -497,7 +526,23 @@ def run_once(
         if heartbeat_conn is not None
         else None
     )
+    last_progress: tuple[int | None, int | None, str | None] = (None, None, None)
+
+    def _report(current: int | None, total: int | None, stage: str | None) -> None:
+        nonlocal last_progress
+        last_progress = (current, total, stage)
+        queue.update_progress(
+            conn,
+            job.id,
+            current=current,
+            total=total,
+            stage=stage,
+            worker_id=worker_id,
+        )
+
+    token = _PROGRESS_REPORTER.set(_report)
     try:
+        report_progress(0, None, f"Starting {job.kind}")
         result = handler(conn, store, job)
         # One transaction: success recording and chain advancement commit (or
         # roll back) together. A crash or enqueue failure here leaves the job
@@ -507,6 +552,10 @@ def run_once(
             if queue.is_canceled(conn, job.id):
                 _logger.info("job %s (kind=%s) was canceled before completion", job.id, job.kind)
                 return job
+            _, total, _ = last_progress
+            if total is None:
+                total = last_progress[0] or 1
+            report_progress(total, total, "Completed")
             if queue.complete(conn, job.id, result=result, worker_id=worker_id):
                 if (
                     job.document_id is None
@@ -537,6 +586,7 @@ def run_once(
         )
         queue.fail(conn, job.id, error=repr(exc), retry_in_seconds=retry)
     finally:
+        _PROGRESS_REPORTER.reset(token)
         if stop_heartbeat is not None:
             stop_heartbeat()
     return job

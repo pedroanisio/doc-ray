@@ -10,6 +10,9 @@
   td.res strong { display:block; color:var(--ink); font-weight:600; margin-bottom:.15rem; }
   td.res .detail { margin:.15rem 0 0; }
   td.res .action { margin:.25rem 0 0; color:var(--ink); }
+  .progress-line { display:flex; align-items:center; gap:.5rem; margin:.4rem 0 .15rem; }
+  progress.job-progress { width:8rem; max-width:45%; height:.6rem; accent-color:var(--accent); }
+  .progress-stage { margin:.15rem 0 0; color:var(--ink-faint); }
 </style>
 
 <h1>Pipeline status</h1>
@@ -34,6 +37,15 @@
     <td>{{ terms.status_pill(j.status, j.status_label, 'st st-' ~ j.status) }}</td>
     <td class="res">
       <strong>{{ j.outcome.summary }}</strong>
+      {% if j.progress %}
+        {% if j.progress.current is defined and j.progress.total is defined %}
+          <div class="progress-line">
+            <progress class="job-progress" value="{{ j.progress.current }}" max="{{ j.progress.total }}">{{ j.progress.label }}</progress>
+            <span class="mono">{{ j.progress.label }}</span>
+          </div>
+        {% endif %}
+        {% if j.progress.stage %}<p class="progress-stage">{{ j.progress.stage }}</p>{% endif %}
+      {% endif %}
       {% if j.outcome.detail %}<p class="detail">{{ j.outcome.detail }}</p>{% endif %}
       {% if j.outcome.action %}<p class="action">{{ j.outcome.action }}</p>{% endif %}
     </td>

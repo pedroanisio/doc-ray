@@ -370,6 +370,17 @@
               <div style="color:var(--ink-faint)">{{ step.description }}</div>
               {% if step.active %}
                 <span class="pill">{{ step.label }} is {{ step.active_status }}</span>
+                {% if step.progress %}
+                  {% if step.progress.current is defined and step.progress.total is defined %}
+                    <div style="display:flex; align-items:center; gap:.5rem; margin-top:.35rem">
+                      <progress class="job-progress" value="{{ step.progress.current }}" max="{{ step.progress.total }}">{{ step.progress.label }}</progress>
+                      <span class="mono">{{ step.progress.label }}</span>
+                    </div>
+                  {% endif %}
+                  {% if step.progress.stage %}
+                    <div style="color:var(--ink-faint); margin-top:.2rem">{{ step.progress.stage }}</div>
+                  {% endif %}
+                {% endif %}
               {% else %}
                 <form method="post" action="{{ url_for('document_reprocess', doc_id=doc.id) }}" style="margin-top:.35rem">
                   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">

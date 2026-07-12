@@ -37,9 +37,10 @@ source_schema:         "db/migrations"
 # state and per-document soft delete/restore (BL-059, migrations 051/053),
 # then to 1.15.0 by migration 056 for verified document metadata suggestions
 # (BL-061, migration 055), then to 1.16.0 by migration 058 for admin job
-# cancellation (BL-102, migration 057). Kept in
+# cancellation (BL-102, migration 057), then to 1.17.0 by migration 060
+# for first-class async job progress (BL-123, migration 059). Kept in
 # lockstep with doc_ray.__version__ by scripts/check_version_consistency.py.
-source_schema_version: "1.16.0"
+source_schema_version: "1.17.0"
 target_engine:         "PostgreSQL 16"
 total_decisions:       23
 

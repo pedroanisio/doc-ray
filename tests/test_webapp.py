@@ -1425,6 +1425,46 @@ def test_job_status_humanizes_failed_outcome(client, monkeypatch):
     assert "unsupported language." in html
     assert "Restart annotation after the worker or input issue is fixed." in html
     assert "Needs attention" in html
+
+
+def test_job_status_renders_progress_bar_when_reported(client, monkeypatch):
+    running_job = {
+        "id": "job-running",
+        "kind": "annotate",
+        "status": "running",
+        "document_id": DOC_ID,
+        "error": None,
+        "result": None,
+        "created_at": datetime(2026, 7, 4, 12, 0),
+        "started_at": datetime(2026, 7, 4, 12, 0, 5),
+        "finished_at": None,
+        "progress_current": 7,
+        "progress_total": 10,
+        "progress_stage": "annotating sentence batch",
+    }
+
+    def running_q(sql, params=()):
+        if "FROM jobs WHERE document_id" in _norm(sql):
+            return [running_job]
+        return fake_q(sql, params)
+
+    def running_q1(sql, params=()):
+        if "FROM jobs WHERE id" in _norm(sql):
+            return running_job
+        return fake_q1(sql, params)
+
+    monkeypatch.setattr(webapp, "q", running_q)
+    monkeypatch.setattr(webapp, "q1", running_q1)
+
+    html = client.get("/job/job-running").get_data(as_text=True)
+
+    assert 'class="job-progress"' in html
+    assert 'value="7"' in html
+    assert 'max="10"' in html
+    assert "70%" in html
+    assert "annotating sentence batch" in html
+    assert "Keep this page open for live progress." in html
+    assert "Running" in html
     assert "ValueError" not in html
 
 

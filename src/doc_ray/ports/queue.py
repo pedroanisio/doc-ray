@@ -39,6 +39,19 @@ class Queue(Protocol):
         """Refresh a running job's liveness; ``False`` if it was reclaimed/canceled."""
         ...
 
+    def update_progress(
+        self,
+        conn: psycopg.Connection[Any],
+        job_id: str,
+        *,
+        current: int | None,
+        total: int | None,
+        stage: str | None,
+        worker_id: str | None = None,
+    ) -> bool:
+        """Persist a running job's progress; ``False`` if the claim no longer matches."""
+        ...
+
     def is_canceled(self, conn: psycopg.Connection[Any], job_id: str) -> bool:
         """Return whether *job_id* is currently canceled."""
         ...

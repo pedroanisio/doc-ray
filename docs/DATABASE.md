@@ -1,6 +1,6 @@
 # doc-ray — Database ERD & Data Dictionary
 
-**Schema version `1.16.0`** (SemVer) · 58 migrations applied
+**Schema version `1.17.0`** (SemVer) · 60 migrations applied
 
 > Generated from the live schema by `scripts/gen_data_dictionary.py`. Do not edit by hand — re-run the generator.
 
@@ -1203,3 +1203,5 @@ owner's bypass.
 | 056 | `056_schema_version_1_15_0.sql` | advance the schema SemVer to 1.15.0 |
 | 057 | `057_job_cancel_update_policy.sql` | admin-only cancellation update policy for queued/running jobs (BL-102) |
 | 058 | `058_schema_version_1_16_0.sql` | advance the schema SemVer to 1.16.0 |
+| 059 | `059_job_progress.sql` | first-class async job progress fields on jobs (BL-123) |
+| 060 | `060_schema_version_1_17_0.sql` | advance the schema SemVer to 1.17.0 |
