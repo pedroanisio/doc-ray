@@ -2189,16 +2189,21 @@ items:
 
   - id:          "BL-067"
     title:        "SAML SSO for enterprise tenants"
-    summary:      "No SAML implementation exists (grepped: zero hits). Once tenants (BL-065) and an external-identity authenticator (BL-066) exist, enterprise tenants need a SAML option alongside OIDC."
+    summary:      "Tenants can configure SAML IdP metadata/XML and post assertions to a tenant-scoped ACS route that resolves the same Principal model as OIDC."
     description: |
       Enterprise IdPs that don't speak OIDC (ADFS and older Azure AD/Okta
-      configurations are the common case) need SAML. This is scoped as
-      tenant-configurable (a tenant picks OIDC or SAML, not a global switch),
-      which is why it depends on the tenant model rather than being bundled
-      into BL-066.
+      configurations are the common case) need SAML. The implementation is
+      tenant-configurable via tenant_saml_identity_providers: each tenant has
+      its own IdP entity id, metadata URL/XML, service-provider entity id, and
+      ACS settings. The /auth/saml/{tenant_id}/acs route validates issuer,
+      tenant audience, and assertion validity windows, then maps NameID to the
+      same principals.external_subject model as OIDC using
+      saml:{tenant_id}:{NameID}. XMLDSIG verification remains fail-closed
+      unless a tenant explicitly opts into unsigned assertions for local/test
+      IdPs.
     category:     "security"
     type:         "feature"
-    status:       "parked"
+    status:       "done"
     complexity:   "L"
     priority:     "medium"
     rationale:    "Named explicitly in the request as enterprise-tenant-scoped; priority is medium rather than high because no enterprise tenant exists yet to consume it (see BL-065's foundational status)."
@@ -2210,7 +2215,7 @@ items:
     references:
       - "src/doc_ray/entrypoints/api/security.py"
     owner:        "shared"
-    source:       "Gap-analysis 2026-07-05 against a supplied enterprise-IAM checklist; verified absent by grep."
+    source:       "Gap-analysis 2026-07-05 against a supplied enterprise-IAM checklist; verified absent by grep. Completed 2026-07-12 with migration 067 tenant_saml_identity_providers, metadata XML parsing, /auth/saml/{tenant_id}/acs, assertion issuer/audience/time checks, and PostgresSAMLPrincipalResolver mapping SAML NameID to principals.external_subject without forking downstream RBAC/ABAC/audit code."
     tags:         ["security", "auth", "saml", "enterprise"]
 
   - id:          "BL-068"

@@ -42,6 +42,7 @@ from doc_ray.entrypoints.api.context import RequestContext
 from doc_ray.entrypoints.api.loaders import Loaders
 from doc_ray.entrypoints.api.metrics import register_metrics_route
 from doc_ray.entrypoints.api.oidc import OIDCAuthenticator, PostgresOIDCPrincipalResolver
+from doc_ray.entrypoints.api.saml import register_saml_routes
 from doc_ray.entrypoints.api.schema import build_schema
 from doc_ray.entrypoints.api.scim import register_scim_routes
 from doc_ray.entrypoints.api.security import (
@@ -828,6 +829,7 @@ def create_app(cfg: Config | None = None, authenticator: Authenticator | None = 
 
     _register_auth_token_route(app, settings)
     _register_job_events_route(app)
+    register_saml_routes(app)
     register_scim_routes(app, settings)
 
     return app

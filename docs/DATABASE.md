@@ -1,6 +1,6 @@
 # doc-ray — Database ERD & Data Dictionary
 
-**Schema version `1.18.0`** (SemVer) · 66 migrations applied
+**Schema version `1.19.0`** (SemVer) · 68 migrations applied
 
 > Generated from the live schema by `scripts/gen_data_dictionary.py`. Do not edit by hand — re-run the generator.
 
@@ -1289,3 +1289,5 @@ owner's bypass.
 | 064 | `064_abac_sensitive_document_policy.sql` | ABAC sensitive-document write policy helper and explicit sensitive grant |
 | 065 | `065_scim_provisioning.sql` | SCIM-managed principals, groups, and authoritative role-edit guard (BL-068) |
 | 066 | `066_schema_version_1_18_0.sql` | advance the schema SemVer to 1.18.0 |
+| 067 | `067_saml_identity_providers.sql` | tenant-scoped SAML IdP configuration and assertion-consumer settings (BL-067) |
+| 068 | `068_schema_version_1_19_0.sql` | advance the schema SemVer to 1.19.0 |

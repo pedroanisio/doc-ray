@@ -118,6 +118,29 @@ def test_bl068_scim_status_matches_implemented_surfaces():
     assert "DOCRAY_SCIM_TOKENS" in cfg
 
 
+def test_bl067_saml_status_matches_implemented_surfaces():
+    """BL-067 is done only when tenant SAML config maps into Principal."""
+    item = _backlog_item("BL-067")
+    migration = (
+        _ROOT / "db" / "migrations" / "067_saml_identity_providers.sql"
+    ).read_text(encoding="utf-8")
+    api = (_ROOT / "src" / "doc_ray" / "entrypoints" / "api" / "saml.py").read_text(
+        encoding="utf-8"
+    )
+    app = (_ROOT / "src" / "doc_ray" / "entrypoints" / "api" / "app.py").read_text(
+        encoding="utf-8"
+    )
+
+    assert item["status"] == "done"
+    assert "CREATE TABLE IF NOT EXISTS tenant_saml_identity_providers" in migration
+    assert "metadata_xml text" in migration
+    assert "service_provider_entity_id" in migration
+    assert '"/auth/saml/{tenant_id}/acs"' in api
+    assert "PostgresSAMLPrincipalResolver" in api
+    assert "external_subject=f\"saml:{tenant_id}:{subject}\"" in api
+    assert "register_saml_routes(app)" in app
+
+
 def test_dependencies_reference_real_backlog_ids():
     backlog = _backlog()
     ids = {item["id"] for item in backlog["items"]}

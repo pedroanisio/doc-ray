@@ -173,4 +173,9 @@ MIGRATIONS = [
         "SCIM-managed principals, groups, and authoritative role-edit guard (BL-068)",
     ),
     ("066_schema_version_1_18_0", "advance the schema SemVer to 1.18.0"),
+    (
+        "067_saml_identity_providers",
+        "tenant-scoped SAML IdP configuration and assertion-consumer settings (BL-067)",
+    ),
+    ("068_schema_version_1_19_0", "advance the schema SemVer to 1.19.0"),
 ]
