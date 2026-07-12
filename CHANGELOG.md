@@ -23,6 +23,34 @@ doc-ray carries **one global version** covering both the application package
 
 No unreleased changes yet.
 
+## [1.22.0] - 2026-07-12
+
+### Added
+- **Deploy-safe drain release for the job queue** (Claude Fable 5) — a worker
+  that receives SIGTERM now stamps its in-flight job's new
+  `jobs.drain_requested_at` column from the heartbeat thread (migrations 072,
+  073). When the process is SIGKILLed before the handler finishes (deploy
+  stop-grace expiry), the reaper releases the stamped job back to the queue
+  with the claim-time attempt refunded — `error` reads
+  `released: worker shutdown during drain` — instead of burning one of
+  `max_attempts` per deploy. A crash without a drain stamp still spends its
+  attempt, preserving the poison-message bound. Long annotate jobs can no
+  longer be permanently failed by consecutive deploys alone.
+
+### Changed
+- **Annotation jobs get a 4-hour execution budget** (Claude Fable 5) — the
+  compose worker now sets `WORKER_JOB_TIMEOUT_ANNOTATE_SECONDS` and
+  `WORKER_JOB_TIMEOUT_REANNOTATE_SECONDS` to 14400 by default: a
+  15.5k-sentence book was terminally failed at exactly the 3600s default
+  while making steady progress. Other job kinds keep the 1h default.
+
+### Fixed
+- **Retries no longer display the dead attempt's progress** (Claude Fable 5) —
+  claiming a job now clears `progress_current`/`progress_total`/
+  `progress_stage` (and any stale drain stamp), so a reclaimed job's second
+  attempt starts from a clean progress row instead of appearing frozen at the
+  previous attempt's percentage.
+
 ## [1.21.0] - 2026-07-12
 
 ### Added

@@ -28,6 +28,7 @@ def _connect_or_skip():
         pytest.skip(f"DB unreachable: {exc}")
     conn.execute((_MIGRATIONS / "020_jobs.sql").read_text())  # idempotent
     conn.execute((_MIGRATIONS / "059_job_progress.sql").read_text())  # idempotent
+    conn.execute((_MIGRATIONS / "072_jobs_drain_requested_at.sql").read_text())  # idempotent
     return conn
 
 
@@ -222,3 +223,110 @@ def test_heartbeat_and_reap_stale(qconn):
     )
     assert q.reap_stale(conn, older_than_seconds=60) >= 1
     assert q.get(conn, job_id).status is JobStatus.QUEUED  # reclaimed
+
+
+def _backdate_heartbeat(conn, job_id: str) -> None:
+    conn.execute(
+        "UPDATE jobs SET heartbeat_at = now() - interval '1 hour' WHERE id = %s", (job_id,)
+    )
+
+
+def test_crash_reclaim_without_drain_still_burns_an_attempt(qconn):
+    """A worker that dies with no shutdown warning spent its attempt (poison bound)."""
+    conn, created = qconn
+    job_id = q.enqueue(conn, "ingest", {}, priority=-50_000)
+    created.append(job_id)
+
+    q.claim(conn, worker_id="w1")  # attempts -> 1
+    _backdate_heartbeat(conn, job_id)
+    assert q.reap_stale(conn, older_than_seconds=60) >= 1
+
+    row = conn.execute(
+        "SELECT status, attempts, error FROM jobs WHERE id = %s", (job_id,)
+    ).fetchone()
+    assert row["status"] == "queued"
+    assert row["attempts"] == 1  # the crash consumed the attempt
+    assert row["error"] == "reclaimed: stale heartbeat"
+
+
+def test_drained_stale_job_is_released_without_burning_an_attempt(qconn):
+    """A deploy-kill (SIGTERM stamped, then SIGKILL) must not spend an attempt."""
+    conn, created = qconn
+    job_id = q.enqueue(conn, "ingest", {}, priority=-50_000)
+    created.append(job_id)
+
+    q.claim(conn, worker_id="w1")  # attempts -> 1
+    assert q.request_drain(conn, job_id, worker_id="w1") is True
+    _backdate_heartbeat(conn, job_id)
+    assert q.reap_stale(conn, older_than_seconds=60) >= 1
+
+    row = conn.execute(
+        "SELECT status, attempts, drain_requested_at, error FROM jobs WHERE id = %s",
+        (job_id,),
+    ).fetchone()
+    assert row["status"] == "queued"
+    assert row["attempts"] == 0  # refunded: the deploy, not the job, failed
+    assert row["drain_requested_at"] is None
+    assert row["error"] == "released: worker shutdown during drain"
+
+
+def test_drained_job_on_final_attempt_is_requeued_not_failed(qconn):
+    """Deploys must never exhaust a job: even at attempts == max it is released."""
+    conn, created = qconn
+    job_id = q.enqueue(conn, "ingest", {}, max_attempts=1, priority=-50_000)
+    created.append(job_id)
+
+    q.claim(conn, worker_id="w1")  # attempts -> 1 == max_attempts
+    assert q.request_drain(conn, job_id, worker_id="w1") is True
+    _backdate_heartbeat(conn, job_id)
+    assert q.reap_stale(conn, older_than_seconds=60) >= 1
+
+    row = conn.execute("SELECT status, attempts FROM jobs WHERE id = %s", (job_id,)).fetchone()
+    assert row["status"] == "queued"  # not 'failed'
+    assert row["attempts"] == 0
+
+
+def test_request_drain_requires_the_claim_holder(qconn):
+    conn, created = qconn
+    job_id = q.enqueue(conn, "ingest", {}, priority=-50_000)
+    created.append(job_id)
+
+    assert q.request_drain(conn, job_id, worker_id="w1") is False  # not running yet
+    q.claim(conn, worker_id="w1")
+    assert q.request_drain(conn, job_id, worker_id="intruder") is False
+    assert q.request_drain(conn, job_id, worker_id="w1") is True
+    q.complete(conn, job_id, worker_id="w1")
+    assert q.request_drain(conn, job_id, worker_id="w1") is False  # no longer running
+
+
+def test_claim_resets_previous_attempt_progress_and_drain_marker(qconn):
+    """A retry must not display the dead attempt's progress as its own."""
+    conn, created = qconn
+    job_id = q.enqueue(conn, "ingest", {}, priority=-50_000)
+    created.append(job_id)
+
+    q.claim(conn, worker_id="w1")
+    assert q.update_progress(
+        conn, job_id, current=5, total=12, stage="Registering spans", worker_id="w1"
+    )
+    assert q.request_drain(conn, job_id, worker_id="w1") is True
+    _backdate_heartbeat(conn, job_id)
+    assert q.reap_stale(conn, older_than_seconds=60) >= 1
+
+    job = q.claim(conn, worker_id="w2")
+    assert job is not None and job.id == job_id
+    assert job.progress_current is None
+    assert job.progress_total is None
+    assert job.progress_stage is None
+
+    row = conn.execute(
+        "SELECT progress_current, progress_total, progress_stage, drain_requested_at "
+        "FROM jobs WHERE id = %s",
+        (job_id,),
+    ).fetchone()
+    assert row == {
+        "progress_current": None,
+        "progress_total": None,
+        "progress_stage": None,
+        "drain_requested_at": None,
+    }

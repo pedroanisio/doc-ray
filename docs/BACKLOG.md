@@ -299,6 +299,19 @@ regression test drives the real connection lifecycle across two requests,
 because the suite's `client` fixture fakes `q`/`q1` wholesale and structurally
 cannot see transaction bugs.
 
+**2026-07-12 deploy-kill attempt burn (operator health-check triage):** added
+and completed `BL-132` (S/high). Every fleet deploy SIGTERMs the worker;
+long annotate jobs (45–90+ min) cannot finish inside the 120s stop grace, so
+the SIGKILLed orphan was reaped as a stale heartbeat and the claim-time
+attempt increment counted the deploy as a job failure — three deploys
+permanently failed four books. Fixed with a drain stamp
+(`jobs.drain_requested_at`, migrations 072/073): the heartbeat thread marks
+the in-flight job on SIGTERM and the reaper releases stamped jobs back to
+the queue with the attempt refunded, never failing them for exhaustion.
+Crashes without the stamp still spend attempts (poison bound preserved), and
+`claim()` now resets the dead attempt's progress fields so retries stop
+rendering the old percentage.
+
 ## Items
 
 | ID | Item | Category | Type | Status | Cx | Priority | Owner |
@@ -434,6 +447,7 @@ cannot see transaction bugs.
 | BL-129 | Restore the D-015 400-net-LOC gate: 12 files are over the cap after tonight's landings | tooling | tech-debt | ready | L | high | shared |
 | BL-130 | test_api_jwt signed-access-JWT acceptance test fails on clean main | testing | bug | ready | S | high | shared |
 | BL-131 | Webapp collection writes silently rolled back — created collections vanished after the redirect | webapp | bug | done | XS | high | shared |
+| BL-132 | Deploy-kills burned job attempts: long annotate jobs permanently failed by consecutive fleet deploys | ops | bug | done | S | high | shared |
 
 See [`backlog.yml`](backlog.yml) for each item's full description, rationale,
 acceptance criteria, dependencies, related decisions (`D-###`), and references.

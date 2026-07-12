@@ -284,6 +284,12 @@ services:
       S3_SECRET_KEY: ${S3_SECRET_KEY:-minioadmin}
       S3_BUCKET: ${S3_BUCKET:-documents}
       WORKER_JOB_TIMEOUT_SECONDS: ${WORKER_JOB_TIMEOUT_SECONDS:-3600}
+      # Large books (8k-15k sentences) legitimately exceed the 1h default while
+      # annotating: a 15.5k-sentence book was terminally failed at exactly 3600s
+      # (2026-07-12) despite making steady progress. Give the spaCy kinds a 4h
+      # wall-clock budget; every other kind keeps the tighter default above.
+      WORKER_JOB_TIMEOUT_ANNOTATE_SECONDS: ${WORKER_JOB_TIMEOUT_ANNOTATE_SECONDS:-14400}
+      WORKER_JOB_TIMEOUT_REANNOTATE_SECONDS: ${WORKER_JOB_TIMEOUT_REANNOTATE_SECONDS:-14400}
       DOCRAY_RESOLVER_TIMEOUT_SECONDS: ${DOCRAY_RESOLVER_TIMEOUT_SECONDS:-60}
     entrypoint: ["python", "-m", "doc_ray.entrypoints.worker"]
 

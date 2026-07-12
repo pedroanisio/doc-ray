@@ -536,19 +536,42 @@ HANDLERS: dict[str, Handler] = {
 
 
 def _start_heartbeat(
-    conn: psycopg.Connection[Any], job: Job, worker_id: str, interval: float
+    conn: psycopg.Connection[Any],
+    job: Job,
+    worker_id: str,
+    interval: float,
+    shutdown: threading.Event | None = None,
 ) -> Callable[[], None]:
     """Refresh *job*'s heartbeat on a daemon thread; return a stop() callable.
 
     Uses a dedicated connection (never the one the handler is using — psycopg
-    connections are not safe for concurrent use).
+    connections are not safe for concurrent use). When *shutdown* is set while
+    the handler is still running, the thread also stamps the job's drain
+    request (once): if the process is later SIGKILLed mid-handler, the reaper
+    releases the job without spending an attempt instead of treating the
+    deploy-kill as a crash (see ``queue.request_drain``/``queue.reap_stale``).
     """
     stop = threading.Event()
 
     def _beat() -> None:
-        while not stop.wait(interval):
-            with contextlib.suppress(Exception):
-                queue.heartbeat(conn, job.id, worker_id=worker_id)
+        drain_stamped = False
+        since_beat = 0.0
+        # Wake in short slices rather than full intervals: the drain stamp must
+        # land within ~1s of shutdown, or a deploy whose stop-grace is shorter
+        # than the heartbeat interval kills the process before the stamp — which
+        # turns every such deploy back into an attempt-burning "crash" (observed
+        # live 2026-07-12: workers killed seconds after SIGTERM never stamped).
+        step = min(1.0, interval)
+        while not stop.wait(step):
+            if shutdown is not None and shutdown.is_set() and not drain_stamped:
+                with contextlib.suppress(Exception):
+                    queue.request_drain(conn, job.id, worker_id=worker_id)
+                    drain_stamped = True
+            since_beat += step
+            if since_beat >= interval:
+                since_beat = 0.0
+                with contextlib.suppress(Exception):
+                    queue.heartbeat(conn, job.id, worker_id=worker_id)
 
     thread = threading.Thread(target=_beat, daemon=True)
     thread.start()
@@ -569,6 +592,7 @@ def run_once(
     heartbeat_conn: psycopg.Connection[Any] | None = None,
     heartbeat_interval: float = 15.0,
     job_timeouts: Mapping[str, float | None] | None = None,
+    shutdown: threading.Event | None = None,
 ) -> Job | None:
     """Claim one job, dispatch it, and finalize it; return the job (or ``None``).
 
@@ -586,6 +610,9 @@ def run_once(
         heartbeat_conn: Dedicated connection for the heartbeat thread, or ``None``.
         heartbeat_interval: Seconds between heartbeats.
         job_timeouts: Optional per-kind timeout overrides; values <= 0 disable.
+        shutdown: The worker loop's shutdown event; when it is set mid-handler,
+            the heartbeat thread stamps a drain request on the job so a
+            SIGKILL after the stop-grace window does not spend an attempt.
 
     Returns:
         The claimed :class:`Job`, or ``None`` if the queue was empty.
@@ -622,7 +649,7 @@ def run_once(
         queue.fail(conn, job.id, error=f"unknown job kind {job.kind!r}", retry_in_seconds=None)
         return job
     stop_heartbeat = (
-        _start_heartbeat(heartbeat_conn, job, worker_id, heartbeat_interval)
+        _start_heartbeat(heartbeat_conn, job, worker_id, heartbeat_interval, shutdown)
         if heartbeat_conn is not None
         else None
     )

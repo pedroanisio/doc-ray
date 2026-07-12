@@ -4,7 +4,10 @@ Claims jobs with ``SELECT ... FOR UPDATE SKIP LOCKED`` so any number of workers 
 pull disjoint rows with no contention and no double-delivery. ``attempts`` is
 incremented at claim time, so a worker that crashes mid-job still "spends" an
 attempt — bounding poison-message retries. Crash recovery is a heartbeat plus
-:func:`reap_stale`. Chosen over Redis/Celery because Postgres is already the system
+:func:`reap_stale`. The one exception to attempt-spending is a requested drain
+(:func:`request_drain`): a worker killed *after* being asked to shut down was
+stopped by a deploy, not by its job, so the reaper refunds that attempt.
+Chosen over Redis/Celery because Postgres is already the system
 of record: zero new infrastructure, and enqueue is transactional with the writes
 that motivate it.
 
@@ -40,7 +43,11 @@ WITH picked AS (
 )
 UPDATE jobs j
    SET status = 'running', locked_by = %s, started_at = COALESCE(j.started_at, now()),
-       heartbeat_at = now(), attempts = j.attempts + 1
+       heartbeat_at = now(), attempts = j.attempts + 1,
+       -- A fresh attempt starts clean: a dead attempt's progress must not be
+       -- displayed as this attempt's, and its drain stamp must not release us.
+       drain_requested_at = NULL,
+       progress_current = NULL, progress_total = NULL, progress_stage = NULL
   FROM picked
  WHERE j.id = picked.id
 RETURNING j.id, j.kind, j.status, j.payload, j.attempts, j.max_attempts, j.document_id
@@ -260,6 +267,26 @@ def heartbeat(conn: psycopg.Connection[Any], job_id: str, *, worker_id: str) -> 
     return cur.rowcount > 0
 
 
+def request_drain(conn: psycopg.Connection[Any], job_id: str, *, worker_id: str) -> bool:
+    """Mark the running job we hold as draining: its worker was asked to shut down.
+
+    Called from the heartbeat thread when the worker receives SIGTERM but the
+    handler is still running. If the process is SIGKILLed before the handler
+    finishes (deploy stop-grace expiry), :func:`reap_stale` sees the stamp and
+    releases the job without spending an attempt — the deploy failed the worker,
+    not the job. Cleared again on every fresh claim.
+
+    Returns:
+        Whether the stamp landed (``False`` if the claim was already lost).
+    """
+    cur = conn.execute(
+        "UPDATE jobs SET drain_requested_at = now() "
+        "WHERE id = %s AND locked_by = %s AND status = 'running'",
+        (job_id, worker_id),
+    )
+    return cur.rowcount > 0
+
+
 def update_progress(
     conn: psycopg.Connection[Any],
     job_id: str,
@@ -344,15 +371,40 @@ def fail(
 def reap_stale(conn: psycopg.Connection[Any], *, older_than_seconds: float) -> int:
     """Reclaim running jobs with a stale heartbeat; fail those out of attempts.
 
-    Returns the number of rows reclaimed or failed. This is crash recovery: a worker
-    killed mid-job stops heartbeating, so its row is returned to the pool (or failed
-    if it has already exhausted its attempts).
+    Returns the number of rows released, reclaimed, or failed. This is crash
+    recovery: a worker killed mid-job stops heartbeating, so its row is returned
+    to the pool (or failed if it has already exhausted its attempts).
+
+    A stale job whose worker had stamped a drain request is different: that
+    worker was killed by a deploy after being asked to shut down, so the job is
+    released with its claim-time attempt refunded and is never failed for it —
+    otherwise a long job could be exhausted by max_attempts consecutive deploys
+    without ever failing on its own.
     """
     cutoff = "now() - (%s * interval '1 second')"
+    released_rows = conn.execute(
+        f"UPDATE jobs SET status = 'queued', locked_by = NULL, run_after = now(), "
+        f"attempts = GREATEST(attempts - 1, 0), drain_requested_at = NULL, "
+        f"error = 'released: worker shutdown during drain' "
+        f"WHERE status = 'running' AND heartbeat_at < {cutoff} "
+        f"AND drain_requested_at IS NOT NULL "
+        f"RETURNING id, kind, status, document_id, "
+        f"progress_current, progress_total, progress_stage",
+        (older_than_seconds,),
+    ).fetchall()
+    for row in released_rows:
+        _notify_job_event(conn, row)
+    # Both crash branches must exclude drain-stamped rows, not merely run after
+    # the release branch: every statement re-evaluates ``now()``, so a stamped
+    # row crossing the staleness cutoff between one reap's release UPDATE and
+    # another reap's requeue UPDATE (concurrent workers reap every loop) would
+    # otherwise be caught by the stamp-blind branch and burn its attempt —
+    # observed live 2026-07-12, one of four drained jobs lost the race.
     requeued_rows = conn.execute(
         f"UPDATE jobs SET status = 'queued', locked_by = NULL, run_after = now(), "
         f"error = 'reclaimed: stale heartbeat' "
         f"WHERE status = 'running' AND heartbeat_at < {cutoff} AND attempts < max_attempts "
+        f"AND drain_requested_at IS NULL "
         f"RETURNING id, kind, status, document_id, "
         f"progress_current, progress_total, progress_stage",
         (older_than_seconds,),
@@ -363,10 +415,11 @@ def reap_stale(conn: psycopg.Connection[Any], *, older_than_seconds: float) -> i
         f"UPDATE jobs SET status = 'failed', finished_at = now(), locked_by = NULL, "
         f"error = 'reclaimed: stale heartbeat, attempts exhausted' "
         f"WHERE status = 'running' AND heartbeat_at < {cutoff} AND attempts >= max_attempts "
+        f"AND drain_requested_at IS NULL "
         f"RETURNING id, kind, status, document_id, "
         f"progress_current, progress_total, progress_stage",
         (older_than_seconds,),
     ).fetchall()
     for row in exhausted_rows:
         _notify_job_event(conn, row)
-    return len(requeued_rows) + len(exhausted_rows)
+    return len(released_rows) + len(requeued_rows) + len(exhausted_rows)

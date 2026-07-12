@@ -42,6 +42,7 @@ def qconn():
     """A connection whose ``jobs`` table is a private temp shadow."""
     conn = _itdb.connect()
     conn.execute((_MIGRATIONS / "059_job_progress.sql").read_text())
+    conn.execute((_MIGRATIONS / "072_jobs_drain_requested_at.sql").read_text())
     conn.execute("CREATE TEMP TABLE jobs (LIKE public.jobs INCLUDING ALL)")
     yield conn
     conn.close()
@@ -329,6 +330,119 @@ def test_run_once_heartbeat_thread_runs(qconn):
         )
         row = qconn.execute("SELECT status, error FROM jobs WHERE id=%s", (jid,)).fetchone()
         assert row is not None and row["status"] == "succeeded"
+    finally:
+        hb_conn.close()
+
+
+def test_run_once_heartbeat_requests_drain_when_shutdown_is_set(qconn, monkeypatch):
+    """SIGTERM during a job: the heartbeat thread stamps the drain request once.
+
+    The stamp is what lets the reaper tell a deploy-kill from a crash after the
+    process is gone, so it must land while the handler is still running — and
+    only once, not on every subsequent beat.
+    """
+    hb_conn = _itdb.connect()
+    calls: list[tuple[str, str]] = []
+    drained = threading.Event()
+
+    def record_request_drain(conn: Any, job_id: str, *, worker_id: str) -> bool:
+        calls.append((job_id, worker_id))
+        drained.set()
+        return True
+
+    monkeypatch.setattr(jobs_mod.queue, "request_drain", record_request_drain)
+    shutdown = threading.Event()
+    shutdown.set()  # the deploy asked this worker to stop before the job finished
+
+    def slow(conn: Any, store: Any, job: Job) -> dict[str, Any]:
+        assert drained.wait(5.0), "drain was not requested while the handler ran"
+        time.sleep(0.15)  # outlive a few more beats: the stamp must not repeat
+        return {}
+
+    try:
+        jid = queue.enqueue(qconn, "slow", {})
+        jobs_mod.run_once(
+            qconn,
+            None,
+            worker_id="t-drain",
+            handlers={"slow": slow},
+            heartbeat_conn=hb_conn,
+            heartbeat_interval=0.02,
+            shutdown=shutdown,
+        )
+        assert calls == [(jid, "t-drain")]
+        row = qconn.execute("SELECT status FROM jobs WHERE id=%s", (jid,)).fetchone()
+        assert row is not None and row["status"] == "succeeded"  # finished within grace
+    finally:
+        hb_conn.close()
+
+
+def test_run_once_requests_drain_promptly_despite_long_heartbeat_interval(qconn, monkeypatch):
+    """The drain stamp must not wait for the next heartbeat tick.
+
+    Live failure (2026-07-12): a deploy killed workers seconds after SIGTERM,
+    while the first post-SIGTERM heartbeat was up to 15s away — the stamp never
+    landed and every in-flight job burned its attempt as a "crash". The
+    heartbeat thread must notice shutdown within ~1s regardless of interval.
+    """
+    hb_conn = _itdb.connect()
+    drained = threading.Event()
+    monkeypatch.setattr(
+        jobs_mod.queue,
+        "request_drain",
+        lambda conn, job_id, *, worker_id: drained.set() or True,
+    )
+    shutdown = threading.Event()
+    stamped_after = {}
+
+    def slow(conn: Any, store: Any, job: Job) -> dict[str, Any]:
+        start = time.monotonic()
+        shutdown.set()  # SIGTERM arrives mid-handler
+        assert drained.wait(5.0), "drain stamp waited for the heartbeat tick"
+        stamped_after["seconds"] = time.monotonic() - start
+        return {}
+
+    try:
+        queue.enqueue(qconn, "slow", {})
+        jobs_mod.run_once(
+            qconn,
+            None,
+            worker_id="t-prompt",
+            handlers={"slow": slow},
+            heartbeat_conn=hb_conn,
+            heartbeat_interval=30.0,  # a tick the stop-grace window never reaches
+            shutdown=shutdown,
+        )
+        assert stamped_after["seconds"] < 5.0
+    finally:
+        hb_conn.close()
+
+
+def test_run_once_heartbeat_does_not_request_drain_without_shutdown(qconn, monkeypatch):
+    hb_conn = _itdb.connect()
+    calls: list[str] = []
+    monkeypatch.setattr(
+        jobs_mod.queue,
+        "request_drain",
+        lambda conn, job_id, *, worker_id: calls.append(job_id) or True,
+    )
+
+    def slow(conn: Any, store: Any, job: Job) -> dict[str, Any]:
+        time.sleep(0.15)  # several beats with no shutdown requested
+        return {}
+
+    try:
+        queue.enqueue(qconn, "slow", {})
+        jobs_mod.run_once(
+            qconn,
+            None,
+            worker_id="t-nodrain",
+            handlers={"slow": slow},
+            heartbeat_conn=hb_conn,
+            heartbeat_interval=0.02,
+            shutdown=threading.Event(),  # present but never set
+        )
+        assert calls == []
     finally:
         hb_conn.close()
 
@@ -706,6 +820,38 @@ def test_worker_loop_drains_on_sigint(monkeypatch):
         signal.signal(signal.SIGTERM, old_term)
         signal.signal(signal.SIGINT, old_int)
     assert calls["reap"] >= 1 and calls["run"] >= 1
+
+
+def test_worker_loop_hands_its_shutdown_event_to_run_once(monkeypatch):
+    """The drain stamp needs the loop's own shutdown event inside run_once.
+
+    Without this wiring, SIGTERM stops the *loop* but the in-flight job can
+    never learn it is draining — so a later SIGKILL still burns an attempt.
+    """
+    seen: dict[str, Any] = {}
+
+    monkeypatch.setattr(worker_mod.queue, "reap_stale", lambda conn, older_than_seconds: None)
+
+    def capture_run_once(conn: Any, store: Any, **kw: Any) -> None:
+        seen.setdefault("shutdown", kw.get("shutdown"))
+        return None
+
+    monkeypatch.setattr(worker_mod, "run_once", capture_run_once)
+    monkeypatch.setattr(worker_mod, "ObjectStore", lambda cfg: None)
+    monkeypatch.setattr(worker_mod, "_POLL_SECONDS", 0.05)
+
+    old_term = signal.getsignal(signal.SIGTERM)
+    old_int = signal.getsignal(signal.SIGINT)
+    timer = threading.Timer(0.3, lambda: os.kill(os.getpid(), signal.SIGTERM))
+    timer.start()
+    try:
+        assert worker_mod.main() == 0
+    finally:
+        timer.cancel()
+        signal.signal(signal.SIGTERM, old_term)
+        signal.signal(signal.SIGINT, old_int)
+    assert isinstance(seen.get("shutdown"), threading.Event)
+    assert seen["shutdown"].is_set()  # the loop's live event, not a copy
 
 
 def test_worker_loop_recovers_from_dropped_connection(monkeypatch):

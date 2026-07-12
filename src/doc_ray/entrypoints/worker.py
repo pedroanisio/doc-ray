@@ -4,7 +4,10 @@ A synchronous process that runs the blocking machinery (PDF extraction, spaCy) w
 must never touch the API event loop. Scale by running several processes — SELECT ...
 FOR UPDATE SKIP LOCKED coordinates them at the database. Each loop reaps stale jobs
 (crash recovery), claims one, and processes it with a heartbeat so long jobs are not
-reclaimed mid-run. SIGTERM/SIGINT trigger a graceful drain of the in-flight job.
+reclaimed mid-run. SIGTERM/SIGINT trigger a graceful drain of the in-flight job; the
+drain is also stamped on the job row, so if the process is SIGKILLed before the
+handler finishes (deploy stop-grace expiry) the reaper releases the job back to the
+queue without spending an attempt — deploys must never exhaust a job's retries.
 
     python -m doc_ray.entrypoints.worker
 """
@@ -76,6 +79,7 @@ def run(cfg: Config | None = None, *, worker_id: str | None = None) -> int:
                         worker_id=wid,
                         heartbeat_conn=hb_conn,
                         heartbeat_interval=_HEARTBEAT_SECONDS,
+                        shutdown=shutdown,
                     )
                     if job is None:
                         shutdown.wait(_POLL_SECONDS)  # idle: sleep, but wake on shutdown

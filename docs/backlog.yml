@@ -110,7 +110,7 @@ metadata:
   generated_by:     "Claude Sonnet 5 via Claude Code (merge of Claude Opus 4.8 backlog + OpenAI Codex improvement-proposal candidates)"
   generated_on:     "2026-07-05"
   system_of_record: "docs/backlog.yml"
-  total_items:      131
+  total_items:      132
 
 items:
 
@@ -4317,3 +4317,45 @@ items:
     owner:        "shared"
     source:       "Operator bug report 2026-07-12 (screenshot: Collection not found after create). Added and completed the same session."
     tags:         ["webapp", "collections", "transactions", "bug"]
+
+  - id:          "BL-132"
+    title:        "Deploy-kills burned job attempts: long annotate jobs permanently failed by consecutive fleet deploys"
+    summary:      "Operator-reported via pipeline_health_check: 4 annotate jobs (8k-15k-sentence books, 45-90+ min runs) failed with 'reclaimed: stale heartbeat, attempts exhausted'. Each fleet deploy SIGTERMs the worker; the graceful drain cannot finish a long job inside stop_grace_period (120s), so Docker SIGKILLs it, the reaper reclaims the orphan, and the claim-time attempt increment counts the deploy as a job failure. Three deploys during a job's lifetime exhausted max_attempts without the job ever failing on its own."
+    description: |
+      Fixed (TDD, migrations 072/073, schema 1.22.0): on SIGTERM the worker's
+      heartbeat thread stamps the in-flight job's new
+      ``jobs.drain_requested_at`` column (``queue.request_drain``, called
+      once). ``reap_stale`` now releases a stale job carrying the stamp back
+      to 'queued' with the claim-time attempt refunded
+      (``GREATEST(attempts - 1, 0)``, error 'released: worker shutdown
+      during drain') and never fails it for attempt exhaustion — a deploy
+      is an operational event, not a job failure. A crash without the stamp
+      still spends its attempt, preserving the poison-message bound (D-004).
+
+      Claiming a job now also clears the previous attempt's
+      progress_current/progress_total/progress_stage and any stale drain
+      stamp, so a retry no longer renders the dead attempt's percentage as
+      its own (the "frozen at 43%" symptom).
+    category:     "ops"
+    type:         "bug"
+    status:       "done"
+    complexity:   "S"
+    priority:     "high"
+    rationale:    "Attempts exist to bound poison messages, not to count deploys. In a continuously-deployed environment any job longer than the deploy interval times max_attempts is guaranteed to fail permanently despite doing nothing wrong — a livelock between the fleet and the pipeline."
+    acceptance_criteria:
+      - "A running job whose worker stamped a drain request and then went heartbeat-stale is requeued with its claim-time attempt refunded, even at attempts == max_attempts."
+      - "A stale job without the drain stamp behaves exactly as before: requeue spending the attempt, terminal failure once exhausted."
+      - "run_once's heartbeat thread stamps the drain request exactly once when the worker's shutdown event is set, and never when it is not."
+      - "claim() resets progress fields and the drain stamp so retries start from a clean progress row."
+    dependencies: []
+    references:
+      - "db/migrations/072_jobs_drain_requested_at.sql"
+      - "db/migrations/073_schema_version_1_22_0.sql"
+      - "src/doc_ray/adapters/queue_postgres.py"
+      - "src/doc_ray/application/jobs.py"
+      - "src/doc_ray/entrypoints/worker.py"
+      - "src/doc_ray/tests/test_queue.py"
+      - "src/doc_ray/tests/test_jobs_worker.py"
+    owner:        "shared"
+    source:       "Operator health-check triage 2026-07-12 (4 books permanently failed, LLVM book on final attempt). Root cause: worker.py graceful drain + 120s stop grace + claim-time attempt increment. Added and completed the same session."
+    tags:         ["worker", "queue", "reliability", "deploys", "bug"]
