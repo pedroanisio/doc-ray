@@ -32,6 +32,33 @@ doc-ray carries **one global version** covering both the application package
   short-circuits to an empty page via `_clean_uuid`; the mutation now goes
   through `_require_document_write` (per-document grant check + id
   validation, BL-064's pattern). Regression tests cover both.
+- **Container & dependency supply-chain hardening** (Claude Fable 5 via
+  Claude Code) — BL-111, BL-112, BL-114 as one lane; see engineering decision
+  `D-024`:
+  - The app `Dockerfile` is now two stages, both pinning
+    `python:3.12-slim` by `@sha256:` index digest (BL-111 — the same
+    reproducibility argument BL-039 settled for Postgres, which its
+    regression test simply didn't cover for the app's own image). A new
+    `test_app_base_image_is_pinned_to_an_immutable_digest` guards every
+    `FROM` line, so a future multi-stage addition can't quietly float.
+  - Every service built from the image now runs as system user `docray`
+    (uid 10001, no login shell) instead of root (BL-112). `/app` and
+    site-packages stay root-owned and read-only to the app; runtime writes
+    go to tempdirs or `$HOME`; `/certs` is pre-owned so the `nginx-certgen`
+    one-shot bootstraps the `nginxcerts` volume unprivileged. Verified live
+    on an isolated compose stack: every app service healthy as uid 10001,
+    with a full ingest→annotate→semantic_enrich→canonicalize pipeline and a
+    scheduled backup completing end-to-end non-root.
+  - The committed `uv.lock` is now enforced instead of decorative (BL-114):
+    the Dockerfile's deps stage installs the runtime set with
+    `uv sync --locked --no-install-project --no-dev` (build fails on lock
+    drift; uv binary itself digest-pinned; hash-verified installs, including
+    the direct-URL spaCy model), both CI jobs install the same way, and the
+    static job gained an explicit `uv lock --check` drift gate.
+    `requirements-dev.txt` remains the (glob-pinned) source for dev tooling
+    only. New `tests/test_uv_lock_sync.py` enforces lock consistency and
+    the no-plain-pip invariant in both surfaces, with self-tests proving
+    the checker can fail.
 - **CSRF protection on every state-changing webapp form** (Claude Sonnet 5 via
   Claude Code) — upload, backup create/restore, and seeding approve/reject/seed
   were all plain POST forms with no CSRF token, no SameSite reliance

@@ -297,7 +297,12 @@ ruff check src scripts webapp                                   # D-011 (lint + 
 mypy src                                                        # D-012 (strict)
 pytest --cov=doc_ray --cov-fail-under=90 tests src/doc_ray/tests # D-013 (>=90%)
 python scripts/check_file_size.py src/doc_ray webapp scripts    # D-015 (<=400 net LOC)
+uv lock --check                                                 # D-024 (uv.lock drift, BL-114)
 ```
+
+CI and the Docker image install the runtime dependency set from the committed
+`uv.lock` (`uv sync --locked`, D-024) — after editing `requirements.txt`, run
+`uv lock` and commit the refreshed lockfile alongside it.
 
 ## Extending
 

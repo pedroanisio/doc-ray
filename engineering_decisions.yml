@@ -34,7 +34,7 @@ source_schema:         "db/migrations"
 # lockstep with doc_ray.__version__ by scripts/check_version_consistency.py.
 source_schema_version: "1.11.0"
 target_engine:         "PostgreSQL 16"
-total_decisions:       22
+total_decisions:       23
 
 decisions:
 
@@ -1201,5 +1201,94 @@ decisions:
             context:     "ci"
             side_effects: "reads"
             command:     "pytest tests/test_extract_pymupdf.py::test_pymupdf_extractor_surfaces_page_and_bbox_per_run -q"
+            expect:
+              exit:      0
+
+  - id:                 "D-024"
+    title:              "Container & dependency supply-chain hardening: digest-pinned bases, non-root runtime, uv.lock-enforced installs"
+    version_introduced: "1.11.0"
+    category:           "operations"
+    decision: |
+      The app image and its dependency installs are hardened as one
+      supply-chain unit (BL-111, BL-112, BL-114). Every FROM in the
+      Dockerfile (a new deps stage and the runtime stage) pins
+      python:3.12-slim by @sha256: index digest, and the uv binary rides in
+      via an equally digest-pinned COPY --from. The deps stage installs the
+      runtime set with `uv sync --locked --no-install-project --no-dev` into
+      /usr/local — the build fails if uv.lock has drifted from
+      pyproject/requirements.txt — and both CI jobs install the same way,
+      with an explicit `uv lock --check` drift gate; requirements-dev.txt
+      remains the (glob-pinned) source for dev tooling only. The runtime
+      stage creates system user docray (uid 10001, no login shell), switches
+      to it before the ENTRYPOINT, and pre-owns /certs so the nginx-certgen
+      one-shot can bootstrap the nginxcerts volume unprivileged.
+    rationale: |
+      BL-039 already made the reproducibility argument for the Postgres
+      image; the app's own base floated on a mutable tag and its 473KB
+      committed uv.lock was never read by any installer — CI and the shipped
+      image both floated on requirements.txt's glob pins, so a repointed tag
+      or a compromised patch release propagated silently into every service.
+      The worker/api parse untrusted uploads (PDF/EPUB/DOCX) — the same
+      surface BL-088 hardened — so executing them as root maximised the
+      blast radius of any parser CVE; uid 10001 with root-owned, read-only
+      /app and site-packages is the least-privilege baseline at the cost of
+      a few Dockerfile lines. Installing into /usr/local (not a venv) keeps
+      PATH/entrypoints unchanged for all compose services, and
+      --no-install-project (plus a one-file doc_ray/__init__.py metadata
+      shim for the dynamic version) keeps the dependency layer cacheable
+      independently of src/.
+    decision_status:    "accepted"
+    decision_date:      "2026-07-11"
+    owner:              ["pedroanisio@faz.ai"]
+    scope_path:
+      - "Dockerfile"
+      - ".github/workflows/ci.yml"
+      - "uv.lock"
+      - "tests/test_compose_security.py"
+      - "tests/test_uv_lock_sync.py"
+    claims:
+      - claim_id:    "D-024.k1"
+        claim_text:  "Every FROM instruction in the Dockerfile is pinned to an immutable @sha256: digest."
+        auditable:   true
+        status:      "populated"
+        declared_checks_count: 1
+        checks:
+          - check_id:    "D-024.k1.c1"
+            description: "The base-image pin regression test passes."
+            check_kind:  "shell"
+            severity:    "error"
+            context:     "ci"
+            side_effects: "reads"
+            command:     "pytest tests/test_compose_security.py::test_app_base_image_is_pinned_to_an_immutable_digest -q"
+            expect:
+              exit:      0
+      - claim_id:    "D-024.k2"
+        claim_text:  "The runtime image switches to a non-root user before any entrypoint runs."
+        auditable:   true
+        status:      "populated"
+        declared_checks_count: 1
+        checks:
+          - check_id:    "D-024.k2.c1"
+            description: "The non-root USER regression test passes."
+            check_kind:  "shell"
+            severity:    "error"
+            context:     "ci"
+            side_effects: "reads"
+            command:     "pytest tests/test_compose_security.py::test_dockerfile_drops_root_before_the_entrypoint -q"
+            expect:
+              exit:      0
+      - claim_id:    "D-024.k3"
+        claim_text:  "The Dockerfile and both CI jobs install the runtime dependency set from uv.lock, and drift between requirements.txt and uv.lock fails the gates."
+        auditable:   true
+        status:      "populated"
+        declared_checks_count: 1
+        checks:
+          - check_id:    "D-024.k3.c1"
+            description: "The lockfile-enforcement and drift-gate regression tests pass."
+            check_kind:  "shell"
+            severity:    "error"
+            context:     "ci"
+            side_effects: "reads"
+            command:     "pytest tests/test_uv_lock_sync.py -q"
             expect:
               exit:      0

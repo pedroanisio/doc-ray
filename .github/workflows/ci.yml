@@ -15,10 +15,19 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Install dependencies
+      - uses: astral-sh/setup-uv@v5
+        with:
+          version: "0.10.9"
+      - name: uv.lock drift gate (BL-114)
+        run: uv lock --check
+      # Runtime set from the committed lock (BL-114); dev tooling from
+      # requirements-dev.txt on top. Both target setup-python's interpreter so
+      # every later step keeps calling ruff/mypy/pytest unchanged.
+      - name: Install dependencies (locked)
         run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt -r requirements-dev.txt
+          export UV_PROJECT_ENVIRONMENT="$(python -c 'import sys; print(sys.prefix)')"
+          uv sync --locked --no-install-project --no-dev
+          uv pip install --system -r requirements-dev.txt
       - name: Ruff lint (D-011)
         run: ruff check src scripts webapp
       - name: Ruff format check (D-011)
@@ -62,10 +71,15 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Install dependencies
+      - uses: astral-sh/setup-uv@v5
+        with:
+          version: "0.10.9"
+      # Same locked install as the static job (BL-114).
+      - name: Install dependencies (locked)
         run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt -r requirements-dev.txt
+          export UV_PROJECT_ENVIRONMENT="$(python -c 'import sys; print(sys.prefix)')"
+          uv sync --locked --no-install-project --no-dev
+          uv pip install --system -r requirements-dev.txt
       - name: Apply migrations
         run: python -m doc_ray.entrypoints.migrate || echo "migration runner not yet present (pre-Phase-1)"
       - name: DATABASE.md drift gate (BL-047)

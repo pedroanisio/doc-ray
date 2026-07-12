@@ -186,6 +186,25 @@ descriptions corrected on `BL-012`, `BL-051` (phantom MCP entrypoint),
 BL-103/BL-107), `BL-080`, `BL-084`, `BL-086`, `BL-091`, `BL-092`, `BL-111`,
 and `BL-116`; rotted line-number citations replaced with symbol names.
 
+**2026-07-11 supply-chain hardening lane (BL-111, BL-112, BL-114):**
+implemented in worktree `supply-chain-lane` (branch
+`feat/bl-111-112-114-supply-chain`), decision `D-024`. The Dockerfile is now
+two digest-pinned stages: a deps stage that installs the runtime set from the
+committed `uv.lock` (`uv sync --locked` via a digest-pinned uv binary — the
+build fails on lock drift) into `/usr/local`, and a runtime stage that
+switches to system user `docray` (uid 10001) before any entrypoint, with
+`/app`/site-packages root-owned read-only and `/certs` pre-owned so
+`nginx-certgen` bootstraps its volume unprivileged. Both CI jobs install the
+same locked way and the static job gained a `uv lock --check` drift gate. New
+guards: `test_app_base_image_is_pinned_to_an_immutable_digest` and
+`test_dockerfile_drops_root_before_the_entrypoint` (extending BL-039's
+pattern in `tests/test_compose_security.py`) plus `tests/test_uv_lock_sync.py`
+(lock consistency + no-plain-pip in Dockerfile/CI, with self-tests proving the
+checker can fail). Verified live on an isolated compose stack: every app
+service healthy as uid 10001; a full ingest→annotate→semantic_enrich→
+canonicalize pipeline and a scheduled backup ran end-to-end non-root on the
+uv-built image.
+
 ## Items
 
 | ID | Item | Category | Type | Status | Cx | Priority | Owner |
@@ -300,10 +319,10 @@ and `BL-116`; rotted line-number citations replaced with symbol names.
 | BL-108 | GraphQL introspection and GraphiQL are enabled with no production gating | security | bug | done | XS | high | shared |
 | BL-109 | GraphQL write-mutation arguments lack the bounds every read resolver enforces | security | bug | done | S | medium | shared |
 | BL-110 | Malformed UUID arguments leak raw Postgres exception text to GraphQL clients | api | bug | done | S | medium | shared |
-| BL-111 | The app's own Docker base image floats on a mutable tag, unlike Postgres | ops | tech-debt | ready | XS | medium | shared |
-| BL-112 | App containers run as root — no USER directive anywhere in the Dockerfile | security | tech-debt | ready | S | medium | shared |
+| BL-111 | The app's own Docker base image floats on a mutable tag, unlike Postgres | ops | tech-debt | done | XS | medium | shared |
+| BL-112 | App containers run as root — no USER directive anywhere in the Dockerfile | security | tech-debt | done | S | medium | shared |
 | BL-113 | No automated dependency vulnerability scanning, SBOM, or update automation | tooling | infra | parked | M | medium | shared |
-| BL-114 | CI and the Docker build bypass the committed uv.lock; no hash verification | tooling | tech-debt | ready | S | medium | shared |
+| BL-114 | CI and the Docker build bypass the committed uv.lock; no hash verification | tooling | tech-debt | done | S | medium | shared |
 | BL-115 | No structured logging anywhere in src/doc_ray — worker and GraphQL failures produce no durable trace | ops | tech-debt | done | M | high | shared |
 | BL-116 | Webapp: 3 of 5 exception handlers never log to app.logger | webapp | bug | ready | XS | low | shared |
 | BL-117 | No request/correlation-id threading across webapp -> API -> queue -> worker | ops | feature | parked | M | low | shared |

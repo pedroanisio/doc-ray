@@ -3582,9 +3582,13 @@ items:
       Every rebuild resolves whatever `python:3.12-slim` currently is on
       Docker Hub at build time — an upstream tag repoint or a compromised
       base layer propagates silently into every service this image builds.
+      Completed 2026-07-11 (both Dockerfile stages pin
+      python:3.12-slim@sha256:423ed6ab...; the uv COPY --from is digest-pinned
+      too; new test_app_base_image_is_pinned_to_an_immutable_digest guards
+      every FROM line; D-024) on branch feat/bl-111-112-114-supply-chain.
     category:     "ops"
     type:         "tech-debt"
-    status:       "ready"
+    status:       "done"
     complexity:   "XS"
     priority:     "medium"
     rationale:    "The exact reproducibility/supply-chain argument BL-039 already made for Postgres applies identically to the app's own base image, which BL-039's fix and its regression test simply didn't cover."
@@ -3610,9 +3614,17 @@ items:
       decompression-bomb/entity-expansion attacks). Running that parsing
       as root maximizes the blast radius of any future parser CVE or
       container-escape bug.
+      Completed 2026-07-11 (system user docray uid 10001 created and switched
+      to before the ENTRYPOINT; /app and site-packages stay root-owned
+      read-only; /certs pre-owned so nginx-certgen bootstraps its volume
+      unprivileged; verified live on an isolated compose stack — every app
+      service healthy as uid 10001 and a full ingest->annotate->
+      semantic_enrich->canonicalize pipeline plus a scheduled backup ran
+      end-to-end non-root; new test_dockerfile_drops_root_before_the_entrypoint;
+      D-024) on branch feat/bl-111-112-114-supply-chain.
     category:     "security"
     type:         "tech-debt"
-    status:       "ready"
+    status:       "done"
     complexity:   "S"
     priority:     "medium"
     rationale:    "Standard container-hardening baseline (principle of least privilege) that costs a few Dockerfile lines and has no functional downside for this app."
@@ -3672,9 +3684,17 @@ items:
       takeover) is pulled in on the next build. No `--hash=sha256:...`
       entries or `--require-hashes` flag exist anywhere, so package
       integrity is never verified at install time either.
+      Completed 2026-07-11 (Dockerfile deps stage runs `uv sync --locked
+      --no-install-project --no-dev` into /usr/local via a digest-pinned uv
+      binary — the build fails on lock drift; both ci.yml jobs install the
+      same way plus an explicit `uv lock --check` drift-gate step;
+      requirements-dev.txt stays the source for dev tooling; new
+      tests/test_uv_lock_sync.py enforces lock consistency and the
+      no-plain-pip invariant in both surfaces, with self-tests proving the
+      checker can fail; D-024) on branch feat/bl-111-112-114-supply-chain.
     category:     "tooling"
     type:         "tech-debt"
-    status:       "ready"
+    status:       "done"
     complexity:   "S"
     priority:     "medium"
     rationale:    "A committed lockfile that nothing actually installs from is decorative — it creates a false impression of reproducibility while CI and production both float on requirements.txt's looser glob pins."
