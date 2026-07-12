@@ -357,7 +357,7 @@ which is modifying the same queue plumbing as this is written.
 | BL-115 | No structured logging anywhere in src/doc_ray — worker and GraphQL failures produce no durable trace | ops | tech-debt | done | M | high | shared |
 | BL-116 | Webapp: 3 of 5 exception handlers never log to app.logger | webapp | bug | done | XS | low | shared |
 | BL-117 | No request/correlation-id threading across webapp -> API -> queue -> worker | ops | feature | parked | M | low | shared |
-| BL-118 | Zero metrics/tracing integration anywhere in the stack | ops | feature | parked | L | low | shared |
+| BL-118 | Zero metrics/tracing integration anywhere in the stack | ops | feature | done | L | low | shared |
 | BL-119 | Webapp: per-document pipeline reprocess controls (re-extract, re-annotate, re-enrich, re-canonicalize) | webapp | feature | done | S | medium | shared |
 | BL-120 | Webapp: bulk reprocess actions (re-annotate / re-extract across a selection) | webapp | feature | done | S | low | shared |
 | BL-121 | GraphQL Job type omits the queue timing the jobs table already stores | api | tech-debt | done | XS | medium | shared |

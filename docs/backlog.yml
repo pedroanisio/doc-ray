@@ -3815,7 +3815,7 @@ items:
       distinct, larger capability gap.
     category:     "ops"
     type:         "feature"
-    status:       "parked"
+    status:       "done"
     complexity:   "L"
     priority:     "low"
     rationale:    "Point-in-time health checks answer 'is it healthy right now' but not 'how did queue depth trend over the last week' or 'which resolver call is slow' — real capacity planning and performance regression detection need time-series data this repo currently has no way to produce."
@@ -3828,7 +3828,7 @@ items:
       - "src/doc_ray/entrypoints/db_health.py"
       - "webapp/operator_health.py"
     owner:        "shared"
-    source:       "Full-codebase gap-analysis 2026-07-10 (observability subsystem audit)."
+    source:       "Implemented 2026-07-12: the API /metrics endpoint exports Prometheus text for build info, job queue depth/status, completed job counts and duration summaries by kind, last-hour ingest throughput, and in-process GraphQL request duration summaries. Verified by src/doc_ray/tests/test_api_metrics.py."
     tags:         ["ops", "observability", "metrics", "tracing", "feature"]
 
   - id:          "BL-119"
