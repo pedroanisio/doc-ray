@@ -10,9 +10,21 @@ ENV PYTHONPATH=/app/src:/app:/app/scripts:/app/src/doc_ray/tests \
 COPY requirements.txt requirements-dev.txt ./
 RUN uv pip install --system -r requirements.txt -r requirements-dev.txt
 
+COPY pyproject.toml ./
+COPY Dockerfile docker-compose.yml docker-compose.api.yml docker-compose.test.yml ./
+COPY .dockerignore .env.example .env.test.example .gitignore ./
+COPY README.md CHANGELOG.md engineering_decisions.yml uv.lock ./
+COPY src ./src
+COPY tests ./tests
+COPY scripts ./scripts
+COPY webapp ./webapp
+COPY db ./db
+COPY docs ./docs
+COPY docker ./docker
+COPY nginx ./nginx
+
 RUN useradd --system --create-home --home-dir /home/docray-test --uid 10002 \
-      --shell /usr/sbin/nologin docray-test \
-    && chown docray-test:docray-test /app
+      --shell /usr/sbin/nologin docray-test
 USER docray-test
 ENV HOME=/home/docray-test
 

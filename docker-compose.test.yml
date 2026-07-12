@@ -77,7 +77,7 @@ services:
   test-runner:
     build:
       context: .
-      dockerfile: Dockerfile.test
+      dockerfile: docker/test/Dockerfile
     restart: "no"
     depends_on:
       test-createbucket:
@@ -93,8 +93,6 @@ services:
       S3_BUCKET: ${TEST_S3_BUCKET:-documents-test}
       COVERAGE_FILE: /tmp/docray-test.coverage
       PYTEST_ARGS: ${TEST_PYTEST_ARGS:---cov=doc_ray --cov-fail-under=90 tests src/doc_ray/tests -q}
-    volumes:
-      - ./:/app
     entrypoint: ["/bin/sh", "-ec"]
     command: ["python -m pytest -o cache_dir=/tmp/docray-pytest-cache $${PYTEST_ARGS}"]
 

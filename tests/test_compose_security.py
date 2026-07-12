@@ -11,6 +11,7 @@ _ROOT = Path(__file__).resolve().parents[1]
 _COMPOSE_FILES = ("docker-compose.yml", "docker-compose.api.yml")
 _TEST_COMPOSE_FILE = "docker-compose.test.yml"
 _DOCKERFILE = _ROOT / "Dockerfile"
+_TEST_DOCKERFILE = _ROOT / "docker" / "test" / "Dockerfile"
 _PINNED_PGVECTOR_IMAGE = (
     "pgvector/pgvector:pg16@sha256:ad2e18408bf447f62092a8a5259e7df10505c5a0360bd1a1853ac8b8b0763da2"
 )
@@ -197,3 +198,26 @@ def test_test_runner_writes_pytest_and_coverage_outputs_to_container_tmp():
 
     assert runner["environment"]["COVERAGE_FILE"] == "/tmp/docray-test.coverage"
     assert "cache_dir=/tmp/docray-pytest-cache" in runner["command"][0]
+
+
+def test_test_runner_builds_from_a_dedicated_self_contained_test_image():
+    runner = _compose(_TEST_COMPOSE_FILE)["services"]["test-runner"]
+
+    assert runner["build"] == {"context": ".", "dockerfile": "docker/test/Dockerfile"}
+    assert "volumes" not in runner
+
+
+def test_test_dockerfile_copies_sources_tests_and_migrations_into_the_image():
+    text = _TEST_DOCKERFILE.read_text(encoding="utf-8")
+
+    assert "COPY Dockerfile docker-compose.yml docker-compose.api.yml docker-compose.test.yml ./" in text
+    assert "COPY .dockerignore .env.example .env.test.example .gitignore ./" in text
+    assert "COPY README.md CHANGELOG.md engineering_decisions.yml uv.lock ./" in text
+    assert "COPY src ./src" in text
+    assert "COPY tests ./tests" in text
+    assert "COPY scripts ./scripts" in text
+    assert "COPY webapp ./webapp" in text
+    assert "COPY db ./db" in text
+    assert "COPY docs ./docs" in text
+    assert "COPY docker ./docker" in text
+    assert "COPY nginx ./nginx" in text
