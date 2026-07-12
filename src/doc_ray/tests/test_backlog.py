@@ -29,6 +29,10 @@ def _backlog() -> dict:
     return yaml.safe_load(_BACKLOG_YML.read_text(encoding="utf-8"))
 
 
+def _backlog_item(item_id: str) -> dict:
+    return next(item for item in _backlog()["items"] if item["id"] == item_id)
+
+
 def _schema() -> dict:
     return json.loads(_SCHEMA.read_text(encoding="utf-8"))
 
@@ -74,6 +78,23 @@ def test_backlog_md_lists_exactly_the_same_ids_as_backlog_yml():
     yaml_ids = {item["id"] for item in _backlog()["items"]}
     md_ids = set(_BL_ID_RE.findall(_BACKLOG_MD.read_text(encoding="utf-8")))
     assert md_ids == yaml_ids
+
+
+def test_bl065_tenant_foundation_status_matches_implemented_surfaces():
+    """BL-065 is foundational for tenant-aware items, so its status must track code."""
+    item = _backlog_item("BL-065")
+    migration = (_ROOT / "db" / "migrations" / "061_tenant_foundation.sql").read_text(
+        encoding="utf-8"
+    )
+    auth_admin = (_ROOT / "src" / "doc_ray" / "entrypoints" / "auth_admin.py").read_text(
+        encoding="utf-8"
+    )
+
+    assert item["status"] == "done"
+    assert "CREATE TABLE IF NOT EXISTS tenants" in migration
+    assert "ADD COLUMN IF NOT EXISTS tenant_id" in migration
+    assert "CREATE OR REPLACE FUNCTION docray_current_tenant()" in migration
+    assert 'subcommands.add_parser("tenant"' in auth_admin
 
 
 def test_dependencies_reference_real_backlog_ids():

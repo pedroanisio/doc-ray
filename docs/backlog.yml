@@ -2138,7 +2138,7 @@ items:
       view) is blocked on this not existing yet.
     category:     "security"
     type:         "feature"
-    status:       "parked"
+    status:       "done"
     complexity:   "XL"
     priority:     "high"
     rationale:    "Without a tenant primitive, 'tenant-aware RBAC as base' cannot be built — it would have to be retrofitted onto every table and RLS policy a second time. This is the single foundational decision the rest of the requested gap list depends on; sequencing it first avoids rework."
@@ -2151,7 +2151,7 @@ items:
     references:
       - "db/migrations/018_rbac.sql"
     owner:        "shared"
-    source:       "Gap-analysis 2026-07-05 against a supplied enterprise-IAM checklist; verified absent by grep across the schema and application code."
+    source:       "Gap-analysis 2026-07-05 against a supplied enterprise-IAM checklist; verified absent by grep across the schema and application code. Completed 2026-07-12 with migration 061 adding tenants plus default-tenant backfill for principals/documents, tenant-partitioned docray_readable_documents()/docray_writable_documents(), auth-admin tenant create/resolve support, and cross-tenant RLS regression coverage (commit a3bf663)."
     tags:         ["security", "rbac", "multi-tenant", "foundational"]
 
   - id:          "BL-066"
