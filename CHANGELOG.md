@@ -22,6 +22,11 @@ doc-ray carries **one global version** covering both the application package
 ## [Unreleased]
 
 ### Fixed
+- **GraphQL lexeme vocabulary visibility** (Codex GPT-5) — BL-127 makes
+  `lexemes` and `lexeme(uid:)` require at least one RLS-visible occurrence, so
+  anonymous callers can no longer enumerate vocabulary derived only from hidden
+  documents; the webapp lexeme index now follows the same visible-occurrence
+  rule.
 - **Job progress that actually advances, ETA, stalled-job recovery, and a
   guarded corpus-truncate task** (Claude Fable 5 via Claude Code) — closes
   the gaps found verifying BL-123's first landing against the operator's

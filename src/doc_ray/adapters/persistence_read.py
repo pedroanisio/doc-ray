@@ -348,8 +348,20 @@ async def token_counts_by_documents(conn: _AConn, document_ids: list[str]) -> di
 
 
 async def get_lexeme(conn: _AConn, uid: str) -> Row | None:
-    """Return one lexeme by uid, or ``None`` if it does not exist."""
-    return await _row(conn, "SELECT * FROM lexemes WHERE uid = %s", (uid,))
+    """Return one RLS-visible lexeme by uid, or ``None`` if it does not exist."""
+    return await _row(
+        conn,
+        """
+        SELECT l.uid, l.lang, l.pos, l.lemma
+        FROM lexemes l
+        WHERE l.uid = %s
+          AND EXISTS (
+              SELECT 1 FROM lexeme_occurrences o
+              WHERE o.lexeme_uid = l.uid
+          )
+        """,
+        (uid,),
+    )
 
 
 async def list_lexemes(
@@ -388,13 +400,12 @@ async def list_lexemes(
         "after_lemma": cursor["lemma"] if cursor else None,
         "after_uid": cursor["uid"] if cursor else None,
     }
-    if document_id is None:
-        joins = "LEFT JOIN lexeme_occurrences o ON o.lexeme_uid = l.uid"
-    else:
-        # INNER joins: only lexemes present in the document, counted per-document.
-        joins = (
-            "JOIN lexeme_occurrences o ON o.lexeme_uid = l.uid "
-            "JOIN annotations ann ON ann.id = o.annotation_id "
+    joins = "JOIN lexeme_occurrences o ON o.lexeme_uid = l.uid"
+    if document_id is not None:
+        # Restrict to lexemes present in the requested document; RLS still
+        # decides whether that document is visible to the caller.
+        joins += (
+            " JOIN annotations ann ON ann.id = o.annotation_id "
             "AND ann.document_id = %(doc)s::uuid"
         )
         params["doc"] = document_id
