@@ -110,8 +110,10 @@ GROUPS: list[tuple[str, str, list[str]]] = [
     (
         "Access control — RBAC & row-level security",
         "Principals, roles, permissions and per-document ACLs. Every document-scoped "
-        "table above is protected by RLS keyed on these (see §Access control).",
+        "table above is protected by tenant-scoped RLS keyed on these (see §Access "
+        "control).",
         [
+            "tenants",
             "principals",
             "roles",
             "permissions",
@@ -253,6 +255,8 @@ erDiagram
         "Access control (RBAC) — decided per document, inherited via RLS",
         """\
 erDiagram
+    tenants          ||--o{ principals : ""
+    tenants          ||--o{ documents : ""
     principals       ||--o{ principal_roles : ""
     roles            ||--o{ principal_roles : ""
     roles            ||--o{ role_permissions : ""
@@ -266,10 +270,10 @@ erDiagram
 ]
 
 RLS_NARRATIVE = """\
-Authorization is decided **per document** and inherited by every
-document-scoped table. A principal may **read** a document iff it is *admin* or
-holds any `document_acl` row on it, and may **write** iff *admin* or holds an
-`annotate`/`delete`/`admin` grant.
+Authorization is decided **per tenant and per document** and inherited by every
+document-scoped table. A principal may **read** a same-tenant document iff it is
+*admin* or holds any `document_acl` row on it, and may **write** iff *admin* or
+holds an `annotate`/`delete`/`admin` grant.
 
 **Enforcement.** RLS is `ENABLE`d (not `FORCE`) on 36 tables (incl. `jobs` and
 `backups` since migration 043 — BL-064). The `docray`
@@ -285,7 +289,7 @@ SET app.principal_id = '<principal uuid>';
 
 **How the policies work.** Two `SECURITY DEFINER` set-returning helpers,
 `docray_readable_documents()` and `docray_writable_documents()`, compute the
-caller's visible-document set **once per query**. Each table's policies then
+caller's same-tenant visible-document set **once per query**. Each table's policies then
 semi-join the row's owning-document path against that set (see the *RLS path*
 line in each table entry) — the planner turns this into a hashed semi-join
 rather than a per-row function call, so a full scan of a million-row table

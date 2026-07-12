@@ -8,7 +8,11 @@ from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Protocol
 
-from doc_ray.adapters.auth_admin_postgres import PostgresAuthAdminRepository, PrincipalRecord
+from doc_ray.adapters.auth_admin_postgres import (
+    PostgresAuthAdminRepository,
+    PrincipalRecord,
+    TenantRecord,
+)
 from doc_ray.application.auth_admin import (
     ApiTokenEntry,
     append_api_token_entry,
@@ -28,8 +32,21 @@ class AuthAdminRepository(Protocol):
         """Resolve a principal by UUID or display name."""
         ...
 
+    def create_tenant(self, *, slug: str, display_name: str) -> TenantRecord:
+        """Create a tenant."""
+        ...
+
+    def resolve_tenant(self, value: str) -> TenantRecord:
+        """Resolve a tenant by UUID or slug."""
+        ...
+
     def create_principal(
-        self, *, display_name: str, kind: str, external_subject: str | None = None
+        self,
+        *,
+        display_name: str,
+        kind: str,
+        external_subject: str | None = None,
+        tenant_id: str | None = None,
     ) -> PrincipalRecord:
         """Create a principal."""
         ...
@@ -62,6 +79,12 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--database-url", help="Postgres URL; defaults to DATABASE_URL.")
     subcommands = parser.add_subparsers(dest="command", required=True)
 
+    tenant = subcommands.add_parser("tenant", help="Manage tenants.")
+    tenant_commands = tenant.add_subparsers(dest="tenant_command", required=True)
+    tenant_create = tenant_commands.add_parser("create", help="Create or update a tenant.")
+    tenant_create.add_argument("--slug", required=True)
+    tenant_create.add_argument("--display-name", required=True)
+
     principal = subcommands.add_parser("principal", help="Manage principals.")
     principal_commands = principal.add_subparsers(dest="principal_command", required=True)
     principal_create = principal_commands.add_parser(
@@ -70,6 +93,7 @@ def _build_parser() -> argparse.ArgumentParser:
     principal_create.add_argument("--display-name", required=True)
     principal_create.add_argument("--kind", choices=["human", "service"], default="human")
     principal_create.add_argument("--external-subject")
+    principal_create.add_argument("--tenant", help="Tenant UUID or slug for the principal.")
     principal_create.add_argument(
         "--role", choices=["reader", "curator", "admin"], action="append", default=[]
     )
@@ -134,6 +158,8 @@ def main(
     factory = repo_factory or PostgresAuthAdminRepository.from_database_url
     repo = factory(database_url)
     try:
+        if args.command == "tenant" and args.tenant_command == "create":
+            return _tenant_create(args, repo)
         if args.command == "principal" and args.principal_command == "create":
             return _principal_create(args, repo)
         if args.command == "token" and args.token_command == "mint":
@@ -155,18 +181,28 @@ def main(
     return 2
 
 
+def _tenant_create(args: argparse.Namespace, repo: AuthAdminRepository) -> int:
+    tenant = repo.create_tenant(slug=args.slug, display_name=args.display_name)
+    print(
+        f"tenant_id={tenant.id} slug={tenant.slug} display_name={tenant.display_name}"
+    )
+    return 0
+
+
 def _principal_create(args: argparse.Namespace, repo: AuthAdminRepository) -> int:
+    tenant = repo.resolve_tenant(args.tenant) if args.tenant else None
     principal = repo.create_principal(
         display_name=args.display_name,
         kind=args.kind,
         external_subject=args.external_subject,
+        tenant_id=tenant.id if tenant else None,
     )
     for role_name in args.role:
         repo.assign_role(principal.id, role_name)
     role_text = ",".join(args.role) if args.role else "(none)"
     print(
         f"principal_id={principal.id} display_name={principal.display_name} "
-        f"kind={principal.kind} roles={role_text}"
+        f"kind={principal.kind} tenant_id={principal.tenant_id} roles={role_text}"
     )
     return 0
 

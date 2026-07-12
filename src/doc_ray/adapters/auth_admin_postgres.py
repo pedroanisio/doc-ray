@@ -11,6 +11,15 @@ from psycopg.rows import dict_row
 
 
 @dataclass(frozen=True)
+class TenantRecord:
+    """A tenant row needed by auth administration commands."""
+
+    id: str
+    slug: str
+    display_name: str
+
+
+@dataclass(frozen=True)
 class PrincipalRecord:
     """A row from ``principals`` needed by auth administration commands."""
 
@@ -18,6 +27,7 @@ class PrincipalRecord:
     display_name: str
     kind: str
     external_subject: str | None
+    tenant_id: str
 
 
 class PostgresAuthAdminRepository:
@@ -48,7 +58,8 @@ class PostgresAuthAdminRepository:
             column = "id"
             params = (value,)
         row = self._conn.execute(
-            f"SELECT id, display_name, kind, external_subject FROM principals WHERE {column} = %s",
+            f"SELECT id, display_name, kind, external_subject, tenant_id "
+            f"FROM principals WHERE {column} = %s",
             params,
         ).fetchone()
         if row is None:
@@ -56,19 +67,56 @@ class PostgresAuthAdminRepository:
         return _principal_from_row(row)
 
     def create_principal(
-        self, *, display_name: str, kind: str, external_subject: str | None = None
+        self,
+        *,
+        display_name: str,
+        kind: str,
+        external_subject: str | None = None,
+        tenant_id: str | None = None,
     ) -> PrincipalRecord:
         """Create a principal, or return the existing row with the same display name."""
         row = self._conn.execute(
-            "INSERT INTO principals (kind, display_name, external_subject) "
-            "VALUES (%s, %s, %s) "
-            "ON CONFLICT (display_name) DO UPDATE SET display_name = EXCLUDED.display_name "
-            "RETURNING id, display_name, kind, external_subject",
-            (kind, display_name, external_subject),
+            "INSERT INTO principals (kind, display_name, external_subject, tenant_id) "
+            "VALUES (%s, %s, %s, COALESCE(%s::uuid, docray_default_tenant_id())) "
+            "ON CONFLICT (display_name) DO UPDATE SET "
+            "display_name = EXCLUDED.display_name, "
+            "tenant_id = COALESCE(EXCLUDED.tenant_id, principals.tenant_id) "
+            "RETURNING id, display_name, kind, external_subject, tenant_id",
+            (kind, display_name, external_subject, tenant_id),
         ).fetchone()
         if row is None:  # pragma: no cover - RETURNING makes this unreachable
             raise RuntimeError(f"failed to create principal: {display_name}")
         return _principal_from_row(row)
+
+    def create_tenant(self, *, slug: str, display_name: str) -> TenantRecord:
+        """Create a tenant, or update its display name if it already exists."""
+        row = self._conn.execute(
+            "INSERT INTO tenants (slug, display_name) VALUES (%s, %s) "
+            "ON CONFLICT (slug) DO UPDATE SET display_name = EXCLUDED.display_name "
+            "RETURNING id, slug, display_name",
+            (slug, display_name),
+        ).fetchone()
+        if row is None:  # pragma: no cover - RETURNING makes this unreachable
+            raise RuntimeError(f"failed to create tenant: {slug}")
+        return _tenant_from_row(row)
+
+    def resolve_tenant(self, value: str) -> TenantRecord:
+        """Resolve a tenant by UUID or slug."""
+        column = "slug"
+        try:
+            UUID(value)
+        except ValueError:
+            params = (value,)
+        else:
+            column = "id"
+            params = (value,)
+        row = self._conn.execute(
+            f"SELECT id, slug, display_name FROM tenants WHERE {column} = %s",
+            params,
+        ).fetchone()
+        if row is None:
+            raise ValueError(f"unknown tenant: {value}")
+        return _tenant_from_row(row)
 
     def assign_role(self, principal_id: str, role_name: str) -> None:
         """Assign a named RBAC role to a principal."""
@@ -111,4 +159,14 @@ def _principal_from_row(row: dict[str, Any]) -> PrincipalRecord:
         external_subject=(
             str(row["external_subject"]) if row.get("external_subject") is not None else None
         ),
+        tenant_id=str(row["tenant_id"]),
+    )
+
+
+def _tenant_from_row(row: dict[str, Any]) -> TenantRecord:
+    """Map a ``tenants`` row to a public record."""
+    return TenantRecord(
+        id=str(row["id"]),
+        slug=str(row["slug"]),
+        display_name=str(row["display_name"]),
     )

@@ -1,6 +1,6 @@
 # doc-ray — Database ERD & Data Dictionary
 
-**Schema version `1.17.0`** (SemVer) · 60 migrations applied
+**Schema version `1.17.0`** (SemVer) · 61 migrations applied
 
 > Generated from the live schema by `scripts/gen_data_dictionary.py`. Do not edit by hand — re-run the generator.
 
@@ -116,6 +116,8 @@ erDiagram
 
 ```mermaid
 erDiagram
+    tenants          ||--o{ principals : ""
+    tenants          ||--o{ documents : ""
     principals       ||--o{ principal_roles : ""
     roles            ||--o{ principal_roles : ""
     roles            ||--o{ role_permissions : ""
@@ -171,16 +173,19 @@ format metadata) are decomposed to their own relations (4NF); blobs live in obje
 | `lifecycle_state` | text |  |  | `'active'::text` |  |
 | `archived_at` | timestamp with time zone | yes |  |  |  |
 | `deleted_at` | timestamp with time zone | yes |  |  |  |
+| `tenant_id` | uuid |  | FK→tenants | `docray_default_tenant_id()` |  |
 
 - **Primary key:** (id)
 - **Unique:** UNIQUE (content_sha256)
 - **FK:** FOREIGN KEY (derived_from) REFERENCES documents(id) ON DELETE SET NULL
+- **FK:** FOREIGN KEY (tenant_id) REFERENCES tenants(id)
 - **Check:** CHECK ((lifecycle_state = ANY (ARRAY['active'::text, 'archived'::text, 'deleted'::text])))
 - **Check:** CHECK ((((lifecycle_state = 'active'::text) AND (archived_at IS NULL) AND (deleted_at IS NULL)) OR ((lifecycle_state = 'archived'::text) AND (archived_at IS NOT NULL) AND (deleted_at IS NULL)) OR ((lifecycle_state = 'deleted'::text) AND (deleted_at IS NOT NULL))))
 - **Index** `documents_content_sha256_key`: public.documents USING btree (content_sha256)
 - **Index** `idx_documents_derived_from`: public.documents USING btree (derived_from)
 - **Index** `idx_documents_lifecycle_state`: public.documents USING btree (lifecycle_state, updated_at DESC)
 - **Index** `idx_documents_status`: public.documents USING btree (status)
+- **Index** `idx_documents_tenant`: public.documents USING btree (tenant_id)
 - **Index** `idx_documents_type_created`: public.documents USING btree (doc_type, created_at DESC)
 - **RLS:** enabled — read/write policies via *id (self)*
 
@@ -815,7 +820,24 @@ pgvector embeddings over spans, ANN-indexed with HNSW (cosine).
 ### 5.10 Access control — RBAC & row-level security
 
 Principals, roles, permissions and per-document ACLs. Every document-scoped table above is protected
-by RLS keyed on these (see §Access control).
+by tenant-scoped RLS keyed on these (see §Access control).
+
+#### `tenants`
+
+Tenant partition catalogue; the default tenant preserves existing deployments.
+
+| Column | Type | Null | Key | Default | Notes |
+|---|---|---|---|---|---|
+| `id` | uuid |  | PK | `gen_random_uuid()` |  |
+| `slug` | text |  | UQ |  |  |
+| `display_name` | text |  |  |  |  |
+| `disabled_at` | timestamp with time zone | yes |  |  |  |
+| `created_at` | timestamp with time zone |  |  | `now()` |  |
+
+- **Primary key:** (id)
+- **Unique:** UNIQUE (slug)
+- **Check:** CHECK ((slug ~ '^[a-z0-9][a-z0-9-]*$'::text))
+- **Index** `tenants_slug_key`: public.tenants USING btree (slug)
 
 #### `principals`
 
@@ -828,12 +850,15 @@ by RLS keyed on these (see §Access control).
 | `disabled_at` | timestamp with time zone | yes |  |  |  |
 | `created_at` | timestamp with time zone |  |  | `now()` |  |
 | `db_role` | name | yes | UQ |  |  |
+| `tenant_id` | uuid |  | FK→tenants | `docray_default_tenant_id()` |  |
 
 - **Primary key:** (id)
 - **Unique:** UNIQUE (db_role)
 - **Unique:** UNIQUE (display_name)
+- **FK:** FOREIGN KEY (tenant_id) REFERENCES tenants(id)
 - **Check:** CHECK (((db_role IS NULL) OR (db_role <> ALL (ARRAY['docray'::name, 'docray_client'::name, 'docray_api'::name]))))
 - **Check:** CHECK ((kind = ANY (ARRAY['human'::text, 'service'::text])))
+- **Index** `idx_principals_tenant`: public.principals USING btree (tenant_id)
 - **Index** `principals_db_role_key`: public.principals USING btree (db_role)
 - **Index** `principals_display_name_key`: public.principals USING btree (display_name)
 
@@ -1080,6 +1105,8 @@ SELECT a.document_id,
 | `docray_attach_rls(tbl regclass, tmpl text)` | `void` | invoker | plpgsql |
 | `docray_create_principal_login(principal uuid, role_name name, password text DEFAULT NULL::text)` | `name` | DEFINER | plpgsql |
 | `docray_current_principal()` | `uuid` | DEFINER | sql |
+| `docray_current_tenant()` | `uuid` | DEFINER | sql |
+| `docray_default_tenant_id()` | `uuid` | DEFINER | sql |
 | `docray_effective_actor()` | `name` | invoker | sql |
 | `docray_is_admin()` | `boolean` | DEFINER | sql |
 | `docray_readable_documents()` | `SETOF uuid` | DEFINER | sql |
@@ -1100,10 +1127,10 @@ SELECT a.document_id,
 
 ## 8. Access control (RBAC + RLS)
 
-Authorization is decided **per document** and inherited by every
-document-scoped table. A principal may **read** a document iff it is *admin* or
-holds any `document_acl` row on it, and may **write** iff *admin* or holds an
-`annotate`/`delete`/`admin` grant.
+Authorization is decided **per tenant and per document** and inherited by every
+document-scoped table. A principal may **read** a same-tenant document iff it is
+*admin* or holds any `document_acl` row on it, and may **write** iff *admin* or
+holds an `annotate`/`delete`/`admin` grant.
 
 **Enforcement.** RLS is `ENABLE`d (not `FORCE`) on 36 tables (incl. `jobs` and
 `backups` since migration 043 — BL-064). The `docray`
@@ -1119,7 +1146,7 @@ SET app.principal_id = '<principal uuid>';
 
 **How the policies work.** Two `SECURITY DEFINER` set-returning helpers,
 `docray_readable_documents()` and `docray_writable_documents()`, compute the
-caller's visible-document set **once per query**. Each table's policies then
+caller's same-tenant visible-document set **once per query**. Each table's policies then
 semi-join the row's owning-document path against that set (see the *RLS path*
 line in each table entry) — the planner turns this into a hashed semi-join
 rather than a per-row function call, so a full scan of a million-row table
@@ -1205,3 +1232,4 @@ owner's bypass.
 | 058 | `058_schema_version_1_16_0.sql` | advance the schema SemVer to 1.16.0 |
 | 059 | `059_job_progress.sql` | first-class async job progress fields on jobs (BL-123) |
 | 060 | `060_schema_version_1_17_0.sql` | advance the schema SemVer to 1.17.0 |
+| 061 | `061_tenant_foundation.sql` | tenant catalogue plus tenant-scoped principals, documents, and RLS helpers |

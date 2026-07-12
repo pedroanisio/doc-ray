@@ -17,6 +17,8 @@ from doc_ray.application.auth_admin import (
     upsert_env_value,
 )
 
+_ROOT = Path(__file__).resolve().parents[3]
+
 
 def test_parse_scope_text_sorts_and_rejects_empty_scopes():
     assert parse_scope_text("write+read") == frozenset({"read", "write"})
@@ -111,3 +113,41 @@ def test_postgres_repository_creates_principal_role_and_document_grant(pg):
     assert grant_row["permission"] == "annotate"
 
     conn.execute("DELETE FROM principals WHERE id = %s", (principal.id,))
+
+
+def test_tenant_foundation_migration_adds_tenant_partitioning_sql():
+    sql = (_ROOT / "db/migrations/061_tenant_foundation.sql").read_text(encoding="utf-8")
+
+    assert "CREATE TABLE IF NOT EXISTS tenants" in sql
+    assert "ALTER TABLE principals" in sql and "ADD COLUMN IF NOT EXISTS tenant_id" in sql
+    assert "ALTER TABLE documents" in sql and "ADD COLUMN IF NOT EXISTS tenant_id" in sql
+    assert "CREATE OR REPLACE FUNCTION docray_current_tenant()" in sql
+    assert "d.tenant_id = docray_current_tenant()" in sql
+    assert "default tenant" in sql
+
+
+def test_postgres_repository_creates_tenant_scoped_principal(pg):
+    conn, _created = pg
+    repo = PostgresAuthAdminRepository(conn)
+    suffix = _itdb.unique_sha()[:8]
+    tenant_slug = f"tenant-{suffix}"
+    principal_name = f"tenant-principal-{suffix}"
+
+    conn.execute((_ROOT / "db/migrations/061_tenant_foundation.sql").read_text())
+    tenant = repo.create_tenant(slug=tenant_slug, display_name=f"Tenant {suffix}")
+    principal = repo.create_principal(
+        display_name=principal_name,
+        kind="service",
+        tenant_id=tenant.id,
+    )
+
+    row = conn.execute(
+        "SELECT tenant_id FROM principals WHERE id = %s",
+        (principal.id,),
+    ).fetchone()
+
+    assert principal.tenant_id == tenant.id
+    assert str(row["tenant_id"]) == tenant.id
+
+    conn.execute("DELETE FROM principals WHERE id = %s", (principal.id,))
+    conn.execute("DELETE FROM tenants WHERE id = %s", (tenant.id,))

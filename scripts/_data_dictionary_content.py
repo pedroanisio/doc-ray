@@ -151,4 +151,8 @@ MIGRATIONS = [
         "first-class async job progress fields on jobs (BL-123)",
     ),
     ("060_schema_version_1_17_0", "advance the schema SemVer to 1.17.0"),
+    (
+        "061_tenant_foundation",
+        "tenant catalogue plus tenant-scoped principals, documents, and RLS helpers",
+    ),
 ]

@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from doc_ray.adapters.auth_admin_postgres import PrincipalRecord
+from doc_ray.adapters.auth_admin_postgres import PrincipalRecord, TenantRecord
 from doc_ray.entrypoints import auth_admin
 
 
@@ -18,27 +18,53 @@ class FakeRepository:
         display_name="alice",
         kind="human",
         external_subject=None,
+        tenant_id="00000000-0000-0000-0000-000000000010",
     )
 
     def __post_init__(self) -> None:
-        self.created: list[tuple[str, str, str | None]] = []
+        self.tenant: TenantRecord = TenantRecord(
+            id="00000000-0000-0000-0000-000000000010",
+            slug="default",
+            display_name="Default tenant",
+        )
+        self.tenants: list[tuple[str, str]] = []
+        self.created: list[tuple[str, str, str | None, str | None]] = []
         self.roles: list[tuple[str, str]] = []
         self.grants: list[tuple[str, str, str]] = []
         self.logins: list[tuple[str, str, str | None]] = []
+
+    def create_tenant(self, *, slug: str, display_name: str) -> TenantRecord:
+        self.tenants.append((slug, display_name))
+        self.tenant = TenantRecord(
+            id="00000000-0000-0000-0000-000000000011",
+            slug=slug,
+            display_name=display_name,
+        )
+        return self.tenant
+
+    def resolve_tenant(self, value: str) -> TenantRecord:
+        assert value in {self.tenant.id, self.tenant.slug}
+        return self.tenant
 
     def resolve_principal(self, value: str) -> PrincipalRecord:
         assert value in {self.principal.id, self.principal.display_name}
         return self.principal
 
     def create_principal(
-        self, *, display_name: str, kind: str, external_subject: str | None = None
+        self,
+        *,
+        display_name: str,
+        kind: str,
+        external_subject: str | None = None,
+        tenant_id: str | None = None,
     ) -> PrincipalRecord:
-        self.created.append((display_name, kind, external_subject))
+        self.created.append((display_name, kind, external_subject, tenant_id))
         self.principal = PrincipalRecord(
             id="00000000-0000-0000-0000-000000000002",
             display_name=display_name,
             kind=kind,
             external_subject=external_subject,
+            tenant_id=tenant_id or self.tenant.id,
         )
         return self.principal
 
@@ -64,9 +90,38 @@ def test_principal_create_assigns_requested_roles(capsys):
     )
 
     assert rc == 0
-    assert repo.created == [("bob", "service", None)]
+    assert repo.created == [("bob", "service", None, None)]
     assert repo.roles == [("00000000-0000-0000-0000-000000000002", "admin")]
     assert "principal_id=00000000-0000-0000-0000-000000000002" in capsys.readouterr().out
+
+
+def test_tenant_create_prints_tenant_id_and_slug(capsys):
+    repo = FakeRepository()
+
+    rc = auth_admin.main(
+        ["tenant", "create", "--slug", "acme", "--display-name", "Acme Corp"],
+        repo_factory=lambda _database_url: repo,
+    )
+
+    assert rc == 0
+    assert repo.tenants == [("acme", "Acme Corp")]
+    out = capsys.readouterr().out
+    assert "tenant_id=00000000-0000-0000-0000-000000000011" in out
+    assert "slug=acme" in out
+
+
+def test_principal_create_accepts_tenant_slug(capsys):
+    repo = FakeRepository()
+    repo.create_tenant(slug="acme", display_name="Acme Corp")
+
+    rc = auth_admin.main(
+        ["principal", "create", "--display-name", "bob", "--tenant", "acme"],
+        repo_factory=lambda _database_url: repo,
+    )
+
+    assert rc == 0
+    assert repo.created == [("bob", "human", None, "00000000-0000-0000-0000-000000000011")]
+    assert "tenant_id=00000000-0000-0000-0000-000000000011" in capsys.readouterr().out
 
 
 def test_token_mint_appends_env_entry_without_printing_env_file_contents(tmp_path: Path, capsys):

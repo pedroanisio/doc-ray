@@ -54,3 +54,52 @@ def test_direct_client_role_cannot_impersonate_principal_with_guc(pg):
         conn.execute("RESET ROLE")
         conn.execute("DELETE FROM principals WHERE id IN (%s, %s)", (principal_a, principal_b))
         conn.execute(sql.SQL("DROP ROLE IF EXISTS {}").format(sql.Identifier(role_a)))
+
+
+def test_tenant_partition_blocks_cross_tenant_acl_misconfiguration(pg):
+    """A tenant-A principal cannot read tenant-B docs even with an erroneous ACL."""
+    import _itdb
+
+    conn, created = pg
+    conn.execute((_ROOT / "db/migrations/061_tenant_foundation.sql").read_text())
+    tenant_a = conn.execute(
+        "INSERT INTO tenants (slug, display_name) VALUES (%s, %s) "
+        "ON CONFLICT (slug) DO UPDATE SET display_name = EXCLUDED.display_name "
+        "RETURNING id",
+        ("tenant-a-" + new_ulid_str().lower(), "Tenant A"),
+    ).fetchone()["id"]
+    tenant_b = conn.execute(
+        "INSERT INTO tenants (slug, display_name) VALUES (%s, %s) "
+        "ON CONFLICT (slug) DO UPDATE SET display_name = EXCLUDED.display_name "
+        "RETURNING id",
+        ("tenant-b-" + new_ulid_str().lower(), "Tenant B"),
+    ).fetchone()["id"]
+    doc_a = _itdb.make_doc(conn, "Visible to tenant A.")
+    doc_b = _itdb.make_doc(conn, "Hidden tenant B.")
+    created.extend([doc_a, doc_b])
+    conn.execute("UPDATE documents SET tenant_id = %s WHERE id = %s", (tenant_a, doc_a))
+    conn.execute("UPDATE documents SET tenant_id = %s WHERE id = %s", (tenant_b, doc_b))
+    role_a = f"docray_tenant_{new_ulid_str()[-10:].lower()}"
+    principal_a = conn.execute(
+        "INSERT INTO principals (kind, display_name, tenant_id) VALUES ('human', %s, %s) "
+        "RETURNING id",
+        (f"tenant-principal-{role_a}", tenant_a),
+    ).fetchone()["id"]
+    conn.execute(
+        "INSERT INTO document_acl (document_id, principal_id, permission) "
+        "VALUES (%s,%s,'read'), (%s,%s,'read')",
+        (doc_a, principal_a, doc_b, principal_a),
+    )
+
+    try:
+        conn.execute("SELECT docray_create_principal_login(%s, %s)", (principal_a, role_a))
+        conn.execute(sql.SQL("SET ROLE {}").format(sql.Identifier(role_a)))
+        rows = conn.execute("SELECT id FROM documents ORDER BY id").fetchall()
+
+        assert [str(row["id"]) for row in rows] == [doc_a]
+    finally:
+        conn.execute("RESET ROLE")
+        conn.execute("DELETE FROM principals WHERE id = %s", (principal_a,))
+        conn.execute("DELETE FROM documents WHERE id IN (%s, %s)", (doc_a, doc_b))
+        conn.execute("DELETE FROM tenants WHERE id IN (%s, %s)", (tenant_a, tenant_b))
+        conn.execute(sql.SQL("DROP ROLE IF EXISTS {}").format(sql.Identifier(role_a)))
