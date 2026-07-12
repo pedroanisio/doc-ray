@@ -33,6 +33,22 @@
       <span class="nav-group nav-admin">
         <a href="{{ url_for('backups') }}" class="{{ 'on' if request.endpoint in ['backups','backups_create','backups_restore','backups_download'] }}">Backups</a>
       </span>
+      {% if current_auth_session %}
+      <span class="nav-group nav-account">
+        <a href="{{ url_for('profile') }}" class="{{ 'on' if request.endpoint == 'profile' }}">Profile</a>
+        <form method="post" action="{{ url_for('logout') }}" class="nav-inline-form">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <button type="submit" class="nav-link-button">Logout</button>
+        </form>
+      </span>
+      {% elif web_auth_required %}
+      <span class="nav-group nav-account">
+        <a href="{{ url_for('login') }}" class="{{ 'on' if request.endpoint in ['login','login_submit'] }}">Login</a>
+        {% if local_registration_available %}
+        <a href="{{ url_for('register_form') }}" class="{{ 'on' if request.endpoint in ['register_form','register_submit'] }}">Register</a>
+        {% endif %}
+      </span>
+      {% endif %}
     </nav>
     <button class="toggle" onclick="toggleTheme()" title="Toggle light / dark" aria-label="Toggle theme">
       <span class="sun">☀</span><span class="moon">☾</span>

@@ -79,6 +79,32 @@ header nav a { position:relative; color:var(--ink-soft); font-family:var(--mono)
   padding:.5rem .72rem; border-radius:var(--r-sm); transition:color .15s, background .15s; }
 header nav a:hover { color:var(--ink); background:var(--accent-wash); text-decoration:none; }
 header nav a.on { color:var(--accent); }
+.nav-inline-form {
+  display: inline-flex;
+  margin: 0;
+}
+.nav-link-button {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  min-height: 60px;
+  padding: 0 .9rem;
+  background: transparent;
+  border: 0;
+  border-right: 1px solid var(--line-soft);
+  border-radius: 0;
+  color: var(--ink-soft);
+  font-family: var(--mono);
+  font-size: .72rem;
+  font-weight: 800;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+.nav-link-button:hover {
+  color: var(--ink);
+  background: var(--accent-wash);
+}
 header nav a.on::after { content:""; position:absolute; left:.72rem; right:.72rem; bottom:.06rem;
   height:2px; background:var(--accent); border-radius:2px; }
 .toggle { display:inline-flex; align-items:center; gap:.2rem; background:var(--panel);
@@ -203,6 +229,25 @@ mark { background:var(--sel); color:inherit; padding:0 .14em; border-radius:3px;
 .notice, .errbox { font-family:var(--mono); font-size:.72rem; padding:.5rem .8rem;
   border:1px solid var(--line); border-radius:4px; margin:.6rem 0; }
 .errbox { color:var(--accent); border-color:var(--accent); }
+.kv {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: .6rem 1rem;
+  margin: 0;
+}
+.kv dt {
+  color: var(--ink-faint);
+  font-family: var(--mono);
+  font-size: .68rem;
+  font-weight: 800;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+.kv dd {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
 
 /* Status pill, rendered by the shared _terms.html status_pill() macro.
    job.html and seeding.html defined byte-for-byte the same "st st-<word>"

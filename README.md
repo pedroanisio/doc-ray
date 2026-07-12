@@ -182,7 +182,10 @@ reader principals; admin remains a seeded/operator-managed role. Document and
 data visibility still follows the same Postgres RLS policies after login. Set
 `DOCRAY_API_JWT_SECRET` so `/auth/login` can mint short-lived API access tokens;
 leave `DOCRAY_AUTH_EXPOSE_VERIFICATION_TOKEN=false` outside local diagnostics
-and deliver verification tokens by email.
+and deliver verification tokens by email. When local, OIDC, or SAML web auth is
+configured, anonymous browser requests are redirected to login and do not fall
+back to `DOCRAY_PRINCIPAL_ID`; set `DOCRAY_WEBAPP_REQUIRE_AUTH=true` to enforce
+the same boundary explicitly.
 
 The webapp (`docker compose up -d webapp`, serving on
 `http://127.0.0.1:5001`; or locally `flask --app webapp.app run --port 5001`)

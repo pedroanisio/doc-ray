@@ -177,6 +177,19 @@ app.after_request(apply_security_headers)
 # --- web auth session ------------------------------------------------------
 
 
+_AUTH_PUBLIC_ENDPOINTS = {
+    "static",
+    "login",
+    "login_submit",
+    "register_form",
+    "register_submit",
+    "verify_email_form",
+    "oidc_callback",
+    "saml_callback",
+    "logout",
+}
+
+
 def _auth_state() -> str:
     """Mint and store a login CSRF state token."""
     state = secrets.token_urlsafe(32)
@@ -230,6 +243,16 @@ def _establish_auth_session(principal: AuthenticatedWebPrincipal) -> None:
     session["_auth_sid"] = sid
 
 
+def _current_auth_session():
+    sid = session.get("_auth_sid")
+    if not sid:
+        return None
+    record = auth_sessions.get(sid)
+    if record is None:
+        session.pop("_auth_sid", None)
+    return record
+
+
 def _session_principal_id() -> tuple[str | None, bool]:
     sid = session.get("_auth_sid")
     if not sid:
@@ -247,6 +270,8 @@ def _request_principal_id() -> str | None:
         return principal_id
     if had_auth_session:
         return None
+    if _web_auth_required():
+        return None
     return PRINCIPAL_ID
 
 
@@ -263,6 +288,50 @@ def _local_auth_enabled() -> bool:
 
 def _local_registration_enabled() -> bool:
     return _env_bool("DOCRAY_AUTH_REGISTRATION_ENABLED", False)
+
+
+def _oidc_auth_enabled() -> bool:
+    return bool(os.environ.get("DOCRAY_WEBAPP_OIDC_AUTHORIZATION_URL", "").strip())
+
+
+def _saml_auth_enabled() -> bool:
+    return bool(os.environ.get("DOCRAY_WEBAPP_SAML_SSO_URL", "").strip())
+
+
+def _web_auth_required() -> bool:
+    return (
+        _env_bool("DOCRAY_WEBAPP_REQUIRE_AUTH", False)
+        or _local_auth_enabled()
+        or _oidc_auth_enabled()
+        or _saml_auth_enabled()
+    )
+
+
+def require_webapp_auth():
+    """Block anonymous browser reads when a web auth provider is configured."""
+    if not _web_auth_required():
+        return None
+    if request.endpoint in _AUTH_PUBLIC_ENDPOINTS:
+        return None
+    principal_id, _had_auth_session = _session_principal_id()
+    if principal_id:
+        return None
+    if request.method in {"GET", "HEAD"}:
+        return redirect(url_for("login"))
+    return "webapp authentication required\n", 401
+
+
+app.before_request(require_webapp_auth)
+
+
+@app.context_processor
+def inject_auth_navigation():
+    """Expose browser-auth state to global templates."""
+    return {
+        "current_auth_session": _current_auth_session(),
+        "web_auth_required": _web_auth_required(),
+        "local_registration_available": _local_auth_enabled() and _local_registration_enabled(),
+    }
 
 
 def _local_auth_service() -> LocalAuthService:
@@ -419,6 +488,17 @@ def verify_email_form():
     session.pop("pending_verification_email", None)
     session.pop("pending_verification_token", None)
     return redirect(url_for("documents"))
+
+
+@app.get("/profile")
+def profile():
+    """Show the current server-side browser auth session."""
+    record = _current_auth_session()
+    if record is None:
+        if _web_auth_required():
+            return redirect(url_for("login"))
+        return "webapp login is not configured", 404
+    return render_template("profile.html", auth_session=record)
 
 
 @app.get("/auth/oidc/callback")

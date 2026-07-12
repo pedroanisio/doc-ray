@@ -97,3 +97,78 @@ def test_webapp_verify_email_establishes_session(monkeypatch) -> None:
     assert record is not None
     assert record.principal_id == principal_id
     assert record.subject == "local:alice@example.com"
+
+
+def test_webapp_header_shows_login_and_register_when_anonymous(monkeypatch) -> None:
+    webapp.auth_sessions.reset()
+    monkeypatch.setenv("DOCRAY_AUTH_LOCAL_ENABLED", "true")
+    monkeypatch.setenv("DOCRAY_AUTH_REGISTRATION_ENABLED", "true")
+
+    resp = webapp.app.test_client().get("/login")
+
+    assert resp.status_code == 200
+    body = resp.get_data(as_text=True)
+    assert 'href="/login"' in body
+    assert 'href="/register"' in body
+    assert 'href="/profile"' not in body
+    assert 'action="/logout"' not in body
+
+
+def test_webapp_header_shows_profile_and_logout_when_authenticated(monkeypatch) -> None:
+    webapp.auth_sessions.reset()
+    monkeypatch.setenv("DOCRAY_AUTH_LOCAL_ENABLED", "true")
+    sid = webapp.auth_sessions.create(
+        principal_id="dddddddd-dddd-dddd-dddd-dddddddddddd",
+        subject="local:alice@example.com",
+    )
+    client = webapp.app.test_client()
+    with client.session_transaction() as sess:
+        sess["_auth_sid"] = sid
+
+    resp = client.get("/login")
+
+    assert resp.status_code == 200
+    body = resp.get_data(as_text=True)
+    assert 'href="/profile"' in body
+    assert 'action="/logout"' in body
+    assert 'href="/login"' not in body
+
+
+def test_webapp_profile_page_shows_current_session(monkeypatch) -> None:
+    webapp.auth_sessions.reset()
+    sid = webapp.auth_sessions.create(
+        principal_id="eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee",
+        subject="local:alice@example.com",
+    )
+    client = webapp.app.test_client()
+    with client.session_transaction() as sess:
+        sess["_auth_sid"] = sid
+
+    resp = client.get("/profile")
+
+    assert resp.status_code == 200
+    body = resp.get_data(as_text=True)
+    assert "local:alice@example.com" in body
+    assert "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee" in body
+
+
+def test_webapp_requires_auth_for_corpus_when_local_auth_enabled(monkeypatch) -> None:
+    webapp.auth_sessions.reset()
+    monkeypatch.setenv("DOCRAY_AUTH_LOCAL_ENABLED", "true")
+    monkeypatch.setenv("DOCRAY_PRINCIPAL_ID", "ffffffff-ffff-ffff-ffff-ffffffffffff")
+    monkeypatch.setattr(webapp, "q", lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError))
+    monkeypatch.setattr(webapp, "q1", lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError))
+
+    resp = webapp.app.test_client().get("/")
+
+    assert resp.status_code == 302
+    assert resp.headers["Location"].endswith("/login")
+
+
+def test_webapp_uses_no_env_principal_fallback_when_auth_required(monkeypatch) -> None:
+    webapp.auth_sessions.reset()
+    monkeypatch.setenv("DOCRAY_AUTH_LOCAL_ENABLED", "true")
+    monkeypatch.setattr(webapp, "PRINCIPAL_ID", "ffffffff-ffff-ffff-ffff-ffffffffffff")
+
+    with webapp.app.test_request_context("/"):
+        assert webapp._request_principal_id() is None
