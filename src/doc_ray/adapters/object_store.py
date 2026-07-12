@@ -2,10 +2,24 @@
 
 from __future__ import annotations
 
+import warnings
+from urllib.parse import urlparse
+
 import boto3
 from botocore.client import Config as BotoConfig
 
 from doc_ray.config import Config
+
+
+def _warn_if_plaintext_endpoint(cfg: Config) -> None:
+    parsed = urlparse(cfg.s3_endpoint)
+    if parsed.scheme.lower() == "http" and not cfg.s3_allow_insecure_endpoint:
+        warnings.warn(
+            "S3_ENDPOINT uses plaintext http://; use https:// for non-local object stores "
+            "or set S3_ALLOW_INSECURE_ENDPOINT=1 only for local development.",
+            RuntimeWarning,
+            stacklevel=3,
+        )
 
 
 class ObjectStore:
@@ -17,8 +31,11 @@ class ObjectStore:
         Args:
             cfg: Runtime configuration carrying the S3 endpoint and credentials.
         """
+        _warn_if_plaintext_endpoint(cfg)
         self._bucket = cfg.s3_bucket
         self.bucket = cfg.s3_bucket  # public: recorded in provenance
+        self._server_side_encryption = cfg.s3_server_side_encryption
+        self._sse_kms_key_id = cfg.s3_sse_kms_key_id
         self._client = boto3.client(
             "s3",
             endpoint_url=cfg.s3_endpoint,
@@ -54,12 +71,17 @@ class ObjectStore:
         Returns:
             The canonical ``s3://bucket/key`` URI of the stored object.
         """
-        self._client.put_object(
-            Bucket=self._bucket,
-            Key=key,
-            Body=data,
-            ContentType=content_type,
-        )
+        put_kwargs: dict[str, object] = {
+            "Bucket": self._bucket,
+            "Key": key,
+            "Body": data,
+            "ContentType": content_type,
+        }
+        if self._server_side_encryption:
+            put_kwargs["ServerSideEncryption"] = self._server_side_encryption
+            if self._sse_kms_key_id:
+                put_kwargs["SSEKMSKeyId"] = self._sse_kms_key_id
+        self._client.put_object(**put_kwargs)
         return f"s3://{self._bucket}/{key}"
 
     def get(self, key: str) -> bytes:

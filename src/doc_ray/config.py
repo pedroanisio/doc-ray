@@ -29,6 +29,12 @@ def _env_float(name: str, default: float) -> float:
     return default if raw is None or raw.strip() == "" else float(raw)
 
 
+def _env_optional_str(name: str) -> str | None:
+    """Read a non-empty string environment variable."""
+    raw = os.environ.get(name)
+    return None if raw is None or raw.strip() == "" else raw.strip()
+
+
 def _parse_api_tokens(raw: str | None) -> ApiTokenMap:
     """Parse ``DOCRAY_API_TOKENS`` into token -> (principal, scopes).
 
@@ -73,6 +79,11 @@ class Config:
         s3_secret_key: Secret key for the object store.
         s3_bucket: Name of the bucket holding original document bytes.
         s3_region: Region the object store reports itself in.
+        s3_allow_insecure_endpoint: Whether a plaintext ``http://`` object-store
+            endpoint is an explicitly accepted local-development configuration.
+        s3_server_side_encryption: Optional S3 SSE algorithm to request on writes,
+            e.g. ``AES256`` or ``aws:kms``.
+        s3_sse_kms_key_id: Optional KMS key id/alias sent when using KMS-backed SSE.
         api_pool_min_size: Minimum async API pool size.
         api_pool_max_size: Maximum async API pool size.
         api_pool_timeout: Seconds to wait for an API pool connection.
@@ -102,6 +113,9 @@ class Config:
     s3_secret_key: str
     s3_bucket: str
     s3_region: str
+    s3_allow_insecure_endpoint: bool = False
+    s3_server_side_encryption: str | None = None
+    s3_sse_kms_key_id: str | None = None
     api_pool_min_size: int = 1
     api_pool_max_size: int = 10
     api_pool_timeout: float = 10.0
@@ -132,6 +146,9 @@ class Config:
             s3_secret_key=os.environ.get("S3_SECRET_KEY", "minioadmin"),
             s3_bucket=os.environ.get("S3_BUCKET", "documents"),
             s3_region=os.environ.get("S3_REGION", "us-east-1"),
+            s3_allow_insecure_endpoint=_env_bool("S3_ALLOW_INSECURE_ENDPOINT", False),
+            s3_server_side_encryption=_env_optional_str("S3_SERVER_SIDE_ENCRYPTION"),
+            s3_sse_kms_key_id=_env_optional_str("S3_SSE_KMS_KEY_ID"),
             api_pool_min_size=_env_int("DOCRAY_API_POOL_MIN_SIZE", 1),
             api_pool_max_size=_env_int("DOCRAY_API_POOL_MAX_SIZE", 10),
             api_pool_timeout=_env_float("DOCRAY_API_POOL_TIMEOUT", 10.0),

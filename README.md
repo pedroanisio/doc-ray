@@ -232,6 +232,12 @@ pip install -r requirements.txt
 python -m doc_ray.entrypoints.cli static/fixtures/AirFrance447_BEA.pdf
 ```
 
+For object storage outside local MinIO, use an `https://` `S3_ENDPOINT`. A
+plaintext `http://` endpoint emits a runtime warning unless
+`S3_ALLOW_INSECURE_ENDPOINT=1` is set as an explicit local-development opt-in.
+Set `S3_SERVER_SIDE_ENCRYPTION=AES256` or `aws:kms` to request S3 server-side
+encryption on writes; use `S3_SSE_KMS_KEY_ID` with KMS-backed encryption.
+
 PDF extraction defaults to PyMuPDF with a pypdf fallback. Math-heavy corpora can
 opt into an external Docling/Marker/Nougat-style backend by setting
 `DOCRAY_PDF_MATH_BACKEND=external` and `DOCRAY_PDF_MATH_BACKEND_CMD`; that

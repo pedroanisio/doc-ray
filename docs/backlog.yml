@@ -3229,7 +3229,7 @@ items:
       actively closing (BL-039/040/041).
     category:     "security"
     type:         "tech-debt"
-    status:       "parked"
+    status:       "done"
     complexity:   "M"
     priority:     "medium"
     rationale:    "Matches the same hardening bar already applied to Postgres (BL-041's default-credential refusal, BL-039's pinned image) — object storage is the other half of where document bytes live and currently has none of that scrutiny."
@@ -3241,7 +3241,7 @@ items:
       - "src/doc_ray/adapters/object_store.py"
       - "src/doc_ray/config.py"
     owner:        "shared"
-    source:       "Full-codebase gap-analysis 2026-07-10 (object-storage subsystem audit)."
+    source:       "Full-codebase gap-analysis 2026-07-10 (object-storage subsystem audit). Completed 2026-07-12 with plaintext S3 endpoint RuntimeWarning unless explicitly opted into local insecure mode, plus configurable S3 ServerSideEncryption/SSEKMSKeyId headers on object writes and documented env knobs."
     tags:         ["security", "storage", "encryption", "tech-debt"]
 
   - id:          "BL-100"
