@@ -299,6 +299,69 @@ def test_request_drain_requires_the_claim_holder(qconn):
     assert q.request_drain(conn, job_id, worker_id="w1") is False  # no longer running
 
 
+def test_reclaim_measures_started_at_from_the_current_attempt(qconn):
+    """ETA and runtime derive from started_at; preserving the first attempt's
+    start made a fresh retry show hours of elapsed time and absurd ETAs
+    (live 2026-07-12: a re-claimed job read "~8m left" seconds in)."""
+    conn, created = qconn
+    job_id = q.enqueue(conn, "ingest", {}, priority=-50_000)
+    created.append(job_id)
+
+    q.claim(conn, worker_id="w1")
+    conn.execute(
+        "UPDATE jobs SET started_at = now() - interval '2 hours', "
+        "heartbeat_at = now() - interval '1 hour' WHERE id = %s",
+        (job_id,),
+    )
+    assert q.reap_stale(conn, older_than_seconds=60) >= 1
+
+    q.claim(conn, worker_id="w2")
+    row = conn.execute(
+        "SELECT started_at > now() - interval '10 minutes' AS fresh FROM jobs WHERE id = %s",
+        (job_id,),
+    ).fetchone()
+    assert row["fresh"] is True
+
+
+def test_reap_clears_stale_progress_on_released_and_requeued_rows(qconn):
+    """A queued row must not display a dead attempt's percentage while it
+    waits for a worker (release path and crash-requeue path alike)."""
+    conn, created = qconn
+    job_id = q.enqueue(conn, "ingest", {}, priority=-50_000)
+    created.append(job_id)
+
+    q.claim(conn, worker_id="w1")
+    assert q.update_progress(conn, job_id, current=5, total=12, stage="Registering", worker_id="w1")
+    assert q.request_drain(conn, job_id, worker_id="w1") is True
+    _backdate_heartbeat(conn, job_id)
+    assert q.reap_stale(conn, older_than_seconds=60) >= 1
+    row = conn.execute(
+        "SELECT status, progress_current, progress_total, progress_stage FROM jobs WHERE id = %s",
+        (job_id,),
+    ).fetchone()
+    assert row == {
+        "status": "queued",
+        "progress_current": None,
+        "progress_total": None,
+        "progress_stage": None,
+    }
+
+    q.claim(conn, worker_id="w2")
+    assert q.update_progress(conn, job_id, current=3, total=12, stage="Parsing", worker_id="w2")
+    _backdate_heartbeat(conn, job_id)  # crash: no drain stamp this time
+    assert q.reap_stale(conn, older_than_seconds=60) >= 1
+    row = conn.execute(
+        "SELECT status, progress_current, progress_total, progress_stage FROM jobs WHERE id = %s",
+        (job_id,),
+    ).fetchone()
+    assert row == {
+        "status": "queued",
+        "progress_current": None,
+        "progress_total": None,
+        "progress_stage": None,
+    }
+
+
 def test_claim_resets_previous_attempt_progress_and_drain_marker(qconn):
     """A retry must not display the dead attempt's progress as its own."""
     conn, created = qconn

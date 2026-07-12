@@ -22,6 +22,27 @@ doc-ray carries **one global version** covering both the application package
 ## [Unreleased]
 
 ### Fixed
+- **Pipeline polish pass** (Claude Fable 5 via Claude Code) — BL-134, four
+  root-cause fixes from the 2026-07-12 incident review, each with a
+  regression test:
+  - *Janitor reap thread*: `reap_stale` only ran between jobs, so with every
+    worker busy inside a long handler an orphaned job waited for a free slot
+    before recovery (observed live: 45+ minutes). A daemon thread now reaps
+    every `WORKER_REAP_SECONDS` (default 30) on fresh short-lived
+    connections, surviving any tick error.
+  - *Attempt-relative `started_at`*: claiming preserved the first attempt's
+    start, so a retry's ETA/runtime read hours of elapsed time at zero
+    progress ("~8m left" seconds into a fresh attempt). Claim now stamps
+    `started_at = now()`.
+  - *Progress hygiene on reap*: released and crash-requeued rows clear
+    `progress_current/total/stage`, so queued jobs no longer display a dead
+    attempt's percentage while waiting (terminally failed rows keep theirs
+    for forensics).
+  - *Layout fetch without correlated subqueries*: the staged-span filter
+    (JOIN, later EXISTS) against the unindexed `_span_stage` temp table
+    degenerates to an O(rows x spans) nested loop in the planner; the
+    geometry pass is log-linear and deduplicating since BL-133, so the
+    document's runs are fetched once, bounded by document size.
 - **Span-geometry backfill is no longer quadratic** (Claude Fable 5 via
   Claude Code) — BL-133, the root cause behind the 2026-07-12
   "Registering N annotation spans" stalls and the execution-timeout failure:

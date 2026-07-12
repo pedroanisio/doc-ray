@@ -110,7 +110,7 @@ metadata:
   generated_by:     "Claude Sonnet 5 via Claude Code (merge of Claude Opus 4.8 backlog + OpenAI Codex improvement-proposal candidates)"
   generated_on:     "2026-07-05"
   system_of_record: "docs/backlog.yml"
-  total_items:      133
+  total_items:      134
 
 items:
 
@@ -4395,3 +4395,39 @@ items:
     owner:        "shared"
     source:       "Operator directive 2026-07-12: 'fully fix the ingestion of document b5d35171...' + 'fix root causes, and add regression tests when needed.' Root-caused from the JobExecutionTimeout traceback frame (persistence.py:134) and 34-minute phase-5 stalls."
     tags:         ["nlp", "performance", "extraction", "geometry", "bug"]
+
+  - id:          "BL-134"
+    title:        "Pipeline polish: janitor reap, attempt-relative started_at, reap progress hygiene"
+    summary:      "Four root-cause fixes from the 2026-07-12 incident review, each regression-tested: (1) reap_stale only ran between jobs, so with all workers busy an orphaned job waited 45+ minutes for recovery; (2) claim preserved the first attempt's started_at, so retry ETA/runtime read hours of elapsed time at zero progress; (3) reap left a dead attempt's progress on queued rows; (4) the staged-span layout filter (JOIN, later EXISTS) against the unindexed _span_stage temp table degenerates to an O(rows x spans) nested loop inside the planner."
+    description: |
+      Janitor: a daemon thread in the worker reaps every WORKER_REAP_SECONDS
+      (default 30) on fresh short-lived connections, surviving any tick
+      error, so stale jobs are released/reclaimed promptly even while every
+      worker slot is occupied by hours-long handlers.
+
+      Claim now stamps started_at = now() (attempt-relative); release and
+      crash-requeue reap branches clear progress fields (terminally failed
+      rows keep theirs for forensics); _update_span_geometry_from_layout
+      fetches the document's layout runs once (bounded by document size) and
+      lets the BL-133 log-linear geometry pass discard non-overlapping rows.
+    category:     "ops"
+    type:         "tech-debt"
+    status:       "done"
+    complexity:   "S"
+    priority:     "high"
+    rationale:    "Each item is a residual sharp edge from the day's incidents: recovery latency, misleading operator-facing ETAs, stale progress display, and a re-introducible quadratic in SQL form."
+    acceptance_criteria:
+      - "A stale job is reaped within ~WORKER_REAP_SECONDS while the worker's claim loop is blocked inside a long handler, and janitor tick errors never crash the process."
+      - "A re-claimed job's started_at reflects the current attempt."
+      - "Released and crash-requeued rows carry no progress fields while queued."
+      - "The layout fetch contains no correlated predicate against _span_stage."
+    dependencies: ["BL-132", "BL-133"]
+    references:
+      - "src/doc_ray/entrypoints/worker.py"
+      - "src/doc_ray/adapters/queue_postgres.py"
+      - "src/doc_ray/adapters/persistence.py"
+      - "src/doc_ray/tests/test_jobs_worker.py"
+      - "src/doc_ray/tests/test_queue.py"
+    owner:        "shared"
+    source:       "Operator directive 2026-07-12: 'run an full refine/enhance/polish pass on the pipeline' + 'fix root causes, and add regression tests when needed.'"
+    tags:         ["worker", "queue", "ops", "performance", "tech-debt"]

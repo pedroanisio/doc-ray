@@ -4,10 +4,12 @@ A synchronous process that runs the blocking machinery (PDF extraction, spaCy) w
 must never touch the API event loop. Scale by running several processes — SELECT ...
 FOR UPDATE SKIP LOCKED coordinates them at the database. Each loop reaps stale jobs
 (crash recovery), claims one, and processes it with a heartbeat so long jobs are not
-reclaimed mid-run. SIGTERM/SIGINT trigger a graceful drain of the in-flight job; the
-drain is also stamped on the job row, so if the process is SIGKILLed before the
-handler finishes (deploy stop-grace expiry) the reaper releases the job back to the
-queue without spending an attempt — deploys must never exhaust a job's retries.
+reclaimed mid-run; a janitor thread also reaps on a timer so orphaned jobs are
+recovered even while every worker is busy inside a long handler. SIGTERM/SIGINT
+trigger a graceful drain of the in-flight job; the drain is also stamped on the job
+row, so if the process is SIGKILLed before the handler finishes (deploy stop-grace
+expiry) the reaper releases the job back to the queue without spending an attempt —
+deploys must never exhaust a job's retries.
 
     python -m doc_ray.entrypoints.worker
 """
@@ -39,6 +41,11 @@ _CLAIM_TIMEOUT_SECONDS = float(os.environ.get("WORKER_CLAIM_TIMEOUT_SECONDS", "1
 #: that a transient blip recovers quickly, long enough not to hot-loop against a
 #: database that is genuinely still down.
 _RECONNECT_BACKOFF_SECONDS = float(os.environ.get("WORKER_RECONNECT_BACKOFF_SECONDS", "2"))
+#: Janitor cadence: how often stale jobs are reaped independently of the claim
+#: loop. The between-jobs reap stops the moment this worker starts a long job,
+#: so without the janitor an orphaned job waits for a free slot before being
+#: recovered (observed live 2026-07-12: 45+ minutes with all workers busy).
+_REAP_SECONDS = float(os.environ.get("WORKER_REAP_SECONDS", "30"))
 
 
 def _kinds_from_env(name: str) -> tuple[str, ...] | None:
@@ -52,6 +59,28 @@ def _kinds_from_env(name: str) -> tuple[str, ...] | None:
 #: metadata edits, backups) never queue behind hours-long NLP runs.
 _ONLY_KINDS = _kinds_from_env("WORKER_ONLY_KINDS")
 _EXCLUDE_KINDS = _kinds_from_env("WORKER_EXCLUDE_KINDS")
+
+
+def _reap_once(settings: Config) -> int:
+    """One janitor tick: reap stale jobs on a fresh, short-lived connection.
+
+    A fresh connection per tick (at most every ``_REAP_SECONDS``) is cheap and
+    self-healing: a dropped connection affects one tick and the next one
+    reconnects, with no coordination with the claim loop's connections.
+    """
+    with db.connect(settings) as conn:
+        return queue.reap_stale(conn, older_than_seconds=_CLAIM_TIMEOUT_SECONDS)
+
+
+def _janitor_loop(settings: Config, shutdown: threading.Event) -> None:
+    """Reap stale jobs on a timer until *shutdown*, surviving any tick error."""
+    while not shutdown.wait(_REAP_SECONDS):
+        try:
+            reaped = _reap_once(settings)
+            if reaped:
+                _logger.info("janitor reaped %d stale job(s)", reaped)
+        except Exception:
+            _logger.debug("janitor reap tick failed; retrying next tick", exc_info=True)
 
 
 def run(cfg: Config | None = None, *, worker_id: str | None = None) -> int:
@@ -74,6 +103,11 @@ def run(cfg: Config | None = None, *, worker_id: str | None = None) -> int:
 
     signal.signal(signal.SIGTERM, _request_shutdown)
     signal.signal(signal.SIGINT, _request_shutdown)
+
+    janitor = threading.Thread(
+        target=_janitor_loop, args=(settings, shutdown), daemon=True, name="janitor"
+    )
+    janitor.start()
 
     # Two connections: one for claim/dispatch, one dedicated to the heartbeat thread.
     # A connection-level error (dropped network, Postgres restart) is caught at this
@@ -105,6 +139,7 @@ def run(cfg: Config | None = None, *, worker_id: str | None = None) -> int:
                 exc_info=True,
             )
             shutdown.wait(_RECONNECT_BACKOFF_SECONDS)
+    janitor.join(timeout=2.0)  # wait() wakes on the shutdown event, so this is prompt
     return 0
 
 

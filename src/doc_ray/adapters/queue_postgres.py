@@ -45,7 +45,11 @@ WITH picked AS (
      LIMIT 1
 )
 UPDATE jobs j
-   SET status = 'running', locked_by = %(worker_id)s, started_at = COALESCE(j.started_at, now()),
+   -- started_at is attempt-relative, not first-attempt-relative: ETA and
+   -- runtime surfaces divide elapsed time by this attempt's progress, so a
+   -- retry measured from a dead attempt's start reads hours old at zero
+   -- progress. (No percent signs in this SQL string: psycopg parses them.)
+   SET status = 'running', locked_by = %(worker_id)s, started_at = now(),
        heartbeat_at = now(), attempts = j.attempts + 1,
        -- A fresh attempt starts clean: a dead attempt's progress must not be
        -- displayed as this attempt's, and its drain stamp must not release us.
@@ -404,6 +408,7 @@ def reap_stale(conn: psycopg.Connection[Any], *, older_than_seconds: float) -> i
     released_rows = conn.execute(
         f"UPDATE jobs SET status = 'queued', locked_by = NULL, run_after = now(), "
         f"attempts = GREATEST(attempts - 1, 0), drain_requested_at = NULL, "
+        f"progress_current = NULL, progress_total = NULL, progress_stage = NULL, "
         f"error = 'released: worker shutdown during drain' "
         f"WHERE status = 'running' AND heartbeat_at < {cutoff} "
         f"AND drain_requested_at IS NOT NULL "
@@ -421,6 +426,7 @@ def reap_stale(conn: psycopg.Connection[Any], *, older_than_seconds: float) -> i
     # observed live 2026-07-12, one of four drained jobs lost the race.
     requeued_rows = conn.execute(
         f"UPDATE jobs SET status = 'queued', locked_by = NULL, run_after = now(), "
+        f"progress_current = NULL, progress_total = NULL, progress_stage = NULL, "
         f"error = 'reclaimed: stale heartbeat' "
         f"WHERE status = 'running' AND heartbeat_at < {cutoff} AND attempts < max_attempts "
         f"AND drain_requested_at IS NULL "

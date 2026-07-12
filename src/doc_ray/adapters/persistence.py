@@ -290,20 +290,18 @@ def _update_span_geometry_from_layout(
     """Populate page/bbox fields for staged spans from persisted layout runs."""
     if not pairs:
         return
-    # EXISTS, not JOIN: the join emitted one copy of each layout row per
-    # overlapping staged span — for a book that multiplied the rows fed to
-    # the geometry pass by orders of magnitude and skewed its overlap vote.
+    # No staged-span filter in SQL: any correlated range predicate against the
+    # unindexed _span_stage temp table degenerates to a nested loop —
+    # O(rows x spans) inside the planner (the JOIN variant additionally
+    # duplicated each row per overlapping span). The geometry pass is
+    # log-linear and deduplicates, so fetch the document's runs once — bounded
+    # by document size — and let it discard the non-overlapping rows.
     layout_rows = conn.execute(
         """
-        SELECT lr.page_number, lr.char_start, lr.char_end,
-               lr.bbox_x0, lr.bbox_y0, lr.bbox_x1, lr.bbox_y1
-        FROM document_layout_runs lr
-        WHERE lr.document_id=%s
-          AND EXISTS (
-            SELECT 1 FROM _span_stage st
-            WHERE lr.char_start < st.char_end
-              AND lr.char_end > st.char_start
-          )
+        SELECT page_number, char_start, char_end,
+               bbox_x0, bbox_y0, bbox_x1, bbox_y1
+        FROM document_layout_runs
+        WHERE document_id=%s
         """,
         (document_id,),
     ).fetchall()

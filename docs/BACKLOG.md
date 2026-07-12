@@ -322,6 +322,15 @@ bisected to a candidate window per span; the caller uses EXISTS. Regression
 tests pin the page-vote semantics, equivalence with the original scan, and a
 12k x 12k wall-clock budget (44.6s before, 0.1s after).
 
+**2026-07-12 pipeline polish pass (operator directive):** added and completed
+`BL-134` (S/high) — four regression-tested residual fixes: a janitor thread
+reaps stale jobs every `WORKER_REAP_SECONDS` (default 30s) even while every
+worker is busy (recovery previously waited 45+ minutes for a free slot);
+`claim()` stamps attempt-relative `started_at` (retry ETAs no longer read
+hours of elapsed time); reap clears progress on queued rows (no dead-attempt
+percentages); and the layout fetch drops its correlated `_span_stage`
+predicate (an O(rows x spans) planner nested loop in waiting).
+
 ## Items
 
 | ID | Item | Category | Type | Status | Cx | Priority | Owner |
@@ -459,6 +468,7 @@ tests pin the page-vote semantics, equivalence with the original scan, and a
 | BL-131 | Webapp collection writes silently rolled back — created collections vanished after the redirect | webapp | bug | done | XS | high | shared |
 | BL-132 | Deploy-kills burned job attempts: long annotate jobs permanently failed by consecutive fleet deploys | ops | bug | done | S | high | shared |
 | BL-133 | Span-geometry backfill was O(spans x layout rows): book annotation ran for hours and hit the execution timeout | nlp | bug | done | S | high | shared |
+| BL-134 | Pipeline polish: janitor reap, attempt-relative started_at, reap progress hygiene | ops | tech-debt | done | S | high | shared |
 
 See [`backlog.yml`](backlog.yml) for each item's full description, rationale,
 acceptance criteria, dependencies, related decisions (`D-###`), and references.
