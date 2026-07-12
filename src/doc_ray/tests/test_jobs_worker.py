@@ -10,6 +10,7 @@ from __future__ import annotations
 import os
 import signal
 import threading
+import time
 from pathlib import Path
 from typing import Any
 
@@ -147,6 +148,29 @@ def test_run_once_failure_logs_exception_with_job_context(qconn, caplog):
     assert record.exc_info is not None, "expected the traceback to be attached"
     assert jid in record.getMessage()
     assert "stub" in record.getMessage()
+
+
+def test_run_once_times_out_hung_handler(qconn):
+    def hung(conn: Any, store: Any, job: Job) -> dict[str, Any]:
+        time.sleep(1.0)
+        return {"too": "late"}
+
+    jid = queue.enqueue(qconn, "hung", {}, max_attempts=2)
+    started = time.monotonic()
+
+    jobs_mod.run_once(
+        qconn,
+        None,
+        worker_id="t-timeout",
+        handlers={"hung": hung},
+        job_timeouts={"hung": 0.05},
+    )
+
+    assert time.monotonic() - started < 0.5
+    row = qconn.execute("SELECT status, error FROM jobs WHERE id=%s", (jid,)).fetchone()
+    assert row is not None
+    assert row["status"] == "queued"
+    assert "exceeded 0.05s execution timeout" in (row["error"] or "")
 
 
 def test_run_once_unknown_kind_is_poison(qconn):

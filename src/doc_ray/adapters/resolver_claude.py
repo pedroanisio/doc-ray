@@ -38,6 +38,7 @@ if TYPE_CHECKING:
 
 #: Default frontier model (override with DOCRAY_RESOLVER_MODEL).
 DEFAULT_MODEL = "claude-opus-4-8"
+DEFAULT_TIMEOUT_SECONDS = 60.0
 
 _TOOL_NAME = "resolve_entity"
 
@@ -290,16 +291,28 @@ class ClaudeResolver:
         name: Tool identity recorded on review rows (``claude/<model>``).
     """
 
-    def __init__(self, model: str | None = None, *, max_tokens: int = 1024) -> None:
+    def __init__(
+        self,
+        model: str | None = None,
+        *,
+        max_tokens: int = 1024,
+        timeout_seconds: float | None = None,
+    ) -> None:
         """Open the Anthropic client.
 
         Args:
             model: Model id; defaults to ``DOCRAY_RESOLVER_MODEL`` or the pinned default.
             max_tokens: Response cap — the verdict is one small tool call.
+            timeout_seconds: Request timeout; defaults to ``DOCRAY_RESOLVER_TIMEOUT_SECONDS``.
         """
         import anthropic  # lazy: worker-only dependency
 
-        self._client = anthropic.Anthropic()
+        timeout = timeout_seconds
+        if timeout is None:
+            timeout = float(
+                os.environ.get("DOCRAY_RESOLVER_TIMEOUT_SECONDS", DEFAULT_TIMEOUT_SECONDS)
+            )
+        self._client = anthropic.Anthropic(timeout=timeout)
         self._model = model or os.environ.get("DOCRAY_RESOLVER_MODEL", DEFAULT_MODEL)
         self._max_tokens = max_tokens
         self.name = f"claude/{self._model}"

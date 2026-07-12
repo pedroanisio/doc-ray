@@ -339,7 +339,7 @@ which is modifying the same queue plumbing as this is written.
 | BL-097 | deleteDocument never deletes the document's blob — permanent storage leak | persistence | bug | done | S | medium | shared |
 | BL-098 | ingestDocument has no upload size cap — unbounded memory buffering | security | bug | done | S | high | shared |
 | BL-099 | No encryption enforcement for object storage, at rest or in transit | security | tech-debt | done | M | medium | shared |
-| BL-100 | Worker detects crashed jobs but not hung ones — no execution timeout | ops | bug | parked | M | medium | shared |
+| BL-100 | Worker detects crashed jobs but not hung ones — no execution timeout | ops | bug | done | M | medium | shared |
 | BL-101 | Worker's outer poll loop has no resilience to a dropped DB connection | ops | bug | done | S | medium | shared |
 | BL-102 | JobStatus.CANCELED is a dead status — no code path ever sets it | ops | feature | done | S | low | shared |
 | BL-103 | Webapp has no CSRF protection on any state-changing form | security | bug | done | M | high | shared |

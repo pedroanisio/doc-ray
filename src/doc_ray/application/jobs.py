@@ -11,10 +11,13 @@ from __future__ import annotations
 
 import contextlib
 import logging
+import os
+import signal
 import tempfile
 import threading
-from collections.abc import Callable
+from collections.abc import Callable, Iterator, Mapping
 from pathlib import Path
+from types import FrameType
 from typing import TYPE_CHECKING, Any, cast
 
 import psycopg
@@ -63,11 +66,77 @@ Handler = Callable[[psycopg.Connection[Any], ObjectStore | None, Job], dict[str,
 
 _BACKOFF_BASE_SECONDS = 5.0
 _BACKOFF_CAP_SECONDS = 300.0
+_DEFAULT_JOB_TIMEOUT_SECONDS = 3600.0
+
+
+class JobExecutionTimeout(TimeoutError):
+    """Raised when a running handler exceeds its configured wall-clock budget."""
 
 
 def backoff_seconds(attempts: int) -> float:
     """Return the exponential backoff (capped) for the *attempts*-th failure."""
     return float(min(_BACKOFF_BASE_SECONDS * 2 ** max(0, attempts - 1), _BACKOFF_CAP_SECONDS))
+
+
+def _timeout_value(raw: float | str | None) -> float | None:
+    if raw is None:
+        return None
+    seconds = float(raw)
+    return seconds if seconds > 0 else None
+
+
+def execution_timeout_seconds(
+    kind: str, job_timeouts: Mapping[str, float | None] | None = None
+) -> float | None:
+    """Return the configured execution timeout for *kind*.
+
+    ``WORKER_JOB_TIMEOUT_SECONDS`` sets the default. A kind-specific
+    ``WORKER_JOB_TIMEOUT_<KIND>_SECONDS`` override wins, where non-alphanumeric
+    characters in ``kind`` become underscores. Values <= 0 disable the timeout.
+    """
+    if job_timeouts is not None and kind in job_timeouts:
+        return _timeout_value(job_timeouts[kind])
+    env_kind = "".join(ch if ch.isalnum() else "_" for ch in kind).upper()
+    per_kind = os.environ.get(f"WORKER_JOB_TIMEOUT_{env_kind}_SECONDS")
+    if per_kind is not None:
+        return _timeout_value(per_kind)
+    default = os.environ.get("WORKER_JOB_TIMEOUT_SECONDS", _DEFAULT_JOB_TIMEOUT_SECONDS)
+    return _timeout_value(default)
+
+
+@contextlib.contextmanager
+def _enforce_execution_timeout(job: Job, seconds: float | None) -> Iterator[None]:
+    """Raise :class:`JobExecutionTimeout` if *job* exceeds *seconds*.
+
+    The production worker calls ``run_once`` on the main thread, where POSIX
+    interval timers can interrupt blocking Python code such as ``time.sleep`` or
+    network reads. Test helper threads and non-POSIX platforms fall back to no
+    alarm rather than installing process-global signal state from the wrong
+    thread.
+    """
+    if (
+        seconds is None
+        or seconds <= 0
+        or threading.current_thread() is not threading.main_thread()
+        or not hasattr(signal, "SIGALRM")
+        or not hasattr(signal, "ITIMER_REAL")
+    ):
+        yield
+        return
+
+    def _raise_timeout(_signum: int, _frame: FrameType | None) -> None:
+        raise JobExecutionTimeout(
+            f"job {job.id} ({job.kind}) exceeded {seconds:g}s execution timeout"
+        )
+
+    previous_handler = signal.getsignal(signal.SIGALRM)
+    signal.signal(signal.SIGALRM, _raise_timeout)
+    previous_timer = signal.setitimer(signal.ITIMER_REAL, seconds)
+    try:
+        yield
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, *previous_timer)
+        signal.signal(signal.SIGALRM, previous_handler)
 
 
 def handle_delete(
@@ -488,6 +557,7 @@ def run_once(
     handlers: dict[str, Handler] | None = None,
     heartbeat_conn: psycopg.Connection[Any] | None = None,
     heartbeat_interval: float = 15.0,
+    job_timeouts: Mapping[str, float | None] | None = None,
 ) -> Job | None:
     """Claim one job, dispatch it, and finalize it; return the job (or ``None``).
 
@@ -504,6 +574,7 @@ def run_once(
         handlers: Dispatch table; defaults to :data:`HANDLERS`.
         heartbeat_conn: Dedicated connection for the heartbeat thread, or ``None``.
         heartbeat_interval: Seconds between heartbeats.
+        job_timeouts: Optional per-kind timeout overrides; values <= 0 disable.
 
     Returns:
         The claimed :class:`Job`, or ``None`` if the queue was empty.
@@ -538,7 +609,8 @@ def run_once(
     token = set_progress_reporter(_report)
     try:
         report_progress(0, None, f"Starting {job.kind}")
-        result = handler(conn, store, job)
+        with _enforce_execution_timeout(job, execution_timeout_seconds(job.kind, job_timeouts)):
+            result = handler(conn, store, job)
         # One transaction: success recording and chain advancement commit (or
         # roll back) together. A crash or enqueue failure here leaves the job
         # 'running', so the reaper requeues it and the step re-runs — no silent

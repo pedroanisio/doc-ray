@@ -123,6 +123,19 @@ def test_backup_scheduler_runs_with_the_default_stack():
     )
 
 
+def test_worker_timeout_knobs_are_documented_and_passed_to_compose():
+    compose = _compose("docker-compose.yml")
+    worker_env = compose["services"]["worker"]["environment"]
+    env_text = (_ROOT / ".env.example").read_text(encoding="utf-8")
+
+    assert worker_env["WORKER_JOB_TIMEOUT_SECONDS"] == "${WORKER_JOB_TIMEOUT_SECONDS:-3600}"
+    assert worker_env["DOCRAY_RESOLVER_TIMEOUT_SECONDS"] == (
+        "${DOCRAY_RESOLVER_TIMEOUT_SECONDS:-60}"
+    )
+    assert "WORKER_JOB_TIMEOUT_SECONDS=3600" in env_text
+    assert "DOCRAY_RESOLVER_TIMEOUT_SECONDS=60" in env_text
+
+
 def test_test_compose_stack_uses_dedicated_state_and_names():
     compose = _compose(_TEST_COMPOSE_FILE)
     services = compose["services"]

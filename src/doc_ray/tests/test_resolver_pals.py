@@ -6,8 +6,12 @@ hallucinated id must never survive into a committed link.
 
 from __future__ import annotations
 
+import sys
+from types import SimpleNamespace
+
 from doc_ray.adapters.resolver_claude import (
     CandidateResolutionVerifier,
+    ClaudeResolver,
     build_tool,
     to_resolution,
 )
@@ -40,6 +44,21 @@ def test_tool_schema_is_strict_and_enum_is_the_candidate_set():
 def test_tool_schema_without_candidates_only_admits_null_id():
     schema = build_tool([])["input_schema"]
     assert schema["properties"]["canonical_id"]["type"] == "null"
+
+
+def test_claude_resolver_sets_an_explicit_sdk_timeout(monkeypatch):
+    calls = []
+
+    class FakeAnthropic:
+        def __init__(self, **kwargs):
+            calls.append(kwargs)
+
+    monkeypatch.setitem(sys.modules, "anthropic", SimpleNamespace(Anthropic=FakeAnthropic))
+    monkeypatch.setenv("DOCRAY_RESOLVER_TIMEOUT_SECONDS", "12.5")
+
+    ClaudeResolver()
+
+    assert calls == [{"timeout": 12.5}]
 
 
 def test_valid_select_passes():

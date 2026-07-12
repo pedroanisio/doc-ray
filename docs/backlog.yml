@@ -3265,7 +3265,7 @@ items:
       related starvation scenario).
     category:     "ops"
     type:         "bug"
-    status:       "parked"
+    status:       "done"
     complexity:   "M"
     priority:     "medium"
     rationale:    "The retry/backoff/max-attempts machinery (BL-010/011, already done) only helps once a handler *returns* an exception — it does nothing for a handler that never returns at all."
@@ -3278,7 +3278,7 @@ items:
       - "src/doc_ray/adapters/queue_postgres.py"
       - "src/doc_ray/adapters/resolver_claude.py"
     owner:        "shared"
-    source:       "Full-codebase gap-analysis 2026-07-10 (worker/job-queue subsystem audit)."
+    source:       "Full-codebase gap-analysis 2026-07-10 (worker/job-queue subsystem audit). Completed 2026-07-12 with per-kind configurable worker execution timeouts (`WORKER_JOB_TIMEOUT_SECONDS` / `WORKER_JOB_TIMEOUT_<KIND>_SECONDS`) enforced by the synchronous worker dispatch path, explicit Anthropic resolver request timeouts (`DOCRAY_RESOLVER_TIMEOUT_SECONDS`), compose pass-through for the worker timeout knobs, and regression tests covering handler timeout retry/backoff plus resolver SDK timeout construction."
     tags:         ["ops", "reliability", "bug"]
 
   - id:          "BL-101"
