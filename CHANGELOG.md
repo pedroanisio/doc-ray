@@ -21,6 +21,12 @@ doc-ray carries **one global version** covering both the application package
 
 ## [Unreleased]
 
+### Fixed
+- **Duplicate upload Content-Type preservation** (Codex GPT-5) — BL-095 makes
+  `ingestDocument` use the extractor-owned content type for its pre-worker blob
+  upload, so re-uploading an already-ingested file no longer downgrades object
+  metadata to `application/octet-stream`.
+
 ## [1.15.0] - 2026-07-12
 
 ### Added

@@ -8,10 +8,12 @@ cleaned up by cascade when the seeded document is deleted in teardown.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 
 import pytest
 from _mutations_common import WRITE_PRINCIPAL, _aconn, _aconn_as, _seed
 
+from doc_ray.adapters import persistence as db
 from doc_ray.domain.ulid import new_ulid_str
 from doc_ray.entrypoints.api.context import RequestContext
 from doc_ray.entrypoints.api.loaders import Loaders
@@ -432,6 +434,74 @@ def test_ingest_document_rejects_unsupported_extension_before_storing_blob(pg, m
 
     asyncio.run(check())
     assert not put_calls, "the blob must never reach the object store"
+
+
+# ---------------------------------------------------------------------------
+# BL-095 — a duplicate upload is stored by the API before the worker can
+# short-circuit on content_sha256. That pre-worker PUT must preserve the
+# format-derived Content-Type instead of downgrading existing object metadata
+# to application/octet-stream.
+# ---------------------------------------------------------------------------
+
+
+def test_duplicate_upload_preserves_existing_object_content_type(pg, monkeypatch):
+    import io
+
+    from starlette.datastructures import Headers, UploadFile
+
+    from doc_ray.adapters.object_store import ObjectStore
+
+    conn, created = pg
+    body = b"Already stored document."
+    sha = hashlib.sha256(body).hexdigest()
+    key = f"{sha[:2]}/{sha}.txt"
+    doc_id = db.insert_document(
+        conn,
+        title="Already stored",
+        doc_type="txt",
+        mime_type="text/plain",
+        original_filename="already-stored.txt",
+        source_uri=f"s3://test-bucket/{key}",
+        content_sha256=sha,
+        byte_size=len(body),
+        page_count=None,
+        full_text=body.decode(),
+        status="extracted",
+    )
+    created.append(doc_id)
+    object_content_types = {key: "text/plain"}
+
+    def fake_put(self, put_key, data, content_type):
+        assert data == body
+        object_content_types[put_key] = content_type
+        return f"s3://{self.bucket}/{put_key}"
+
+    monkeypatch.setattr(ObjectStore, "put", fake_put)
+    schema = build_schema()
+    upload = UploadFile(
+        io.BytesIO(body),
+        filename="already-stored.txt",
+        headers=Headers({"content-type": "text/plain"}),
+    )
+
+    async def check():
+        aconn = await _aconn()
+        try:
+            await aconn.execute("CREATE TEMP TABLE jobs (LIKE public.jobs INCLUDING ALL)")
+            ctx = RequestContext(conn=aconn, principal=WRITE_PRINCIPAL, loaders=Loaders(aconn))
+            result = await schema.execute(
+                "mutation($f: Upload!){ ingestDocument(file: $f, pipeline: false) "
+                "{ kind status } }",
+                variable_values={"f": upload},
+                context_value=ctx,
+            )
+            assert result.errors is None, result.errors
+            assert result.data["ingestDocument"]["status"] == "queued"
+        finally:
+            await aconn.close()
+
+    asyncio.run(check())
+    assert object_content_types[key] == "text/plain"
 
 
 def test_create_backup_allows_admin_principal(pg):

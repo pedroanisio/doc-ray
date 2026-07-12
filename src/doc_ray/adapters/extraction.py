@@ -664,6 +664,18 @@ _EXTRACTORS = {
     ".docx": extract_docx,
 }
 
+_CONTENT_TYPES = {
+    ".pdf": "application/pdf",
+    ".txt": "text/plain",
+    ".text": "text/plain",
+    ".md": "text/plain",
+    ".markdown": "text/plain",
+    ".html": "text/html",
+    ".htm": "text/html",
+    ".epub": "application/epub+zip",
+    ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+}
+
 
 def is_supported_extension(extension: str) -> bool:
     """Return whether ``extension`` (with leading dot) has a registered extractor.
@@ -673,6 +685,14 @@ def is_supported_extension(extension: str) -> bool:
     persisting its blob, not just before extraction runs.
     """
     return extension.lower() in _EXTRACTORS
+
+
+def content_type_for_extension(extension: str) -> str:
+    """Return the persisted source Content-Type for a supported extension."""
+    try:
+        return _CONTENT_TYPES[extension.lower()]
+    except KeyError as exc:
+        raise ValueError(f"unsupported document type: {extension!r}") from exc
 
 
 def extract(data: bytes, filename: str, extension: str) -> Extracted:

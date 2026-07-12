@@ -3114,7 +3114,7 @@ items:
       the same overwrite.
     category:     "persistence"
     type:         "bug"
-    status:       "ready"
+    status:       "done"
     complexity:   "XS"
     priority:     "low"
     rationale:    "A silent, irreversible metadata degradation on a common user action (re-uploading a file you're not sure was already ingested) that nothing currently detects or reports."
@@ -3126,7 +3126,7 @@ items:
       - "src/doc_ray/entrypoints/api/mutation.py"
       - "src/doc_ray/application/jobs.py"
     owner:        "shared"
-    source:       "Full-codebase gap-analysis 2026-07-10 (object-storage subsystem audit)."
+    source:       "Full-codebase gap-analysis 2026-07-10 (object-storage subsystem audit). Completed 2026-07-12 by deriving the pre-worker upload PUT Content-Type from the extractor-owned extension mapping instead of hardcoded application/octet-stream, with a duplicate re-upload regression proving an existing text/plain object is not downgraded."
     tags:         ["persistence", "storage", "bug"]
 
   - id:          "BL-096"

@@ -500,7 +500,8 @@ class Mutation:
         key = f"{sha[:2]}/{sha}{ext}"
 
         store = ObjectStore(settings)
-        await anyio.to_thread.run_sync(store.put, key, data, "application/octet-stream")
+        content_type = extraction.content_type_for_extension(ext)
+        await anyio.to_thread.run_sync(store.put, key, data, content_type)
 
         payload: dict[str, Any] = {
             "storage_key": key,
