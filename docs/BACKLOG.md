@@ -283,6 +283,13 @@ unreachable-DB path (exit 2, redacted DSN, points at `source .env` /
 consumed everywhere (with a no-divergent-literal regression guard), and a
 copy-paste-safe README quickstart for `principal create` / `token mint`.
 
+**2026-07-12 gate restoration (operator directive):** mypy and ruff-format
+gates restored on main the same session (`96d8599`); added `BL-129`
+(ready/L/high — 12 files over the D-015 cap, per-file split list for parallel
+consumption) and `BL-130` (ready/S/high — the signed-access-JWT acceptance
+test fails on clean main, root-cause required). Both stem from fleet landings
+running pytest but skipping the static gates.
+
 ## Items
 
 | ID | Item | Category | Type | Status | Cx | Priority | Owner |
@@ -415,6 +422,8 @@ copy-paste-safe README quickstart for `principal create` / `token mint`.
 | BL-126 | Persist per-page dimensions for every PDF page so a text-free page is a representable fact | persistence | tech-debt | done | S | medium | shared |
 | BL-127 | GraphQL lexeme reads leak hidden-document vocabulary to anonymous callers | security | bug | done | S | high | shared |
 | BL-128 | auth_admin CLI: raw traceback on unreachable DB, divergent host-side DB defaults, and no operator docs | tooling | bug | done | S | medium | shared |
+| BL-129 | Restore the D-015 400-net-LOC gate: 12 files are over the cap after tonight's landings | tooling | tech-debt | ready | L | high | shared |
+| BL-130 | test_api_jwt signed-access-JWT acceptance test fails on clean main | testing | bug | ready | S | high | shared |
 
 See [`backlog.yml`](backlog.yml) for each item's full description, rationale,
 acceptance criteria, dependencies, related decisions (`D-###`), and references.

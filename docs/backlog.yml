@@ -110,7 +110,7 @@ metadata:
   generated_by:     "Claude Sonnet 5 via Claude Code (merge of Claude Opus 4.8 backlog + OpenAI Codex improvement-proposal candidates)"
   generated_on:     "2026-07-05"
   system_of_record: "docs/backlog.yml"
-  total_items:      128
+  total_items:      130
 
 items:
 
@@ -4227,3 +4227,61 @@ items:
     owner:        "shared"
     source:       "Operator bug report 2026-07-12 (traceback paste). Added and completed the same session: graceful OperationalError path with redacted DSN (exit 2), DEFAULT_DATABASE_URL single-sourced in config.py and consumed by webapp/_itdb, README auth quickstart; TDD (red-first tests for the graceful path and the single-source invariant, incl. a no-divergent-literal guard)."
     tags:         ["tooling", "cli", "auth", "ux", "bug"]
+
+  - id:          "BL-129"
+    title:        "Restore the D-015 400-net-LOC gate: 12 files are over the cap after tonight's landings"
+    summary:      "check_file_size.py fails on main with 12 files over 400 net LOC: webapp/app.py (1234), adapters/extraction.py (797), entrypoints/api/app.py (682), tests/test_mutations.py (613), adapters/persistence.py (567), entrypoints/api/mutation.py (489), application/jobs.py (481), tests/test_jobs_worker.py (480), tests/test_extract_formats.py (432), tests/test_jobs_pipeline.py (413), entrypoints/api/types.py (411), tests/test_api_app.py (408). Fleet landings run pytest but skip the static gates, so the cap has eroded steadily; every list entry is an independent split task, ideal for parallel consumption."
+    description: |
+      Split, do not trim: follow the repo's established split precedents —
+      webapp/app.py into route/blueprint modules (collections, lifecycle,
+      reprocess, auth-session, backups, seeding already have natural seams;
+      job_view/security_headers/csrf show the sibling-module pattern);
+      extraction.py by format family; api/app.py by route group (SSE,
+      downloads, metrics); jobs.py by handler domain; test files by concern
+      (test_mutations was split once already and regrew). Each split is its
+      own commit with the full suite green; do not exceed one source file
+      per task to keep locks narrow and collisions rare.
+    category:     "tooling"
+    type:         "tech-debt"
+    status:       "ready"
+    complexity:   "L"
+    priority:     "high"
+    rationale:    "A gate that is red on main stops gating: agents rationally skip a check that already fails, which is how 9 violations became 12 in one evening. Restoring it file-by-file is parallelizable across the fleet."
+    acceptance_criteria:
+      - "python scripts/check_file_size.py src/doc_ray webapp scripts exits 0 on main."
+      - "Each split lands as its own commit with the full suite green; no file is trimmed by deleting comments/docstrings to game the counter."
+      - "Agent landing checklists (CLAUDE.md or fleet task template) run the static gates, not only pytest, before commit."
+    dependencies: []
+    references:
+      - "scripts/check_file_size.py"
+      - "webapp/app.py"
+      - "src/doc_ray/adapters/extraction.py"
+    owner:        "shared"
+    source:       "Operator directive 2026-07-12 (follow backlog and fix all); mypy and format gates restored the same session, LOC splits fanned out here."
+    tags:         ["tooling", "gates", "tech-debt", "refactor"]
+
+  - id:          "BL-130"
+    title:        "test_api_jwt signed-access-JWT acceptance test fails on clean main"
+    summary:      "src/doc_ray/tests/test_api_jwt.py::test_header_token_authenticator_accepts_signed_access_jwt fails deterministically on an unmodified checkout (verified via stash round-trip during unrelated work); the other 18 JWT tests pass. Either the BL-071 access-JWT implementation or its test landed red."
+    description: |
+      Reproduce: pytest src/doc_ray/tests/test_api_jwt.py -q on main (with
+      DOCRAY_TEST_ALLOW_LIVE_DB=1 or the isolated test DB). One test fails,
+      18 pass. Root-cause rather than patch the assertion: determine whether
+      the header-token authenticator genuinely rejects a validly signed
+      access JWT (a real regression for API clients using BL-071 tokens) or
+      the test fixture builds an invalid token (clock, audience, issuer).
+    category:     "testing"
+    type:         "bug"
+    status:       "ready"
+    complexity:   "S"
+    priority:     "high"
+    rationale:    "A red test on main is either a broken feature or a broken guard; both erode the suite's authority, and every agent that runs the full gate now sees noise it learns to ignore."
+    acceptance_criteria:
+      - "The full test_api_jwt.py suite passes on main, with the root cause (implementation vs fixture) identified in the commit message."
+    dependencies: []
+    references:
+      - "src/doc_ray/tests/test_api_jwt.py"
+      - "src/doc_ray/entrypoints/api/security.py"
+    owner:        "shared"
+    source:       "Found 2026-07-12 during the gate-restoration sweep; confirmed pre-existing via stash round-trip on clean HEAD."
+    tags:         ["testing", "jwt", "auth", "bug"]
