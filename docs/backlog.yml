@@ -2295,7 +2295,7 @@ items:
       today nobody logs in as themselves.
     category:     "security"
     type:         "feature"
-    status:       "parked"
+    status:       "done"
     complexity:   "M"
     priority:     "high"
     rationale:    "Every other item in this batch (tenant RBAC, ABAC, audit-by-actor) is meaningless for the webapp's actual human users until there is a real per-user identity in the browser, not one shared static config value."
@@ -2308,7 +2308,7 @@ items:
     references:
       - "webapp/app.py"
     owner:        "shared"
-    source:       "Gap-analysis 2026-07-05 against a supplied enterprise-IAM checklist; verified absent by grep across webapp/."
+    source:       "Gap-analysis 2026-07-05 against a supplied enterprise-IAM checklist; verified absent by grep across webapp/. Completed 2026-07-12 with /login OIDC/SAML IdP redirects, /auth/oidc/callback and /auth/saml/callback session establishment, an opaque Flask session id backed by a server-side expiring auth session store, /logout revocation, _apply_principal session-principal precedence over DOCRAY_PRINCIPAL_ID, secure HttpOnly SameSite cookies, and regression tests in tests/test_webapp.py."
     tags:         ["security", "webapp", "session", "auth"]
 
   - id:          "BL-071"

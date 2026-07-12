@@ -27,6 +27,8 @@ def csrf_token() -> str:
 
 def require_csrf_token():
     """Reject any state-changing request without this session's CSRF token."""
+    if request.endpoint == "saml_callback":
+        return None
     if request.method in ("POST", "PUT", "PATCH", "DELETE"):
         sent = request.form.get("csrf_token", "")
         expected = session.get("_csrf_token", "")

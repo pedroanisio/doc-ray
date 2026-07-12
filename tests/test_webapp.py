@@ -11,6 +11,7 @@ import re
 from datetime import datetime
 
 import pytest
+from flask import session
 
 from webapp import app as webapp
 
@@ -1715,6 +1716,172 @@ def test_get_conn_enforces_rls_when_principal_configured(monkeypatch):
     assert any(
         "set_config" in q and p == ("11111111-1111-1111-1111-111111111111",) for q, p in fake.calls
     )
+
+
+def test_login_redirects_to_oidc_provider_and_records_state(monkeypatch):
+    monkeypatch.setenv("DOCRAY_WEBAPP_OIDC_AUTHORIZATION_URL", "https://idp.example/authorize")
+    monkeypatch.setenv("DOCRAY_WEBAPP_OIDC_CLIENT_ID", "doc-ray-web")
+
+    client = webapp.app.test_client()
+    resp = client.get("/login")
+
+    assert resp.status_code == 302
+    assert resp.headers["Location"].startswith("https://idp.example/authorize?")
+    assert "client_id=doc-ray-web" in resp.headers["Location"]
+    assert "response_type=code" in resp.headers["Location"]
+    with client.session_transaction() as sess:
+        state = sess["_auth_state"]
+    assert f"state={state}" in resp.headers["Location"]
+
+
+def test_login_redirects_to_saml_provider_when_oidc_unconfigured(monkeypatch):
+    monkeypatch.delenv("DOCRAY_WEBAPP_OIDC_AUTHORIZATION_URL", raising=False)
+    monkeypatch.delenv("DOCRAY_WEBAPP_OIDC_CLIENT_ID", raising=False)
+    monkeypatch.setenv("DOCRAY_WEBAPP_SAML_SSO_URL", "https://idp.example/saml/sso")
+
+    client = webapp.app.test_client()
+    resp = client.get("/login")
+
+    assert resp.status_code == 302
+    assert resp.headers["Location"].startswith("https://idp.example/saml/sso?")
+    with client.session_transaction() as sess:
+        state = sess["_auth_state"]
+    assert f"RelayState={state}" in resp.headers["Location"]
+
+
+def test_oidc_callback_sets_secure_server_side_session_cookie(monkeypatch):
+    principal_id = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+    webapp.auth_sessions.reset()
+    monkeypatch.setenv("DOCRAY_WEBAPP_OIDC_AUTHORIZATION_URL", "https://idp.example/authorize")
+    monkeypatch.setenv("DOCRAY_WEBAPP_OIDC_CLIENT_ID", "doc-ray-web")
+    monkeypatch.setattr(
+        webapp,
+        "complete_oidc_login",
+        lambda code, redirect_uri: webapp.AuthenticatedWebPrincipal(
+            principal_id=principal_id,
+            subject="oidc:alice",
+        ),
+    )
+
+    client = webapp.app.test_client()
+    client.get("/login")
+    with client.session_transaction() as sess:
+        state = sess["_auth_state"]
+    resp = client.get(f"/auth/oidc/callback?code=abc&state={state}")
+
+    assert resp.status_code == 302
+    cookie = resp.headers["Set-Cookie"]
+    assert "HttpOnly" in cookie
+    assert "Secure" in cookie
+    with client.session_transaction() as sess:
+        sid = sess["_auth_sid"]
+        assert "_auth_state" not in sess
+    auth_session = webapp.auth_sessions.get(sid)
+    assert auth_session is not None
+    assert auth_session.principal_id == principal_id
+
+
+def test_saml_callback_sets_server_side_session_without_csrf(monkeypatch):
+    principal_id = "dddddddd-dddd-dddd-dddd-dddddddddddd"
+    webapp.auth_sessions.reset()
+    monkeypatch.setattr(
+        webapp,
+        "complete_saml_login",
+        lambda saml_response: webapp.AuthenticatedWebPrincipal(
+            principal_id=principal_id,
+            subject="saml:alice",
+        ),
+    )
+
+    client = webapp.app.test_client()
+    with client.session_transaction() as sess:
+        sess["_auth_state"] = "relay-1"
+        sess["_csrf_token"] = "csrf-1"
+
+    resp = client.post(
+        "/auth/saml/callback",
+        data={"SAMLResponse": "assertion", "RelayState": "relay-1"},
+    )
+
+    assert resp.status_code == 302
+    with client.session_transaction() as sess:
+        sid = sess["_auth_sid"]
+        assert "_auth_state" not in sess
+    auth_session = webapp.auth_sessions.get(sid)
+    assert auth_session is not None
+    assert auth_session.principal_id == principal_id
+
+
+def test_get_conn_prefers_session_principal_over_env_fallback(monkeypatch):
+    fake = _RecordingConn()
+    sid = webapp.auth_sessions.create(
+        principal_id="bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
+        subject="oidc:bob",
+    )
+    monkeypatch.setattr(webapp.psycopg, "connect", lambda *a, **k: fake)
+    monkeypatch.setattr(webapp, "PRINCIPAL_ID", "11111111-1111-1111-1111-111111111111")
+    monkeypatch.setattr(webapp, "DB_ROLE", "docray_client")
+
+    with webapp.app.test_request_context("/"):
+        session["_auth_sid"] = sid
+        webapp.get_conn()
+
+    assert any(
+        "set_config" in query and params == ("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",)
+        for query, params in fake.calls
+    )
+    assert not any(
+        params == ("11111111-1111-1111-1111-111111111111",) for _query, params in fake.calls
+    )
+
+
+def test_expired_auth_session_revokes_without_env_fallback(monkeypatch):
+    fake = _RecordingConn()
+    webapp.auth_sessions.reset()
+    sid = webapp.auth_sessions.create(
+        principal_id="eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee",
+        subject="oidc:expired",
+        ttl_seconds=-1,
+    )
+    monkeypatch.setattr(webapp.psycopg, "connect", lambda *a, **k: fake)
+    monkeypatch.setattr(webapp, "PRINCIPAL_ID", "11111111-1111-1111-1111-111111111111")
+
+    with webapp.app.test_request_context("/"):
+        session["_auth_sid"] = sid
+        webapp.get_conn()
+        assert "_auth_sid" not in session
+
+    assert webapp.auth_sessions.get(sid) is None
+    assert fake.calls == []
+
+
+def test_logout_revokes_server_side_session(monkeypatch):
+    principal_id = "cccccccc-cccc-cccc-cccc-cccccccccccc"
+    webapp.auth_sessions.reset()
+    monkeypatch.setattr(
+        webapp,
+        "complete_oidc_login",
+        lambda code, redirect_uri: webapp.AuthenticatedWebPrincipal(
+            principal_id=principal_id,
+            subject="oidc:carol",
+        ),
+    )
+
+    client = webapp.app.test_client()
+    with client.session_transaction() as sess:
+        sess["_auth_state"] = "state-1"
+        sess["_csrf_token"] = "csrf-1"
+    client.get("/auth/oidc/callback?code=abc&state=state-1")
+    with client.session_transaction() as sess:
+        sid = sess["_auth_sid"]
+    assert webapp.auth_sessions.get(sid) is not None
+
+    resp = client.post("/logout", data={"csrf_token": "csrf-1"})
+
+    assert resp.status_code == 302
+    assert webapp.auth_sessions.get(sid) is None
+    with client.session_transaction() as sess:
+        assert "_auth_sid" not in sess
 
 
 def test_get_conn_is_superuser_passthrough_without_principal(monkeypatch):

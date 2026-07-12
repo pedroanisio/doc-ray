@@ -19,13 +19,33 @@ import secrets
 from html import escape as html_escape
 
 import psycopg
-from flask import Flask, g, jsonify, make_response, redirect, render_template, request, url_for
+from flask import (
+    Flask,
+    abort,
+    g,
+    jsonify,
+    make_response,
+    redirect,
+    render_template,
+    request,
+    session,
+    url_for,
+)
 from psycopg import sql
 from psycopg.rows import dict_row
 
 from doc_ray.entrypoints.api.context import MAX_BATCH_IDS
 
 try:
+    from webapp.auth_session import (
+        AuthenticatedWebPrincipal,
+        auth_sessions,
+        oidc_authorization_redirect,
+        oidc_claims_from_code,
+        saml_assertion_from_response,
+        saml_login_redirect,
+        session_cookie_secure,
+    )
     from webapp.csrf import csrf_token, require_csrf_token
     from webapp.document_metadata import submit_metadata_update
     from webapp.graphql_client import API_URL, api_auth_headers, gql
@@ -36,6 +56,15 @@ try:
     from webapp.reader_blocks import attach_page_blocks, latest_annotation_state
     from webapp.security_headers import apply_security_headers
 except ModuleNotFoundError:  # pragma: no cover - direct ``python webapp/app.py`` path.
+    from auth_session import (
+        AuthenticatedWebPrincipal,
+        auth_sessions,
+        oidc_authorization_redirect,
+        oidc_claims_from_code,
+        saml_assertion_from_response,
+        saml_login_redirect,
+        session_cookie_secure,
+    )
     from csrf import csrf_token, require_csrf_token
     from document_metadata import submit_metadata_update
     from graphql_client import API_URL, api_auth_headers, gql
@@ -64,6 +93,9 @@ app.add_url_rule("/help", "help_page", lambda: render_template("help.html"))
 # Signs the session cookie that carries the CSRF token below; stable for the life
 # of one process even when unset (dev-only — set explicitly for a real deployment).
 app.secret_key = os.environ.get("DOCRAY_WEBAPP_SECRET_KEY") or secrets.token_hex(32)
+app.config["SESSION_COOKIE_HTTPONLY"] = True
+app.config["SESSION_COOKIE_SECURE"] = session_cookie_secure()
+app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 app.jinja_env.globals["csrf_token"] = csrf_token
 
 _RATE_LIMITER = FixedWindowRateLimiter()
@@ -117,6 +149,136 @@ app.before_request(require_csrf_token)
 app.after_request(apply_security_headers)
 
 
+# --- web auth session ------------------------------------------------------
+
+
+def _auth_state() -> str:
+    """Mint and store a login CSRF state token."""
+    state = secrets.token_urlsafe(32)
+    session["_auth_state"] = state
+    return state
+
+
+def _validate_auth_state(sent: str | None) -> None:
+    expected = session.get("_auth_state")
+    if not sent or not expected or sent != expected:
+        abort(400, "invalid login state")
+    session.pop("_auth_state", None)
+
+
+def _resolve_web_principal(external_subject: str) -> str:
+    """Resolve an external login subject to a doc-ray principal id."""
+    with psycopg.connect(DATABASE_URL, row_factory=dict_row) as conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT id FROM principals WHERE external_subject = %s LIMIT 1",
+            (external_subject,),
+        )
+        row = cur.fetchone()
+    if row is None:
+        raise ValueError("external subject is not mapped to a principal")
+    return str(row["id"])
+
+
+def complete_oidc_login(code: str, redirect_uri: str) -> AuthenticatedWebPrincipal:
+    """Exchange an OIDC authorization code and resolve the authenticated principal."""
+    claims = oidc_claims_from_code(code=code, redirect_uri=redirect_uri)
+    subject = claims.get("sub")
+    if not isinstance(subject, str) or not subject:
+        raise ValueError("OIDC sub is required")
+    return AuthenticatedWebPrincipal(
+        principal_id=_resolve_web_principal(subject),
+        subject=f"oidc:{subject}",
+    )
+
+
+def complete_saml_login(saml_response: str) -> AuthenticatedWebPrincipal:
+    """Validate a SAML response and resolve the authenticated principal."""
+    assertion = saml_assertion_from_response(saml_response)
+    return AuthenticatedWebPrincipal(
+        principal_id=_resolve_web_principal(assertion.external_subject),
+        subject=assertion.external_subject,
+    )
+
+
+def _establish_auth_session(principal: AuthenticatedWebPrincipal) -> None:
+    sid = auth_sessions.create(principal_id=principal.principal_id, subject=principal.subject)
+    session["_auth_sid"] = sid
+
+
+def _session_principal_id() -> tuple[str | None, bool]:
+    sid = session.get("_auth_sid")
+    if not sid:
+        return None, False
+    record = auth_sessions.get(sid)
+    if record is None:
+        session.pop("_auth_sid", None)
+        return None, True
+    return record.principal_id, True
+
+
+def _request_principal_id() -> str | None:
+    principal_id, had_auth_session = _session_principal_id()
+    if principal_id:
+        return principal_id
+    if had_auth_session:
+        return None
+    return PRINCIPAL_ID
+
+
+@app.get("/login")
+def login():
+    """Redirect the browser to the configured OIDC or SAML IdP."""
+    state = _auth_state()
+    oidc_url = oidc_authorization_redirect(
+        redirect_uri=url_for("oidc_callback", _external=True),
+        state=state,
+    )
+    if oidc_url:
+        return redirect(oidc_url)
+    saml_url = saml_login_redirect(state=state)
+    if saml_url:
+        return redirect(saml_url)
+    return "webapp login is not configured", 404
+
+
+@app.get("/auth/oidc/callback")
+def oidc_callback():
+    """Complete OIDC login and establish the server-side web session."""
+    _validate_auth_state(request.args.get("state"))
+    code = request.args.get("code")
+    if not code:
+        abort(400, "missing OIDC code")
+    try:
+        principal = complete_oidc_login(code, url_for("oidc_callback", _external=True))
+    except ValueError as exc:
+        abort(401, str(exc))
+    _establish_auth_session(principal)
+    return redirect(url_for("documents"))
+
+
+@app.post("/auth/saml/callback")
+def saml_callback():
+    """Complete SAML login and establish the server-side web session."""
+    _validate_auth_state(request.form.get("RelayState"))
+    response = request.form.get("SAMLResponse", "")
+    if not response:
+        abort(400, "missing SAMLResponse")
+    try:
+        principal = complete_saml_login(response)
+    except ValueError as exc:
+        abort(401, str(exc))
+    _establish_auth_session(principal)
+    return redirect(url_for("documents"))
+
+
+@app.post("/logout")
+def logout():
+    """Revoke the server-side auth session and clear the Flask session cookie."""
+    auth_sessions.revoke(session.get("_auth_sid"))
+    session.clear()
+    return redirect(url_for("documents"))
+
+
 # --- per-request DB connection --------------------------------------------
 
 
@@ -132,13 +294,14 @@ def _apply_principal(conn) -> None:
     Args:
         conn: The open ``psycopg`` connection to configure in place.
     """
-    if not PRINCIPAL_ID:
+    principal_id = _request_principal_id()
+    if not principal_id:
         return
     with conn.cursor() as cur:
         # DB_ROLE is an operator-set identifier (never user input) — quote it safely.
         cur.execute(sql.SQL("SET ROLE {}").format(sql.Identifier(DB_ROLE)))
         # SET cannot bind a value, so use set_config to pass the principal safely.
-        cur.execute("SELECT set_config('app.principal_id', %s, false)", (PRINCIPAL_ID,))
+        cur.execute("SELECT set_config('app.principal_id', %s, false)", (principal_id,))
 
 
 def get_conn():

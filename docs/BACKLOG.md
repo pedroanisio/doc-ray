@@ -309,7 +309,7 @@ which is modifying the same queue plumbing as this is written.
 | BL-067 | SAML SSO for enterprise tenants | security | feature | done | L | medium | shared |
 | BL-068 | SCIM provisioning, authoritative for managed users | security | feature | done | L | medium | shared |
 | BL-069 | Demote static bearer tokens to an explicit local/break-glass fallback | security | tech-debt | done | S | medium | shared |
-| BL-070 | Webapp session: real per-user login with a secure HttpOnly cookie | security | feature | parked | M | high | shared |
+| BL-070 | Webapp session: real per-user login with a secure HttpOnly cookie | security | feature | done | M | high | shared |
 | BL-071 | Short-lived signed access JWTs for the GraphQL/REST API | security | feature | done | M | medium | shared |
 | BL-072 | Refresh-token rotation with reuse detection | security | feature | done | M | medium | shared |
 | BL-073 | ABAC layer for sensitive and contextual authorization rules | security | feature | done | L | medium | shared |
