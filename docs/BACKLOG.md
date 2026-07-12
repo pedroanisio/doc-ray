@@ -352,7 +352,7 @@ which is modifying the same queue plumbing as this is written.
 | BL-110 | Malformed UUID arguments leak raw Postgres exception text to GraphQL clients | api | bug | done | S | medium | shared |
 | BL-111 | The app's own Docker base image floats on a mutable tag, unlike Postgres | ops | tech-debt | done | XS | medium | shared |
 | BL-112 | App containers run as root — no USER directive anywhere in the Dockerfile | security | tech-debt | done | S | medium | shared |
-| BL-113 | No automated dependency vulnerability scanning, SBOM, or update automation | tooling | infra | parked | M | medium | shared |
+| BL-113 | No automated dependency vulnerability scanning, SBOM, or update automation | tooling | infra | done | M | medium | shared |
 | BL-114 | CI and the Docker build bypass the committed uv.lock; no hash verification | tooling | tech-debt | done | S | medium | shared |
 | BL-115 | No structured logging anywhere in src/doc_ray — worker and GraphQL failures produce no durable trace | ops | tech-debt | done | M | high | shared |
 | BL-116 | Webapp: 3 of 5 exception handlers never log to app.logger | webapp | bug | done | XS | low | shared |

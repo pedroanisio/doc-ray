@@ -28,6 +28,10 @@ jobs:
           export UV_PROJECT_ENVIRONMENT="$(python -c 'import sys; print(sys.prefix)')"
           uv sync --locked --no-install-project --no-dev
           uv pip install --system -r requirements-dev.txt
+      - name: Dependency vulnerability scan (BL-113)
+        run: |
+          uv pip install --system pip-audit
+          pip-audit --requirement requirements.txt --requirement requirements-dev.txt --strict
       - name: Ruff lint (D-011)
         run: ruff check src scripts webapp
       - name: Ruff format check (D-011)
@@ -43,6 +47,19 @@ jobs:
           python engineering/schema/scripts/validate_decisions.py engineering_decisions.yml
           python engineering/schema/scripts/yml_to_rdf.py engineering_decisions.yml > /tmp/ed.ttl
           python engineering/schema/scripts/shacl_validate.py /tmp/ed.ttl
+      - name: Build production image for SBOM (BL-113)
+        run: docker build -t doc-ray:${{ github.sha }} .
+      - name: Generate production image SBOM (BL-113)
+        uses: anchore/sbom-action@v0
+        with:
+          image: doc-ray:${{ github.sha }}
+          format: cyclonedx-json
+          output-file: doc-ray-image-sbom.cdx.json
+      - name: Upload production image SBOM (BL-113)
+        uses: actions/upload-artifact@v4
+        with:
+          name: doc-ray-image-sbom
+          path: doc-ray-image-sbom.cdx.json
 
   tests:
     runs-on: ubuntu-latest

@@ -3652,7 +3652,7 @@ items:
       vulnerabilities in the dependencies that are already required.
     category:     "tooling"
     type:         "infra"
-    status:       "parked"
+    status:       "done"
     complexity:   "M"
     priority:     "medium"
     rationale:    "Without CVE scanning or dependency-update automation, a known-vulnerable pin sits in requirements.txt indefinitely until a human happens to notice it — the same class of blind spot BL-039/041 closed for infrastructure config, unaddressed for the dependency graph itself."
@@ -3666,7 +3666,7 @@ items:
       - "requirements.txt"
       - "Dockerfile"
     owner:        "shared"
-    source:       "Full-codebase gap-analysis 2026-07-10 (dependency/supply-chain subsystem audit)."
+    source:       "Full-codebase gap-analysis 2026-07-10 (dependency/supply-chain subsystem audit). Completed 2026-07-12 with CI pip-audit scanning, production-image CycloneDX SBOM artifact generation, Dependabot coverage for pip/Docker/GitHub Actions, and static guards that keep all three surfaces present."
     tags:         ["tooling", "supply-chain", "ci", "infra"]
 
   - id:          "BL-114"
