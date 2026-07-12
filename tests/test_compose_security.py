@@ -182,9 +182,7 @@ def test_test_compose_stack_uses_dedicated_state_and_names():
     }
     assert services["test-postgres"]["container_name"] == "docray-test-postgres"
     assert services["test-minio"]["container_name"] == "docray-test-minio"
-    assert services["test-postgres"]["ports"] == [
-        "127.0.0.1:${TEST_POSTGRES_PORT:-15432}:5432"
-    ]
+    assert services["test-postgres"]["ports"] == ["127.0.0.1:${TEST_POSTGRES_PORT:-15432}:5432"]
     assert services["test-minio"]["ports"] == [
         "127.0.0.1:${TEST_MINIO_PORT:-19000}:9000",
         "127.0.0.1:${TEST_MINIO_CONSOLE_PORT:-19001}:9001",
@@ -279,11 +277,14 @@ def test_test_dockerfile_copies_sources_tests_and_migrations_into_the_image():
     assert "apt-get install -y --no-install-recommends" in text
     assert "tesseract-ocr" in text
     assert "tesseract-ocr-eng" in text
-    assert "COPY Dockerfile docker-compose.yml docker-compose.api.yml docker-compose.test.yml ./" in text
+    assert (
+        "COPY Dockerfile docker-compose.yml docker-compose.api.yml docker-compose.test.yml ./"
+        in text
+    )
     assert "COPY .dockerignore .env.example .env.test.example .gitignore ./" in text
     assert "COPY .pre-commit-config.yaml CLAUDE.md ./" in text
     assert "COPY .github ./.github" in text
-    assert "COPY README.md CHANGELOG.md engineering_decisions.yml uv.lock ./" in text
+    assert "COPY README.md CHANGELOG.md engineering_decisions.yml uv.lock Makefile ./" in text
     assert "COPY src ./src" in text
     assert "COPY tests ./tests" in text
     assert "COPY scripts ./scripts" in text
@@ -293,3 +294,53 @@ def test_test_dockerfile_copies_sources_tests_and_migrations_into_the_image():
     assert "COPY docs ./docs" in text
     assert "COPY docker ./docker" in text
     assert "COPY nginx ./nginx" in text
+
+
+def _grace_seconds(value: str) -> float:
+    """Parse a Compose duration ('120s', '2m', '1m30s', bare seconds) to seconds."""
+    text = str(value).strip()
+    if not text:
+        return 0.0
+    units = {"h": 3600.0, "m": 60.0, "s": 1.0}
+    total, number = 0.0, ""
+    for ch in text:
+        if ch.isdigit() or ch == ".":
+            number += ch
+        elif ch in units and number:
+            total += float(number) * units[ch]
+            number = ""
+        else:
+            raise ValueError(f"unparseable Compose duration: {value!r}")
+    if number:  # bare number = seconds
+        total += float(number)
+    return total
+
+
+def test_worker_has_a_real_drain_window_before_sigkill():
+    """The worker's stop_grace_period must stay well above Docker's 10s default.
+
+    Deploy churn with the 10s default killed long annotate jobs mid-run and
+    exhausted their max_attempts with no code failure (the 2026-07-12
+    incident); the drain-release design assumes SIGTERM gives the in-flight
+    job a real window to finish or stamp drain_requested_at.
+    """
+    worker = _compose("docker-compose.yml")["services"]["worker"]
+    grace = worker.get("stop_grace_period")
+    assert grace is not None, (
+        "docker-compose.yml's worker service lost its stop_grace_period — "
+        "Docker's 10s default SIGKILLs long jobs on every deploy."
+    )
+    assert _grace_seconds(grace) >= 60, (
+        f"worker stop_grace_period={grace!r} is below the 60s floor; long jobs "
+        "need a real drain window before SIGKILL."
+    )
+
+
+def test_worker_drain_window_guard_detects_a_missing_or_short_grace():
+    assert _grace_seconds("120s") == 120.0
+    assert _grace_seconds("2m") == 120.0
+    assert _grace_seconds("1m30s") == 90.0
+    assert _grace_seconds("45") == 45.0
+    # A service block without the key, or with a short window, must fail the guard.
+    assert {"image": "x"}.get("stop_grace_period") is None
+    assert _grace_seconds("10s") < 60
