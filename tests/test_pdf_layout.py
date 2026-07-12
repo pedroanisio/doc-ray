@@ -24,12 +24,13 @@ def span(text, x0=0.0, x1=None, size=10.0, bold=False):
     }
 
 
-def line(spans, y0=100.0, y1=None, page=0, page_h=800.0):
+def line(spans, y0=100.0, y1=None, page=0, page_w=600.0, page_h=800.0):
     return {
         "spans": spans,
         "y0": y0,
         "y1": y1 if y1 is not None else y0 + 12,
         "page": page,
+        "page_w": page_w,
         "page_h": page_h,
     }
 
@@ -169,6 +170,22 @@ def test_body_size_is_the_dominant_text_size():
         blk([line([span("BIG", size=24)])]),
     ]
     assert pl.body_size(blocks) == 10
+
+
+def test_page_runs_include_page_dimensions_for_overlay_scaling():
+    blocks = [blk([line([span("Overlay text", x0=20, x1=120)], page_w=612, page_h=792)])]
+
+    runs = pl.page_runs_from_blocks(blocks)
+
+    assert runs == [
+        {
+            "page": 0,
+            "page_width": 612,
+            "page_height": 792,
+            "bbox": (20, 100.0, 120, 112.0),
+            "text": "Overlay text",
+        }
+    ]
 
 
 # --- header/footer stripping ----------------------------------------------

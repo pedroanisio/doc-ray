@@ -17,19 +17,25 @@ import strawberry
 from starlette.datastructures import UploadFile
 from strawberry.file_uploads import Upload
 
+from doc_ray.adapters import document_metadata_suggestion_store as metadata_suggestions
 from doc_ray.adapters import queue_postgres as queue
 from doc_ray.adapters import seed_suggestion_store as seeds
 from doc_ray.domain.jobs import (
+    KIND_ADD_DOCUMENT_TAGS,
     KIND_ANNOTATE,
+    KIND_ARCHIVE_DOCUMENT,
     KIND_BACKUP,
     KIND_CANONICALIZE,
     KIND_DELETE,
     KIND_INGEST,
     KIND_REANNOTATE,
+    KIND_REEXTRACT,
     KIND_RESTORE,
+    KIND_RESTORE_DOCUMENT,
     KIND_SEED_APPROVED,
     KIND_SEED_SUGGEST,
     KIND_SEMANTIC_ENRICH,
+    KIND_SUGGEST_DOCUMENT_METADATA,
     KIND_UPDATE_METADATA,
 )
 from doc_ray.entrypoints.api.context import MAX_BATCH_IDS, RequestContext
@@ -122,6 +128,14 @@ async def _job_status(ctx: RequestContext, job_id: str) -> Job:
     return Job.from_row(row)
 
 
+def _clean_bulk_ids(document_ids: list[strawberry.ID]) -> list[str]:
+    """Return unique document ids in caller order, enforcing the batch ceiling."""
+    ids = [str(document_id) for document_id in document_ids]
+    if len(ids) > MAX_BATCH_IDS:
+        raise ValueError(f"batch size exceeds {MAX_BATCH_IDS}")
+    return list(dict.fromkeys(ids))
+
+
 @strawberry.type
 class Mutation:
     """Write operations, all of which enqueue background work."""
@@ -137,12 +151,128 @@ class Mutation:
         return await _job_status(ctx, job_id)
 
     @strawberry.mutation
-    async def delete_document(self, info: Info, document_id: strawberry.ID) -> Job:
-        """Enqueue deletion of a document (cascades to its layers); returns the job."""
+    async def reextract_document(self, info: Info, document_id: strawberry.ID) -> Job:
+        """Enqueue PDF geometry backfill for one document; returns the queued job."""
         ctx = info.context
         await _require_document_write(ctx, str(document_id))
-        job_id = await queue.enqueue_async(ctx.conn, KIND_DELETE, {}, document_id=str(document_id))
+        job_id = await queue.enqueue_async(
+            ctx.conn, KIND_REEXTRACT, {}, document_id=str(document_id)
+        )
         return await _job_status(ctx, job_id)
+
+    @strawberry.mutation
+    async def reextract_documents(
+        self, info: Info, only_missing_geometry: bool = True
+    ) -> list[Job]:
+        """Enqueue PDF geometry backfill jobs for the corpus; admin-only."""
+        ctx = info.context
+        await _require_admin(ctx)
+        missing_clause = (
+            "AND NOT EXISTS ("
+            " SELECT 1 FROM spans sp WHERE sp.document_id = d.id AND sp.page_number IS NOT NULL"
+            ")"
+            if only_missing_geometry
+            else ""
+        )
+        cur = await ctx.conn.execute(
+            f"""
+            SELECT d.id
+            FROM documents d
+            WHERE d.status = 'extracted'
+              AND d.doc_type = 'pdf'
+              AND d.source_uri IS NOT NULL
+              {missing_clause}
+            ORDER BY d.created_at, d.id
+            """
+        )
+        rows = await cur.fetchall()
+        jobs: list[Job] = []
+        for row in rows:
+            job_id = await queue.enqueue_async(
+                ctx.conn, KIND_REEXTRACT, {}, document_id=str(row["id"])
+            )
+            jobs.append(await _job_status(ctx, job_id))
+        return jobs
+
+    @strawberry.mutation
+    async def delete_document(self, info: Info, document_id: strawberry.ID) -> Job:
+        """Enqueue a recoverable soft delete of a document; returns the job."""
+        ctx = info.context
+        await _require_document_write(ctx, str(document_id))
+        job_id = await queue.enqueue_async(
+            ctx.conn,
+            KIND_DELETE,
+            {"actor": ctx.principal.principal_id},
+            document_id=str(document_id),
+        )
+        return await _job_status(ctx, job_id)
+
+    @strawberry.mutation
+    async def archive_document(self, info: Info, document_id: strawberry.ID) -> Job:
+        """Enqueue archival of a document without changing ingestion status."""
+        ctx = info.context
+        await _require_document_write(ctx, str(document_id))
+        job_id = await queue.enqueue_async(
+            ctx.conn,
+            KIND_ARCHIVE_DOCUMENT,
+            {"actor": ctx.principal.principal_id},
+            document_id=str(document_id),
+        )
+        return await _job_status(ctx, job_id)
+
+    @strawberry.mutation
+    async def restore_document(self, info: Info, document_id: strawberry.ID) -> Job:
+        """Enqueue restoring an archived or soft-deleted document to active."""
+        ctx = info.context
+        await _require_document_write(ctx, str(document_id))
+        job_id = await queue.enqueue_async(
+            ctx.conn,
+            KIND_RESTORE_DOCUMENT,
+            {"actor": ctx.principal.principal_id},
+            document_id=str(document_id),
+        )
+        return await _job_status(ctx, job_id)
+
+    @strawberry.mutation
+    async def bulk_archive_documents(
+        self, info: Info, document_ids: list[strawberry.ID]
+    ) -> list[Job]:
+        """Enqueue archival jobs for multiple documents."""
+        ctx = info.context
+        ids = _clean_bulk_ids(document_ids)
+        jobs: list[Job] = []
+        for document_id in ids:
+            await _require_document_write(ctx, document_id)
+            job_id = await queue.enqueue_async(
+                ctx.conn,
+                KIND_ARCHIVE_DOCUMENT,
+                {"actor": ctx.principal.principal_id},
+                document_id=document_id,
+            )
+            jobs.append(await _job_status(ctx, job_id))
+        return jobs
+
+    @strawberry.mutation
+    async def bulk_tag_documents(
+        self, info: Info, document_ids: list[strawberry.ID], tags: list[str]
+    ) -> list[Job]:
+        """Enqueue tag-merge jobs for multiple documents."""
+        clean_tags = sorted({tag.strip() for tag in tags if tag and tag.strip()})
+        if not clean_tags:
+            raise ValueError("at least one tag is required")
+        ctx = info.context
+        ids = _clean_bulk_ids(document_ids)
+        jobs: list[Job] = []
+        for document_id in ids:
+            await _require_document_write(ctx, document_id)
+            job_id = await queue.enqueue_async(
+                ctx.conn,
+                KIND_ADD_DOCUMENT_TAGS,
+                {"actor": ctx.principal.principal_id, "tags": clean_tags},
+                document_id=document_id,
+            )
+            jobs.append(await _job_status(ctx, job_id))
+        return jobs
 
     @strawberry.mutation
     async def update_document_metadata(
@@ -229,6 +359,43 @@ class Mutation:
             document_id=str(document_id),
         )
         return await _job_status(ctx, job_id)
+
+    @strawberry.mutation
+    async def suggest_document_metadata(self, info: Info, document_id: strawberry.ID) -> Job:
+        """Enqueue verified title/tag/duplicate suggestions for one document."""
+        ctx = info.context
+        await _require_document_write(ctx, str(document_id))
+        job_id = await queue.enqueue_async(
+            ctx.conn,
+            KIND_SUGGEST_DOCUMENT_METADATA,
+            {},
+            document_id=str(document_id),
+        )
+        return await _job_status(ctx, job_id)
+
+    @strawberry.mutation
+    async def decide_document_metadata_suggestions(
+        self,
+        info: Info,
+        approve_ids: list[strawberry.ID] | None = None,
+        reject_ids: list[strawberry.ID] | None = None,
+    ) -> int:
+        """Approve or reject verified metadata suggestions without auto-applying them."""
+        ctx = info.context
+        _require_write(ctx)
+        for name, ids in (("approveIds", approve_ids), ("rejectIds", reject_ids)):
+            if ids is not None and len(ids) > MAX_BATCH_IDS:
+                raise ValueError(f"{name} cannot exceed {MAX_BATCH_IDS} ids per call")
+        updated = 0
+        if approve_ids:
+            updated += await metadata_suggestions.decide_async(
+                ctx.conn, [str(i) for i in approve_ids], "approved"
+            )
+        if reject_ids:
+            updated += await metadata_suggestions.decide_async(
+                ctx.conn, [str(i) for i in reject_ids], "rejected"
+            )
+        return updated
 
     @strawberry.mutation
     async def decide_seeds(

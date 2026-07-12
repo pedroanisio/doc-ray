@@ -16,6 +16,7 @@ from webapp import app as webapp
 
 DOC_ID = "11111111-1111-1111-1111-111111111111"
 MISSING_ID = "22222222-2222-2222-2222-222222222222"
+COLLECTION_ID = "55555555-5555-5555-5555-555555555555"
 LEX_UID = "lx_en.v_say01"
 
 _DOC = {
@@ -96,6 +97,8 @@ def _fake_workflow_q(s: str):
 
 
 def _fake_document_q(s: str):
+    if "FROM document_collections" in s:
+        return []
     if "FROM documents d" in s and "ORDER BY d.char_count" in s:
         return [dict(_DOC, n_sentences=6002, tools="spacy/en_core_web_sm")]
     if "document_authors" in s:
@@ -231,6 +234,54 @@ def test_home_lists_documents_and_totals(client):
     assert "283,809" in html  # occurrence total, comma-formatted
 
 
+def test_home_renders_pdf_document_preview_thumbnail(client):
+    html = client.get("/").get_data(as_text=True)
+
+    assert 'class="doc-preview doc-preview-image"' in html
+    assert f'src="/doc/{DOC_ID}/page/1.png"' in html
+    assert 'alt="First page preview of orwell1984"' in html
+
+
+def test_home_renders_file_type_preview_fallback_and_status(client, monkeypatch):
+    pending_id = "33333333-3333-3333-3333-333333333333"
+    failed_id = "44444444-4444-4444-4444-444444444444"
+
+    def preview_rows(sql, params=()):
+        if "FROM documents d" in _norm(sql) and "ORDER BY d.char_count" in _norm(sql):
+            return [
+                dict(
+                    _DOC,
+                    id=pending_id,
+                    title="meeting-notes",
+                    doc_type="docx",
+                    status="pending",
+                    n_sentences=0,
+                    tools=None,
+                ),
+                dict(
+                    _DOC,
+                    id=failed_id,
+                    title="broken-import",
+                    doc_type="html",
+                    status="failed",
+                    n_sentences=0,
+                    tools=None,
+                ),
+            ]
+        return fake_q(sql, params)
+
+    monkeypatch.setattr(webapp, "q", preview_rows)
+
+    html = client.get("/").get_data(as_text=True)
+
+    assert "DOCX" in html
+    assert "HTML" in html
+    assert "Preview pending" in html
+    assert "Preview failed" in html
+    assert f"/doc/{pending_id}/page/1.png" not in html
+    assert f"/doc/{failed_id}/page/1.png" not in html
+
+
 def test_home_lede_uses_live_document_count(client, monkeypatch):
     def totals_41(sql, params=()):
         if "FROM documents) docs" in _norm(sql):
@@ -300,6 +351,65 @@ def test_home_last_page_has_no_next_link(client):
     assert "next →" not in html
 
 
+def test_home_supports_bulk_document_selection(client):
+    html = client.get("/").get_data(as_text=True)
+
+    assert 'action="/documents/bulk"' in html
+    assert f'name="document_id" value="{DOC_ID}"' in html
+    assert 'name="bulk_action" value="tag"' in html
+    assert 'name="bulk_action" value="archive"' in html
+    assert 'name="tags"' in html
+
+
+def test_bulk_document_tag_posts_graphql_mutation(client, monkeypatch):
+    captured = {}
+
+    def fake_gql(query, variables=None):
+        captured["query"] = query
+        captured["variables"] = variables
+        return {"bulkTagDocuments": [{"id": "job-1"}]}
+
+    monkeypatch.setattr(webapp, "gql", fake_gql)
+
+    token = _csrf_token_from(client.get("/").get_data(as_text=True))
+    resp = client.post(
+        "/documents/bulk",
+        data={
+            "document_id": [DOC_ID],
+            "bulk_action": "tag",
+            "tags": "reviewed, ops",
+            "csrf_token": token,
+        },
+    )
+
+    assert resp.status_code == 302
+    assert "bulk_queued=1" in resp.headers["Location"]
+    assert "bulkTagDocuments" in captured["query"]
+    assert captured["variables"] == {"ids": [DOC_ID], "tags": ["reviewed", "ops"]}
+
+
+def test_bulk_document_archive_posts_graphql_mutation(client, monkeypatch):
+    captured = {}
+
+    def fake_gql(query, variables=None):
+        captured["query"] = query
+        captured["variables"] = variables
+        return {"bulkArchiveDocuments": [{"id": "job-1"}]}
+
+    monkeypatch.setattr(webapp, "gql", fake_gql)
+
+    token = _csrf_token_from(client.get("/").get_data(as_text=True))
+    resp = client.post(
+        "/documents/bulk",
+        data={"document_id": [DOC_ID], "bulk_action": "archive", "csrf_token": token},
+    )
+
+    assert resp.status_code == 302
+    assert "bulk_queued=1" in resp.headers["Location"]
+    assert "bulkArchiveDocuments" in captured["query"]
+    assert captured["variables"] == {"ids": [DOC_ID]}
+
+
 def test_header_groups_reading_and_admin_navigation(client):
     html = client.get("/").get_data(as_text=True)
     normalized = _norm(html)
@@ -307,6 +417,154 @@ def test_header_groups_reading_and_admin_navigation(client):
     assert 'class="nav-group nav-reading"' in html
     assert 'class="nav-group nav-admin"' in html
     assert normalized.index("Corpus") < normalized.index("Upload") < normalized.index("Backups")
+
+
+# --- document collections --------------------------------------------------
+
+
+def test_collections_index_lists_manual_and_smart_collections(client, monkeypatch):
+    def collection_q(sql, params=()):
+        if "FROM document_collections" in _norm(sql):
+            return [
+                {
+                    "id": COLLECTION_ID,
+                    "name": "Cold War primary sources",
+                    "description": "Manual reading set",
+                    "kind": "manual",
+                    "rule": {},
+                    "document_count": 2,
+                },
+                {
+                    "id": "66666666-6666-6666-6666-666666666666",
+                    "name": "PDF queue",
+                    "description": "Auto-filtered documents",
+                    "kind": "smart",
+                    "rule": {"doc_type": "pdf", "status": "extracted"},
+                    "document_count": 5,
+                },
+            ]
+        return fake_q(sql, params)
+
+    monkeypatch.setattr(webapp, "q", collection_q)
+
+    html = client.get("/collections").get_data(as_text=True)
+
+    assert "Collections" in html
+    assert "Cold War primary sources" in html
+    assert "PDF queue" in html
+    assert "manual" in html and "smart" in html
+    assert f"/collections/{COLLECTION_ID}" in html
+    assert 'name="kind"' in html and 'name="doc_type"' in html and 'name="tags"' in html
+
+
+def test_create_manual_collection_inserts_and_redirects(client, monkeypatch):
+    captured = {}
+
+    def insert_collection(sql, params=()):
+        captured["sql"] = _norm(sql)
+        captured["params"] = params
+        return {"id": COLLECTION_ID}
+
+    monkeypatch.setattr(webapp, "q1", insert_collection)
+
+    token = _csrf_token_from(client.get("/collections").get_data(as_text=True))
+    resp = client.post(
+        "/collections",
+        data={
+            "name": "Cold War primary sources",
+            "description": "Manual reading set",
+            "kind": "manual",
+            "csrf_token": token,
+        },
+    )
+
+    assert resp.status_code == 302
+    assert f"/collections/{COLLECTION_ID}" in resp.headers["Location"]
+    assert "INSERT INTO document_collections" in captured["sql"]
+    assert captured["params"]["kind"] == "manual"
+    assert captured["params"]["rule"] == "{}"
+
+
+def test_collection_detail_renders_manual_members_and_remove_controls(client, monkeypatch):
+    def collection_q1(sql, params=()):
+        if "FROM document_collections WHERE id" in _norm(sql):
+            return {
+                "id": COLLECTION_ID,
+                "name": "Cold War primary sources",
+                "description": "Manual reading set",
+                "kind": "manual",
+                "rule": {},
+            }
+        return fake_q1(sql, params)
+
+    def collection_q(sql, params=()):
+        s = _norm(sql)
+        if "FROM document_collection_members" in s:
+            return [dict(_DOC, collection_id=COLLECTION_ID, collection_kind="manual")]
+        if "FROM documents d" in s and "NOT EXISTS" in s:
+            return []
+        return fake_q(sql, params)
+
+    monkeypatch.setattr(webapp, "q1", collection_q1)
+    monkeypatch.setattr(webapp, "q", collection_q)
+
+    html = client.get(f"/collections/{COLLECTION_ID}").get_data(as_text=True)
+
+    assert "Cold War primary sources" in html
+    assert "Manual reading set" in html
+    assert "orwell1984" in html
+    assert f'action="/collections/{COLLECTION_ID}/documents/{DOC_ID}"' in html
+    assert 'name="action" value="remove"' in html
+
+
+def test_smart_collection_detail_uses_rule_to_render_matching_documents(client, monkeypatch):
+    captured = {}
+
+    def collection_q1(sql, params=()):
+        if "FROM document_collections WHERE id" in _norm(sql):
+            return {
+                "id": COLLECTION_ID,
+                "name": "Extracted PDFs",
+                "description": "Smart queue",
+                "kind": "smart",
+                "rule": {"doc_type": "pdf", "status": "extracted", "tags": ["primary"]},
+            }
+        return fake_q1(sql, params)
+
+    def collection_q(sql, params=()):
+        s = _norm(sql)
+        if "FROM documents d" in s and "document_tags" in s:
+            captured["params"] = params
+            return [dict(_DOC, n_sentences=6002, tools="spacy/en_core_web_sm")]
+        return fake_q(sql, params)
+
+    monkeypatch.setattr(webapp, "q1", collection_q1)
+    monkeypatch.setattr(webapp, "q", collection_q)
+
+    html = client.get(f"/collections/{COLLECTION_ID}").get_data(as_text=True)
+
+    assert "Extracted PDFs" in html
+    assert "Smart rule" in html
+    assert "orwell1984" in html
+    assert captured["params"]["doc_type"] == "pdf"
+    assert captured["params"]["status"] == "extracted"
+    assert captured["params"]["tags"] == ["primary"]
+
+
+def test_document_page_can_add_document_to_manual_collection(client, monkeypatch):
+    def collection_q(sql, params=()):
+        s = _norm(sql)
+        if "FROM document_collections c" in s and "NOT EXISTS" in s:
+            return [{"id": COLLECTION_ID, "name": "Cold War primary sources"}]
+        return fake_q(sql, params)
+
+    monkeypatch.setattr(webapp, "q", collection_q)
+
+    html = client.get(f"/doc/{DOC_ID}").get_data(as_text=True)
+
+    assert "Add to collection" in html
+    assert f'action="/collections/{COLLECTION_ID}/documents/{DOC_ID}"' in html
+    assert 'name="action" value="add"' in html
 
 
 # --- document page ---------------------------------------------------------
@@ -318,6 +576,14 @@ def test_document_page_shows_pos_and_verbs(client):
     assert ">NOUN<" in html and ">VERB<" in html
     assert "Most-used verbs" in html and "say" in html
     assert "George Orwell" in html
+
+
+def test_document_page_renders_pdf_visual_preview(client):
+    html = client.get(f"/doc/{DOC_ID}").get_data(as_text=True)
+
+    assert 'class="doc-preview doc-preview-image doc-preview-large"' in html
+    assert f'src="/doc/{DOC_ID}/page/1.png"' in html
+    assert "First-page preview" in html
 
 
 def test_document_annotated_reader_highlights_words(client):
@@ -431,6 +697,55 @@ def test_document_page_shows_metadata_edit_history(client, monkeypatch):
     assert "Old Title" in html and "tester" in html
 
 
+def test_document_page_shows_metadata_suggestions_and_queue_action(client, monkeypatch):
+    def with_suggestions(sql, params=()):
+        s = _norm(sql)
+        if "FROM document_metadata_suggestion" in s:
+            return [
+                {
+                    "id": "01KXA6SUGGESTION000000000",
+                    "field": "tags",
+                    "suggested_value": "graph",
+                    "confidence": 0.62,
+                    "reason": "Frequent noun in this document",
+                    "status": "pending",
+                    "source": "verified-deterministic",
+                }
+            ]
+        return fake_q(sql, params)
+
+    monkeypatch.setattr(webapp, "q", with_suggestions)
+
+    html = client.get(f"/doc/{DOC_ID}").get_data(as_text=True)
+
+    assert "Metadata suggestions" in html
+    assert "graph" in html
+    assert "Low confidence" in html
+    assert f'action="/doc/{DOC_ID}/metadata-suggestions"' in html
+
+
+def test_document_metadata_suggestion_request_calls_mutation(client, monkeypatch):
+    captured = {}
+
+    def fake_gql(query, variables=None):
+        captured["query"] = query
+        captured["variables"] = variables
+        return {"suggestDocumentMetadata": {"id": "job-1"}}
+
+    monkeypatch.setattr(webapp, "gql", fake_gql)
+    token = _csrf_token_from(client.get(f"/doc/{DOC_ID}").get_data(as_text=True))
+
+    resp = client.post(
+        f"/doc/{DOC_ID}/metadata-suggestions",
+        data={"csrf_token": token},
+    )
+
+    assert resp.status_code == 302
+    assert "suggestions_queued=1" in resp.headers["Location"]
+    assert "suggestDocumentMetadata" in captured["query"]
+    assert captured["variables"] == {"id": DOC_ID}
+
+
 def test_document_metadata_update_calls_mutation_and_redirects(client, monkeypatch):
     captured = {}
 
@@ -481,9 +796,185 @@ def test_document_metadata_update_error_redirects_with_message(client, monkeypat
 
 def test_document_pagination_math(client):
     # 120 sentences / 40 per page -> 3 pages; page 2 offers prev and next.
-    html = client.get(f"/doc/{DOC_ID}?page=2").get_data(as_text=True)
+    html = client.get(f"/doc/{DOC_ID}?page=2&annotate=0").get_data(as_text=True)
     assert "2 / 3" in html
     assert "prev" in html and "next" in html
+
+
+def test_document_pages_tab_uses_persisted_pdf_page_boundaries(client, monkeypatch):
+    sentence_queries = []
+
+    def page_q(sql, params=()):
+        s = _norm(sql)
+        if "DISTINCT sp.page_number" in s:
+            return [{"page_number": 1}, {"page_number": 2}]
+        if "sen.ordinal, sen.text" in s:
+            sentence_queries.append((s, params))
+            if "sp.page_number = %s" in s:
+                assert params == (DOC_ID, 2)
+                return [{"ordinal": 4, "text": "Only page two.", "ss": 21, "se": 35}]
+            return [{"ordinal": 0, "text": "Chunk fallback.", "ss": 0, "se": 15}]
+        if "FROM lexeme_occurrences o" in s and "sp.char_start >=" in s:
+            return []
+        return fake_q(sql, params)
+
+    def page_q1(sql, params=()):
+        if "substring(full_text FROM" in _norm(sql):
+            return {"t": "Only page two." if params[0] == 22 else "Chunk fallback."}
+        return fake_q1(sql, params)
+
+    monkeypatch.setattr(webapp, "q", page_q)
+    monkeypatch.setattr(webapp, "q1", page_q1)
+
+    html = client.get(f"/doc/{DOC_ID}?page=2&annotate=0").get_data(as_text=True)
+
+    assert "Only page two." in html
+    assert "Chunk fallback." not in html
+    assert "2 / 284" in html
+    assert any("sp.page_number = %s" in sql for sql, _ in sentence_queries)
+    assert not any("LIMIT %s OFFSET %s" in sql for sql, _ in sentence_queries)
+
+
+def test_document_original_overlay_renders_pdf_page_and_pos_boxes(client, monkeypatch):
+    def overlay_q(sql, params=()):
+        s = _norm(sql)
+        if "DISTINCT sp.page_number" in s:
+            return [{"page_number": 1}, {"page_number": 2}]
+        if "sen.ordinal, sen.text" in s and "sp.page_number = %s" in s:
+            return [{"ordinal": 4, "text": "Only page two.", "ss": 21, "se": 35}]
+        if "document_layout_runs" in s and "page_width" in s:
+            return [{"page_width": 200.0, "page_height": 100.0}]
+        if "sp.bbox_x0" in s and "lexeme_occurrences" in s:
+            return [
+                {
+                    "uid": LEX_UID,
+                    "lemma": "say",
+                    "pos": "VERB",
+                    "bbox_x0": 20.0,
+                    "bbox_y0": 10.0,
+                    "bbox_x1": 80.0,
+                    "bbox_y1": 30.0,
+                }
+            ]
+        if "FROM lexeme_occurrences o" in s and "sp.char_start >=" in s:
+            return []
+        return fake_q(sql, params)
+
+    monkeypatch.setattr(webapp, "q", overlay_q)
+
+    html = client.get(f"/doc/{DOC_ID}?view=original&page=2").get_data(as_text=True)
+
+    assert 'class="original-overlay"' in html
+    assert f'src="/doc/{DOC_ID}/page/2.png"' in html
+    assert 'href="/lexeme/lx_en.v_say01"' in html
+    assert 'style="left:10.000%;top:10.000%;width:30.000%;height:20.000%"' in html
+    assert "say · VERB" in html
+
+
+def test_document_original_overlay_explains_missing_pdf_geometry(client, monkeypatch):
+    def missing_q(sql, params=()):
+        s = _norm(sql)
+        if "DISTINCT sp.page_number" in s:
+            return []
+        return fake_q(sql, params)
+
+    monkeypatch.setattr(webapp, "q", missing_q)
+
+    html = client.get(f"/doc/{DOC_ID}?view=original").get_data(as_text=True)
+
+    assert "Original overlay is not available until this PDF is re-extracted" in html
+    assert 'class="original-overlay"' not in html
+    assert "Rendered original PDF page" not in html
+
+
+def test_document_original_overlay_explains_non_pdf_format(client, monkeypatch):
+    def non_pdf_q1(sql, params=()):
+        if "SELECT * FROM documents WHERE id" in _norm(sql):
+            return dict(_DOC, doc_type="docx", page_count=None)
+        return fake_q1(sql, params)
+
+    monkeypatch.setattr(webapp, "q1", non_pdf_q1)
+
+    html = client.get(f"/doc/{DOC_ID}?view=original").get_data(as_text=True)
+
+    assert "Original markup is not available until this document is re-extracted" in html
+    assert 'class="original-overlay"' not in html
+    assert "Rendered original PDF page" not in html
+
+
+def test_document_original_overlay_can_toggle_to_entity_canonical_boxes(client, monkeypatch):
+    def entity_q(sql, params=()):
+        s = _norm(sql)
+        if "DISTINCT sp.page_number" in s:
+            return [{"page_number": 1}, {"page_number": 2}]
+        if "sen.ordinal, sen.text" in s and "sp.page_number = %s" in s:
+            return [{"ordinal": 4, "text": "Only page two.", "ss": 21, "se": 35}]
+        if "document_layout_runs" in s and "page_width" in s:
+            return [{"page_width": 200.0, "page_height": 100.0}]
+        if "FROM entity_mention em" in s and "LEFT JOIN canonical c" in s:
+            return [
+                {
+                    "mention_id": "m1",
+                    "surface": "Big Brother",
+                    "entity_type": "ORG",
+                    "scheme": "canonical",
+                    "kb_id": "7",
+                    "preferred": "Big Brother",
+                    "bbox_x0": 20.0,
+                    "bbox_y0": 10.0,
+                    "bbox_x1": 80.0,
+                    "bbox_y1": 30.0,
+                }
+            ]
+        if "FROM lexeme_occurrences o" in s and "sp.char_start >=" in s:
+            return []
+        return fake_q(sql, params)
+
+    monkeypatch.setattr(webapp, "q", entity_q)
+
+    html = client.get(f"/doc/{DOC_ID}?view=original&page=2&overlay=entities").get_data(
+        as_text=True
+    )
+
+    assert 'href="?page=2&view=original&overlay=grammar"' in html
+    assert 'href="?page=2&view=original&overlay=entities"' in html
+    assert 'class="overlay-box entity-box e-ORG"' in html
+    assert 'href="#entity-m1"' in html
+    assert "Big Brother · ORG · canonical:7" in html
+
+
+def test_document_original_view_renders_markup_highlights_for_html(client, monkeypatch):
+    def html_q1(sql, params=()):
+        s = _norm(sql)
+        if "SELECT * FROM documents WHERE id" in s:
+            return dict(_DOC, doc_type="html", page_count=None)
+        if "FROM document_metadata" in s and "render_html" in s:
+            return {"value": "<h1>Heading</h1><p>Hello World</p>"}
+        return fake_q1(sql, params)
+
+    def html_q(sql, params=()):
+        s = _norm(sql)
+        if "substring(c.full_text FROM" in s and "lexeme_occurrences" in s:
+            return [
+                {
+                    "surface": "World",
+                    "uid": LEX_UID,
+                    "lemma": "world",
+                    "pos": "NOUN",
+                }
+            ]
+        return fake_q(sql, params)
+
+    monkeypatch.setattr(webapp, "q1", html_q1)
+    monkeypatch.setattr(webapp, "q", html_q)
+
+    html = client.get(f"/doc/{DOC_ID}?view=original").get_data(as_text=True)
+
+    assert 'class="markup-original"' in html
+    assert "<h1>Heading</h1>" in html
+    assert 'href="/lexeme/lx_en.v_say01" class="w p-NOUN"' in html
+    assert "world · NOUN" in html
+    assert "Rendered original PDF page" not in html
 
 
 def test_document_full_scroll_view_disables_sentence_pager(client, monkeypatch):
@@ -907,6 +1398,74 @@ def test_operator_health_page_links_do_not_embed_the_token(client):
     assert "?token=" not in html
 
 
+def test_operator_health_issue_links_to_metadata_correction(client):
+    webapp.app.config["OPERATOR_HEALTH_TOKEN"] = "secret"
+
+    html = client.get("/operator/health?token=secret").get_data(as_text=True)
+
+    assert f'href="/operator/doc/{DOC_ID}/metadata?issue=document-unannotated"' in html
+    assert "Correct metadata" in html
+
+
+def test_operator_metadata_correction_requires_operator_access(client):
+    webapp.app.config["OPERATOR_HEALTH_TOKEN"] = "secret"
+
+    assert client.get(f"/operator/doc/{DOC_ID}/metadata").status_code == 404
+
+
+def test_operator_metadata_correction_form_is_prefilled_and_gated(client):
+    webapp.app.config["OPERATOR_HEALTH_TOKEN"] = "secret"
+
+    html = client.get(
+        f"/operator/doc/{DOC_ID}/metadata?issue=document-unannotated&token=secret"
+    ).get_data(as_text=True)
+
+    assert "Operator correction" in html
+    assert "document-unannotated" in html
+    assert f'action="/operator/doc/{DOC_ID}/metadata"' in html
+    assert 'name="title" value="orwell1984"' in html
+    assert 'name="description"' in html
+    assert 'name="tags"' in html
+    assert 'name="csrf_token"' in html
+
+
+def test_operator_metadata_correction_reuses_metadata_mutation(client, monkeypatch):
+    webapp.app.config["OPERATOR_HEALTH_TOKEN"] = "secret"
+    captured = {}
+
+    def fake_gql(query, variables=None):
+        captured["query"] = query
+        captured["variables"] = variables
+        return {"updateDocumentMetadata": {"id": DOC_ID}}
+
+    monkeypatch.setattr(webapp, "gql", fake_gql)
+
+    form_html = client.get(f"/operator/doc/{DOC_ID}/metadata?token=secret").get_data(
+        as_text=True
+    )
+    token = _csrf_token_from(form_html)
+    resp = client.post(
+        f"/operator/doc/{DOC_ID}/metadata",
+        data={
+            "title": "Corrected title",
+            "description": "Curated note",
+            "tags": "ops, corrected",
+            "csrf_token": token,
+        },
+    )
+
+    assert resp.status_code == 302
+    assert f"/operator/doc/{DOC_ID}/metadata" in resp.headers["Location"]
+    assert "metadata_queued=1" in resp.headers["Location"]
+    assert "updateDocumentMetadata" in captured["query"]
+    assert captured["variables"] == {
+        "id": DOC_ID,
+        "title": "Corrected title",
+        "description": "Curated note",
+        "tags": ["ops", "corrected"],
+    }
+
+
 # ---------------------------------------------------------------------------
 # RLS enforcement: get_conn drops to docray_client + sets the principal
 # ---------------------------------------------------------------------------
@@ -1002,9 +1561,10 @@ def test_database_unavailable_renders_graceful_page_not_a_traceback(monkeypatch)
 
 
 class _FakeUpstreamResponse:
-    def __init__(self, status_code, chunks=(b"",)):
+    def __init__(self, status_code, chunks=(b"",), headers=None):
         self.status_code = status_code
         self._chunks = chunks
+        self.headers = headers or {}
 
     def iter_bytes(self, chunk_size=None):
         yield from self._chunks
@@ -1049,6 +1609,100 @@ def test_backups_download_propagates_upstream_401_not_500(client, monkeypatch):
     monkeypatch.setattr(httpx.Client, "send", lambda _self, _r, **_k: _FakeUpstreamResponse(401))
     resp = client.get("/backups/some-id/download")
     assert resp.status_code == 401
+
+
+def test_document_page_links_to_original_download(client):
+    html = client.get(f"/doc/{DOC_ID}").get_data(as_text=True)
+
+    assert f'href="/doc/{DOC_ID}/download"' in html
+    assert "Download original" in html
+
+
+def test_document_download_proxies_original_file_from_api(client, monkeypatch):
+    import httpx
+
+    from webapp import graphql_client
+
+    captured = {}
+
+    def fake_send(_self, request, **_kwargs):
+        captured["url"] = str(request.url)
+        captured["authorization"] = request.headers.get("authorization")
+        return _FakeUpstreamResponse(
+            200,
+            chunks=(b"original-bytes",),
+            headers={
+                "content-type": "application/pdf",
+                "content-disposition": 'attachment; filename="Original Report.pdf"',
+            },
+        )
+
+    monkeypatch.setattr(httpx.Client, "send", fake_send)
+    monkeypatch.setattr(graphql_client, "API_TOKEN", "webapp-token")
+
+    resp = client.get(f"/doc/{DOC_ID}/download")
+
+    assert resp.status_code == 200
+    assert resp.data == b"original-bytes"
+    assert captured["url"].endswith(f"/documents/{DOC_ID}/download")
+    assert captured["authorization"] == "Bearer webapp-token"
+    assert resp.headers["content-type"] == "application/pdf"
+    assert resp.headers["content-disposition"] == 'attachment; filename="Original Report.pdf"'
+
+
+@pytest.mark.parametrize("status", [401, 403, 404, 409])
+def test_document_download_propagates_clean_upstream_errors(client, monkeypatch, status):
+    import httpx
+
+    monkeypatch.setattr(
+        httpx.Client, "send", lambda _self, _request, **_kwargs: _FakeUpstreamResponse(status)
+    )
+
+    resp = client.get(f"/doc/{DOC_ID}/download")
+
+    assert resp.status_code == status
+
+
+def test_document_page_image_proxies_rendered_png_from_api(client, monkeypatch):
+    import httpx
+
+    from webapp import graphql_client
+
+    captured = {}
+
+    def fake_send(_self, request, **_kwargs):
+        captured["url"] = str(request.url)
+        captured["authorization"] = request.headers.get("authorization")
+        return _FakeUpstreamResponse(
+            200,
+            chunks=(b"\x89PNG", b"-page"),
+            headers={"content-type": "image/png", "x-docray-cache": "hit"},
+        )
+
+    monkeypatch.setattr(httpx.Client, "send", fake_send)
+    monkeypatch.setattr(graphql_client, "API_TOKEN", "webapp-token")
+
+    resp = client.get(f"/doc/{DOC_ID}/page/1.png")
+
+    assert resp.status_code == 200
+    assert resp.data == b"\x89PNG-page"
+    assert captured["url"].endswith(f"/documents/{DOC_ID}/pages/1.png")
+    assert captured["authorization"] == "Bearer webapp-token"
+    assert resp.headers["content-type"] == "image/png"
+    assert resp.headers["x-docray-cache"] == "hit"
+
+
+@pytest.mark.parametrize("status", [401, 403, 404, 409, 415])
+def test_document_page_image_propagates_clean_upstream_errors(client, monkeypatch, status):
+    import httpx
+
+    monkeypatch.setattr(
+        httpx.Client, "send", lambda _self, _request, **_kwargs: _FakeUpstreamResponse(status)
+    )
+
+    resp = client.get(f"/doc/{DOC_ID}/page/1.png")
+
+    assert resp.status_code == status
 
 
 # --- CSRF protection (BL-103) -----------------------------------------------
@@ -1112,6 +1766,52 @@ def test_post_with_valid_csrf_token_dispatches_seeding_action(client, monkeypatc
     )
     assert resp.status_code == 302
     assert calls
+
+
+@pytest.mark.parametrize(
+    ("get_path", "post_path", "data", "expected_location", "expected_log"),
+    [
+        (
+            f"/doc/{DOC_ID}/seeding",
+            f"/doc/{DOC_ID}/seeding",
+            {"action": "mine"},
+            f"/doc/{DOC_ID}/seeding?error=permission+denied",
+            "seeding action failed",
+        ),
+        (
+            "/backups",
+            "/backups",
+            {"note": "nightly"},
+            "/backups?error=permission+denied",
+            "backup creation failed",
+        ),
+        (
+            "/backups",
+            "/backups/backup-1/restore",
+            {},
+            "/backups?error=permission+denied",
+            "backup restore failed",
+        ),
+    ],
+)
+def test_webapp_write_error_handlers_log_before_redirecting(
+    client, monkeypatch, get_path, post_path, data, expected_location, expected_log
+):
+    messages = []
+
+    def raising_gql(*_args, **_kwargs):
+        raise RuntimeError("permission denied")
+
+    monkeypatch.setattr(webapp, "gql", raising_gql)
+    monkeypatch.setattr(webapp.app.logger, "exception", lambda message: messages.append(message))
+
+    html = client.get(get_path).get_data(as_text=True)
+    token = _csrf_token_from(html)
+    resp = client.post(post_path, data={**data, "csrf_token": token})
+
+    assert resp.status_code == 302
+    assert expected_location in resp.headers["Location"]
+    assert messages == [expected_log]
 
 
 # ---------------------------------------------------------------------------

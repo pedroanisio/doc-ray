@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% block title %}Collections · doc·ray{% endblock %}
+{% block body %}
+<p class="kicker"><a href="{{ url_for('documents') }}">← Corpus</a></p>
+<h1>Collections</h1>
+<p class="lede" style="max-width:42rem">
+  Group documents into manual reading sets or smart collections that stay current
+  as new documents match their metadata rule.
+</p>
+{% if error %}<div class="errbox">{{ error }}</div>{% endif %}
+
+<div class="collection-layout">
+  <section class="collection-list">
+    {% for c in rows %}
+      <article class="collection-card">
+        <div>
+          <h2><a href="{{ url_for('collection_detail', collection_id=c.id) }}">{{ c.name }}</a></h2>
+          {% if c.description %}<p class="hint">{{ c.description }}</p>{% endif %}
+          {% if c.kind == "smart" %}<p class="hint">Smart rule · {{ c.rule_summary }}</p>{% endif %}
+        </div>
+        <div class="collection-meta">
+          <span class="pill">{{ c.kind }}</span>
+          <span class="pill">{{ c.document_count or 0 }} docs</span>
+        </div>
+      </article>
+    {% else %}
+      <div class="card">
+        <strong>No collections yet.</strong>
+        <span class="hint">Create a manual set or a smart rule to organize the corpus.</span>
+      </div>
+    {% endfor %}
+  </section>
+
+  <aside class="card collection-create">
+    <h2 style="margin-top:0">New collection</h2>
+    <form method="post" action="{{ url_for('collections_create') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <label>Name <input type="text" name="name" required></label>
+      <label>Description <input type="text" name="description"></label>
+      <label>Type
+        <select name="kind">
+          <option value="manual">manual</option>
+          <option value="smart">smart</option>
+        </select>
+      </label>
+      <label>Smart doc type <input type="text" name="doc_type" placeholder="pdf, docx, html"></label>
+      <label>Smart status <input type="text" name="status" placeholder="extracted"></label>
+      <label>Smart tags <input type="text" name="tags" placeholder="primary, review"></label>
+      <button type="submit">Create collection</button>
+    </form>
+  </aside>
+</div>
+{% endblock %}

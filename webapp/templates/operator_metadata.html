@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block title %}operator correction · doc·ray{% endblock %}
+{% block body %}
+<p class="kicker"><a href="{{ url_for('operator_health') }}">← Operator health</a></p>
+<h1>Operator correction</h1>
+<p class="lede">{{ doc.title }}</p>
+
+{% if issue %}<p class="hint">Finding: <code>{{ issue }}</code></p>{% endif %}
+{% if metadata_queued %}
+<div class="notice">Metadata correction queued.</div>
+{% endif %}
+{% if metadata_error %}
+<div class="error">Metadata correction failed: {{ metadata_error }}</div>
+{% endif %}
+
+<section class="grid two">
+  <div class="card">
+    <h2 style="margin-top:0">Metadata</h2>
+    <form method="post" action="{{ url_for('operator_document_metadata_update', doc_id=doc.id) }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <label>Title
+        <input name="title" value="{{ doc.title or '' }}">
+      </label>
+      <label>Description
+        <textarea name="description" rows="4">{{ doc.description or '' }}</textarea>
+      </label>
+      <label>Tags
+        <input name="tags" value="{{ tags|join(', ') }}">
+      </label>
+      <button type="submit">Queue correction</button>
+    </form>
+  </div>
+
+  <div class="card">
+    <h2 style="margin-top:0">History</h2>
+    {% for h in metadata_history %}
+      <p><b>{{ h.field }}</b> changed from <code>{{ h.old_value }}</code> to
+        <code>{{ h.new_value }}</code>{% if h.actor %} by {{ h.actor }}{% endif %}</p>
+    {% else %}
+      <p class="lede">No metadata edits recorded.</p>
+    {% endfor %}
+  </div>
+</section>
+{% endblock %}

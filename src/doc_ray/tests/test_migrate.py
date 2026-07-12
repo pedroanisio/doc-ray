@@ -93,5 +93,13 @@ def test_apply_is_idempotent_against_live_db():
         assert migrate.pending_migrations(conn) == []
         applied = migrate.applied_filenames(conn)
         assert "001_init.sql" in applied
+        columns = {
+            r["column_name"]
+            for r in conn.execute(
+                "SELECT column_name FROM information_schema.columns "
+                "WHERE table_name = 'document_layout_runs'"
+            ).fetchall()
+        }
+        assert {"page_width", "page_height"}.issubset(columns)
     finally:
         conn.close()

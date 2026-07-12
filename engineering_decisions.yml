@@ -29,10 +29,16 @@ source_schema:         "db/migrations"
 # annotation-table autovacuum tuning, to 1.8.0 by migration 037 for
 # evaluation/drift artifacts, to 1.9.0 by migration 039 for the
 # entity_mention/chunk surface denormalization, then to 1.10.0 by migration
-# 044 for jobs/backups RLS, then to 1.11.0 by migration 046 for editable
-# document metadata + change history (BL-058, migration 045). Kept in
+# 044 for jobs/backups RLS, to 1.11.0 by migration 046 for editable
+# document metadata + change history (BL-058, migration 045), to
+# 1.12.0 by migration 048 for document collections (BL-057, migration 047),
+# then to 1.13.0 by migration 050 for span page geometry (BL-077,
+# migration 049), then to 1.14.0 by migration 052 for document lifecycle
+# state and per-document soft delete/restore (BL-059, migrations 051/053),
+# then to 1.15.0 by migration 056 for verified document metadata suggestions
+# (BL-061, migration 055). Kept in
 # lockstep with doc_ray.__version__ by scripts/check_version_consistency.py.
-source_schema_version: "1.11.0"
+source_schema_version: "1.15.0"
 target_engine:         "PostgreSQL 16"
 total_decisions:       23
 

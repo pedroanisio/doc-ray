@@ -44,3 +44,46 @@ class DocumentMetadataChange:
             changed_at=row["changed_at"],
             actor=row.get("actor"),
         )
+
+
+@strawberry.type
+class DocumentMetadataSuggestion:
+    """One verified title/tag/duplicate suggestion awaiting human review."""
+
+    id: strawberry.ID
+    document_id: strawberry.ID
+    field: str
+    current_value: str | None
+    suggested_value: str
+    confidence: float
+    reason: str
+    source: str
+    status: str
+    created_at: datetime
+    decided_at: datetime | None
+
+    @strawberry.field
+    def confidence_band(self) -> str:
+        """Return the visible confidence bucket for review UI."""
+        if self.confidence >= 0.85:
+            return "high"
+        if self.confidence >= 0.75:
+            return "medium"
+        return "low"
+
+    @classmethod
+    def from_row(cls, row: Row) -> DocumentMetadataSuggestion:
+        """Build a ``DocumentMetadataSuggestion`` from a suggestion row."""
+        return cls(
+            id=strawberry.ID(str(row["id"])),
+            document_id=strawberry.ID(str(row["document_id"])),
+            field=row["field"],
+            current_value=row.get("current_value"),
+            suggested_value=row["suggested_value"],
+            confidence=float(row["confidence"]),
+            reason=row["reason"],
+            source=row["source"],
+            status=row["status"],
+            created_at=row["created_at"],
+            decided_at=row.get("decided_at"),
+        )

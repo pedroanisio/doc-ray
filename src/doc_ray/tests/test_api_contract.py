@@ -28,6 +28,33 @@ def test_graphql_query_root_exposes_committed_read_surface():
         assert field in sdl
 
 
+def test_graphql_exposes_reextract_backfill_surface():
+    sdl = build_schema().as_str()
+
+    assert "hasPositionData" in sdl
+    assert "reextractDocument(" in sdl
+    assert "reextractDocuments(" in sdl
+
+
+def test_graphql_exposes_document_lifecycle_surface():
+    sdl = build_schema().as_str()
+
+    assert "lifecycleState" in sdl
+    assert "archivedAt" in sdl
+    assert "deletedAt" in sdl
+    assert "archiveDocument(" in sdl
+    assert "restoreDocument(" in sdl
+
+
+def test_graphql_exposes_document_metadata_suggestion_surface():
+    sdl = build_schema().as_str()
+
+    assert "documentMetadataSuggestions(" in sdl
+    assert "suggestDocumentMetadata(" in sdl
+    assert "decideDocumentMetadataSuggestions(" in sdl
+    assert "confidenceBand" in sdl
+
+
 def test_graphql_query_resolvers_delegate_to_read_adapter_without_sql():
     source = Path(query_mod.__file__).read_text()
 

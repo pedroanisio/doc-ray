@@ -179,6 +179,19 @@ def test_handle_canonicalize_requires_document_id():
         handle_canonicalize(None, None, job)
 
 
+def test_handle_reextract_requires_document_id_and_store():
+    from doc_ray.application.jobs import handle_reextract
+    from doc_ray.domain.jobs import Job, JobStatus
+
+    job = Job(id="x", kind="reextract", status=JobStatus.RUNNING, document_id=None)
+    with pytest.raises(RuntimeError, match="reextract requires a document_id"):
+        handle_reextract(None, None, job)
+
+    job = Job(id="x", kind="reextract", status=JobStatus.RUNNING, document_id="doc-1")
+    with pytest.raises(RuntimeError, match="reextract requires an object store"):
+        handle_reextract(None, None, job)
+
+
 def test_chain_stops_when_ingest_result_status_is_not_ingested(qconn, monkeypatch):
     # A 'duplicate' or 'failed' ingest must not advance the chain — otherwise a
     # re-uploaded file or a failed extraction would re-run annotate/canonicalize
@@ -514,9 +527,10 @@ def test_handle_delete_removes_the_documents_blob(qconn):
 
     result = handle_delete(conn, store, job)
 
-    assert result == {"deleted": doc_id}
-    assert store.deleted_keys == ["ab/cd.pdf"]
-    assert conn.execute("SELECT 1 FROM documents WHERE id = %s", (doc_id,)).fetchone() is None
+    assert result == {"deleted": doc_id, "soft": True}
+    assert store.deleted_keys == []
+    row = conn.execute("SELECT lifecycle_state FROM documents WHERE id = %s", (doc_id,)).fetchone()
+    assert row["lifecycle_state"] == "deleted"
 
 
 def test_handle_delete_tolerates_a_missing_object_store(qconn):
@@ -529,8 +543,9 @@ def test_handle_delete_tolerates_a_missing_object_store(qconn):
 
     result = handle_delete(conn, None, job)
 
-    assert result == {"deleted": doc_id}
-    assert conn.execute("SELECT 1 FROM documents WHERE id = %s", (doc_id,)).fetchone() is None
+    assert result == {"deleted": doc_id, "soft": True}
+    row = conn.execute("SELECT lifecycle_state FROM documents WHERE id = %s", (doc_id,)).fetchone()
+    assert row["lifecycle_state"] == "deleted"
 
 
 def test_handle_delete_ignores_a_source_uri_outside_the_configured_bucket(qconn):

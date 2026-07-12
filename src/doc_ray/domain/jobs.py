@@ -30,13 +30,18 @@ KIND_ANNOTATE = "annotate"
 KIND_SEMANTIC_ENRICH = "semantic_enrich"
 KIND_REANNOTATE = "reannotate"
 KIND_DELETE = "delete"
+KIND_ARCHIVE_DOCUMENT = "archive_document"
+KIND_RESTORE_DOCUMENT = "restore_document"
+KIND_ADD_DOCUMENT_TAGS = "add_document_tags"
 KIND_SEED_CANONICAL = "seed_canonical"
 KIND_SEED_SUGGEST = "seed_suggest"
 KIND_SEED_APPROVED = "seed_approved"
+KIND_SUGGEST_DOCUMENT_METADATA = "suggest_document_metadata"
 KIND_CANONICALIZE = "canonicalize"
 KIND_BACKUP = "backup"
 KIND_RESTORE = "restore"
 KIND_UPDATE_METADATA = "update_metadata"
+KIND_REEXTRACT = "reextract"
 
 
 @dataclass(frozen=True)

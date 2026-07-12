@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+{% block title %}{{ collection.name }} · doc·ray{% endblock %}
+{% block body %}
+<p class="kicker"><a href="{{ url_for('collections') }}">← Collections</a></p>
+<div class="doc-head">
+  <h1>{{ collection.name }}</h1>
+  <div>
+    <span class="pill">{{ collection.kind }}</span>
+    <span class="pill">{{ rows|length }} docs</span>
+    {% if collection.kind == "smart" %}<span class="pill">Smart rule · {{ collection.rule_summary }}</span>{% endif %}
+  </div>
+  {% if collection.description %}<p class="lede" style="margin-top:.6rem">{{ collection.description }}</p>{% endif %}
+</div>
+
+{% if collection.kind == "manual" and available %}
+<details class="card collection-add">
+  <summary class="kicker" style="cursor:pointer">Add document</summary>
+  <div class="collection-add-list">
+    {% for d in available %}
+      <form method="post" action="{{ url_for('collection_document_update', collection_id=collection.id, doc_id=d.id) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="action" value="add">
+        <button type="submit">Add</button>
+        <span>{{ d.title }}</span>
+        <span class="pill">{{ d.doc_type }}</span>
+      </form>
+    {% endfor %}
+  </div>
+</details>
+{% endif %}
+
+<div class="card">
+  <table>
+    <thead><tr>
+      <th>Preview</th><th>Title</th><th>Type</th><th>Status</th>
+      <th class="num">Pages</th><th class="num">Sentences</th>
+      {% if collection.kind == "manual" %}<th></th>{% endif %}
+    </tr></thead>
+    <tbody>
+    {% for d in rows %}
+      <tr>
+        <td class="preview-cell">
+          {% set preview = d.preview %}
+          {% if preview.kind == "image" %}
+            <a class="doc-preview doc-preview-image" href="{{ url_for('document', doc_id=d.id) }}" aria-label="{{ preview.label }}">
+              <img src="{{ preview.src }}" alt="{{ preview.alt }}" loading="lazy">
+            </a>
+          {% else %}
+            <a class="doc-preview doc-preview-icon doc-preview-{{ preview.state }}" href="{{ url_for('document', doc_id=d.id) }}" aria-label="{{ preview.label }}">
+              <span>{{ preview.icon }}</span>
+            </a>
+          {% endif %}
+        </td>
+        <td style="font-family:var(--display); font-size:1.15rem">
+          <a href="{{ url_for('document', doc_id=d.id) }}">{{ d.title }}</a>
+        </td>
+        <td class="mono" style="color:var(--ink-faint)">{{ d.doc_type }}</td>
+        <td>{{ d.status }}</td>
+        <td class="num">{{ d.page_count or "—" }}</td>
+        <td class="num">{{ "{:,}".format(d.n_sentences or 0) }}</td>
+        {% if collection.kind == "manual" %}
+        <td>
+          <form method="post" action="{{ url_for('collection_document_update', collection_id=collection.id, doc_id=d.id) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="action" value="remove">
+            <button type="submit">Remove</button>
+          </form>
+        </td>
+        {% endif %}
+      </tr>
+    {% else %}
+      <tr><td colspan="{{ 7 if collection.kind == 'manual' else 6 }}">No documents match this collection.</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

@@ -23,16 +23,48 @@
   <div class="stat"><b>{{ "{:,}".format(totals.occ) }}</b><span>occurrences</span></div>
 </div>
 
-<div class="card">
+{% if bulk_queued %}
+<p class="notice">Queued {{ bulk_queued }} bulk document jobs.</p>
+{% endif %}
+{% if bulk_error %}
+<p class="notice error">{{ bulk_error }}</p>
+{% endif %}
+
+<form action="{{ url_for('documents_bulk_action') }}" method="post" class="card">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <div class="toolbar" style="margin-bottom:1rem">
+    <label>
+      Tags
+      <input name="tags" placeholder="reviewed, source-a">
+    </label>
+    <button type="submit" name="bulk_action" value="tag">Tag selected</button>
+    <button type="submit" name="bulk_action" value="archive">Archive selected</button>
+  </div>
   <table>
     <thead><tr>
-      <th>Title</th><th>Type</th><th>Lang</th>
+      <th>Select</th><th>Preview</th><th>Title</th><th>Type</th><th>Lang</th>
       <th class="num">Chars</th><th class="num">Pages</th>
       <th class="num">Sentences</th><th>Analyzer</th>
     </tr></thead>
     <tbody>
     {% for d in rows %}
       <tr>
+        <td><input type="checkbox" name="document_id" value="{{ d.id }}" aria-label="Select {{ d.title }}"></td>
+        <td class="preview-cell">
+          {% set preview = d.preview %}
+          {% if preview.kind == "image" %}
+            <a class="doc-preview doc-preview-image" href="{{ url_for('document', doc_id=d.id) }}" aria-label="{{ preview.label }}">
+              <img src="{{ preview.src }}" alt="{{ preview.alt }}" loading="lazy">
+            </a>
+          {% else %}
+            <a class="doc-preview doc-preview-icon doc-preview-{{ preview.state }}" href="{{ url_for('document', doc_id=d.id) }}" aria-label="{{ preview.label }}">
+              <span>{{ preview.icon }}</span>
+            </a>
+          {% endif %}
+          {% if preview.status_label %}
+            <div class="preview-status preview-status-{{ preview.state }}">{{ preview.status_label }}</div>
+          {% endif %}
+        </td>
         <td style="font-family:var(--display); font-size:1.15rem">
           <a href="{{ url_for('document', doc_id=d.id) }}">{{ d.title }}</a></td>
         <td style="color:var(--ink-faint)" class="mono">{{ d.doc_type }}</td>
@@ -44,7 +76,7 @@
       </tr>
     {% else %}
       <tr>
-        <td colspan="7" style="padding:1.4rem; text-align:center">
+        <td colspan="9" style="padding:1.4rem; text-align:center">
           <strong>No documents yet.</strong>
           <span style="color:var(--ink-muted)">Start by adding a file to the corpus.</span>
           <a href="{{ url_for('upload_form') }}">Upload the first document</a>
@@ -60,5 +92,5 @@
     {% if has_next %}<a href="?page={{ page+1 }}">next →</a>{% endif %}
   </div>
   {% endif %}
-</div>
+</form>
 {% endblock %}

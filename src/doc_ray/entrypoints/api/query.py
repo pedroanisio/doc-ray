@@ -11,11 +11,12 @@ import uuid
 
 import strawberry
 
+from doc_ray.adapters import document_metadata_suggestion_store as metadata_suggestions
 from doc_ray.adapters import persistence_canonical_read as canonical_read
 from doc_ray.adapters import persistence_read as read
 from doc_ray.adapters import queue_postgres as queue
 from doc_ray.adapters import seed_suggestion_store as seeds
-from doc_ray.entrypoints.api.audit_types import DocumentMetadataChange
+from doc_ray.entrypoints.api.audit_types import DocumentMetadataChange, DocumentMetadataSuggestion
 from doc_ray.entrypoints.api.canonical_types import (
     CanonicalEntity,
     ResolutionReview,
@@ -104,6 +105,19 @@ class Query:
             return []
         rows = await read.get_metadata_history(info.context.conn, doc_id)
         return [DocumentMetadataChange.from_row(r) for r in rows]
+
+    @strawberry.field
+    async def document_metadata_suggestions(
+        self, info: Info, document_id: strawberry.ID, status: str | None = None
+    ) -> list[DocumentMetadataSuggestion]:
+        """Return verified document metadata suggestions for human review."""
+        doc_id = _clean_uuid(str(document_id))
+        if doc_id is None:
+            return []
+        rows = await metadata_suggestions.list_for_document_async(
+            info.context.conn, doc_id, status=status
+        )
+        return [DocumentMetadataSuggestion.from_row(r) for r in rows]
 
     @strawberry.field
     async def search_sentences(

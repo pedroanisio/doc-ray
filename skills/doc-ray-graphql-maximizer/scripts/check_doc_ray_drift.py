@@ -39,6 +39,7 @@ EXPECTED_QUERIES = {
     "version",
     "documents",
     "document",
+    "documentMetadataHistory",
     "searchSentences",
     "fullTextSearch",
     "lexeme",
@@ -57,6 +58,7 @@ EXPECTED_QUERIES = {
 EXPECTED_MUTATIONS = {
     "reannotate",
     "deleteDocument",
+    "updateDocumentMetadata",
     "annotateDocument",
     "semanticEnrichDocument",
     "canonicalizeDocument",

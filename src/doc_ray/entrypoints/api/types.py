@@ -150,6 +150,9 @@ class Document:
     mime_type: str | None
     language: str | None
     status: str
+    lifecycle_state: str
+    archived_at: datetime | None
+    deleted_at: datetime | None
     error: str | None
     page_count: int | None
     char_count: int | None
@@ -179,6 +182,9 @@ class Document:
             mime_type=row.get("mime_type"),
             language=row.get("language"),
             status=row["status"],
+            lifecycle_state=row.get("lifecycle_state") or "active",
+            archived_at=row.get("archived_at"),
+            deleted_at=row.get("deleted_at"),
             error=row.get("error"),
             page_count=row.get("page_count"),
             char_count=row.get("char_count"),
@@ -221,6 +227,13 @@ class Document:
     async def token_count(self, info: Info) -> int:
         """Resolve the document's token count via the batched loader."""
         return await info.context.loaders.token_count.load(str(self.id))
+
+    @strawberry.field
+    async def has_position_data(self, info: Info) -> bool:
+        """Return whether the document has persisted page/bbox geometry."""
+        from doc_ray.adapters import persistence_read as read
+
+        return await read.document_has_position_data(info.context.conn, str(self.id))
 
     @strawberry.field
     async def entities(

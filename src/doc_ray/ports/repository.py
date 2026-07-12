@@ -139,6 +139,12 @@ class ReadRepository(Protocol):
         """Return a document's sentences (with span offsets) in ordinal order."""
         ...
 
+    async def document_has_position_data(
+        self, conn: psycopg.AsyncConnection[Row], document_id: str
+    ) -> bool:
+        """Return whether a document has persisted page geometry."""
+        ...
+
     async def get_provenance(
         self, conn: psycopg.AsyncConnection[Row], document_id: str
     ) -> list[Row]:

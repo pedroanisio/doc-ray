@@ -128,6 +128,16 @@ query DocumentEvidence($id: ID!, $limit: Int!, $after: String) {
 }
 ```
 
+For title, description, and tag edits, read the audit trail separately:
+
+```graphql
+query MetadataHistory($id: ID!) {
+  documentMetadataHistory(documentId: $id) {
+    field oldValue newValue changedAt actor
+  }
+}
+```
+
 For annotation layers:
 
 ```graphql
@@ -252,6 +262,23 @@ mutation Ops($doc: ID!) {
 
 Resolver cost rule: `canonicalizeDocument(resolve: true)` can invoke frontier
 resolution for residue; keep it explicit.
+
+Metadata edits:
+
+```graphql
+mutation UpdateMetadata($doc: ID!) {
+  updateDocumentMetadata(
+    documentId: $doc
+    title: "Renamed document"
+    tags: ["reviewed"]
+  ) {
+    id kind status documentId
+  }
+}
+```
+
+Only passed fields change. A completed `update_metadata` job records changed
+title, description, and tag values in `documentMetadataHistory`.
 
 Seed curation:
 

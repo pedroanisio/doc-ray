@@ -18,7 +18,14 @@ import pytest
 
 from doc_ray.adapters import queue_postgres as queue
 from doc_ray.application import jobs as jobs_mod
-from doc_ray.domain.jobs import KIND_DELETE, KIND_UPDATE_METADATA, Job
+from doc_ray.domain.jobs import (
+    KIND_ADD_DOCUMENT_TAGS,
+    KIND_DELETE,
+    KIND_RESTORE_DOCUMENT,
+    KIND_SUGGEST_DOCUMENT_METADATA,
+    KIND_UPDATE_METADATA,
+    Job,
+)
 from doc_ray.entrypoints import worker as worker_mod
 from doc_ray.ports.queue import Queue
 
@@ -131,14 +138,124 @@ def test_run_once_heartbeat_thread_runs(qconn):
         hb_conn.close()
 
 
-def test_handle_delete_removes_document(qconn, pg):
+def test_handle_delete_soft_deletes_document_and_records_history(qconn, pg):
     conn, created = pg
     doc_id = _itdb.make_doc(conn, "To be deleted.")
     job = Job(id="0" * 26, kind=KIND_DELETE, status="queued", document_id=doc_id)  # type: ignore[arg-type]
     out = jobs_mod.handle_delete(qconn, None, job)
-    assert out == {"deleted": doc_id}
-    gone = conn.execute("SELECT 1 FROM documents WHERE id=%s", (doc_id,)).fetchone()
-    assert gone is None
+    assert out == {"deleted": doc_id, "soft": True}
+    row = conn.execute(
+        "SELECT lifecycle_state, deleted_at FROM documents WHERE id=%s", (doc_id,)
+    ).fetchone()
+    assert row["lifecycle_state"] == "deleted"
+    assert row["deleted_at"] is not None
+    history = conn.execute(
+        "SELECT field, old_value, new_value FROM document_metadata_history "
+        "WHERE document_id=%s ORDER BY id",
+        (doc_id,),
+    ).fetchall()
+    assert [(r["field"], r["old_value"], r["new_value"]) for r in history] == [
+        ("lifecycle_state", "active", "deleted")
+    ]
+
+
+def test_handle_restore_document_restores_soft_deleted_document(qconn, pg):
+    conn, created = pg
+    doc_id = _itdb.make_doc(conn, "To be restored.")
+    created.append(doc_id)
+    jobs_mod.handle_delete(
+        qconn,
+        None,
+        Job(id="0" * 26, kind=KIND_DELETE, status="queued", document_id=doc_id),  # type: ignore[arg-type]
+    )
+    job = Job(
+        id="1" * 26,
+        kind=KIND_RESTORE_DOCUMENT,
+        status="queued",
+        document_id=doc_id,
+        payload={"actor": "tester"},
+    )  # type: ignore[arg-type]
+
+    out = jobs_mod.handle_restore_document(qconn, None, job)
+
+    assert out == {"restored": doc_id}
+    row = conn.execute(
+        "SELECT lifecycle_state, deleted_at, archived_at FROM documents WHERE id=%s",
+        (doc_id,),
+    ).fetchone()
+    assert row["lifecycle_state"] == "active"
+    assert row["deleted_at"] is None
+    assert row["archived_at"] is None
+    history = conn.execute(
+        "SELECT field, old_value, new_value, actor FROM document_metadata_history "
+        "WHERE document_id=%s ORDER BY id",
+        (doc_id,),
+    ).fetchall()
+    assert [(r["field"], r["old_value"], r["new_value"]) for r in history][-1:] == [
+        ("lifecycle_state", "deleted", "active")
+    ]
+    assert history[-1]["actor"] == "tester"
+
+
+def test_handle_add_document_tags_merges_tags_and_records_history(qconn, pg):
+    conn, created = pg
+    doc_id = _itdb.make_doc(conn, "To be tagged.")
+    created.append(doc_id)
+    job = Job(
+        id="0" * 26,
+        kind=KIND_ADD_DOCUMENT_TAGS,
+        status="queued",
+        document_id=doc_id,
+        payload={"tags": ["reviewed", "ops"], "actor": "bulk-user"},
+    )  # type: ignore[arg-type]
+
+    out = jobs_mod.handle_add_document_tags(qconn, None, job)
+
+    assert out == {"changed": ["tags"]}
+    tags = {
+        r["tag"]
+        for r in conn.execute(
+            "SELECT t.tag FROM document_tags dt JOIN tags t ON t.id=dt.tag_id "
+            "WHERE dt.document_id=%s",
+            (doc_id,),
+        ).fetchall()
+    }
+    assert tags == {"reviewed", "ops"}
+    history = conn.execute(
+        "SELECT field, old_value, new_value, actor FROM document_metadata_history "
+        "WHERE document_id=%s ORDER BY id",
+        (doc_id,),
+    ).fetchall()
+    assert [(r["field"], r["old_value"], r["new_value"], r["actor"]) for r in history] == [
+        ("tags", "", "ops, reviewed", "bulk-user")
+    ]
+
+
+def test_handle_suggest_document_metadata_persists_pending_suggestions(qconn, pg):
+    conn, created = pg
+    doc_id = _itdb.make_doc(conn, "Knowledge graph notes.")
+    created.append(doc_id)
+    conn.execute(
+        "UPDATE documents SET title='upload', original_filename='knowledge-graph-notes.pdf' "
+        "WHERE id=%s",
+        (doc_id,),
+    )
+    job = Job(
+        id="0" * 26,
+        kind=KIND_SUGGEST_DOCUMENT_METADATA,
+        status="queued",
+        document_id=doc_id,
+    )  # type: ignore[arg-type]
+
+    out = jobs_mod.handle_suggest_document_metadata(qconn, None, job)
+
+    assert out["suggested"] >= 1
+    row = conn.execute(
+        "SELECT field, status FROM document_metadata_suggestion WHERE document_id=%s",
+        (doc_id,),
+    ).fetchone()
+    assert row["field"] == "title"
+    assert row["status"] == "pending"
 
 
 def test_handle_update_metadata_applies_edit_and_records_history(qconn, pg):

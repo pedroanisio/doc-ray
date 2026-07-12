@@ -21,17 +21,22 @@ import psycopg
 
 from doc_ray.adapters import queue_postgres as queue
 from doc_ray.domain.jobs import (
+    KIND_ADD_DOCUMENT_TAGS,
     KIND_ANNOTATE,
+    KIND_ARCHIVE_DOCUMENT,
     KIND_BACKUP,
     KIND_CANONICALIZE,
     KIND_DELETE,
     KIND_INGEST,
     KIND_REANNOTATE,
+    KIND_REEXTRACT,
     KIND_RESTORE,
+    KIND_RESTORE_DOCUMENT,
     KIND_SEED_APPROVED,
     KIND_SEED_CANONICAL,
     KIND_SEED_SUGGEST,
     KIND_SEMANTIC_ENRICH,
+    KIND_SUGGEST_DOCUMENT_METADATA,
     KIND_UPDATE_METADATA,
     Job,
 )
@@ -59,26 +64,52 @@ def backoff_seconds(attempts: int) -> float:
 def handle_delete(
     conn: psycopg.Connection[Any], store: ObjectStore | None, job: Job
 ) -> dict[str, Any]:
-    """Delete a document (cascading to all its derived layers) and its blob.
+    """Soft-delete a document so it can be restored individually (BL-059)."""
+    from doc_ray.adapters import persistence as db
 
-    ``source_uri`` is read before the row is gone (the DELETE cascades
-    immediately), then the object-store blob is removed too — otherwise every
-    delete permanently leaks the original bytes (BL-097). The DB delete is
-    the authoritative operation; a document with no configured store, or
-    whose source_uri doesn't belong to this store's bucket (unexpected, but
-    not this handler's problem to fix), still gets its catalog row removed —
-    blob cleanup is a bonus, not a precondition for deletion to succeed.
-    """
-    row = conn.execute(
-        "SELECT source_uri FROM documents WHERE id = %s", (job.document_id,)
-    ).fetchone()
-    conn.execute("DELETE FROM documents WHERE id = %s", (job.document_id,))
-    if store is not None and row and row["source_uri"]:
-        prefix = f"s3://{store.bucket}/"
-        source_uri = row["source_uri"]
-        if source_uri.startswith(prefix):
-            store.delete(source_uri[len(prefix) :])
-    return {"deleted": job.document_id}
+    if job.document_id is None:
+        raise RuntimeError("delete requires a document_id")
+    db.set_document_lifecycle(
+        cast(db.DictConnection, conn),
+        job.document_id,
+        "deleted",
+        actor=job.payload.get("actor"),
+    )
+    return {"deleted": job.document_id, "soft": True}
+
+
+def handle_archive_document(
+    conn: psycopg.Connection[Any], store: ObjectStore | None, job: Job
+) -> dict[str, Any]:
+    """Archive a document without changing its ingestion status."""
+    from doc_ray.adapters import persistence as db
+
+    if job.document_id is None:
+        raise RuntimeError("archive_document requires a document_id")
+    changed = db.set_document_lifecycle(
+        cast(db.DictConnection, conn),
+        job.document_id,
+        "archived",
+        actor=job.payload.get("actor"),
+    )
+    return {"archived": job.document_id, "changed": changed}
+
+
+def handle_restore_document(
+    conn: psycopg.Connection[Any], store: ObjectStore | None, job: Job
+) -> dict[str, Any]:
+    """Restore an archived or soft-deleted document to active lifecycle."""
+    from doc_ray.adapters import persistence as db
+
+    if job.document_id is None:
+        raise RuntimeError("restore_document requires a document_id")
+    db.set_document_lifecycle(
+        cast(db.DictConnection, conn),
+        job.document_id,
+        "active",
+        actor=job.payload.get("actor"),
+    )
+    return {"restored": job.document_id}
 
 
 def handle_update_metadata(
@@ -100,6 +131,23 @@ def handle_update_metadata(
     return {"changed": changed}
 
 
+def handle_add_document_tags(
+    conn: psycopg.Connection[Any], store: ObjectStore | None, job: Job
+) -> dict[str, Any]:
+    """Merge tags into a document and record the BL-058 tags history row."""
+    from doc_ray.adapters import persistence as db
+
+    if job.document_id is None:
+        raise RuntimeError("add_document_tags requires a document_id")
+    changed = db.add_document_tags(
+        cast(db.DictConnection, conn),
+        job.document_id,
+        [str(tag) for tag in job.payload.get("tags") or []],
+        actor=job.payload.get("actor"),
+    )
+    return {"changed": changed}
+
+
 def handle_reannotate(
     conn: psycopg.Connection[Any], store: ObjectStore | None, job: Job
 ) -> dict[str, Any]:
@@ -111,6 +159,19 @@ def handle_reannotate(
     lang = job.payload.get("lang", "en")
     info = reann.reannotate_document(conn, job.document_id, cache={}, lang_default=lang)
     return info or {"skipped": True}
+
+
+def handle_reextract(
+    conn: psycopg.Connection[Any], store: ObjectStore | None, job: Job
+) -> dict[str, Any]:
+    """Backfill page/bbox geometry by re-reading a document's original blob."""
+    from doc_ray.application import reextract
+
+    if job.document_id is None:
+        raise RuntimeError("reextract requires a document_id")
+    if store is None:
+        raise RuntimeError("reextract requires an object store")
+    return reextract.backfill_document_geometry_from_store(conn, store, job.document_id)
 
 
 def handle_ingest(
@@ -262,6 +323,19 @@ def handle_seed_approved(
     return {"seeded": len(ids)}
 
 
+def handle_suggest_document_metadata(
+    conn: psycopg.Connection[Any], store: ObjectStore | None, job: Job
+) -> dict[str, Any]:
+    """Generate verified document metadata suggestions for human review."""
+    from doc_ray.application import document_metadata_suggest
+
+    if job.document_id is None:
+        raise RuntimeError("suggest_document_metadata requires a document_id")
+    return document_metadata_suggest.generate_suggestions(
+        cast(psycopg.Connection[dict[str, Any]], conn), job.document_id
+    )
+
+
 def handle_canonicalize(
     conn: psycopg.Connection[Any], store: ObjectStore | None, job: Job
 ) -> dict[str, Any]:
@@ -334,15 +408,20 @@ HANDLERS: dict[str, Handler] = {
     KIND_ANNOTATE: handle_annotate,
     KIND_SEMANTIC_ENRICH: handle_semantic_enrich,
     KIND_REANNOTATE: handle_reannotate,
+    KIND_REEXTRACT: handle_reextract,
     KIND_DELETE: handle_delete,
+    KIND_ARCHIVE_DOCUMENT: handle_archive_document,
+    KIND_RESTORE_DOCUMENT: handle_restore_document,
     KIND_INGEST: handle_ingest,
     KIND_SEED_CANONICAL: handle_seed_canonical,
     KIND_SEED_SUGGEST: handle_seed_suggest,
     KIND_SEED_APPROVED: handle_seed_approved,
+    KIND_SUGGEST_DOCUMENT_METADATA: handle_suggest_document_metadata,
     KIND_CANONICALIZE: handle_canonicalize,
     KIND_BACKUP: handle_backup,
     KIND_RESTORE: handle_restore,
     KIND_UPDATE_METADATA: handle_update_metadata,
+    KIND_ADD_DOCUMENT_TAGS: handle_add_document_tags,
 }
 
 

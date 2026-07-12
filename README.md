@@ -115,12 +115,16 @@ mutation($f: Upload!) {
 
 Other query/mutation surface: `documents(docType:, status:, tags:)` /
 `document` / `documentMetadataHistory` / `searchSentences` / `fullTextSearch` /
-`lexeme(s)` / `entities` / `entityFrequency` / `job` / `jobs` (reads);
-`reannotate` / `deleteDocument` / `annotateDocument` /
-`canonicalizeDocument(resolve:)` / `semanticEnrichDocument` /
-`updateDocumentMetadata` (pipeline writes — every mutation enqueues a worker
-job and returns it; poll `job(id)` for completion, never a synchronous
-result). Entity canonicalization curation: `seedSuggestions` / `canonical` /
+`lexeme(s)` / `entities` / `entityFrequency` / `job` / `jobs` /
+`documentMetadataSuggestions` (reads); `reannotate` / `deleteDocument` /
+`archiveDocument` / `restoreDocument` / `bulkArchiveDocuments` /
+`bulkTagDocuments` / `annotateDocument` / `reextractDocument` /
+`reextractDocuments` / `canonicalizeDocument(resolve:)` /
+`semanticEnrichDocument` / `updateDocumentMetadata` /
+`suggestDocumentMetadata` / `decideDocumentMetadataSuggestions` (pipeline
+writes — every mutation enqueues a worker job or records a curator decision;
+poll `job(id)` for completion, never a synchronous pipeline result). Entity
+canonicalization curation: `seedSuggestions` / `canonical` /
 `canonicalSearch` / `unresolvedMentions` / `resolutionReview` (reads),
 `suggestSeeds` / `decideSeeds` / `seedApproved` (writes). Backup/restore:
 `createBackup` / `restoreBackup` (see [Backup & restore](#backup--restore)

@@ -181,6 +181,8 @@ def page_runs_from_blocks(blocks: list[dict[str, Any]]) -> list[dict[str, Any]]:
             runs.append(
                 {
                     "page": line["page"],
+                    "page_width": line.get("page_w"),
+                    "page_height": line.get("page_h"),
                     "bbox": (
                         min(sp["x0"] for sp in spans),
                         line["y0"],

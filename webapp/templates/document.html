@@ -104,23 +104,66 @@
   .reader.solo-INTJ .w:not(.p-INTJ) {
     opacity:.24; border-bottom-color:transparent; filter:saturate(.45);
   }
+  .original-shell { max-width:980px; }
+  .original-overlay { position:relative; width:100%; background:var(--panel);
+    border:1px solid var(--line); box-shadow:0 18px 48px rgba(0,0,0,.14); }
+  .original-overlay img { display:block; width:100%; height:auto; }
+  .overlay-box { position:absolute; display:block; border:2px solid var(--c);
+    background:color-mix(in srgb, var(--c) 20%, transparent); border-radius:2px;
+    box-sizing:border-box; transition:background .12s, box-shadow .12s; }
+  .overlay-box.p-NOUN { border-bottom-style:solid; }
+  .overlay-box.p-PROPN { border-bottom-width:3px; }
+  .overlay-box.p-VERB { border-style:double; }
+  .overlay-box.p-ADJ { border-style:dashed; }
+  .overlay-box.p-ADV { border-style:dotted; }
+  .entity-box { --c:var(--pos-propn); border-radius:1px; }
+  .entity-box.e-PER,.entity-box.e-PERSON { --c:var(--pos-noun); }
+  .entity-box.e-ORG { --c:var(--pos-propn); border-style:double; }
+  .entity-box.e-GPE,.entity-box.e-LOC,.entity-box.e-PLACE { --c:var(--pos-adj); }
+  .entity-box.e-DATE,.entity-box.e-TIME { --c:var(--pos-num); border-style:dashed; }
+  .overlay-box:hover { background:color-mix(in srgb, var(--c) 34%, transparent);
+    box-shadow:0 0 0 2px color-mix(in srgb, var(--c) 40%, transparent); }
+  .overlay-box[data-t]:hover::after { content:attr(data-t); position:absolute;
+    left:50%; bottom:calc(100% + 7px); transform:translateX(-50%);
+    white-space:nowrap; font-family:var(--mono); font-size:.62rem; letter-spacing:.03em;
+    background:var(--ink); color:var(--bg); padding:.28rem .55rem; border-radius:3px;
+    z-index:30; pointer-events:none; box-shadow:0 6px 18px rgba(0,0,0,.28); }
+  .markup-original { max-width:760px; background:var(--panel); border:1px solid var(--line);
+    padding:1.4rem; box-shadow:var(--shadow-sm); }
+  .markup-original .w { color:inherit; text-decoration:none; border-bottom:2px solid var(--c); }
+  .markup-original .w:hover { background:color-mix(in srgb, var(--c) 22%, transparent); }
 </style>
 
 <p class="kicker"><a href="{{ url_for('documents') }}">← Corpus</a></p>
 <div class="doc-head">
-  <h1>{{ doc.title }}</h1>
-  <div>
-    {% if doc.language %}<span class="pill lang">{{ doc.language }}</span>{% endif %}
-    <span class="pill">{{ doc.doc_type }}</span>
-    <span class="pill">{{ "{:,}".format(doc.char_count or 0) }} chars</span>
-    {% if doc.page_count %}<span class="pill">{{ doc.page_count }} pp.</span>{% endif %}
-    {{ terms.status_pill(doc.status) }}
-    <a class="pill tip" tabindex="0"
-       aria-label="Domain seeding: the curation loop that approves exact knowledge-base identities."
-       data-tip="Domain seeding is the curation loop that approves exact knowledge-base identities."
-       href="/doc/{{ doc.id }}/seeding">domain seeding &rarr;<span class="sr-only" role="tooltip">Domain seeding is the curation loop that approves exact knowledge-base identities.</span></a>
-    {% if authors %}<span style="color:var(--ink-soft)">&nbsp; by {{ authors|join(", ") }}</span>{% endif %}
-    {% for t in tags %}<span class="pill">{{ t }}</span>{% endfor %}
+  <div class="doc-title-strip">
+    {% if preview.kind == "image" %}
+      <a class="doc-preview doc-preview-image doc-preview-large" href="{{ preview.src }}" aria-label="{{ preview.label }}">
+        <img src="{{ preview.src }}" alt="{{ preview.alt }}" loading="lazy">
+      </a>
+    {% else %}
+      <div class="doc-preview doc-preview-icon doc-preview-large doc-preview-{{ preview.state }}" aria-label="{{ preview.label }}">
+        <span>{{ preview.icon }}</span>
+      </div>
+    {% endif %}
+    <div class="doc-title-main">
+      <h1>{{ doc.title }}</h1>
+      <div>
+        {% if doc.language %}<span class="pill lang">{{ doc.language }}</span>{% endif %}
+        <span class="pill">{{ doc.doc_type }}</span>
+        <span class="pill">{{ "{:,}".format(doc.char_count or 0) }} chars</span>
+        {% if doc.page_count %}<span class="pill">{{ doc.page_count }} pp.</span>{% endif %}
+        {{ terms.status_pill(doc.status) }}
+        <span class="pill preview-status-{{ preview.state }}">{{ preview.status_label }}</span>
+        <a class="pill tip" tabindex="0"
+           aria-label="Domain seeding: the curation loop that approves exact knowledge-base identities."
+           data-tip="Domain seeding is the curation loop that approves exact knowledge-base identities."
+           href="/doc/{{ doc.id }}/seeding">domain seeding &rarr;<span class="sr-only" role="tooltip">Domain seeding is the curation loop that approves exact knowledge-base identities.</span></a>
+        <a class="pill" href="{{ url_for('document_download', doc_id=doc.id) }}">Download original</a>
+        {% if authors %}<span style="color:var(--ink-soft)">&nbsp; by {{ authors|join(", ") }}</span>{% endif %}
+        {% for t in tags %}<span class="pill">{{ t }}</span>{% endfor %}
+      </div>
+    </div>
   </div>
   {% if doc.description %}<p class="lede" style="margin-top:.6rem">{{ doc.description }}</p>{% endif %}
   {% if metadata_queued %}
@@ -128,6 +171,12 @@
   {% endif %}
   {% if metadata_error %}
     <div class="errbox">Couldn't queue that edit: {{ metadata_error }}</div>
+  {% endif %}
+  {% if suggestions_queued %}
+    <div class="notice">Metadata suggestion job queued. Refresh after the worker finishes to review candidates.</div>
+  {% endif %}
+  {% if suggestions_error %}
+    <div class="errbox">Couldn't queue suggestions: {{ suggestions_error }}</div>
   {% endif %}
   <details style="margin-top:.6rem">
     <summary class="kicker" style="cursor:pointer">Edit title, description, tags</summary>
@@ -147,14 +196,22 @@
   <section class="main">
     <div class="reader-controls">
       <div class="seg">
-        <a href="?page={{ page }}&view={{ 'all' if full_view else 'page' }}&annotate=1" class="{{ 'on' if annotate }}">Annotated</a>
-        <a href="?page={{ page }}&view={{ 'all' if full_view else 'page' }}&annotate=0" class="{{ 'on' if not annotate }}">Plain</a>
+        <a href="?page={{ page }}&view={{ 'all' if full_view else 'page' }}&annotate=1" class="{{ 'on' if annotate and not original_view }}">Annotated</a>
+        <a href="?page={{ page }}&view={{ 'all' if full_view else 'page' }}&annotate=0" class="{{ 'on' if (not annotate) and not original_view }}">Plain</a>
+        <a href="?page={{ page }}&view=original" class="{{ 'on' if original_view }}">Original</a>
       </div>
+      {% if not original_view %}
       <div class="seg">
         <a href="?page={{ page }}&annotate={{ 1 if annotate else 0 }}" class="{{ 'on' if not full_view }}">Pages</a>
         <a href="?view=all&annotate={{ 1 if annotate else 0 }}" class="{{ 'on' if full_view }}">Full document</a>
       </div>
-      {% if annotate %}
+      {% else %}
+      <div class="seg">
+        <a href="?page={{ page }}&view=original&overlay=grammar" class="{{ 'on' if overlay_mode == 'grammar' }}">Grammar</a>
+        <a href="?page={{ page }}&view=original&overlay=entities" class="{{ 'on' if overlay_mode == 'entities' }}">Entities</a>
+      </div>
+      {% endif %}
+      {% if annotate and not original_view %}
       <select id="pos-focus" aria-label="Focus one part of speech">
         <option value="">All POS</option>
         {% for p in pos %}<option value="{{ p.pos }}">{{ p.pos }}</option>{% endfor %}
@@ -168,6 +225,31 @@
       {% endif %}
     </div>
 
+    {% if original_view %}
+      <div class="original-shell">
+        {% if overlay and overlay.available and overlay.kind == "pdf" %}
+          <div class="original-overlay">
+            <img src="{{ overlay.image_src }}" alt="Rendered original PDF page {{ page }}" loading="lazy">
+            {% for b in overlay.boxes %}
+              <a href="{{ b.href }}" class="overlay-box {{ b.class_name }}"
+                 style="{{ b.style }}" data-t="{{ b.tip }}"
+                 aria-label="{{ b.aria_label }}"><span class="sr-only">{{ b.tip }}</span></a>
+            {% endfor %}
+          </div>
+        {% elif overlay and overlay.available and overlay.kind == "markup" %}
+          <div class="markup-original">{{ overlay.html|safe }}</div>
+        {% else %}
+          <div class="reader-note">{{ overlay.message if overlay else "Original overlay is not available." }}</div>
+        {% endif %}
+        {% if overlay and overlay.kind == "pdf" %}
+        <div class="pager">
+          {% if page > 1 %}<a href="?view=original&overlay={{ overlay_mode }}&page={{ page-1 }}">← prev</a>{% endif %}
+          <span>{{ page }} / {{ pages }}</span>
+          {% if page < pages %}<a href="?view=original&overlay={{ overlay_mode }}&page={{ page+1 }}">next →</a>{% endif %}
+        </div>
+        {% endif %}
+      </div>
+    {% else %}
     <div class="reader {{ 'plain' if not annotate }}" id="reader">
       {% if annotate and n_sent and not pos %}
         <div class="reader-note">
@@ -202,6 +284,7 @@
         </div>
       {% endif %}
     </div>
+    {% endif %}
   </section>
 
   <!-- SIDE PANEL: stats, visible while reading -->
@@ -227,6 +310,21 @@
       {% else %}<span class="lede">—</span>{% endfor %}
       </div>
     </div>
+    {% if manual_collections %}
+    <div class="card">
+      <h2 style="margin-top:0">Add to collection</h2>
+      <div class="collection-add-list">
+        {% for c in manual_collections %}
+          <form method="post" action="{{ url_for('collection_document_update', collection_id=c.id, doc_id=doc.id) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="action" value="add">
+            <button type="submit">Add</button>
+            <span>{{ c.name }}</span>
+          </form>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
     {% if metadata_history %}
     <div class="card">
       <h2 style="margin-top:0">Edit history</h2>
@@ -241,6 +339,29 @@
       </div>
     </div>
     {% endif %}
+    <div class="card">
+      <h2 style="margin-top:0">Metadata suggestions</h2>
+      <form method="post" action="{{ url_for('document_metadata_suggestions_request', doc_id=doc.id) }}" style="margin-bottom:.8rem">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button type="submit">Suggest</button>
+      </form>
+      <div style="display:grid; gap:.65rem">
+        {% for s in metadata_suggestions %}
+          <div style="font-size:.86rem; line-height:1.45">
+            <div>
+              <b>{{ s.field }}</b>
+              <span class="pill">{{ s.confidence_label }}</span>
+              <span class="mono" style="color:var(--ink-faint)">{{ "%.0f"|format((s.confidence or 0) * 100) }}%</span>
+            </div>
+            <div>{{ s.suggested_value }}</div>
+            <div style="color:var(--ink-faint)">{{ s.reason }}</div>
+            <div class="mono" style="color:var(--ink-faint)">{{ s.status }} · {{ s.source }}</div>
+          </div>
+        {% else %}
+          <span class="lede">No pending suggestions.</span>
+        {% endfor %}
+      </div>
+    </div>
   </aside>
 </div>
 

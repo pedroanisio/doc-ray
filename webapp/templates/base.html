@@ -24,6 +24,7 @@
     <nav>
       <span class="nav-group nav-reading">
         <a href="{{ url_for('documents') }}" class="{{ 'on' if request.endpoint in ['documents','document','seeding','seeding_action'] }}">Corpus</a>
+        <a href="{{ url_for('collections') }}" class="{{ 'on' if request.endpoint in ['collections','collections_create','collection_detail','collection_document_update'] }}">Collections</a>
         <a href="{{ url_for('lexemes') }}" class="{{ 'on' if request.endpoint in ['lexemes','lexeme'] }}">Lexicon</a>
         <a href="{{ url_for('search') }}" class="{{ 'on' if request.endpoint == 'search' }}">Search</a>
         <a href="{{ url_for('upload_form') }}" class="{{ 'on' if request.endpoint in ['upload_form','upload_submit','job_status'] }}">Upload</a>

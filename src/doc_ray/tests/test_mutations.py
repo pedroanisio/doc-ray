@@ -62,6 +62,125 @@ def test_reannotate_and_delete_enqueue(pg):
     asyncio.run(check())
 
 
+def test_document_list_exposes_lifecycle_fields(pg):
+    conn, _created = pg
+    doc_id = _seed(pg)
+    conn.execute(
+        "UPDATE documents SET lifecycle_state = 'archived', archived_at = now() WHERE id = %s",
+        (doc_id,),
+    )
+    schema = build_schema()
+
+    async def check():
+        aconn = await _aconn_as(WRITE_PRINCIPAL.principal_id)
+        try:
+            ctx = RequestContext(conn=aconn, principal=WRITE_PRINCIPAL, loaders=Loaders(aconn))
+            result = await schema.execute(
+                "{ documents(limit: 200) { id lifecycleState archivedAt deletedAt } }",
+                context_value=ctx,
+            )
+            assert result.errors is None, result.errors
+            row = next(r for r in result.data["documents"] if r["id"] == doc_id)
+            assert row["lifecycleState"] == "archived"
+            assert row["archivedAt"] is not None
+            assert row["deletedAt"] is None
+        finally:
+            await aconn.close()
+
+    asyncio.run(check())
+
+
+def test_bulk_document_actions_enqueue_per_document_jobs(pg):
+    first = _seed(pg)
+    second = _seed(pg)
+    schema = build_schema()
+
+    async def check():
+        aconn = await _aconn_as(WRITE_PRINCIPAL.principal_id)
+        try:
+            ctx = RequestContext(conn=aconn, principal=WRITE_PRINCIPAL, loaders=Loaders(aconn))
+            tagged = await schema.execute(
+                "mutation($ids: [ID!]!, $tags: [String!]!) { "
+                "bulkTagDocuments(documentIds: $ids, tags: $tags) { kind status documentId } }",
+                variable_values={"ids": [first, second], "tags": ["reviewed", "ops"]},
+                context_value=ctx,
+            )
+            assert tagged.errors is None, tagged.errors
+            assert [j["kind"] for j in tagged.data["bulkTagDocuments"]] == [
+                "add_document_tags",
+                "add_document_tags",
+            ]
+            assert [j["documentId"] for j in tagged.data["bulkTagDocuments"]] == [first, second]
+
+            archived = await schema.execute(
+                "mutation($ids: [ID!]!) { "
+                "bulkArchiveDocuments(documentIds: $ids) { kind status documentId } }",
+                variable_values={"ids": [first, second]},
+                context_value=ctx,
+            )
+            assert archived.errors is None, archived.errors
+            assert [j["kind"] for j in archived.data["bulkArchiveDocuments"]] == [
+                "archive_document",
+                "archive_document",
+            ]
+            assert [j["documentId"] for j in archived.data["bulkArchiveDocuments"]] == [
+                first,
+                second,
+            ]
+        finally:
+            await aconn.close()
+
+    asyncio.run(check())
+
+
+def test_metadata_suggestion_mutations_enqueue_and_decide(pg):
+    doc_id = _seed(pg)
+    conn, _created = pg
+    sid = new_ulid_str()
+    conn.execute(
+        "INSERT INTO document_metadata_suggestion "
+        "(id, document_id, field, suggested_value, confidence, reason, source) "
+        "VALUES (%s, %s, 'tags', 'graph', 0.72, 'frequent term', 'verified-deterministic')",
+        (sid, doc_id),
+    )
+    schema = build_schema()
+
+    async def check():
+        aconn = await _aconn_as(WRITE_PRINCIPAL.principal_id)
+        try:
+            ctx = RequestContext(conn=aconn, principal=WRITE_PRINCIPAL, loaders=Loaders(aconn))
+            enqueued = await schema.execute(
+                "mutation($id: ID!) { suggestDocumentMetadata(documentId: $id) "
+                "{ kind status documentId } }",
+                variable_values={"id": doc_id},
+                context_value=ctx,
+            )
+            assert enqueued.errors is None, enqueued.errors
+            assert enqueued.data["suggestDocumentMetadata"]["kind"] == "suggest_document_metadata"
+
+            decided = await schema.execute(
+                "mutation($ids: [ID!]!) { decideDocumentMetadataSuggestions("
+                "approveIds: $ids) }",
+                variable_values={"ids": [sid]},
+                context_value=ctx,
+            )
+            assert decided.errors is None, decided.errors
+            assert decided.data["decideDocumentMetadataSuggestions"] == 1
+
+            listed = await schema.execute(
+                "query($id: ID!) { documentMetadataSuggestions(documentId: $id) "
+                "{ id field suggestedValue confidence confidenceBand status } }",
+                variable_values={"id": doc_id},
+                context_value=ctx,
+            )
+            assert listed.errors is None, listed.errors
+            assert listed.data["documentMetadataSuggestions"][0]["confidenceBand"] == "low"
+        finally:
+            await aconn.close()
+
+    asyncio.run(check())
+
+
 # ---------------------------------------------------------------------------
 # BL-064 — a global "write" scope must not let a principal mutate a document
 # outside their own document_acl grants; jobs/backups must enforce this at

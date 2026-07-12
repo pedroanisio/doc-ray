@@ -1597,7 +1597,7 @@ items:
       still raise (PALS's Law); name silent losses explicitly. BL-032 consumes it.
     category:     "api"
     type:         "feature"
-    status:       "parked"
+    status:       "done"
     complexity:   "M"
     priority:     "high"
     rationale:    "Callers (agents and the webapp) get raw tracebacks or silent partial success; a structured envelope with a next-step hint makes failures actionable without swallowing real bugs."
@@ -1625,7 +1625,7 @@ items:
       property plus a totality 'never raises' property.
     category:     "testing"
     type:         "infra"
-    status:       "parked"
+    status:       "done"
     complexity:   "S"
     priority:     "medium"
     rationale:    "Example tests miss whole input classes; property tests directly target the crash-on-adversarial-input failure mode the pipeline has already hit."
@@ -1655,7 +1655,7 @@ items:
       over from the FrameForge reference analysis.)
     category:     "tooling"
     type:         "feature"
-    status:       "parked"
+    status:       "done"
     complexity:   "S"
     priority:     "medium"
     rationale:    "Opaque import failures are a recurring DX papercut; actionable hints turn a stacktrace into a one-line fix."
@@ -1708,7 +1708,7 @@ items:
       coverage meta-test. Requires deterministic (clock/random-free) output paths.
     category:     "testing"
     type:         "infra"
-    status:       "parked"
+    status:       "done"
     complexity:   "L"
     priority:     "medium"
     rationale:    "Golden tests catch silent regressions in structured outputs; a hash-lock plus tolerance oracle separates float jitter from real drift without a brittle exact-match snapshot."
@@ -1737,7 +1737,7 @@ items:
       over the existing embeddings as GraphQL query fields.
     category:     "api"
     type:         "feature"
-    status:       "parked"
+    status:       "done"
     complexity:   "M"
     priority:     "medium"
     rationale:    "Term-AND and substring search cannot answer phrase or concept-level questions, and the embedding layer is already stored but unreachable -- a whole class of retrieval the data supports is unavailable."
@@ -1768,7 +1768,7 @@ items:
       index-tuning item (this is detection, not tuning).
     category:     "ops"
     type:         "infra"
-    status:       "parked"
+    status:       "done"
     complexity:   "M"
     priority:     "medium"
     rationale:    "Index corruption failed a job silently and left a document unannotated with no detection; a health sweep turns a silent data gap into an early signal."
@@ -1800,7 +1800,7 @@ items:
       fallback file-type icons for formats that can't be rendered.
     category:     "webapp"
     type:         "feature"
-    status:       "parked"
+    status:       "done"
     complexity:   "L"
     priority:     "medium"
     rationale:    "Text-only rows for a visual-document corpus force operators to open each document to identify it; this is the single most visible gap versus a managed document surface."
@@ -1815,7 +1815,7 @@ items:
       - "src/doc_ray/application/jobs.py"
       - "src/doc_ray/adapters/persistence.py"
     owner:        "shared"
-    source:       "Session finding 2026-07-05: document-surface UX/data-management capability audit (parallel webapp-UI and GraphQL/persistence reviews against 9 claimed product gaps)."
+    source:       "Session finding 2026-07-05: document-surface UX/data-management capability audit (parallel webapp-UI and GraphQL/persistence reviews against 9 claimed product gaps). Completed 2026-07-12 with document preview models in the webapp: extracted PDFs render lazy first-page thumbnails through the cached /doc/{id}/page/1.png path, image-like originals use the original-file proxy, unsupported formats render file-type icons, and pending/failed preview states are visible on the corpus and document pages."
     tags:         ["webapp", "ux", "thumbnails", "previews", "ingestion"]
 
   - id:          "BL-057"
@@ -1833,7 +1833,7 @@ items:
       language.
     category:     "webapp"
     type:         "feature"
-    status:       "parked"
+    status:       "done"
     complexity:   "L"
     priority:     "medium"
     rationale:    "Without collections, the only way to group related documents today is per-document tags with no browse-by-tag UI — there is no unit of organization above a single document."
@@ -1848,7 +1848,7 @@ items:
       - "webapp/templates/documents.html"
       - "src/doc_ray/entrypoints/api/query.py"
     owner:        "shared"
-    source:       "Session finding 2026-07-05: document-surface UX/data-management capability audit (parallel webapp-UI and GraphQL/persistence reviews against 9 claimed product gaps)."
+    source:       "Session finding 2026-07-05: document-surface UX/data-management capability audit (parallel webapp-UI and GraphQL/persistence reviews against 9 claimed product gaps). Completed 2026-07-12 with migrations 047/048 for manual and smart document collections, dynamic smart rules over doc_type/status/tags, and webapp collection list/detail/create/add/remove workflows."
     tags:         ["webapp", "api", "persistence", "organization", "collections"]
 
   - id:          "BL-058"
@@ -1910,7 +1910,7 @@ items:
       the same change-history mechanism introduced by BL-058.
     category:     "persistence"
     type:         "feature"
-    status:       "parked"
+    status:       "done"
     complexity:   "L"
     priority:     "high"
     rationale:    "Hard-delete-only with no per-document restore is a real operational risk: the only recovery path today is a full-corpus backup restore, which is disproportionate for a single accidental delete."
@@ -1928,7 +1928,7 @@ items:
     related_decisions:
       - "D-007"
       - "D-010"
-    source:       "Session finding 2026-07-05: document-surface UX/data-management capability audit (parallel webapp-UI and GraphQL/persistence reviews against 9 claimed product gaps)."
+    source:       "Session finding 2026-07-05: document-surface UX/data-management capability audit (parallel webapp-UI and GraphQL/persistence reviews against 9 claimed product gaps). Implemented 2026-07-12 with migrations 051/053 adding document lifecycle columns and lifecycle_state history support, migration 052 bumping schema/package version to 1.14.0, soft-delete semantics for delete jobs, archive/restore job handlers, and GraphQL lifecycle fields plus archiveDocument/restoreDocument mutations."
     tags:         ["persistence", "api", "lifecycle", "soft-delete", "restore"]
 
   - id:          "BL-060"
@@ -1946,7 +1946,7 @@ items:
       the document list matching the one already proven on seeding.html.
     category:     "api"
     type:         "feature"
-    status:       "parked"
+    status:       "done"
     complexity:   "M"
     priority:     "medium"
     rationale:    "Without bulk actions, correcting or organizing metadata across a corpus means repeating the same single-document mutation once per document — the seeding screen already proves the checkbox+bulk-button pattern works in this webapp."
@@ -1963,7 +1963,7 @@ items:
     owner:        "shared"
     related_decisions:
       - "D-001"
-    source:       "Session finding 2026-07-05: document-surface UX/data-management capability audit (parallel webapp-UI and GraphQL/persistence reviews against 9 claimed product gaps)."
+    source:       "Session finding 2026-07-05: document-surface UX/data-management capability audit (parallel webapp-UI and GraphQL/persistence reviews against 9 claimed product gaps). Implemented 2026-07-12 with document-list multi-select controls, bulkTagDocuments/bulkArchiveDocuments GraphQL mutations, queued per-document add_document_tags/archive jobs, and worker-time tag merge history entries through the BL-058 change-history path."
     tags:         ["api", "webapp", "bulk-actions"]
 
   - id:          "BL-061"
@@ -1985,7 +1985,7 @@ items:
       real metadata.
     category:     "nlp"
     type:         "feature"
-    status:       "parked"
+    status:       "done"
     complexity:   "M"
     priority:     "medium"
     rationale:    "The product already has a mature, non-hallucinatory suggestion architecture for entities; reusing it for document metadata is lower-risk than a bespoke feature, but only once there is an editable target (BL-058) and an explicit verification gate."
@@ -2001,7 +2001,7 @@ items:
       - "src/doc_ray/adapters/resolver_claude.py"
       - "src/doc_ray/application/term_scan.py"
     owner:        "shared"
-    source:       "Session finding 2026-07-05: document-surface UX/data-management capability audit (parallel webapp-UI and GraphQL/persistence reviews against 9 claimed product gaps)."
+    source:       "Session finding 2026-07-05: document-surface UX/data-management capability audit (parallel webapp-UI and GraphQL/persistence reviews against 9 claimed product gaps). Implemented 2026-07-12 with a verified document_metadata_suggestion review table, suggest_document_metadata worker job, GraphQL query/mutation surface, document-page review UI, confidence bands, and regression tests proving suggestions pass the shared verification port before persistence and are never auto-applied."
     tags:         ["nlp", "ai-suggestions", "metadata", "verification"]
 
   - id:          "BL-062"
@@ -2019,7 +2019,7 @@ items:
       page to the corrective action.
     category:     "ops"
     type:         "feature"
-    status:       "parked"
+    status:       "done"
     complexity:   "M"
     priority:     "medium"
     rationale:    "Surfacing a data-quality issue without a way to act on it is a dead-end workflow; BL-023/BL-038 built the diagnostic half, this closes the loop."
@@ -2035,7 +2035,7 @@ items:
     owner:        "shared"
     related_decisions:
       - "D-010"
-    source:       "Session finding 2026-07-05: document-surface UX/data-management capability audit (parallel webapp-UI and GraphQL/persistence reviews against 9 claimed product gaps)."
+    source:       "Session finding 2026-07-05: document-surface UX/data-management capability audit (parallel webapp-UI and GraphQL/persistence reviews against 9 claimed product gaps). Completed 2026-07-12 with operator-health issue links to an operator-gated metadata correction form at `/operator/doc/{id}/metadata`; submissions reuse BL-058's `updateDocumentMetadata` mutation helper and therefore preserve the existing queued write and change-history path."
     tags:         ["ops", "webapp", "operator", "metadata"]
 
   - id:          "BL-063"
@@ -2532,7 +2532,7 @@ items:
       - "db/migrations/007_spans.sql"
       - "docs/DATABASE.md"
     owner:        "shared"
-    source:       "Feature request 2026-07-05: overlay rendering on the original document; see BL-076."
+    source:       "Feature request 2026-07-05: overlay rendering on the original document; see BL-076. Completed 2026-07-12 with migration 049 adding nullable page/bbox fields on spans plus document_layout_runs for future span geometry derivation; ingest and re-extract now persist Extracted.page_runs and ensure_spans projects matching geometry onto sentence/token/entity/chunk spans. Existing spans remain null until BL-078 backfill."
     tags:         ["persistence", "schema", "overlay", "bbox"]
 
   - id:          "BL-078"
@@ -2551,7 +2551,7 @@ items:
       verified rather than assumed before this writes over live data.
     category:     "ops"
     type:         "feature"
-    status:       "parked"
+    status:       "done"
     complexity:   "L"
     priority:     "medium"
     rationale:    "Otherwise the overlay feature only works for documents uploaded after this ships. Every already-ingested document would silently have no overlay available, which is confusing without an explicit per-document signal that position data is (or isn't) present."
@@ -2563,7 +2563,7 @@ items:
     references:
       - "src/doc_ray/application/jobs.py"
     owner:        "shared"
-    source:       "Feature request 2026-07-05: overlay rendering on the original document; see BL-076."
+    source:       "Feature request 2026-07-05: overlay rendering on the original document; see BL-076. Completed 2026-07-12 with a `reextract` worker job that fetches the stored original blob, verifies re-extracted text matches the canonical stored text, and backfills document_layout_runs plus span page/bbox geometry without deleting existing annotations; `python -m doc_ray.entrypoints.reextract --enqueue-all` queues corpus-wide PDF backfill jobs, GraphQL exposes reextractDocument/reextractDocuments, and Document.hasPositionData reports geometry availability."
     tags:         ["ops", "backfill", "overlay", "reextract"]
 
   - id:          "BL-079"
@@ -2583,7 +2583,7 @@ items:
       would start from the same gap, not a worse one).
     category:     "webapp"
     type:         "feature"
-    status:       "parked"
+    status:       "done"
     complexity:   "M"
     priority:     "medium"
     rationale:    "This is the rendering half of 'overlay on the original document' — without a page image to display, no amount of correct bounding-box data has anywhere to be drawn."
@@ -2595,7 +2595,7 @@ items:
       - "webapp/app.py"
       - "src/doc_ray/adapters/object_store.py"
     owner:        "shared"
-    source:       "Feature request 2026-07-05: overlay rendering on the original document; see BL-076."
+    source:       "Feature request 2026-07-05: overlay rendering on the original document; see BL-076. Completed 2026-07-12 with API GET /documents/{id}/pages/{n}.png rendering and caching original-PDF page PNGs in object storage, a webapp proxy route at /doc/{id}/page/{n}.png, and regression tests covering cache hits, cache misses, non-PDF documents, out-of-range pages, and pending originals."
     tags:         ["webapp", "pdf", "rendering", "overlay"]
 
   - id:          "BL-080"
@@ -2612,7 +2612,7 @@ items:
       into BL-079.
     category:     "webapp"
     type:         "feature"
-    status:       "parked"
+    status:       "done"
     complexity:   "S"
     priority:     "low"
     rationale:    "Confirmed absent in the 2026-07-05 investigation behind this item set: source_uri exists on documents and the blob is genuinely retained, but no route streams it to a browser. Splitting it out from BL-079 keeps each item's acceptance criteria testable in isolation."
@@ -2624,7 +2624,7 @@ items:
       - "webapp/app.py"
       - "db/migrations/001_init.sql"
     owner:        "shared"
-    source:       "Feature request 2026-07-05: overlay rendering on the original document; see BL-076."
+    source:       "Feature request 2026-07-05: overlay rendering on the original document; see BL-076. Completed 2026-07-12 with an API original-document download route, a webapp proxy route, a document-page download link, and regression tests for MIME/filename streaming plus pending/missing-blob error paths."
     tags:         ["webapp", "download", "original-file"]
 
   - id:          "BL-081"
@@ -2642,7 +2642,7 @@ items:
       requires the whole corpus to be reprocessed first.
     category:     "webapp"
     type:         "tech-debt"
-    status:       "parked"
+    status:       "done"
     complexity:   "S"
     priority:     "medium"
     rationale:    "BL-082's overlay view needs the reader's current page and BL-079's rendered PDF page to refer to the same real page number — today's sentence-count chunking has no such correspondence, so the two views could not be shown side by side or swapped between without this."
@@ -2654,7 +2654,7 @@ items:
       - "webapp/app.py"
       - "webapp/templates/document.html"
     owner:        "shared"
-    source:       "Feature request 2026-07-05: overlay rendering on the original document; see BL-076."
+    source:       "Feature request 2026-07-05: overlay rendering on the original document; see BL-076. Completed 2026-07-12: the webapp document reader now detects persisted span page_number values and uses sp.page_number to select the requested PDF page, while preserving the legacy 40-sentence chunk fallback for documents without geometry."
     tags:         ["webapp", "pagination", "overlay"]
 
   - id:          "BL-082"
@@ -2679,7 +2679,7 @@ items:
       plainly that overlay isn't available for its format yet.
     category:     "webapp"
     type:         "feature"
-    status:       "parked"
+    status:       "done"
     complexity:   "L"
     priority:     "medium"
     rationale:    "This is what was actually asked for: 'display the overlays/pages/rendering over the original document.' Everything else in this set is plumbing this view depends on. Scoped to PDF first since that's the only format with both extracted text and positional geometry; BL-086/BL-087 carry the rest of the format matrix."
@@ -2693,7 +2693,7 @@ items:
     references:
       - "webapp/templates/document.html"
     owner:        "shared"
-    source:       "Feature request 2026-07-05: overlay rendering on the original document; see BL-076."
+    source:       "Feature request 2026-07-05: overlay rendering on the original document; see BL-076. Completed 2026-07-12 with a document reader `view=original` mode that renders the cached PDF page image, overlays POS/word boxes from persisted span geometry scaled by stored source page dimensions, links each box to the lexeme page with the same lemma/POS tooltip vocabulary as the text reader, preserves real PDF page navigation, and shows explicit unavailable states for PDFs without geometry and non-PDF formats."
     tags:         ["webapp", "overlay", "pdf", "pos"]
 
   - id:          "BL-083"
@@ -2706,7 +2706,7 @@ items:
       acceptance criteria or block it from shipping.
     category:     "webapp"
     type:         "feature"
-    status:       "parked"
+    status:       "done"
     complexity:   "M"
     priority:     "low"
     rationale:    "Named as a logical next step once the positioning mechanism exists, but is not what was asked for in the original request — kept as its own low-priority item rather than folded into BL-082."
@@ -2714,7 +2714,7 @@ items:
       - "The overlay view (BL-082) can toggle between POS highlights and entity/canonical-link highlights, reusing the same positioning mechanism."
     dependencies: ["BL-082"]
     owner:        "shared"
-    source:       "Feature request 2026-07-05: overlay rendering on the original document; see BL-076."
+    source:       "Feature request 2026-07-05: overlay rendering on the original document; see BL-076. Completed 2026-07-12 with a Grammar/Entities mode switch inside the original-PDF overlay view; entity mode reuses the BL-082 page-image/bbox positioning path and renders entity mention boxes with canonical-link context in the tooltip."
     tags:         ["webapp", "overlay", "entities", "v2"]
 
   - id:          "BL-084"
@@ -2804,7 +2804,7 @@ items:
       flattened text.
     category:     "webapp"
     type:         "feature"
-    status:       "parked"
+    status:       "done"
     complexity:   "L"
     priority:     "low"
     rationale:    "Without this, docx/html/epub documents (a real, currently-ingestable slice of the corpus) would either be silently excluded from 'overlay on the original document' or wrongly forced through the PDF-shaped plan, which has no page/bbox data to draw from for these formats at all."
@@ -2817,7 +2817,7 @@ items:
       - "src/doc_ray/adapters/extraction.py"
       - "webapp/templates/document.html"
     owner:        "shared"
-    source:       "User correction 2026-07-05: 'document can also be docx, html, pptx, svgs' — verified docx/html/epub extraction discards all positional/DOM data, and that neither has a PDF-style fixed page, ruling out reusing BL-076..BL-082's approach unmodified."
+    source:       "User correction 2026-07-05: 'document can also be docx, html, pptx, svgs' — verified docx/html/epub extraction discards all positional/DOM data, and that neither has a PDF-style fixed page, ruling out reusing BL-076..BL-082's approach unmodified. Completed 2026-07-12 with sanitized `render_html` extraction metadata for HTML/EPUB and python-docx paragraph HTML, plus a non-paginated `view=original` path that renders retained markup with POS/entity range highlights in place rather than using PDF page/bbox geometry."
     tags:         ["webapp", "overlay", "docx", "html", "epub"]
 
   - id:          "BL-087"
@@ -3762,7 +3762,7 @@ items:
       used elsewhere in the same file to the three missing spots.
     category:     "webapp"
     type:         "bug"
-    status:       "ready"
+    status:       "done"
     complexity:   "XS"
     priority:     "low"
     rationale:    "The fix pattern already exists twice in the same file — this is a one-line-per-callsite consistency fix, not new infrastructure, and closes a real gap for exactly the admin-destructive actions (backup/restore) an operator would most want a server-side trail for."
@@ -3772,7 +3772,7 @@ items:
     references:
       - "webapp/app.py"
     owner:        "shared"
-    source:       "Full-codebase gap-analysis 2026-07-10 (observability subsystem audit)."
+    source:       "Full-codebase gap-analysis 2026-07-10 (observability subsystem audit). Completed 2026-07-12 with app.logger.exception calls in the seeding action, backup creation, and backup restore exception handlers plus a parametrized webapp regression test covering all three redirects."
     tags:         ["webapp", "observability", "logging", "bug"]
 
   - id:          "BL-117"

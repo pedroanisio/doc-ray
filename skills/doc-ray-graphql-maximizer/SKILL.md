@@ -37,12 +37,12 @@ missing, what needs curation, and what follow-up query or job unlocks more value
 3. Classify the user's goal:
    - **Corpus discovery**: documents, full-text search, sentence search.
    - **Document drill-down**: metadata, sentences, provenance, annotation runs,
-     tokens, dependencies, chunks, coreference, entity links.
+     metadata history, tokens, dependencies, chunks, coreference, entity links.
    - **Lexical analysis**: lexemes, occurrences, KWIC evidence.
    - **Entity/canonical work**: entity frequency, seed suggestions, canonical
      search, unresolved mentions, resolution review.
    - **Pipeline/write operation**: upload, annotate, semantic enrichment,
-     canonicalize, seed approval, backup, restore, delete.
+     canonicalize, metadata update, seed approval, backup, restore, delete.
    - **API development**: schema, resolvers, read adapters, auth, pagination,
      tests.
 4. Choose the smallest query set that preserves evidence. Prefer fields that

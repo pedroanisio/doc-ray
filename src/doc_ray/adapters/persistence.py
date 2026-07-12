@@ -53,6 +53,193 @@ def find_by_sha256(conn: DictConnection, sha256: str) -> dict[str, Any] | None:
     return cur.fetchone()
 
 
+def layout_runs_from_page_runs(
+    full_text: str, page_runs: list[dict[str, Any]] | None
+) -> list[dict[str, Any]]:
+    """Convert extracted PDF layout runs into durable text-offset rows.
+
+    ``Extracted.page_runs`` is intentionally extractor-local: PyMuPDF reports
+    zero-based pages and geometry, while the rest of doc-ray addresses text by
+    half-open character spans. This helper bridges the two representations by
+    finding each extracted line in the final persisted ``full_text``.
+    """
+    if not full_text or not page_runs:
+        return []
+
+    rows: list[dict[str, Any]] = []
+    cursor = 0
+    for run in page_runs:
+        text = str(run.get("text") or "")
+        if not text:
+            continue
+        bbox = run.get("bbox") or ()
+        if len(bbox) != 4:
+            continue
+        start = full_text.find(text, cursor)
+        if start < 0:
+            start = full_text.find(text)
+        if start < 0:
+            continue
+        end = start + len(text)
+        rows.append(
+            {
+                "ordinal": len(rows),
+                "page_number": int(run.get("page", 0)) + 1,
+                "page_width": float(run["page_width"]) if run.get("page_width") else None,
+                "page_height": float(run["page_height"]) if run.get("page_height") else None,
+                "char_start": start,
+                "char_end": end,
+                "bbox_x0": float(bbox[0]),
+                "bbox_y0": float(bbox[1]),
+                "bbox_x1": float(bbox[2]),
+                "bbox_y1": float(bbox[3]),
+                "text": text,
+            }
+        )
+        cursor = end
+    return rows
+
+
+def span_geometry_from_layout_rows(
+    pairs: list[tuple[int, int]], layout_rows: list[dict[str, Any]]
+) -> dict[tuple[int, int], dict[str, Any]]:
+    """Return the best page/bbox geometry for each requested span range."""
+    out: dict[tuple[int, int], dict[str, Any]] = {}
+    for start, end in pairs:
+        by_page: dict[int, dict[str, Any]] = {}
+        for row in layout_rows:
+            row_start = int(row["char_start"])
+            row_end = int(row["char_end"])
+            overlap = min(end, row_end) - max(start, row_start)
+            if overlap <= 0:
+                continue
+            page = int(row["page_number"])
+            page_geom = by_page.setdefault(
+                page,
+                {
+                    "overlap": 0,
+                    "page_number": page,
+                    "bbox_x0": float(row["bbox_x0"]),
+                    "bbox_y0": float(row["bbox_y0"]),
+                    "bbox_x1": float(row["bbox_x1"]),
+                    "bbox_y1": float(row["bbox_y1"]),
+                },
+            )
+            page_geom["overlap"] += overlap
+            page_geom["bbox_x0"] = min(page_geom["bbox_x0"], float(row["bbox_x0"]))
+            page_geom["bbox_y0"] = min(page_geom["bbox_y0"], float(row["bbox_y0"]))
+            page_geom["bbox_x1"] = max(page_geom["bbox_x1"], float(row["bbox_x1"]))
+            page_geom["bbox_y1"] = max(page_geom["bbox_y1"], float(row["bbox_y1"]))
+        if by_page:
+            best = max(by_page.values(), key=lambda g: (g["overlap"], -g["page_number"]))
+            out[(start, end)] = {
+                "page_number": best["page_number"],
+                "bbox_x0": best["bbox_x0"],
+                "bbox_y0": best["bbox_y0"],
+                "bbox_x1": best["bbox_x1"],
+                "bbox_y1": best["bbox_y1"],
+            }
+    return out
+
+
+def replace_document_layout_runs(
+    conn: DictConnection,
+    document_id: str,
+    full_text: str | None,
+    page_runs: list[dict[str, Any]] | None,
+) -> None:
+    """Replace the persisted layout-run index for one document."""
+    conn.execute("DELETE FROM document_layout_runs WHERE document_id=%s", (document_id,))
+    rows = layout_runs_from_page_runs(full_text or "", page_runs)
+    if not rows:
+        return
+    with conn.cursor() as cur:
+        cur.executemany(
+            """
+            INSERT INTO document_layout_runs
+                (document_id, ordinal, page_number, page_width, page_height, char_start, char_end,
+                 bbox_x0, bbox_y0, bbox_x1, bbox_y1, text)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            ON CONFLICT (document_id, ordinal) DO UPDATE SET
+                page_number = EXCLUDED.page_number,
+                page_width = EXCLUDED.page_width,
+                page_height = EXCLUDED.page_height,
+                char_start = EXCLUDED.char_start,
+                char_end = EXCLUDED.char_end,
+                bbox_x0 = EXCLUDED.bbox_x0,
+                bbox_y0 = EXCLUDED.bbox_y0,
+                bbox_x1 = EXCLUDED.bbox_x1,
+                bbox_y1 = EXCLUDED.bbox_y1,
+                text = EXCLUDED.text
+            """,
+            [
+                (
+                    document_id,
+                    row["ordinal"],
+                    row["page_number"],
+                    row["page_width"],
+                    row["page_height"],
+                    row["char_start"],
+                    row["char_end"],
+                    row["bbox_x0"],
+                    row["bbox_y0"],
+                    row["bbox_x1"],
+                    row["bbox_y1"],
+                    row["text"],
+                )
+                for row in rows
+            ],
+        )
+
+
+def _update_span_geometry_from_layout(
+    conn: DictConnection, document_id: str, pairs: list[tuple[int, int]]
+) -> None:
+    """Populate page/bbox fields for staged spans from persisted layout runs."""
+    if not pairs:
+        return
+    layout_rows = conn.execute(
+        """
+        SELECT lr.page_number, lr.char_start, lr.char_end,
+               lr.bbox_x0, lr.bbox_y0, lr.bbox_x1, lr.bbox_y1
+        FROM document_layout_runs lr
+        JOIN _span_stage st
+          ON lr.char_start < st.char_end
+         AND lr.char_end > st.char_start
+        WHERE lr.document_id=%s
+        """,
+        (document_id,),
+    ).fetchall()
+    geometry = span_geometry_from_layout_rows(pairs, layout_rows)
+    if not geometry:
+        return
+    with conn.cursor() as cur:
+        cur.executemany(
+            """
+            UPDATE spans
+               SET page_number=%s,
+                   bbox_x0=%s,
+                   bbox_y0=%s,
+                   bbox_x1=%s,
+                   bbox_y1=%s
+             WHERE document_id=%s AND char_start=%s AND char_end=%s
+            """,
+            [
+                (
+                    geom["page_number"],
+                    geom["bbox_x0"],
+                    geom["bbox_y0"],
+                    geom["bbox_x1"],
+                    geom["bbox_y1"],
+                    document_id,
+                    start,
+                    end,
+                )
+                for (start, end), geom in geometry.items()
+            ],
+        )
+
+
 def ensure_spans(
     conn: DictConnection, document_id: str, pairs: list[tuple[int, int]]
 ) -> dict[tuple[int, int], str]:
@@ -85,6 +272,7 @@ def ensure_spans(
             "ON CONFLICT (document_id, char_start, char_end) DO NOTHING",
             (document_id,),
         )
+        _update_span_geometry_from_layout(conn, document_id, uniq)
     # Return only the requested pairs (join the staging table), not every span
     # in the document — otherwise this is O(all spans) on every call.
     rows = conn.execute(
@@ -276,6 +464,7 @@ def insert_document(
     metadata: dict[str, Any] | None = None,
     sentences: list[dict[str, Any]] | None = None,
     provenance: list[dict[str, Any]] | None = None,
+    page_runs: list[dict[str, Any]] | None = None,
 ) -> str:
     """Insert a document and all its normalized (4NF) satellites in one txn.
 
@@ -303,6 +492,7 @@ def insert_document(
         metadata: Arbitrary ``{key: value}`` metadata.
         sentences: Sentence records with ``char_start``/``char_end`` offsets.
         provenance: Provenance event records, each with optional ``params``.
+        page_runs: Extracted layout rows with page and bbox data, when available.
 
     Returns:
         The id of the newly inserted document.
@@ -371,6 +561,7 @@ def insert_document(
             "INSERT INTO document_content (document_id, full_text) VALUES (%s, %s)",
             (doc_id, full_text),
         )
+        replace_document_layout_runs(conn, doc_id, full_text, page_runs)
 
         if sentences:
             span_map = ensure_spans(
@@ -516,3 +707,98 @@ def update_document_metadata(
                         (document_id, _tag_id(conn, tag)),
                     )
     return changed
+
+
+def add_document_tags(
+    conn: DictConnection,
+    document_id: str,
+    tags: list[str],
+    *,
+    actor: str | None = None,
+) -> list[str]:
+    """Merge tags into a document's current tag set and record one tags change.
+
+    Bulk document actions use this worker-time helper instead of computing a
+    replacement tag list in the request. Empty/duplicate tag input is ignored.
+    """
+    new_tags = sorted({t.strip() for t in tags if t and t.strip()})
+    if not new_tags:
+        return []
+    current_tags = sorted(
+        r["tag"]
+        for r in conn.execute(
+            "SELECT t.tag FROM document_tags dt JOIN tags t ON t.id = dt.tag_id "
+            "WHERE dt.document_id = %s",
+            (document_id,),
+        ).fetchall()
+    )
+    return update_document_metadata(
+        conn,
+        document_id,
+        tags=sorted(set(current_tags).union(new_tags)),
+        actor=actor,
+    )
+
+
+def set_document_lifecycle(
+    conn: DictConnection,
+    document_id: str,
+    lifecycle_state: str,
+    *,
+    actor: str | None = None,
+) -> bool:
+    """Set a document's lifecycle state and record the transition in history.
+
+    ``documents.status`` remains the ingestion state; this function manages the
+    reversible operator lifecycle added by BL-059. ``deleted`` is a soft delete:
+    the document row and blob pointer remain available for restore.
+    """
+    from doc_ray.domain.ulid import new_ulid_str
+
+    if lifecycle_state not in {"active", "archived", "deleted"}:
+        raise ValueError(f"unknown document lifecycle state: {lifecycle_state}")
+
+    with conn.transaction():
+        current = conn.execute(
+            "SELECT lifecycle_state FROM documents WHERE id = %s FOR UPDATE",
+            (document_id,),
+        ).fetchone()
+        if current is None:
+            raise ValueError(f"no such document: {document_id}")
+        old_state = current["lifecycle_state"]
+        if old_state == lifecycle_state:
+            return False
+
+        if lifecycle_state == "active":
+            conn.execute(
+                "UPDATE documents SET lifecycle_state = 'active', archived_at = NULL, "
+                "deleted_at = NULL WHERE id = %s",
+                (document_id,),
+            )
+        elif lifecycle_state == "archived":
+            conn.execute(
+                "UPDATE documents SET lifecycle_state = 'archived', archived_at = now(), "
+                "deleted_at = NULL WHERE id = %s",
+                (document_id,),
+            )
+        else:
+            conn.execute(
+                "UPDATE documents SET lifecycle_state = 'deleted', deleted_at = now() "
+                "WHERE id = %s",
+                (document_id,),
+            )
+
+        conn.execute(
+            "INSERT INTO document_metadata_history "
+            "(id, document_id, field, old_value, new_value, actor) "
+            "VALUES (%s, %s, %s, %s, %s, %s)",
+            (
+                new_ulid_str(),
+                document_id,
+                "lifecycle_state",
+                old_state,
+                lifecycle_state,
+                actor,
+            ),
+        )
+    return True

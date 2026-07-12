@@ -143,6 +143,7 @@ def ingest_file(conn: psycopg.Connection[Any], store: ObjectStore, path: Path) -
         metadata=extracted.metadata,  # {pdf_producer, pdf_creator, ...}
         sentences=sentences,
         provenance=provenance,
+        page_runs=extracted.page_runs,
     )
     return IngestResult(
         str(path),

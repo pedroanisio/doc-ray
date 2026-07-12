@@ -18,3 +18,5 @@ doc-hygiene-report.md
 doc-quarantine.sh
 quarantine-summaries.md
 quarantine-manifest.json
+drift-risk-map.md
+drift-risk-map.svg

@@ -57,6 +57,9 @@
         <div class="issue">
           <span class="issue-code">{{ issue.code }}</span>
           <div>{{ issue.detail }}</div>
+          {% if issue.document_id %}
+          <a class="pill" href="{{ url_for('operator_document_metadata', doc_id=issue.document_id, issue=issue.code) }}">Correct metadata</a>
+          {% endif %}
         </div>
         {% else %}
         <p class="empty">No {{ group.severity }} findings.</p>

@@ -231,3 +231,73 @@ table.jobs th, table.seed th, .compact th {
 table.jobs td, table.seed td, .compact td {
   padding:.45rem .6rem; border-bottom:1px solid var(--line); vertical-align:top;
 }
+
+/* Document visual previews (BL-056). Used by the corpus table and document
+   header; dimensions are fixed so image loads cannot resize rows or headings. */
+.preview-cell { width:5.6rem; vertical-align:top; }
+.doc-title-strip { display:flex; align-items:flex-start; gap:1rem; flex-wrap:wrap; }
+.doc-title-main { min-width:min(100%, 24rem); flex:1 1 28rem; }
+.doc-title-main h1 { margin-top:0; }
+.doc-preview {
+  width:4.6rem;
+  aspect-ratio:3 / 4;
+  display:grid;
+  place-items:center;
+  overflow:hidden;
+  border:1px solid var(--line);
+  border-radius:6px;
+  background:var(--panel);
+  box-shadow:0 10px 24px rgba(0,0,0,.08);
+}
+.doc-preview:hover { text-decoration:none; border-color:var(--accent); }
+.doc-preview-large { width:7rem; flex:0 0 auto; }
+.doc-preview img { width:100%; height:100%; object-fit:cover; display:block; }
+.doc-preview-icon span {
+  font-family:var(--mono);
+  font-size:.68rem;
+  color:var(--ink-soft);
+  border:1px solid var(--line);
+  padding:.18rem .28rem;
+  max-width:calc(100% - .6rem);
+  overflow:hidden;
+  text-overflow:ellipsis;
+}
+.doc-preview-pending { background:repeating-linear-gradient(
+  135deg, var(--panel), var(--panel) .42rem, var(--sel) .42rem, var(--sel) .84rem
+); }
+.doc-preview-failed { border-color:var(--accent); }
+.preview-status {
+  margin-top:.24rem;
+  font-family:var(--mono);
+  font-size:.62rem;
+  color:var(--ink-faint);
+  line-height:1.25;
+}
+.preview-status-ready { color:var(--ink-soft); }
+.preview-status-pending { color:var(--ink-soft); }
+.preview-status-failed { color:var(--accent); }
+
+.collection-layout {
+  display:grid;
+  grid-template-columns:minmax(0,1fr) minmax(16rem,22rem);
+  gap:1.2rem;
+  align-items:start;
+}
+@media (max-width:860px){ .collection-layout { grid-template-columns:1fr; } }
+.collection-list { display:grid; gap:.75rem; }
+.collection-card {
+  display:flex;
+  justify-content:space-between;
+  gap:1rem;
+  padding:1rem 1.1rem;
+  border:1px solid var(--line);
+  border-radius:6px;
+  background:var(--panel);
+}
+.collection-card h2 { margin:0 0 .2rem; }
+.collection-meta { display:flex; gap:.35rem; align-items:flex-start; flex-wrap:wrap; }
+.collection-create form { display:grid; gap:.65rem; }
+.collection-create label { display:grid; gap:.24rem; font-size:.82rem; color:var(--ink-soft); }
+.collection-add-list { display:grid; gap:.45rem; }
+.collection-add-list form { display:flex; align-items:center; gap:.5rem; flex-wrap:wrap; }
+.collection-add-list button { padding:.26rem .55rem; }

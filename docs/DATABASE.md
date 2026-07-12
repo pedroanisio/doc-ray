@@ -1,6 +1,6 @@
 # doc-ray — Database ERD & Data Dictionary
 
-**Schema version `1.11.0`** (SemVer) · 46 migrations applied
+**Schema version `1.15.0`** (SemVer) · 56 migrations applied
 
 > Generated from the live schema by `scripts/gen_data_dictionary.py`. Do not edit by hand — re-run the generator.
 
@@ -168,12 +168,18 @@ format metadata) are decomposed to their own relations (4NF); blobs live in obje
 | `revision` | integer |  |  | `1` |  |
 | `original_filename` | text | yes |  |  |  |
 | `description` | text | yes |  |  |  |
+| `lifecycle_state` | text |  |  | `'active'::text` |  |
+| `archived_at` | timestamp with time zone | yes |  |  |  |
+| `deleted_at` | timestamp with time zone | yes |  |  |  |
 
 - **Primary key:** (id)
 - **Unique:** UNIQUE (content_sha256)
 - **FK:** FOREIGN KEY (derived_from) REFERENCES documents(id) ON DELETE SET NULL
+- **Check:** CHECK ((lifecycle_state = ANY (ARRAY['active'::text, 'archived'::text, 'deleted'::text])))
+- **Check:** CHECK ((((lifecycle_state = 'active'::text) AND (archived_at IS NULL) AND (deleted_at IS NULL)) OR ((lifecycle_state = 'archived'::text) AND (archived_at IS NOT NULL) AND (deleted_at IS NULL)) OR ((lifecycle_state = 'deleted'::text) AND (deleted_at IS NOT NULL))))
 - **Index** `documents_content_sha256_key`: public.documents USING btree (content_sha256)
 - **Index** `idx_documents_derived_from`: public.documents USING btree (derived_from)
+- **Index** `idx_documents_lifecycle_state`: public.documents USING btree (lifecycle_state, updated_at DESC)
 - **Index** `idx_documents_status`: public.documents USING btree (status)
 - **Index** `idx_documents_type_created`: public.documents USING btree (doc_type, created_at DESC)
 - **RLS:** enabled — read/write policies via *id (self)*
@@ -322,7 +328,7 @@ and read-granted the same way.
 - **Primary key:** (id)
 - **FK:** FOREIGN KEY (actor_principal_id) REFERENCES principals(id) ON DELETE SET NULL
 - **FK:** FOREIGN KEY (document_id) REFERENCES documents(id) ON DELETE CASCADE
-- **Check:** CHECK ((field = ANY (ARRAY['title'::text, 'description'::text, 'tags'::text])))
+- **Check:** CHECK ((field = ANY (ARRAY['title'::text, 'description'::text, 'tags'::text, 'lifecycle_state'::text])))
 - **Index** `idx_metadata_history_doc`: public.document_metadata_history USING btree (document_id, id)
 - **RLS:** enabled — read/write policies via *document_id*
 
@@ -340,12 +346,19 @@ a span.
 | `document_id` | uuid |  | FK→documents, UQ |  |  |
 | `char_start` | integer |  | UQ |  |  |
 | `char_end` | integer |  | UQ |  |  |
+| `page_number` | integer | yes |  |  |  |
+| `bbox_x0` | double precision | yes |  |  |  |
+| `bbox_y0` | double precision | yes |  |  |  |
+| `bbox_x1` | double precision | yes |  |  |  |
+| `bbox_y1` | double precision | yes |  |  |  |
 
 - **Primary key:** (id)
 - **Unique:** UNIQUE (document_id, char_start, char_end)
 - **FK:** FOREIGN KEY (document_id) REFERENCES documents(id) ON DELETE CASCADE
 - **Check:** CHECK ((char_end >= char_start))
+- **Check:** CHECK ((((page_number IS NULL) AND (bbox_x0 IS NULL) AND (bbox_y0 IS NULL) AND (bbox_x1 IS NULL) AND (bbox_y1 IS NULL)) OR ((page_number > 0) AND (bbox_x0 IS NOT NULL) AND (bbox_y0 IS NOT NULL) AND (bbox_x1 IS NOT NULL) AND (bbox_y1 IS NOT NULL) AND (bbox_x1 >= bbox_x0) AND (bbox_y1 >= bbox_y0)))) NOT VALID
 - **Index** `idx_spans_document`: public.spans USING btree (document_id, char_start, char_end)
+- **Index** `idx_spans_document_page`: public.spans USING btree (document_id, page_number, char_start) WHERE (page_number IS NOT NULL)
 - **Index** `spans_document_id_char_start_char_end_key`: public.spans USING btree (document_id, char_start, char_end)
 - **RLS:** enabled — read/write policies via *document_id*
 
@@ -1079,6 +1092,7 @@ SELECT a.document_id,
 
 - **backups** `trg_backups_updated_at`: CREATE TRIGGER trg_backups_updated_at BEFORE UPDATE …
 - **canonical** `trg_canonical_updated_at`: CREATE TRIGGER trg_canonical_updated_at BEFORE UPDATE …
+- **document_collections** `trg_document_collections_updated_at`: CREATE TRIGGER trg_document_collections_updated_at BEFORE UPDATE …
 - **document_content** `trg_content_fts`: CREATE TRIGGER trg_content_fts BEFORE INSERT OR UPDATE OF full_text …
 - **documents** `trg_documents_language_fts`: CREATE TRIGGER trg_documents_language_fts AFTER UPDATE OF language …
 - **documents** `trg_documents_updated_at`: CREATE TRIGGER trg_documents_updated_at BEFORE UPDATE …
@@ -1177,3 +1191,13 @@ owner's bypass.
 | 044 | `044_schema_version_1_10_0.sql` | advance the schema SemVer to 1.10.0 |
 | 045 | `045_document_metadata_history.sql` | editable document metadata and its per-field change history (BL-058) |
 | 046 | `046_schema_version_1_11_0.sql` | advance the schema SemVer to 1.11.0 |
+| 047 | `047_document_collections.sql` | manual and smart document collections (BL-057) |
+| 048 | `048_schema_version_1_12_0.sql` | advance the schema SemVer to 1.12.0 |
+| 049 | `049_span_page_geometry.sql` | persist page/bbox geometry for spans (BL-077) |
+| 050 | `050_schema_version_1_13_0.sql` | advance the schema SemVer to 1.13.0 |
+| 051 | `051_document_lifecycle.sql` | document lifecycle state, archive, and soft delete (BL-059) |
+| 052 | `052_schema_version_1_14_0.sql` | advance the schema SemVer to 1.14.0 |
+| 053 | `053_document_lifecycle_history_constraint.sql` | allow lifecycle_state transitions in document metadata history |
+| 054 | `054_document_layout_run_page_dimensions.sql` | repair document_layout_runs page dimensions for already-migrated databases |
+| 055 | `055_document_metadata_suggestions.sql` | verified document metadata suggestions for human review (BL-061) |
+| 056 | `056_schema_version_1_15_0.sql` | advance the schema SemVer to 1.15.0 |

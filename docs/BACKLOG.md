@@ -264,13 +264,13 @@ uv-built image.
 | BL-053 | Golden-output harness with hash-lock and tolerance oracle | testing | infra | parked | L | medium | shared |
 | BL-054 | Expose phrase and semantic (vector) search on the GraphQL API | api | feature | parked | M | medium | shared |
 | BL-055 | Add index-health / corruption monitoring (amcheck + checksums) | ops | infra | parked | M | medium | shared |
-| BL-056 | Document thumbnails and visual previews | webapp | feature | parked | L | medium | shared |
-| BL-057 | Document collections: manual and rule-based smart collections | webapp | feature | parked | L | medium | shared |
+| BL-056 | Document thumbnails and visual previews | webapp | feature | done | L | medium | shared |
+| BL-057 | Document collections: manual and rule-based smart collections | webapp | feature | done | L | medium | shared |
 | BL-058 | Editable document metadata (rename, description, tags) with an audit log | api | feature | done | M | high | shared |
-| BL-059 | Document lifecycle states beyond ingestion status (archive, soft-delete, restore) | persistence | feature | parked | L | high | shared |
-| BL-060 | Bulk actions for documents (tag, archive, move, delete) | api | feature | parked | M | medium | shared |
-| BL-061 | AI-suggested document metadata refinements (titles, tags, duplicates, grouping) | nlp | feature | parked | M | medium | shared |
-| BL-062 | Operator-facing document metadata correction and enrichment workflow | ops | feature | parked | M | medium | shared |
+| BL-059 | Document lifecycle states beyond ingestion status (archive, soft-delete, restore) | persistence | feature | done | L | high | shared |
+| BL-060 | Bulk actions for documents (tag, archive, move, delete) | api | feature | done | M | medium | shared |
+| BL-061 | AI-suggested document metadata refinements (titles, tags, duplicates, grouping) | nlp | feature | done | M | medium | shared |
+| BL-062 | Operator-facing document metadata correction and enrichment workflow | ops | feature | done | M | medium | shared |
 | BL-063 | Paginate the main document list and add filter arguments to the documents query | api | tech-debt | done | S | medium | shared |
 | BL-064 | Mutation resolvers never check per-document write ACL (any write token can mutate any document) | security | bug | done | M | high | shared |
 | BL-065 | Introduce a tenant model as the foundation for tenant-aware RBAC | security | feature | parked | XL | high | shared |
@@ -285,16 +285,16 @@ uv-built image.
 | BL-074 | Append-only security audit-event log distinct from document_provenance | security | feature | parked | L | high | shared |
 | BL-075 | Tenant-admin audit surface: search by actor/action/target/time/IP, exportable | security | feature | parked | M | medium | shared |
 | BL-076 | Persist per-span page number and bounding box at extraction time (PDF) | extraction | feature | done | M | high | shared |
-| BL-077 | Schema: persist page number and bounding box on spans | persistence | feature | parked | M | high | shared |
-| BL-078 | Backfill page/bbox for already-ingested documents via re-extraction | ops | feature | parked | L | medium | shared |
-| BL-079 | Route: render an original PDF page as an image (PDF) | webapp | feature | parked | M | medium | shared |
-| BL-080 | Route: stream the original uploaded file to the browser | webapp | feature | parked | S | low | shared |
-| BL-081 | Align the reader's Pages tab to real PDF page boundaries (PDF) | webapp | tech-debt | parked | S | medium | shared |
-| BL-082 | Overlay view: POS/word highlights positioned over the rendered original page (PDF) | webapp | feature | parked | L | medium | shared |
-| BL-083 | Extend the overlay view to entity/canonical-link highlights (V2) | webapp | feature | parked | M | low | shared |
+| BL-077 | Schema: persist page number and bounding box on spans | persistence | feature | done | M | high | shared |
+| BL-078 | Backfill page/bbox for already-ingested documents via re-extraction | ops | feature | done | L | medium | shared |
+| BL-079 | Route: render an original PDF page as an image (PDF) | webapp | feature | done | M | medium | shared |
+| BL-080 | Route: stream the original uploaded file to the browser | webapp | feature | done | S | low | shared |
+| BL-081 | Align the reader's Pages tab to real PDF page boundaries (PDF) | webapp | tech-debt | done | S | medium | shared |
+| BL-082 | Overlay view: POS/word highlights positioned over the rendered original page (PDF) | webapp | feature | done | L | medium | shared |
+| BL-083 | Extend the overlay view to entity/canonical-link highlights (V2) | webapp | feature | done | M | low | shared |
 | BL-084 | Extraction support for PPTX (PowerPoint) | extraction | feature | parked | M | low | shared |
 | BL-085 | Extraction support for SVG | extraction | feature | parked | S | low | shared |
-| BL-086 | Overlay strategy for non-paginated formats (docx/html/epub): highlight in a rendered view of the original markup | webapp | feature | parked | L | low | shared |
+| BL-086 | Overlay strategy for non-paginated formats (docx/html/epub): highlight in a rendered view of the original markup | webapp | feature | done | L | low | shared |
 | BL-087 | Overlay support for PPTX/SVG once ingested (slide/vector-native positioning) | webapp | feature | parked | M | low | shared |
 | BL-088 | Harden zip/XML parsing against decompression-bomb and entity-expansion attacks | security | bug | done | M | high | shared |
 | BL-089 | Extraction support for PPTX: text and structure from slide/placeholder data | extraction | feature | parked | M | medium | shared |
@@ -324,7 +324,7 @@ uv-built image.
 | BL-113 | No automated dependency vulnerability scanning, SBOM, or update automation | tooling | infra | parked | M | medium | shared |
 | BL-114 | CI and the Docker build bypass the committed uv.lock; no hash verification | tooling | tech-debt | done | S | medium | shared |
 | BL-115 | No structured logging anywhere in src/doc_ray — worker and GraphQL failures produce no durable trace | ops | tech-debt | done | M | high | shared |
-| BL-116 | Webapp: 3 of 5 exception handlers never log to app.logger | webapp | bug | ready | XS | low | shared |
+| BL-116 | Webapp: 3 of 5 exception handlers never log to app.logger | webapp | bug | done | XS | low | shared |
 | BL-117 | No request/correlation-id threading across webapp -> API -> queue -> worker | ops | feature | parked | M | low | shared |
 | BL-118 | Zero metrics/tracing integration anywhere in the stack | ops | feature | parked | L | low | shared |
 

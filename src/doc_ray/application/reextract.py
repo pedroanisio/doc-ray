@@ -23,14 +23,137 @@ import psycopg
 
 from doc_ray.adapters import extraction as extract_mod
 from doc_ray.adapters import persistence as db
+from doc_ray.adapters import queue_postgres as queue
 from doc_ray.application import reannotate
 from doc_ray.config import Config
 from doc_ray.domain import sentences as sent_mod
+from doc_ray.domain.jobs import KIND_REEXTRACT
+from doc_ray.ports.object_store import ObjectStore
 
 
 def _sha(b: bytes) -> str:
     """Return the hex SHA-256 digest of *b*."""
     return hashlib.sha256(b).hexdigest()
+
+
+def object_key_from_source_uri(source_uri: str, bucket: str) -> str:
+    """Return the object key for a source URI that belongs to *bucket*."""
+    prefix = f"s3://{bucket}/"
+    if not source_uri.startswith(prefix):
+        raise ValueError(f"source URI does not belong to bucket {bucket!r}: {source_uri!r}")
+    key = source_uri[len(prefix) :]
+    if not key:
+        raise ValueError("source URI has no object key")
+    return key
+
+
+def backfill_document_geometry(
+    conn: psycopg.Connection[Any],
+    doc_id: str,
+    data: bytes,
+    filename: str,
+    ext: str = ".pdf",
+) -> dict[str, Any]:
+    """Populate layout-run and span geometry for an existing document.
+
+    Unlike :func:`reextract_document`, this is intentionally geometry-only: it
+    re-runs extraction to recover page layout, verifies the extracted text still
+    matches the stored canonical text, then projects geometry onto existing
+    spans keyed by their character offsets. It does not delete annotations.
+    """
+    extracted = extract_mod.extract(data, filename=filename, extension=ext)
+    full_text = extracted.full_text or ""
+    row = conn.execute(
+        "SELECT full_text FROM document_content WHERE document_id=%s", (doc_id,)
+    ).fetchone()
+    stored = (row or {}).get("full_text") or ""
+    if full_text != stored:
+        raise RuntimeError("re-extraction text drift: stored text differs from extracted text")
+
+    layout_rows = db.layout_runs_from_page_runs(full_text, extracted.page_runs)
+    with conn.transaction():
+        if extracted.page_count is not None:
+            conn.execute(
+                "UPDATE documents SET page_count=%s WHERE id=%s",
+                (extracted.page_count, doc_id),
+            )
+        db.replace_document_layout_runs(conn, doc_id, full_text, extracted.page_runs)
+        spans = conn.execute(
+            "SELECT char_start, char_end FROM spans WHERE document_id=%s",
+            (doc_id,),
+        ).fetchall()
+        pairs = [(int(r["char_start"]), int(r["char_end"])) for r in spans]
+        db.ensure_spans(conn, doc_id, pairs)
+        positioned = conn.execute(
+            "SELECT count(*) AS n FROM spans WHERE document_id=%s AND page_number IS NOT NULL",
+            (doc_id,),
+        ).fetchone()
+
+    return {
+        "extractor": extracted.extractor,
+        "layout_runs": len(layout_rows),
+        "spans_checked": len(spans),
+        "spans_positioned": int((positioned or {}).get("n") or 0),
+    }
+
+
+def backfill_document_geometry_from_store(
+    conn: psycopg.Connection[Any], store: ObjectStore, doc_id: str
+) -> dict[str, Any]:
+    """Fetch a document's original blob and backfill its span geometry."""
+    row = conn.execute(
+        """
+        SELECT source_uri, content_sha256, original_filename, doc_type, title
+        FROM documents WHERE id=%s
+        """,
+        (doc_id,),
+    ).fetchone()
+    if not row:
+        raise RuntimeError(f"document {doc_id!r} not found")
+    source_uri = row.get("source_uri")
+    if not source_uri:
+        raise RuntimeError(f"document {doc_id!r} has no source_uri")
+    key = object_key_from_source_uri(str(source_uri), store.bucket)
+    data = store.get(key)
+    expected_sha = row.get("content_sha256")
+    if expected_sha and _sha(data) != expected_sha:
+        raise RuntimeError("stored blob sha256 does not match documents.content_sha256")
+
+    original = str(row.get("original_filename") or row.get("title") or "document")
+    ext = Path(original).suffix or f".{row.get('doc_type') or 'pdf'}"
+    filename = Path(original).stem or "document"
+    return backfill_document_geometry(conn, doc_id, data, filename, ext)
+
+
+def enqueue_reextract_jobs(
+    conn: psycopg.Connection[Any],
+    *,
+    only_missing_geometry: bool = True,
+    priority: int = 100,
+) -> list[str]:
+    """Enqueue re-extraction jobs for PDF documents in the corpus."""
+    missing_clause = (
+        "AND NOT EXISTS ("
+        " SELECT 1 FROM spans sp WHERE sp.document_id = d.id AND sp.page_number IS NOT NULL"
+        ")"
+        if only_missing_geometry
+        else ""
+    )
+    rows = conn.execute(
+        f"""
+        SELECT d.id
+        FROM documents d
+        WHERE d.status = 'extracted'
+          AND d.doc_type = 'pdf'
+          AND d.source_uri IS NOT NULL
+          {missing_clause}
+        ORDER BY d.created_at, d.id
+        """
+    ).fetchall()
+    return [
+        queue.enqueue(conn, KIND_REEXTRACT, {}, priority=priority, document_id=str(row["id"]))
+        for row in rows
+    ]
 
 
 def reextract_document(
@@ -70,6 +193,7 @@ def reextract_document(
             "UPDATE documents SET char_count=%s, text_sha256=%s, page_count=%s WHERE id=%s",
             (len(full_text), _sha(full_text.encode("utf-8")), extracted.page_count, doc_id),
         )
+        db.replace_document_layout_runs(conn, doc_id, full_text, extracted.page_runs)
         # Rebuild sentences + their spans.
         if sentences:
             offsets = [(cast(int, s["char_start"]), cast(int, s["char_end"])) for s in sentences]
@@ -101,10 +225,26 @@ def main(argv: list[str] | None = None) -> int:
     Returns:
         Process exit code (``0`` on success, ``1`` on a lookup/hash mismatch).
     """
-    ap = argparse.ArgumentParser(description="Re-extract one stored document.")
-    ap.add_argument("--title", required=True)
-    ap.add_argument("--file", required=True, type=Path)
+    ap = argparse.ArgumentParser(description="Re-extract stored documents.")
+    ap.add_argument("--enqueue-all", action="store_true", help="Queue PDF geometry backfill jobs.")
+    ap.add_argument(
+        "--include-positioned",
+        action="store_true",
+        help="With --enqueue-all, also queue PDFs that already have positioned spans.",
+    )
+    ap.add_argument("--title")
+    ap.add_argument("--file", type=Path)
     args = ap.parse_args(argv)
+
+    if args.enqueue_all:
+        cfg = Config.from_env()
+        with db.connect(cfg) as conn:
+            jobs = enqueue_reextract_jobs(conn, only_missing_geometry=not args.include_positioned)
+        print(f"queued {len(jobs)} reextract jobs", flush=True)
+        return 0
+
+    if not args.title or not args.file:
+        ap.error("--title and --file are required unless --enqueue-all is used")
 
     data = args.file.read_bytes()
     cfg = Config.from_env()

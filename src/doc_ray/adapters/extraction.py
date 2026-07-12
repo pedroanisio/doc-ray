@@ -18,6 +18,7 @@ import subprocess
 import zipfile
 from collections.abc import Iterator, Mapping
 from dataclasses import dataclass, field, replace
+from html import escape as _html_escape
 from html.parser import HTMLParser as _HTMLParser
 from typing import Any, Protocol
 
@@ -212,6 +213,7 @@ def _blocks_from_pages(
     """Extract simplified text blocks from a PyMuPDF document."""
     blocks: list[dict[str, Any]] = []
     for pageno, page in enumerate(doc):
+        page_w = page.rect.width
         page_h = page.rect.height
         textpage = page.get_textpage_ocr(language=language) if ocr else None
         page_dict = (
@@ -234,6 +236,7 @@ def _blocks_from_pages(
                         "y0": min(y[1] for y in boxes),
                         "y1": max(y[3] for y in boxes),
                         "page": pageno,
+                        "page_w": page_w,
                         "page_h": page_h,
                     }
                 )
@@ -356,7 +359,13 @@ def extract_pdf(data: bytes, fallback_title: str) -> Extracted:
 
 
 def _text_extracted(
-    text: str, fallback_title: str, *, doc_type: str, content_type: str, extractor: str
+    text: str,
+    fallback_title: str,
+    *,
+    doc_type: str,
+    content_type: str,
+    extractor: str,
+    metadata: dict[str, Any] | None = None,
 ) -> Extracted:
     """Build an :class:`Extracted` for a plain-text/markup format."""
     return Extracted(
@@ -368,7 +377,7 @@ def _text_extracted(
         content_type=content_type,
         extractor=extractor,
         extractor_version="stdlib",
-        metadata={},
+        metadata=metadata or {},
     )
 
 
@@ -430,6 +439,88 @@ def _html_to_text(html: str) -> str:
     return "".join(p.parts)
 
 
+class _HTMLRender(_HTMLParser):
+    """Sanitize a small structural HTML subset for the non-paginated original view."""
+
+    _SKIP = {"script", "style", "head", "title", "meta", "link"}
+    _TAGS = {
+        "a",
+        "blockquote",
+        "br",
+        "em",
+        "h1",
+        "h2",
+        "h3",
+        "h4",
+        "h5",
+        "h6",
+        "li",
+        "ol",
+        "p",
+        "strong",
+        "ul",
+    }
+    _MAP = {"b": "strong", "i": "em"}
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.parts: list[str] = []
+        self._skip = 0
+        self._stack: list[str] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        tag = tag.lower()
+        if tag in self._SKIP:
+            self._skip += 1
+            return
+        tag = self._MAP.get(tag, tag)
+        if self._skip or tag not in self._TAGS:
+            return
+        if tag == "br":
+            self.parts.append("<br>")
+            return
+        if tag == "a":
+            href = next((v for k, v in attrs if k == "href" and v), "")
+            if href.startswith(("http://", "https://", "#", "/")):
+                self.parts.append(f'<a href="{_html_escape(href, quote=True)}">')
+                self._stack.append(tag)
+            return
+        self.parts.append(f"<{tag}>")
+        self._stack.append(tag)
+
+    def handle_endtag(self, tag: str) -> None:
+        tag = self._MAP.get(tag.lower(), tag.lower())
+        if tag in self._SKIP and self._skip:
+            self._skip -= 1
+            return
+        if self._skip or tag not in self._TAGS or tag == "br":
+            return
+        if tag in self._stack:
+            while self._stack:
+                open_tag = self._stack.pop()
+                self.parts.append(f"</{open_tag}>")
+                if open_tag == tag:
+                    break
+
+    def handle_data(self, data: str) -> None:
+        if self._skip or not self._stack or not data.strip():
+            return
+        self.parts.append(_html_escape(data, quote=False))
+
+    def close(self) -> None:
+        super().close()
+        while self._stack:
+            self.parts.append(f"</{self._stack.pop()}>")
+
+
+def _html_to_render_html(html: str) -> str:
+    """Return sanitized structural HTML for the non-paginated original view."""
+    p = _HTMLRender()
+    p.feed(html)
+    p.close()
+    return "".join(p.parts)
+
+
 def extract_html(data: bytes, fallback_title: str) -> Extracted:
     """Extract visible text from an HTML document.
 
@@ -440,12 +531,14 @@ def extract_html(data: bytes, fallback_title: str) -> Extracted:
     Returns:
         The extracted HTML document.
     """
+    html = data.decode("utf-8", "replace")
     return _text_extracted(
-        _html_to_text(data.decode("utf-8", "replace")),
+        _html_to_text(html),
         fallback_title,
         doc_type="html",
         content_type="text/html",
         extractor="html.parser",
+        metadata={"render_html": _html_to_render_html(html)},
     )
 
 
@@ -505,11 +598,14 @@ def extract_epub(data: bytes, fallback_title: str) -> Extracted:
         The extracted EPUB document.
     """
     parts: list[str] = []
+    render_parts: list[str] = []
     with zipfile.ZipFile(io.BytesIO(data)) as zf:
         _check_zip_bomb_bounds(zf)
         for name in _epub_spine(zf):
             try:
-                parts.append(_html_to_text(zf.read(name).decode("utf-8", "replace")))
+                html = zf.read(name).decode("utf-8", "replace")
+                parts.append(_html_to_text(html))
+                render_parts.append(_html_to_render_html(html))
             except KeyError:
                 continue
     return _text_extracted(
@@ -518,6 +614,7 @@ def extract_epub(data: bytes, fallback_title: str) -> Extracted:
         doc_type="epub",
         content_type="application/epub+zip",
         extractor="stdlib-epub",
+        metadata={"render_html": "".join(render_parts)},
     )
 
 
@@ -541,12 +638,16 @@ def extract_docx(data: bytes, fallback_title: str) -> Extracted:
     with zipfile.ZipFile(io.BytesIO(data)) as zf:
         _check_zip_bomb_bounds(zf)
     document = docx.Document(io.BytesIO(data))
+    paragraphs = [p.text for p in document.paragraphs if p.text]
     return _text_extracted(
-        "\n".join(p.text for p in document.paragraphs),
+        "\n".join(paragraphs),
         fallback_title,
         doc_type="docx",
         extractor="python-docx",
         content_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        metadata={
+            "render_html": "".join(f"<p>{_html_escape(text)}</p>" for text in paragraphs)
+        },
     )
 
 

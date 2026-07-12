@@ -125,7 +125,8 @@ async def list_documents(
         conn,
         """
         SELECT d.id, d.title, d.original_filename AS filename, d.doc_type, d.language,
-               d.page_count, d.char_count, d.status, d.created_at,
+               d.page_count, d.char_count, d.status, d.lifecycle_state,
+               d.archived_at, d.deleted_at, d.created_at,
                (SELECT count(*) FROM sentences s WHERE s.document_id = d.id) AS n_sentences,
                (SELECT count(*) FROM document_provenance p WHERE p.document_id = d.id)
                    AS n_provenance
@@ -192,6 +193,21 @@ async def list_sentences(
     for row in rows:
         row["cursor"] = encode_cursor("sentences", ordinal=row["ordinal"], id=row["id"])
     return rows
+
+
+async def document_has_position_data(conn: _AConn, document_id: str) -> bool:
+    """Return whether any span for the document has persisted page geometry."""
+    cur = await conn.execute(
+        """
+        SELECT EXISTS (
+            SELECT 1 FROM spans
+            WHERE document_id = %s AND page_number IS NOT NULL
+        ) AS ok
+        """,
+        (document_id,),
+    )
+    row = await cur.fetchone()
+    return bool(row and row["ok"])
 
 
 async def get_provenance(conn: _AConn, document_id: str) -> list[Row]:
