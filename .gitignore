@@ -14,7 +14,7 @@ static/fixtures/
 .mcp.json
 docs/concept/
 docs/deploy-digitalocean.md
-backups/docray-postgres-20260705-103440.dump
+backups/
 doc-hygiene-report.md
 doc-quarantine.sh
 quarantine-summaries.md
