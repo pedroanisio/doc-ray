@@ -42,7 +42,12 @@ missing, what needs curation, and what follow-up query or job unlocks more value
    - **Entity/canonical work**: entity frequency, seed suggestions, canonical
      search, unresolved mentions, resolution review.
    - **Pipeline/write operation**: upload, annotate, semantic enrichment,
-     canonicalize, metadata update, seed approval, backup, restore, delete.
+     canonicalize, metadata update, seed approval, backup, restore, delete
+     (soft), re-extraction/geometry backfill, job cancellation.
+   - **Lifecycle & organization**: archive/restore documents, bulk archive/tag,
+     metadata suggestions (suggest → review → decide).
+   - **Operations & audit**: job progress/timing, SSE job events, stalled-job
+     diagnosis, tenant-admin security audit events.
    - **API development**: schema, resolvers, read adapters, auth, pagination,
      tests.
 4. Choose the smallest query set that preserves evidence. Prefer fields that
@@ -71,7 +76,15 @@ missing, what needs curation, and what follow-up query or job unlocks more value
 - Page every list using `limit` and `after`; preserve returned `cursor` values
   in findings so another agent can resume.
 - For long-running operations, return the job ID and poll `job(id:)` or
-  `jobs(documentId:)` until `status` is terminal.
+  `jobs(documentId:)` until `status` is terminal. Request the progress fields
+  (`progressCurrent`, `progressTotal`, `progressStage`) and timing
+  (`createdAt`, `startedAt`, `finishedAt`, `attempts`) — a `running` job with
+  a long-stale heartbeat is a stalled corpse, not active work. When the
+  environment can hold a connection, prefer the SSE stream at `/jobs/events`
+  over polling.
+- Empty corpus listings have three causes, not one: RLS/auth scope, tenant
+  scope, and document lifecycle (archived/soft-deleted documents drop out of
+  default listings). Rule out all three before concluding "no data".
 - For claims, cite stable evidence: document IDs, sentence IDs, ordinals,
   character spans, lexeme UIDs, mention IDs, canonical IDs, job IDs, and query
   text.

@@ -1,6 +1,6 @@
 # Doc-Ray GraphQL Maximizer
 
-Version: `0.1.2`
+Version: `0.2.0`
 
 Repo-local skill for helping AI agents extract maximum value from Doc-Ray's
 GraphQL API. It teaches agents to inspect the live schema, query the corpus with

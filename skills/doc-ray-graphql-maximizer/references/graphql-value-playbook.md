@@ -289,19 +289,95 @@ mutation Curate($approve: [ID!], $reject: [ID!], $doc: ID!) {
 }
 ```
 
-Job polling:
+Job polling — request timing and progress, not just status:
 
 ```graphql
 query Job($id: ID!, $doc: ID) {
-  job(id: $id) { id kind status documentId error result }
+  job(id: $id) {
+    id kind status documentId error result
+    createdAt startedAt finishedAt attempts maxAttempts
+    progressCurrent progressTotal progressStage
+  }
   jobs(documentId: $doc, limit: 20) {
     id kind status documentId error result cursor
+    progressCurrent progressTotal progressStage
   }
 }
 ```
 
 Terminal statuses are the only completion evidence. Follow up with the relevant
-read query to prove the desired artifact landed.
+read query to prove the desired artifact landed. Interpretation notes:
+
+- `progressCurrent/progressTotal/progressStage` advance through named phases
+  while a job runs (e.g. annotate reports seven phases); `attempts > 1` means
+  the job was reclaimed/retried after a worker loss.
+- A `running` job whose heartbeat is minutes old is a stalled corpse awaiting
+  the reaper, not active work — check `startedAt` against wall time.
+- Instead of polling, the API also streams job transitions and progress as
+  Server-Sent Events: `GET /jobs/events` (same host as `/graphql`; events are
+  RLS-scoped to the caller). Use it for long pipelines when the environment
+  can hold a connection open.
+
+Reprocessing an existing document (all return jobs; `reextract*` is PDF
+geometry backfill):
+
+```graphql
+mutation Reprocess($doc: ID!) {
+  reannotate(documentId: $doc, lang: "en") { id kind status }
+  reextractDocument(documentId: $doc) { id kind status }
+}
+mutation BackfillCorpus {
+  # Admin-only, corpus-wide: one job per PDF; pass false to redo all PDFs.
+  reextractDocuments(onlyMissingGeometry: true) { id kind status }
+}
+```
+
+Job control (admin scope): `cancelJob(jobId: $id)` cancels a queued or running
+job without marking it succeeded or advancing its pipeline chain.
+
+Lifecycle (reversible; `deleteDocument` is a soft delete since BL-059 — the
+row and blob remain restorable):
+
+```graphql
+mutation Lifecycle($doc: ID!, $docs: [ID!]!) {
+  archiveDocument(documentId: $doc) { id kind status }
+  restoreDocument(documentId: $doc) { id kind status }
+  bulkArchiveDocuments(documentIds: $docs) { id kind status }
+  bulkTagDocuments(documentIds: $docs, tags: ["reviewed"]) { id kind status }
+}
+```
+
+Archived/deleted documents drop out of default corpus listings — another
+"empty result" cause to rule out alongside RLS scope.
+
+Metadata suggestions (verified model output; never auto-applied):
+
+```graphql
+mutation Suggest($doc: ID!) {
+  suggestDocumentMetadata(documentId: $doc) { id kind status }
+}
+query ReviewSuggestions($doc: ID!) {
+  documentMetadataSuggestions(documentId: $doc) {
+    id field suggestedValue confidence status
+  }
+}
+mutation Decide($approve: [ID!], $reject: [ID!]) {
+  decideDocumentMetadataSuggestions(approveIds: $approve, rejectIds: $reject)
+}
+```
+
+Security audit trail (admin scope, append-only; distinct from
+`document.provenance`, which is pipeline history):
+
+```graphql
+query Audit {
+  auditEvents(limit: 50) { id action actorPrincipalId targetId occurredAt }
+}
+```
+
+Overlay readiness: `document.hasPositionData` reports whether PDF page
+geometry exists (drives the webapp's Original view; false means enqueue
+`reextractDocument`, not that extraction failed).
 
 ## API Development Checks
 

@@ -5,6 +5,27 @@ All notable changes to `doc-ray-graphql-maximizer` are recorded here.
 The format follows Keep a Changelog conventions and the skill uses Semantic
 Versioning through the repo-local `VERSION` file.
 
+## [0.2.0] - 2026-07-12
+
+### Added
+
+- Documented the 2026-07-12 schema growth the drift check warned about:
+  `auditEvents` and `documentMetadataSuggestions` queries; `cancelJob`,
+  `reextractDocument`, `reextractDocuments(onlyMissingGeometry:)`,
+  `archiveDocument`, `restoreDocument`, `bulkArchiveDocuments`,
+  `bulkTagDocuments`, `suggestDocumentMetadata`, and
+  `decideDocumentMetadataSuggestions(approveIds:, rejectIds:)` mutations —
+  every signature verified against the live resolvers before documenting.
+- Job monitoring guidance now covers the timing fields (`createdAt`,
+  `startedAt`, `finishedAt`, `attempts`, `maxAttempts`), within-job progress
+  (`progressCurrent`/`progressTotal`/`progressStage`), the stalled-corpse
+  heuristic for `running` jobs with stale heartbeats, and the `/jobs/events`
+  Server-Sent Events stream as the no-poll alternative.
+- Lifecycle semantics: `deleteDocument` is a soft delete; archived/deleted
+  documents drop out of default listings — added as a third "empty result"
+  cause alongside RLS and tenant scope. `document.hasPositionData` documented
+  as the overlay-readiness signal.
+
 ## [0.1.2] - 2026-07-05
 
 ### Fixed
