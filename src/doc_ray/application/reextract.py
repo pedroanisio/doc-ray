@@ -94,6 +94,7 @@ def backfill_document_geometry(
                 "UPDATE documents SET page_count=%s WHERE id=%s",
                 (extracted.page_count, doc_id),
             )
+        db.replace_document_pages(conn, doc_id, getattr(extracted, "page_metrics", None))
         db.replace_document_layout_runs(conn, doc_id, full_text, extracted.page_runs)
         spans = conn.execute(
             "SELECT char_start, char_end FROM spans WHERE document_id=%s",
@@ -212,6 +213,7 @@ def reextract_document(
             "UPDATE documents SET char_count=%s, text_sha256=%s, page_count=%s WHERE id=%s",
             (len(full_text), _sha(full_text.encode("utf-8")), extracted.page_count, doc_id),
         )
+        db.replace_document_pages(conn, doc_id, getattr(extracted, "page_metrics", None))
         db.replace_document_layout_runs(conn, doc_id, full_text, extracted.page_runs)
         # Rebuild sentences + their spans.
         if sentences:

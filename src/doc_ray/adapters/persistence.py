@@ -100,6 +100,27 @@ def layout_runs_from_page_runs(
     return rows
 
 
+def page_rows_from_page_metrics(
+    page_metrics: list[dict[str, Any]] | None,
+) -> list[dict[str, Any]]:
+    """Map zero-based extracted page metrics to database page rows."""
+    rows: list[dict[str, Any]] = []
+    for metric in page_metrics or []:
+        page_width = float(metric["page_width"])
+        page_height = float(metric["page_height"])
+        text_run_count = int(metric.get("text_run_count") or 0)
+        rows.append(
+            {
+                "page_number": int(metric["page"]) + 1,
+                "page_width": page_width,
+                "page_height": page_height,
+                "has_text": bool(metric.get("has_text")) or text_run_count > 0,
+                "text_run_count": text_run_count,
+            }
+        )
+    return rows
+
+
 def span_geometry_from_layout_rows(
     pairs: list[tuple[int, int]], layout_rows: list[dict[str, Any]]
 ) -> dict[tuple[int, int], dict[str, Any]]:
@@ -186,6 +207,42 @@ def replace_document_layout_runs(
                     row["bbox_x1"],
                     row["bbox_y1"],
                     row["text"],
+                )
+                for row in rows
+            ],
+        )
+
+
+def replace_document_pages(
+    conn: DictConnection,
+    document_id: str,
+    page_metrics: list[dict[str, Any]] | None,
+) -> None:
+    """Replace authoritative per-page geometry for one document."""
+    conn.execute("DELETE FROM document_pages WHERE document_id=%s", (document_id,))
+    rows = page_rows_from_page_metrics(page_metrics)
+    if not rows:
+        return
+    with conn.cursor() as cur:
+        cur.executemany(
+            """
+            INSERT INTO document_pages
+                (document_id, page_number, page_width, page_height, has_text, text_run_count)
+            VALUES (%s, %s, %s, %s, %s, %s)
+            ON CONFLICT (document_id, page_number) DO UPDATE SET
+                page_width = EXCLUDED.page_width,
+                page_height = EXCLUDED.page_height,
+                has_text = EXCLUDED.has_text,
+                text_run_count = EXCLUDED.text_run_count
+            """,
+            [
+                (
+                    document_id,
+                    row["page_number"],
+                    row["page_width"],
+                    row["page_height"],
+                    row["has_text"],
+                    row["text_run_count"],
                 )
                 for row in rows
             ],
@@ -465,6 +522,7 @@ def insert_document(
     sentences: list[dict[str, Any]] | None = None,
     provenance: list[dict[str, Any]] | None = None,
     page_runs: list[dict[str, Any]] | None = None,
+    page_metrics: list[dict[str, Any]] | None = None,
 ) -> str:
     """Insert a document and all its normalized (4NF) satellites in one txn.
 
@@ -493,6 +551,7 @@ def insert_document(
         sentences: Sentence records with ``char_start``/``char_end`` offsets.
         provenance: Provenance event records, each with optional ``params``.
         page_runs: Extracted layout rows with page and bbox data, when available.
+        page_metrics: Extracted per-page geometry, including pages without text.
 
     Returns:
         The id of the newly inserted document.
@@ -561,6 +620,7 @@ def insert_document(
             "INSERT INTO document_content (document_id, full_text) VALUES (%s, %s)",
             (doc_id, full_text),
         )
+        replace_document_pages(conn, doc_id, page_metrics)
         replace_document_layout_runs(conn, doc_id, full_text, page_runs)
 
         if sentences:

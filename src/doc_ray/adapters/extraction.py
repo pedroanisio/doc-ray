@@ -73,6 +73,11 @@ class Extracted:
     #: change full_text/to_markdown's output, only surfaces what was already
     #: being discarded. None for every other extractor.
     page_runs: list[dict[str, Any]] | None = None
+    #: Per-page source geometry for paginated formats, PDF-pymupdf today. Each
+    #: entry is {"page": int, "page_width": float, "page_height": float,
+    #: "has_text": bool, "text_run_count": int}. Unlike page_runs, this includes
+    #: pages with no extracted text.
+    page_metrics: list[dict[str, Any]] | None = None
 
 
 # --- PyMuPDF: layout-aware, structured Markdown ----------------------------
@@ -251,6 +256,29 @@ def _blocks_from_pages(
     return blocks
 
 
+def _page_metrics_from_doc(
+    doc: _PyMuPDFDocument, blocks: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    """Return one page-dimension record for every PDF page."""
+    text_run_counts: Counter[int] = Counter()
+    for block in blocks:
+        for line in block["lines"]:
+            text_run_counts[int(line["page"])] += 1
+    metrics: list[dict[str, Any]] = []
+    for pageno, page in enumerate(doc):
+        text_run_count = int(text_run_counts[pageno])
+        metrics.append(
+            {
+                "page": pageno,
+                "page_width": float(page.rect.width),
+                "page_height": float(page.rect.height),
+                "has_text": text_run_count > 0,
+                "text_run_count": text_run_count,
+            }
+        )
+    return metrics
+
+
 def extract_pdf_pymupdf(data: bytes, fallback_title: str) -> Extracted:
     """Extract a PDF into layout-aware Markdown using PyMuPDF.
 
@@ -299,6 +327,7 @@ def extract_pdf_pymupdf(data: bytes, fallback_title: str) -> Extracted:
             },
         },
         page_runs=pdf_layout.page_runs_from_blocks(blocks),
+        page_metrics=_page_metrics_from_doc(doc, blocks),
     )
 
 

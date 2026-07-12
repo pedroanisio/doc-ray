@@ -110,7 +110,7 @@ metadata:
   generated_by:     "Claude Sonnet 5 via Claude Code (merge of Claude Opus 4.8 backlog + OpenAI Codex improvement-proposal candidates)"
   generated_on:     "2026-07-05"
   system_of_record: "docs/backlog.yml"
-  total_items:      125
+  total_items:      126
 
 items:
 
@@ -4118,3 +4118,44 @@ items:
     owner:        "shared"
     source:       "Operator bug report 2026-07-12 with the correct hypothesis (empty page treated as not-processed); verified live: doc 060e4aeb pages 1/4 have zero spans/layout runs while pages 2-8 render overlays. Completed 2026-07-12 with a webapp overlay model that renders text-free pages as image-only overlays plus regression coverage in tests/test_webapp.py."
     tags:         ["webapp", "overlay", "pdf", "bug"]
+
+  - id:          "BL-126"
+    title:        "Persist per-page dimensions for every PDF page so a text-free page is a representable fact"
+    summary:      "Extraction and re-extraction emit document_layout_runs rows only for pages that contain text runs; a cover page, full-page image, or blank page produces no row at all. Downstream consumers therefore face a three-way ambiguity — page is empty vs page unknown vs document never extracted — collapsed into one absent-row signal. BL-125 patched the webapp symptom (the false 're-extract this PDF' message on doc 060e4aeb's cover page); this removes the ambiguity at the source."
+    description: |
+      Root cause of the BL-125 incident: domain.pdf_layout.page_runs_from_blocks
+      derives runs from text blocks, so pages without text contribute nothing
+      to Extracted.page_runs, and persistence writes no document_layout_runs
+      row for them — even though PyMuPDF knows every page's dimensions
+      regardless of text content. "Empty page" is currently expressible only
+      as the absence of data.
+
+      Fix shape: at extract/reextract time, persist page coverage for every
+      page of the PDF — width/height from the page objects plus an explicit
+      has-text signal. Either dimension-only document_layout_runs rows
+      (ordinal row with no text, text_run_count derivable) or a small
+      document_pages(document_id, page_number, width, height, text_run_count)
+      table aligned with documents.page_count. Existing corpus documents gain
+      coverage through the existing reextract job (BL-078 machinery), no new
+      backfill mechanism needed.
+    category:     "persistence"
+    type:         "tech-debt"
+    status:       "done"
+    complexity:   "S"
+    priority:     "medium"
+    rationale:    "Nearly every real PDF starts with a text-free cover page, so the ambiguity sits on the first page of most documents. BL-125's display fix works around it in one consumer; every future consumer of page geometry (real-page pagination BL-081 sees only text-bearing pages today, PPTX/SVG overlays BL-087) inherits the same trap until absence stops doubling as three different facts."
+    acceptance_criteria:
+      - "After extract or reextract, every page of a PDF has queryable dimensions, including pages with no extractable text."
+      - "'No text on this page' is distinguishable from 'no geometry data for this document' by query alone (explicit has-text/text_run_count signal)."
+      - "The BL-125 webapp fallback simplifies to the single authoritative per-page lookup (no image-natural-size or neighbor-page inference)."
+      - "Existing documents gain full page coverage via the standard reextract job; a regression test uses the reproduced shape (text-free page 1, positioned page 2)."
+    dependencies: []
+    references:
+      - "db/migrations/069_document_pages.sql"
+      - "src/doc_ray/domain/pdf_layout.py"
+      - "src/doc_ray/adapters/persistence.py"
+      - "src/doc_ray/application/reextract.py"
+      - "webapp/app.py"
+    owner:        "shared"
+    source:       "Operator request 2026-07-12: file the root-cause fix behind the BL-125 empty-page overlay bug (doc 060e4aeb, pages 1/4 without layout runs). Completed 2026-07-12 with document_pages, PyMuPDF page_metrics, ingest/reextract persistence, webapp authoritative page lookup, truncate classification, and isolated Docker validation."
+    tags:         ["persistence", "extraction", "pdf", "overlay", "tech-debt"]

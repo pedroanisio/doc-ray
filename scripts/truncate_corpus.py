@@ -44,6 +44,7 @@ WIPED_TABLES = (
     "document_metadata",
     "document_metadata_history",
     "document_metadata_suggestion",
+    "document_pages",
     "document_provenance",
     "provenance_params",
     "document_tags",

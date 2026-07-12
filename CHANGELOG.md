@@ -58,6 +58,15 @@ doc-ray carries **one global version** covering both the application package
   golden-case drift guard for every registered extractor extension, so future
   PPTX/SVG registrations fail tests until they ship with format coverage.
 
+## [1.20.0] - 2026-07-12
+
+### Added
+- **Per-page PDF geometry persistence** (Codex GPT-5) — BL-126 adds
+  `document_pages`, persists every extracted PDF page's dimensions even when no
+  text was found, refreshes those rows during re-extraction, and lets the
+  original-page overlay render text-free pages without pretending the PDF needs
+  another extraction.
+
 ## [1.19.0] - 2026-07-12
 
 ### Added

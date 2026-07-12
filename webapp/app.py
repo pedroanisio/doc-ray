@@ -822,22 +822,36 @@ def _original_overlay(
         }
     meta_rows = q(
         """
-        SELECT max(page_width) AS page_width, max(page_height) AS page_height
-        FROM document_layout_runs
+        SELECT page_width, page_height, has_text, text_run_count
+        FROM document_pages
         WHERE document_id = %s AND page_number = %s
         """,
         (str(doc_id), page),
     )
     meta = meta_rows[0] if meta_rows else {}
+    from_document_pages = bool(meta)
+    if not meta:
+        meta_rows = q(
+            """
+            SELECT max(page_width) AS page_width, max(page_height) AS page_height
+            FROM document_layout_runs
+            WHERE document_id = %s AND page_number = %s
+            """,
+            (str(doc_id), page),
+        )
+        meta = meta_rows[0] if meta_rows else {}
     page_width = float(meta.get("page_width") or 0)
     page_height = float(meta.get("page_height") or 0)
-    if page_width <= 0 or page_height <= 0:
+    has_text = bool(meta.get("has_text", True))
+    text_run_count = int(meta.get("text_run_count") or 0)
+    text_free_page = from_document_pages and (not has_text or text_run_count == 0)
+    if page_width <= 0 or page_height <= 0 or text_free_page:
         return {
             "kind": "pdf",
             "available": True,
             "image_src": url_for("document_page_image", doc_id=doc_id, page_number=page),
-            "page_width": None,
-            "page_height": None,
+            "page_width": page_width if page_width > 0 else None,
+            "page_height": page_height if page_height > 0 else None,
             "mode": mode,
             "boxes": [],
             "message": "No text detected on this page — nothing to overlay.",
@@ -1168,12 +1182,19 @@ def document(doc_id):
     if not full_view:
         page_rows = q(
             """
-            SELECT DISTINCT sp.page_number
-            FROM sentences sen JOIN spans sp ON sp.id = sen.span_id
-            WHERE sen.document_id = %s AND sp.page_number IS NOT NULL
-            ORDER BY sp.page_number
+            SELECT page_number
+            FROM (
+                SELECT DISTINCT sp.page_number
+                FROM sentences sen JOIN spans sp ON sp.id = sen.span_id
+                WHERE sen.document_id = %s AND sp.page_number IS NOT NULL
+                UNION
+                SELECT dp.page_number
+                FROM document_pages dp
+                WHERE dp.document_id = %s
+            ) pages_with_geometry
+            ORDER BY page_number
             """,
-            (str(doc_id),),
+            (str(doc_id), str(doc_id)),
         )
         page_numbers = [int(row["page_number"]) for row in page_rows]
 

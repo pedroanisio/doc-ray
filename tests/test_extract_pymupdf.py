@@ -71,6 +71,14 @@ def _make_two_page_pdf() -> bytes:
     return doc.tobytes()
 
 
+def _make_blank_then_text_pdf() -> bytes:
+    doc = fitz.open()
+    doc.new_page(width=320, height=480)
+    page2 = doc.new_page(width=640, height=360)
+    page2.insert_text((50, 120), "Text appears only on page two", fontsize=12)
+    return doc.tobytes()
+
+
 def test_pymupdf_extractor_surfaces_page_and_bbox_per_run():
     """BL-076: page/bbox geometry is surfaced alongside full_text, unaltered."""
     ex = extract.extract_pdf_pymupdf(_make_two_page_pdf(), fallback_title="synthetic")
@@ -90,6 +98,28 @@ def test_pymupdf_extractor_surfaces_page_and_bbox_per_run():
     b_bbox = beta[0]["bbox"]
     assert len(a_bbox) == 4 and len(b_bbox) == 4
     assert (a_bbox[1], a_bbox[3]) != (b_bbox[1], b_bbox[3])
+
+
+def test_pymupdf_extractor_surfaces_every_page_dimension_even_without_text():
+    ex = extract.extract_pdf_pymupdf(_make_blank_then_text_pdf(), fallback_title="synthetic")
+
+    assert ex.page_count == 2
+    assert ex.page_metrics == [
+        {
+            "page": 0,
+            "page_width": 320.0,
+            "page_height": 480.0,
+            "has_text": False,
+            "text_run_count": 0,
+        },
+        {
+            "page": 1,
+            "page_width": 640.0,
+            "page_height": 360.0,
+            "has_text": True,
+            "text_run_count": 1,
+        },
+    ]
 
 
 def test_pymupdf_extractor_reports_progress_per_page():

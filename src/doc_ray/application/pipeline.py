@@ -150,6 +150,7 @@ def ingest_file(conn: psycopg.Connection[Any], store: ObjectStore, path: Path) -
         sentences=sentences,
         provenance=provenance,
         page_runs=extracted.page_runs,
+        page_metrics=getattr(extracted, "page_metrics", None),
     )
     return IngestResult(
         str(path),

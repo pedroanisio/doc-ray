@@ -1,6 +1,6 @@
 # doc-ray — Database ERD & Data Dictionary
 
-**Schema version `1.19.0`** (SemVer) · 68 migrations applied
+**Schema version `1.20.0`** (SemVer) · 70 migrations applied
 
 > Generated from the live schema by `scripts/gen_data_dictionary.py`. Do not edit by hand — re-run the generator.
 
@@ -57,6 +57,7 @@ erDiagram
     tags      ||--o{ document_tags : ""
     documents ||--o{ document_identifiers : "(scheme,value)"
     documents ||--o{ document_metadata : "(key,value)"
+    documents ||--o{ document_pages : "page geometry"
     documents ||--o{ document_provenance : "events"
     document_provenance ||--o{ provenance_params : "(key,value)"
     documents ||--o| documents : "derived_from"
@@ -273,6 +274,30 @@ format metadata) are decomposed to their own relations (4NF); blobs live in obje
 
 - **Primary key:** (document_id, key)
 - **FK:** FOREIGN KEY (document_id) REFERENCES documents(id) ON DELETE CASCADE
+- **RLS:** enabled — read/write policies via *document_id*
+
+#### `document_pages`
+
+| Column | Type | Null | Key | Default | Notes |
+|---|---|---|---|---|---|
+| `id` | uuid |  | PK | `gen_random_uuid()` |  |
+| `document_id` | uuid |  | FK→documents |  |  |
+| `page_number` | integer |  | UQ |  |  |
+| `page_width` | double precision |  |  |  |  |
+| `page_height` | double precision |  |  |  |  |
+| `has_text` | boolean |  |  | `false` |  |
+| `text_run_count` | integer |  |  | `0` |  |
+
+- **Primary key:** (id)
+- **Unique:** (document_id, page_number)
+- **FK:** FOREIGN KEY (document_id) REFERENCES documents(id) ON DELETE CASCADE
+- **Check:** CHECK ((page_number > 0))
+- **Check:** CHECK ((page_width > (0)::double precision))
+- **Check:** CHECK ((page_height > (0)::double precision))
+- **Check:** CHECK ((text_run_count >= 0))
+- **Check:** CHECK ((has_text OR (text_run_count = 0)))
+- **Check:** CHECK (((NOT has_text) OR (text_run_count > 0)))
+- **Index** `idx_document_pages_document_page`: public.document_pages USING btree (document_id, page_number)
 - **RLS:** enabled — read/write policies via *document_id*
 
 ### 5.2 Provenance (append-only lineage)
@@ -1291,3 +1316,5 @@ owner's bypass.
 | 066 | `066_schema_version_1_18_0.sql` | advance the schema SemVer to 1.18.0 |
 | 067 | `067_saml_identity_providers.sql` | tenant-scoped SAML IdP configuration and assertion-consumer settings (BL-067) |
 | 068 | `068_schema_version_1_19_0.sql` | advance the schema SemVer to 1.19.0 |
+| 069 | `069_document_pages.sql` | per-page PDF geometry rows, including text-free pages (BL-126) |
+| 070 | `070_schema_version_1_20_0.sql` | advance the schema SemVer to 1.20.0 |

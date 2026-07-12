@@ -42,6 +42,7 @@ GROUPS: list[tuple[str, str, list[str]]] = [
             "document_tags",
             "document_identifiers",
             "document_metadata",
+            "document_pages",
         ],
     ),
     (
@@ -202,6 +203,7 @@ erDiagram
     tags      ||--o{ document_tags : ""
     documents ||--o{ document_identifiers : "(scheme,value)"
     documents ||--o{ document_metadata : "(key,value)"
+    documents ||--o{ document_pages : "page geometry"
     documents ||--o{ document_provenance : "events"
     document_provenance ||--o{ provenance_params : "(key,value)"
     documents ||--o| documents : "derived_from"

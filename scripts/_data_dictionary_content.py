@@ -16,6 +16,7 @@ RLS_PATH = {
     "document_metadata": "document_id",
     "document_provenance": "document_id",
     "document_collection_members": "document_id",
+    "document_pages": "document_id",
     "document_layout_runs": "document_id",
     "provenance_params": "event_id → document_provenance",
     "document_metadata_history": "document_id",
@@ -178,4 +179,9 @@ MIGRATIONS = [
         "tenant-scoped SAML IdP configuration and assertion-consumer settings (BL-067)",
     ),
     ("068_schema_version_1_19_0", "advance the schema SemVer to 1.19.0"),
+    (
+        "069_document_pages",
+        "per-page PDF geometry rows, including text-free pages (BL-126)",
+    ),
+    ("070_schema_version_1_20_0", "advance the schema SemVer to 1.20.0"),
 ]

@@ -256,6 +256,16 @@ verified on doc `060e4aeb` (pages 1/4 empty, pages 2–8 rendering fine). The
 operator's hypothesis was exactly right; fixed by rendering the page image with
 zero boxes and an honest "No text detected on this page" state.
 
+**2026-07-12 empty-page root cause (operator request):** added `BL-126`
+(ready/S/medium). BL-125 patched the consumer; the producer-side ambiguity
+remains: extraction writes `document_layout_runs` only for pages containing
+text, so "empty page", "unknown page", and "never extracted" all collapse
+into one absent row — even though PyMuPDF knows every page's dimensions.
+BL-126 persists per-page dimensions + an explicit has-text signal for every
+page at extract/reextract, letting BL-125's fallback simplify and unblocking
+future geometry consumers (BL-081 pagination, BL-087 overlays) from the same
+trap. Existing corpus gains coverage via the standard reextract job.
+
 ## Items
 
 | ID | Item | Category | Type | Status | Cx | Priority | Owner |
@@ -385,6 +395,7 @@ zero boxes and an honest "No text detected on this page" state.
 | BL-123 | First-class async job progress: within-job progress reporting from worker handlers, surfaced live | ops | feature | done | M | high | shared |
 | BL-124 | Test suites run destructively against the live/UAT database — provision an isolated test database | testing | infra | done | M | high | shared |
 | BL-125 | Original-overlay view mistakes a text-free PDF page for an un-reextracted document | webapp | bug | done | S | medium | shared |
+| BL-126 | Persist per-page dimensions for every PDF page so a text-free page is a representable fact | persistence | tech-debt | done | S | medium | shared |
 
 See [`backlog.yml`](backlog.yml) for each item's full description, rationale,
 acceptance criteria, dependencies, related decisions (`D-###`), and references.

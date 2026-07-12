@@ -1041,12 +1041,21 @@ def test_document_original_overlay_renders_text_free_pdf_page(client, monkeypatc
         s = _norm(sql)
         if "DISTINCT sp.page_number" in s:
             return [{"page_number": 2}]
+        if "FROM document_pages" in s:
+            assert params == (DOC_ID, 1)
+            return [
+                {
+                    "page_width": 200.0,
+                    "page_height": 100.0,
+                    "has_text": False,
+                    "text_run_count": 0,
+                }
+            ]
         if "sen.ordinal, sen.text" in s and "sp.page_number = %s" in s:
             assert params == (DOC_ID, 1)
             return []
         if "document_layout_runs" in s and "page_width" in s:
-            assert params == (DOC_ID, 1)
-            return [{"page_width": None, "page_height": None}]
+            raise AssertionError("document_pages should answer page dimensions first")
         if "FROM lexeme_occurrences o" in s and "sp.char_start >=" in s:
             return []
         return fake_q(sql, params)
