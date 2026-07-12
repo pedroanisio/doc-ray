@@ -55,6 +55,16 @@ def test_graphql_exposes_document_metadata_suggestion_surface():
     assert "confidenceBand" in sdl
 
 
+def test_graphql_job_type_exposes_queue_timing_and_attempts():
+    sdl = build_schema().as_str()
+
+    assert "createdAt" in sdl
+    assert "startedAt" in sdl
+    assert "finishedAt" in sdl
+    assert "attempts" in sdl
+    assert "maxAttempts" in sdl
+
+
 def test_graphql_query_resolvers_delegate_to_read_adapter_without_sql():
     source = Path(query_mod.__file__).read_text()
 

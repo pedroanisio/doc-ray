@@ -471,6 +471,11 @@ class Job:
     kind: str
     status: str
     document_id: strawberry.ID | None
+    created_at: datetime
+    started_at: datetime | None
+    finished_at: datetime | None
+    attempts: int
+    max_attempts: int
     error: str | None
     result: JSON | None
     cursor: str
@@ -485,6 +490,11 @@ class Job:
             kind=row["kind"],
             status=row["status"],
             document_id=strawberry.ID(str(doc)) if doc is not None else None,
+            created_at=row["created_at"],
+            started_at=row.get("started_at"),
+            finished_at=row.get("finished_at"),
+            attempts=row["attempts"],
+            max_attempts=row["max_attempts"],
             error=row.get("error"),
             result=cast(JSON, res) if res is not None else None,
             cursor=row.get("cursor") or str(row["id"]),

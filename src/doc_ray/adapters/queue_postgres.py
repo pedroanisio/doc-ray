@@ -108,7 +108,8 @@ def get(conn: psycopg.Connection[Any], job_id: str) -> Job | None:
 async def status_async(conn: psycopg.AsyncConnection[Any], job_id: str) -> dict[str, Any] | None:
     """Return a job's status row for the API (id, kind, status, document_id, error, result)."""
     cur = await conn.execute(
-        "SELECT id, kind, status, document_id, error, result FROM jobs WHERE id = %s",
+        "SELECT id, kind, status, document_id, created_at, started_at, finished_at, "
+        "attempts, max_attempts, error, result FROM jobs WHERE id = %s",
         (job_id,),
     )
     row: dict[str, Any] | None = await cur.fetchone()
@@ -141,7 +142,8 @@ async def cancel_async(
         "UPDATE jobs SET status = 'canceled', started_at = COALESCE(started_at, now()), "
         "finished_at = now(), error = %s, locked_by = NULL "
         "WHERE id = %s AND status IN ('queued', 'running') "
-        "RETURNING id, kind, status, document_id, error, result",
+        "RETURNING id, kind, status, document_id, created_at, started_at, finished_at, "
+        "attempts, max_attempts, error, result",
         (reason or "canceled by operator", job_id),
     )
     row: dict[str, Any] | None = await cur.fetchone()
@@ -163,7 +165,8 @@ async def list_async(
     ingest -> annotate -> canonicalize cascade.
     """
     cur = await conn.execute(
-        "SELECT id, kind, status, document_id, error, result "
+        "SELECT id, kind, status, document_id, created_at, started_at, finished_at, "
+        "attempts, max_attempts, error, result "
         "FROM jobs WHERE (%s::uuid IS NULL OR document_id = %s) "
         "AND (%s::ulid IS NULL OR id < %s::ulid) ORDER BY id DESC LIMIT %s",
         (document_id, document_id, after, after, limit),

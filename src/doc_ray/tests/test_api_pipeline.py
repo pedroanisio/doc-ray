@@ -11,6 +11,8 @@ from dataclasses import replace
 
 import pytest
 
+from doc_ray.adapters import queue_postgres as queue
+
 
 def _connect_or_skip():
     import _itdb
@@ -112,6 +114,64 @@ def test_jobs_query_without_document_id_returns_recent_jobs(api_env):
     with _client(principal_id) as client:
         data = _gql(client, "{ jobs(limit: 1) { id kind } }")
         assert isinstance(data["jobs"], list)
+
+
+def test_job_queries_expose_queue_timing_and_attempts(api_env):
+    conn, doc_id, principal_id = api_env
+    queued_id = queue.enqueue(
+        conn, "annotate", {"chain": []}, priority=-9_999, max_attempts=5, document_id=doc_id
+    )
+    finished_id = queue.enqueue(
+        conn, "canonicalize", {"chain": []}, priority=-10_000, max_attempts=4, document_id=doc_id
+    )
+    claimed = queue.claim(conn, worker_id="api-pipeline-test")
+    assert claimed is not None
+    assert claimed.id == finished_id
+    assert queue.complete(
+        conn,
+        finished_id,
+        result={"ok": True},
+        worker_id="api-pipeline-test",
+    )
+    try:
+        with _client(principal_id) as client:
+            finished = _gql(
+                client,
+                """
+                query($id: ID!) {
+                  job(id: $id) {
+                    id createdAt startedAt finishedAt attempts maxAttempts
+                  }
+                }
+                """,
+                {"id": finished_id},
+            )["job"]
+            assert finished["id"] == finished_id
+            assert finished["createdAt"] is not None
+            assert finished["startedAt"] is not None
+            assert finished["finishedAt"] is not None
+            assert finished["attempts"] == 1
+            assert finished["maxAttempts"] == 4
+
+            listed = _gql(
+                client,
+                """
+                query($documentId: ID!) {
+                  jobs(documentId: $documentId) {
+                    id createdAt startedAt finishedAt attempts maxAttempts
+                  }
+                }
+                """,
+                {"documentId": doc_id},
+            )["jobs"]
+            queued = next(job for job in listed if job["id"] == queued_id)
+            assert queued["createdAt"] is not None
+            assert queued["startedAt"] is None
+            assert queued["finishedAt"] is None
+            assert queued["attempts"] == 0
+            assert queued["maxAttempts"] == 5
+    finally:
+        conn.execute("DELETE FROM jobs WHERE id IN (%s, %s)", (queued_id, finished_id))
 
 
 def test_jobs_query_with_invalid_document_id_returns_empty_not_an_error(api_env):
