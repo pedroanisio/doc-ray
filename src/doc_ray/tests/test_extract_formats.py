@@ -98,6 +98,27 @@ def test_svg_extension_is_supported_for_upload_content_type():
     assert extraction.content_type_for_extension(".svg") == "image/svg+xml"
 
 
+def test_svg_emits_markdown_headings_from_font_size_and_weight():
+    svg = b"""
+    <svg xmlns="http://www.w3.org/2000/svg">
+      <text style="font-size:24px;font-weight:700">Primary SVG Title</text>
+      <text font-size="12">Body line one.</text>
+      <text style="font-size:12px">Body line two.</text>
+      <text style="font-size:14px;font-weight:bold">Short Bold Label</text>
+    </svg>
+    """
+
+    e = extract(svg, "diagram", ".svg")
+
+    assert e.doc_type == "svg"
+    assert e.full_text.splitlines() == [
+        "# Primary SVG Title",
+        "Body line one.",
+        "Body line two.",
+        "### Short Bold Label",
+    ]
+
+
 def _minimal_epub() -> bytes:
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w") as z:

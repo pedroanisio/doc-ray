@@ -2931,7 +2931,7 @@ items:
 
   - id:          "BL-090"
     title:        "Extraction support for SVG: text and structure from font-size/weight classification"
-    summary:      "SVG is not ingestable today (confirmed: zero svg code anywhere in src/, no SVG-specific dependency). SVG <text>/<tspan> elements commonly carry font-size/font-weight (attribute or inline style=), so a heading_level-style classifier — the same ratio-based approach pdf_layout.py already uses for PDF — is structurally applicable here too."
+    summary:      "SVG extraction now preserves basic structure: declared font-size/font-weight from attributes or inline style is classified against the SVG body's common text size, so heading-like labels are emitted as Markdown headings instead of flat text."
     description: |
       Parse the SVG's XML tree (stdlib ElementTree via BL-088's hardened
       parse path, matching the pattern EPUB already uses rather than
@@ -2948,7 +2948,7 @@ items:
       expectations.
     category:     "extraction"
     type:         "feature"
-    status:       "parked"
+    status:       "done"
     complexity:   "S"
     priority:     "medium"
     rationale:    "Named directly in the request ('document can also be ... svgs'), confirmed absent, and structurally the easiest of the new formats: SVG needs no new heavyweight dependency (stdlib ElementTree, already used for EPUB, suffices) and its font-size/weight data is declared directly rather than inferred."
@@ -2961,7 +2961,7 @@ items:
       - "src/doc_ray/adapters/extraction.py"
       - "src/doc_ray/domain/pdf_layout.py"
     owner:        "shared"
-    source:       "Feature request 2026-07-05: full ingest feature design for pptx/svg; verified no svg code or dependency exists today, and that SVG text elements commonly declare font-size/weight the same way PDF spans do."
+    source:       "Feature request 2026-07-05: full ingest feature design for pptx/svg; verified no svg code or dependency existed then, and that SVG text elements commonly declare font-size/weight the same way PDF spans do. Completed 2026-07-12 with defusedxml-backed SVG parsing, inherited attribute/style parsing for font-size/font-weight, pdf_layout heading thresholds over the common body size, Markdown heading emission, .svg upload allowlist/content-type coverage, and regression tests."
     tags:         ["extraction", "svg", "format-support", "structure"]
 
   - id:          "BL-091"
