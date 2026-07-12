@@ -184,4 +184,5 @@ MIGRATIONS = [
         "per-page PDF geometry rows, including text-free pages (BL-126)",
     ),
     ("070_schema_version_1_20_0", "advance the schema SemVer to 1.20.0"),
+    ("071_schema_version_1_21_0", "advance the schema SemVer to 1.21.0"),
 ]

@@ -21,6 +21,34 @@ doc-ray carries **one global version** covering both the application package
 
 ## [Unreleased]
 
+No unreleased changes yet.
+
+## [1.21.0] - 2026-07-12
+
+### Added
+- **Operator job-spool visibility** (Codex GPT-5) — the restricted operator
+  health page and JSON contract now expose queued/running/failed/reclaimed
+  jobs with job id, kind/status, attempts, worker, document, progress stage,
+  runtime, heartbeat age, queued age, reclaim countdown, and last error. This
+  turns stalled ingest/annotate work from an invisible background condition
+  into an inspectable operator surface.
+- **Worker lifecycle logging** (Codex GPT-5) — workers now log claim, no-work,
+  poison-message rejection, completion, lost-claim, cancel-before-completion,
+  and retry/terminal failure paths with worker id, job id, kind, document id,
+  attempt count, request id, and retry outcome.
+- **Persistent worker-scaling Makefile path** (Codex GPT-5) — `make
+  workers-up` defaults to three workers through `DOCRAY_WORKERS ?= 3`, and
+  `make workers-status` exposes the worker process state without requiring
+  operators to remember the raw Compose `--scale` invocation.
+
+### Changed
+- **Annotation progress is finer-grained** (Codex GPT-5) —
+  `SpacyAnnotator.annotate` now reports a stable 12-step scale, separating
+  token span collection, entity/chunk span collection, span registration with
+  a count, row-building substeps, lexeme projection, validation, persistence
+  start, and persistence completion. Long annotation jobs no longer sit on one
+  opaque span-registration phase.
+
 ### Fixed
 - **Collections actually persist** (Claude Fable 5 via Claude Code) — BL-131,
   from an operator screenshot ("Collection not found" right after creating
@@ -57,11 +85,10 @@ doc-ray carries **one global version** covering both the application package
   - The progress reporter moved to `domain/progress.py` (contextvar), so
     adapters can report without breaking the hexagonal import direction
     (guarded by a new AST test); `application.jobs` re-exports it unchanged.
-  - `SpacyAnnotator.annotate` now reports seven phase boundaries (load →
-    spaCy pipeline → sentence index → span registration → layer build →
-    validation → persist) instead of a frozen `0/1`; deterministic semantic
-    enrichment reports its five layers. A 248-page annotate now shows an
-    advancing bar with stage text rather than a spinner-equivalent.
+  - `SpacyAnnotator.annotate` now reports advancing phase boundaries instead
+    of a frozen `0/1`; deterministic semantic enrichment reports its five
+    layers. A 248-page annotate now shows an advancing bar with stage text
+    rather than a spinner-equivalent.
   - `webapp/job_view.summarize_progress` derives a naive linear **ETA**
     from `started_at` once progress advances ("~3m left"), rendered next to
     the percent in the pipeline panel and job page.

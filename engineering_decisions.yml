@@ -42,9 +42,11 @@ source_schema:         "db/migrations"
 # by migration 066 for tenant/OIDC/SCIM auth surfaces (migrations 061-065),
 # then to 1.19.0 by migration 068 for tenant SAML IdP configuration
 # (migration 067), then to 1.20.0 by migration 070 for per-page PDF geometry
-# persistence (migration 069). Kept in lockstep with doc_ray.__version__ by
-# scripts/check_version_consistency.py.
-source_schema_version: "1.20.0"
+# persistence (migration 069), then to 1.21.0 by migration 071 for the
+# release containing operator visibility, worker lifecycle logging, and
+# finer-grained annotation progress. Kept in lockstep with doc_ray.__version__
+# by scripts/check_version_consistency.py.
+source_schema_version: "1.21.0"
 target_engine:         "PostgreSQL 16"
 total_decisions:       23
 

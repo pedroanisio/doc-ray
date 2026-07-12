@@ -1,6 +1,6 @@
 # doc-ray — Database ERD & Data Dictionary
 
-**Schema version `1.20.0`** (SemVer) · 70 migrations applied
+**Schema version `1.21.0`** (SemVer) · 71 migrations applied
 
 > Generated from the live schema by `scripts/gen_data_dictionary.py`. Do not edit by hand — re-run the generator.
 
@@ -1318,3 +1318,4 @@ owner's bypass.
 | 068 | `068_schema_version_1_19_0.sql` | advance the schema SemVer to 1.19.0 |
 | 069 | `069_document_pages.sql` | per-page PDF geometry rows, including text-free pages (BL-126) |
 | 070 | `070_schema_version_1_20_0.sql` | advance the schema SemVer to 1.20.0 |
+| 071 | `071_schema_version_1_21_0.sql` | advance the schema SemVer to 1.21.0 |
