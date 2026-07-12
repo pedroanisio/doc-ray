@@ -73,6 +73,90 @@ def test_applied_filenames_accepts_tuple_rows():
     assert applied == {"001_init.sql", "002_normalize_4nf.sql"}
 
 
+def test_apply_migrations_replays_recorded_idempotent_repairs(monkeypatch, tmp_path):
+    repair_name = "054_document_layout_run_page_dimensions.sql"
+    (tmp_path / "001_init.sql").write_text(
+        "INSERT INTO schema_migrations (filename) VALUES ('001_init.sql')"
+    )
+    (tmp_path / repair_name).write_text(
+        "ALTER TABLE document_layout_runs "
+        "ADD COLUMN IF NOT EXISTS page_width double precision"
+    )
+    executed_sql: list[str] = []
+
+    class _FakeConnection:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc_info):
+            return False
+
+        def execute(self, sql, params=None):
+            if sql == "SELECT filename AS filename FROM schema_migrations":
+                return _Rows([("001_init.sql",), (repair_name,)])
+            if sql.startswith("SELECT pg_advisory_"):
+                return _Rows([])
+            if "information_schema.columns" in sql:
+                return _Rows([("page_width",)])
+            if "FROM pg_constraint" in sql:
+                return _Rows([])
+            executed_sql.append(sql)
+            return _Rows([])
+
+        def transaction(self):
+            return self
+
+    monkeypatch.setattr(migrate.psycopg, "connect", lambda *a, **kw: _FakeConnection())
+    cfg = dataclasses.replace(Config.from_env(), database_url="postgresql://example/test")
+
+    assert migrate.apply_migrations(cfg, tmp_path) == []
+    assert executed_sql == [
+        "ALTER TABLE document_layout_runs "
+        "ADD COLUMN IF NOT EXISTS page_width double precision"
+    ]
+
+
+def test_apply_migrations_skips_recorded_repair_when_catalog_is_converged(
+    monkeypatch, tmp_path
+):
+    repair_name = "054_document_layout_run_page_dimensions.sql"
+    (tmp_path / repair_name).write_text("SELECT fail_if_replayed()")
+    executed_sql: list[str] = []
+
+    class _FakeConnection:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc_info):
+            return False
+
+        def execute(self, sql, params=None):
+            if sql == "SELECT filename AS filename FROM schema_migrations":
+                return _Rows([(repair_name,)])
+            if sql.startswith("SELECT pg_advisory_"):
+                return _Rows([])
+            if "information_schema.columns" in sql:
+                return _Rows([("page_width",), ("page_height",)])
+            if "FROM pg_constraint" in sql:
+                return _Rows(
+                    [
+                        ("document_layout_runs_page_width_check",),
+                        ("document_layout_runs_page_height_check",),
+                    ]
+                )
+            executed_sql.append(sql)
+            return _Rows([])
+
+        def transaction(self):
+            return self
+
+    monkeypatch.setattr(migrate.psycopg, "connect", lambda *a, **kw: _FakeConnection())
+    cfg = dataclasses.replace(Config.from_env(), database_url="postgresql://example/test")
+
+    assert migrate.apply_migrations(cfg, tmp_path) == []
+    assert executed_sql == []
+
+
 def _connect_or_skip():
     import _itdb
 

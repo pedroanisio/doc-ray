@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import os
 import re
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -29,6 +30,14 @@ _ADVISORY_LOCK_KEY = 0x00D0C_2A17
 
 # Migration files are `NNN_description.sql` (zero-padded ordinal prefix).
 _MIGRATION_RE = re.compile(r"^\d{3}_.*\.sql$")
+
+# Idempotent repairs that must converge old live databases even when their
+# filename is already present in schema_migrations.
+_REPLAYABLE_REPAIR_MIGRATIONS = frozenset({"054_document_layout_run_page_dimensions.sql"})
+_LAYOUT_RUN_PAGE_DIMENSION_COLUMNS = frozenset({"page_width", "page_height"})
+_LAYOUT_RUN_PAGE_DIMENSION_CONSTRAINTS = frozenset(
+    {"document_layout_runs_page_width_check", "document_layout_runs_page_height_check"}
+)
 
 
 def _default_migrations_dir() -> Path:
@@ -107,6 +116,60 @@ def _needs_autocommit(sql: str) -> bool:
     return "alter type" in lowered and "add value" in lowered
 
 
+def _execute_migration(conn: psycopg.Connection[Any], path: Path) -> None:
+    sql = path.read_text(encoding="utf-8")
+    if _needs_autocommit(sql):
+        conn.execute(sql)
+    else:
+        with conn.transaction():
+            conn.execute(sql)
+
+
+def _row_value(row: object, key: str, index: int = 0) -> str:
+    if isinstance(row, Mapping):
+        return str(row[key])
+    if isinstance(row, Sequence) and not isinstance(row, (bytes, str)):
+        return str(row[index])
+    raise TypeError(f"unsupported row type: {type(row).__name__}")
+
+
+def _layout_run_page_dimensions_repair_needed(conn: psycopg.Connection[Any]) -> bool:
+    columns = {
+        _row_value(row, "column_name")
+        for row in conn.execute(
+            """
+            SELECT column_name
+            FROM information_schema.columns
+            WHERE table_name = 'document_layout_runs'
+              AND column_name IN ('page_width', 'page_height')
+            """
+        ).fetchall()
+    }
+    constraints = {
+        _row_value(row, "conname")
+        for row in conn.execute(
+            """
+            SELECT conname
+            FROM pg_constraint
+            WHERE conname IN (
+                'document_layout_runs_page_width_check',
+                'document_layout_runs_page_height_check'
+            )
+            """
+        ).fetchall()
+    }
+    return not (
+        _LAYOUT_RUN_PAGE_DIMENSION_COLUMNS.issubset(columns)
+        and _LAYOUT_RUN_PAGE_DIMENSION_CONSTRAINTS.issubset(constraints)
+    )
+
+
+def _repair_migration_needed(conn: psycopg.Connection[Any], migration_name: str) -> bool:
+    if migration_name == "054_document_layout_run_page_dimensions.sql":
+        return _layout_run_page_dimensions_repair_needed(conn)
+    return False
+
+
 def apply_migrations(cfg: Config, migrations_dir: Path | None = None) -> list[str]:
     """Apply every pending migration and return the filenames applied.
 
@@ -127,14 +190,18 @@ def apply_migrations(cfg: Config, migrations_dir: Path | None = None) -> list[st
     with psycopg.connect(cfg.database_url, autocommit=True, row_factory=dict_row) as conn:
         conn.execute("SELECT pg_advisory_lock(%s)", (_ADVISORY_LOCK_KEY,))
         try:
-            for path in pending_migrations(conn, migrations_dir):
-                sql = path.read_text(encoding="utf-8")
-                if _needs_autocommit(sql):
-                    conn.execute(sql)
-                else:
-                    with conn.transaction():
-                        conn.execute(sql)
+            pending = pending_migrations(conn, migrations_dir)
+            pending_names = {path.name for path in pending}
+            for path in pending:
+                _execute_migration(conn, path)
                 applied_now.append(path.name)
+            for path in migration_files(migrations_dir):
+                if (
+                    path.name in _REPLAYABLE_REPAIR_MIGRATIONS
+                    and path.name not in pending_names
+                    and _repair_migration_needed(conn, path.name)
+                ):
+                    _execute_migration(conn, path)
         finally:
             conn.execute("SELECT pg_advisory_unlock(%s)", (_ADVISORY_LOCK_KEY,))
     return applied_now
