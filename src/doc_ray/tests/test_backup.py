@@ -8,6 +8,7 @@ point-in-time rewind: back up, mutate, restore, and the mutation is gone.
 
 from __future__ import annotations
 
+import hashlib
 import io
 import json
 import tarfile
@@ -146,6 +147,63 @@ def test_restore_rejects_schema_mismatch(isolated):
         bk.restore_from_archive(conn, store, buf.getvalue())
 
 
+def test_create_backup_rejects_corrupt_document_blob(isolated):
+    conn, store = isolated
+    good = b"expected blob bytes"
+    key = "it/corrupt-source.txt"
+    doc_id = _itdb.make_doc(conn, good.decode(), source_uri=f"s3://{store.bucket}/{key}")
+    conn.execute(
+        "UPDATE documents SET content_sha256 = %s WHERE id = %s",
+        (hashlib.sha256(good).hexdigest(), doc_id),
+    )
+    store.put(key, b"corrupt blob bytes", "text/plain")
+
+    try:
+        with pytest.raises(ValueError, match="sha256 mismatch"):
+            bk.create_backup(conn, store, note="corrupt-source")
+
+        row = conn.execute(
+            "SELECT status, error FROM backups WHERE note = 'corrupt-source' "
+            "ORDER BY created_at DESC LIMIT 1"
+        ).fetchone()
+        assert row["status"] == "failed"
+        assert "sha256 mismatch" in row["error"]
+    finally:
+        conn.execute("DELETE FROM documents WHERE id = %s", (doc_id,))
+        store.delete(key)
+
+
+def test_restore_rejects_tampered_blob_member(isolated):
+    conn, store = isolated
+    current = bk._schema_version(conn)
+    manifest = {
+        "archive_version": 1,
+        "schema_version": current,
+        "tables": [],
+        "sequences": {},
+        "blobs": [
+            {
+                "key": "tampered/source.txt",
+                "sha256": hashlib.sha256(b"original").hexdigest(),
+                "bytes": len(b"original"),
+            }
+        ],
+    }
+    buf = io.BytesIO()
+    with tarfile.open(fileobj=buf, mode="w:gz") as tar:
+        payload = json.dumps(manifest).encode()
+        info = tarfile.TarInfo("manifest.json")
+        info.size = len(payload)
+        tar.addfile(info, io.BytesIO(payload))
+        tampered = b"tampered"
+        blob_info = tarfile.TarInfo("blobs/tampered/source.txt")
+        blob_info.size = len(tampered)
+        tar.addfile(blob_info, io.BytesIO(tampered))
+
+    with pytest.raises(ValueError, match="sha256 mismatch"):
+        bk.restore_from_archive(conn, store, buf.getvalue())
+
+
 def test_restore_backup_rejects_unknown_id(isolated):
     conn, store = isolated
     with pytest.raises(ValueError, match="unknown backup"):
@@ -225,7 +283,7 @@ def test_restore_blobs_skips_unreadable_members():
 
     store = _CountingStore()
     with tarfile.open(fileobj=io.BytesIO(buf.getvalue()), mode="r:gz") as tar:
-        n = bk._restore_blobs(tar, store)
+        n = bk._restore_blobs(tar, store, {})
     assert n == 1
     assert store.puts == ["real.bin"]
 

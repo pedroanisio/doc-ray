@@ -7,6 +7,7 @@ webapp proxies this route instead of reading S3/MinIO directly.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 from dataclasses import replace
 from typing import Any
 
@@ -140,7 +141,8 @@ def _pdf_row(**overrides: Any) -> dict[str, Any]:
 
 
 def test_document_download_serves_original_bytes_with_filename_and_mime_type(monkeypatch) -> None:
-    store = _Store({"documents/ab/report.pdf": b"%PDF-original"})
+    body = b"%PDF-original"
+    store = _Store({"documents/ab/report.pdf": body})
     app, conn = _app(
         monkeypatch,
         {
@@ -150,6 +152,7 @@ def test_document_download_serves_original_bytes_with_filename_and_mime_type(mon
             "title": "Original Report",
             "doc_type": "pdf",
             "status": "extracted",
+            "content_sha256": hashlib.sha256(body).hexdigest(),
         },
         store,
     )
@@ -162,6 +165,24 @@ def test_document_download_serves_original_bytes_with_filename_and_mime_type(mon
     assert 'filename="Original Report.pdf"' in response.headers["content-disposition"]
     assert store.keys == ["documents/ab/report.pdf"]
     assert any(params == (DOC_ID,) for _query, params in conn.queries)
+
+
+def test_document_download_rejects_corrupt_original(monkeypatch) -> None:
+    row = {
+        "source_uri": "s3://docray/documents/ab/report.pdf",
+        "mime_type": "application/pdf",
+        "original_filename": "Original Report.pdf",
+        "title": "Original Report",
+        "doc_type": "pdf",
+        "status": "extracted",
+        "content_sha256": hashlib.sha256(b"expected").hexdigest(),
+    }
+    app, _conn = _app(monkeypatch, row, _Store({"documents/ab/report.pdf": b"corrupt"}))
+
+    response = _get(app, f"/documents/{DOC_ID}/download")
+
+    assert response.status_code == 409
+    assert "sha256" in response.text
 
 
 def test_document_download_returns_clean_errors_for_unavailable_original(monkeypatch) -> None:
@@ -187,9 +208,11 @@ def test_document_download_returns_clean_errors_for_unavailable_original(monkeyp
 
 
 def test_pdf_page_render_serves_png_and_uses_object_store_cache(monkeypatch) -> None:
-    store = _Store({"documents/ab/report.pdf": _make_pdf(page_count=2)})
-    app, _conn = _app(monkeypatch, _pdf_row(), store)
-    cache_key = f"rendered-pages/{'a' * 64}/p1-dpi144.png"
+    pdf = _make_pdf(page_count=2)
+    sha = hashlib.sha256(pdf).hexdigest()
+    store = _Store({"documents/ab/report.pdf": pdf})
+    app, _conn = _app(monkeypatch, _pdf_row(content_sha256=sha), store)
+    cache_key = f"rendered-pages/{sha}/p1-dpi144.png"
 
     first = _get(app, f"/documents/{DOC_ID}/pages/1.png")
 
@@ -211,7 +234,19 @@ def test_pdf_page_render_serves_png_and_uses_object_store_cache(monkeypatch) -> 
     assert len(store.puts) == 1
 
 
+def test_pdf_page_render_rejects_corrupt_original(monkeypatch) -> None:
+    pdf = _make_pdf(page_count=1)
+    row = _pdf_row(content_sha256=hashlib.sha256(b"expected").hexdigest(), page_count=1)
+    app, _conn = _app(monkeypatch, row, _Store({"documents/ab/report.pdf": pdf}))
+
+    response = _get(app, f"/documents/{DOC_ID}/pages/1.png")
+
+    assert response.status_code == 409
+    assert "sha256" in response.text
+
+
 def test_pdf_page_render_returns_clean_errors(monkeypatch) -> None:
+    one_page_pdf = _make_pdf(page_count=1)
     non_pdf_app, _ = _app(
         monkeypatch,
         _pdf_row(mime_type="text/plain", doc_type="txt", page_count=1),
@@ -219,8 +254,8 @@ def test_pdf_page_render_returns_clean_errors(monkeypatch) -> None:
     )
     out_of_range_app, _ = _app(
         monkeypatch,
-        _pdf_row(page_count=1),
-        _Store({"documents/ab/report.pdf": _make_pdf(page_count=1)}),
+        _pdf_row(page_count=1, content_sha256=hashlib.sha256(one_page_pdf).hexdigest()),
+        _Store({"documents/ab/report.pdf": one_page_pdf}),
     )
     pending_app, _ = _app(
         monkeypatch,

@@ -25,6 +25,7 @@ from doc_ray.adapters import extraction as extract_mod
 from doc_ray.adapters import persistence as db
 from doc_ray.adapters import queue_postgres as queue
 from doc_ray.application import reannotate
+from doc_ray.application.integrity import verify_bytes
 from doc_ray.config import Config
 from doc_ray.domain import sentences as sent_mod
 from doc_ray.domain.jobs import KIND_REEXTRACT
@@ -114,10 +115,11 @@ def backfill_document_geometry_from_store(
     if not source_uri:
         raise RuntimeError(f"document {doc_id!r} has no source_uri")
     key = object_key_from_source_uri(str(source_uri), store.bucket)
-    data = store.get(key)
-    expected_sha = row.get("content_sha256")
-    if expected_sha and _sha(data) != expected_sha:
-        raise RuntimeError("stored blob sha256 does not match documents.content_sha256")
+    data = verify_bytes(
+        store.get(key),
+        row.get("content_sha256"),
+        context=f"document {doc_id} original",
+    )
 
     original = str(row.get("original_filename") or row.get("title") or "document")
     ext = Path(original).suffix or f".{row.get('doc_type') or 'pdf'}"

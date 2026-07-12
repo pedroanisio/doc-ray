@@ -30,10 +30,12 @@ import json
 import tarfile
 from datetime import datetime, timedelta, timezone
 from typing import Any
+from urllib.parse import urlparse
 
 import psycopg
 from psycopg.rows import tuple_row
 
+from doc_ray.application.integrity import sha256_hex, verify_bytes
 from doc_ray.domain.ulid import new_ulid_str
 from doc_ray.ports.object_store import ObjectStore
 
@@ -114,6 +116,29 @@ def _add_bytes(tar: tarfile.TarFile, name: str, data: bytes) -> None:
     info = tarfile.TarInfo(name)
     info.size = len(data)
     tar.addfile(info, io.BytesIO(data))
+
+
+def _object_key_from_source_uri(source_uri: str, bucket: str) -> str | None:
+    parsed = urlparse(source_uri)
+    if parsed.scheme != "s3" or parsed.netloc != bucket:
+        return None
+    key = parsed.path.lstrip("/")
+    return key or None
+
+
+def _document_blob_hashes(conn: psycopg.Connection[Any], bucket: str) -> dict[str, str]:
+    """Return object key -> expected source-byte hash for stored documents."""
+    rows = _q(
+        conn,
+        "SELECT source_uri, content_sha256 FROM documents "
+        "WHERE source_uri IS NOT NULL AND content_sha256 IS NOT NULL",
+    )
+    expected: dict[str, str] = {}
+    for source_uri, content_sha256 in rows:
+        key = _object_key_from_source_uri(str(source_uri), bucket)
+        if key is not None:
+            expected[key] = str(content_sha256)
+    return expected
 
 
 # --------------------------------------------------------------------------
@@ -199,10 +224,18 @@ def _build_and_upload(
 
         # Blobs (everything except prior backup archives).
         blob_keys = [k for k in store.list_objects() if not k.startswith(_BACKUP_PREFIX)]
+        expected_hashes = _document_blob_hashes(conn, store.bucket)
+        blob_manifest: list[dict[str, Any]] = []
         blob_bytes = 0
         for key in blob_keys:
-            data = store.get(key)
+            data = verify_bytes(
+                store.get(key),
+                expected_hashes.get(key),
+                context=f"object-store blob {key}",
+            )
+            actual_sha = sha256_hex(data)
             blob_bytes += len(data)
+            blob_manifest.append({"key": key, "sha256": actual_sha, "bytes": len(data)})
             _add_bytes(tar, f"blobs/{key}", data)
 
         manifest = {
@@ -214,6 +247,7 @@ def _build_and_upload(
             "sequences": sequences,
             "blob_count": len(blob_keys),
             "blob_bytes": blob_bytes,
+            "blobs": blob_manifest,
             "doc_count": doc_count,
         }
         _add_bytes(tar, "manifest.json", json.dumps(manifest, indent=1).encode("utf-8"))
@@ -292,7 +326,7 @@ def restore_from_archive(
                 conn.execute(
                     "SELECT setval(%s, %s, %s)", (f'public."{name}"', last_value, is_called)
                 )
-        blobs = _restore_blobs(tar, store)
+        blobs = _restore_blobs(tar, store, manifest)
 
     return {
         "schema_version": manifest["schema_version"],
@@ -368,7 +402,8 @@ def _read_member(tar: tarfile.TarFile, name: str) -> bytes:
     return fh.read()
 
 
-def _restore_blobs(tar: tarfile.TarFile, store: ObjectStore) -> int:
+def _restore_blobs(tar: tarfile.TarFile, store: ObjectStore, manifest: dict[str, Any]) -> int:
+    expected = {str(blob["key"]): str(blob["sha256"]) for blob in manifest.get("blobs") or []}
     n = 0
     for member in tar.getmembers():
         if member.isfile() and member.name.startswith("blobs/"):
@@ -376,6 +411,7 @@ def _restore_blobs(tar: tarfile.TarFile, store: ObjectStore) -> int:
             if fh is None:
                 continue
             key = member.name[len("blobs/") :]
-            store.put(key, fh.read(), "application/octet-stream")
+            data = verify_bytes(fh.read(), expected.get(key), context=f"backup blob {key}")
+            store.put(key, data, "application/octet-stream")
             n += 1
     return n

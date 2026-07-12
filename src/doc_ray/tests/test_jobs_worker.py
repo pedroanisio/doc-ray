@@ -378,6 +378,34 @@ def test_handle_ingest_requires_store(qconn):
         jobs_mod.handle_ingest(qconn, None, job)
 
 
+def test_run_once_ingest_rejects_blob_with_wrong_sha256(qconn):
+    import hashlib
+
+    expected = b"expected upload bytes"
+    corrupt = b"corrupt upload bytes"
+    expected_sha = hashlib.sha256(expected).hexdigest()
+    key = f"{expected_sha[:2]}/{expected_sha}.txt"
+    store = _BlobStore()
+    store.blobs[key] = corrupt
+    job_id = queue.enqueue(
+        qconn,
+        "ingest",
+        {
+            "storage_key": key,
+            "sha256": expected_sha,
+            "extension": ".txt",
+            "original_filename": "corrupt.txt",
+        },
+        max_attempts=1,
+    )
+
+    jobs_mod.run_once(qconn, store, worker_id="t-integrity", handlers=jobs_mod.HANDLERS)
+
+    row = qconn.execute("SELECT status, error FROM jobs WHERE id = %s", (job_id,)).fetchone()
+    assert row["status"] == "failed"
+    assert "sha256 mismatch" in row["error"]
+
+
 def _seed_blob(store: _BlobStore, body: bytes, ext: str) -> str:
     """Content-address ``body`` into ``store`` and return its storage key."""
     import hashlib

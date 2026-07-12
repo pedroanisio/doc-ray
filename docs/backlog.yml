@@ -3141,7 +3141,7 @@ items:
       documented "integrity" purpose is therefore aspirational, not enforced.
     category:     "persistence"
     type:         "tech-debt"
-    status:       "parked"
+    status:       "done"
     complexity:   "S"
     priority:     "medium"
     rationale:    "Content-addressing without a read-side integrity check only gets you dedupe, not the corruption-detection half of the design DATABASE.md already claims exists."
@@ -3154,7 +3154,7 @@ items:
       - "src/doc_ray/application/backup.py"
       - "docs/DATABASE.md"
     owner:        "shared"
-    source:       "Full-codebase gap-analysis 2026-07-10 (object-storage subsystem audit)."
+    source:       "Full-codebase gap-analysis 2026-07-10 (object-storage subsystem audit). Completed 2026-07-12 with shared read-side SHA-256 verification for ingest upload replay, original-document downloads/page rendering, backup blob reads, and restore archive blob members; corrupt-blob regressions cover API, worker, backup, and restore paths."
     tags:         ["persistence", "storage", "integrity", "tech-debt"]
 
   - id:          "BL-097"

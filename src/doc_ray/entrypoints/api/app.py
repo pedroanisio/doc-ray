@@ -28,6 +28,7 @@ from strawberry.fastapi import GraphQLRouter
 
 from doc_ray import __version__
 from doc_ray.adapters.object_store import ObjectStore
+from doc_ray.application.integrity import IntegrityError, verify_bytes
 from doc_ray.config import Config
 from doc_ray.entrypoints.api import health
 from doc_ray.entrypoints.api.context import RequestContext
@@ -104,16 +105,26 @@ async def _get_cached_object(store: ObjectStore, key: str) -> bytes | None:
         raise
 
 
-async def _get_required_object(store: ObjectStore, key: str, detail: str) -> bytes:
+async def _get_required_object(
+    store: ObjectStore,
+    key: str,
+    detail: str,
+    *,
+    expected_sha256: str | None = None,
+    context: str | None = None,
+) -> bytes:
     """Return object bytes, translating object-store misses into HTTP 404."""
     try:
-        return await anyio.to_thread.run_sync(store.get, key)
+        data = await anyio.to_thread.run_sync(store.get, key)
+        return verify_bytes(data, expected_sha256, context=context or key)
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=detail) from exc
     except ClientError as exc:
         if _is_missing_object(exc):
             raise HTTPException(status_code=404, detail=detail) from exc
         raise
+    except IntegrityError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
 async def _document_download_response(document_id: str, request: Request) -> Response:
@@ -127,7 +138,8 @@ async def _document_download_response(document_id: str, request: Request) -> Res
         await apply_principal(conn, principal)
         try:
             cur = await conn.execute(
-                "SELECT source_uri, mime_type, original_filename, title, doc_type, status "
+                "SELECT source_uri, mime_type, original_filename, title, doc_type, status, "
+                "content_sha256 "
                 "FROM documents WHERE id = %s",
                 (document_id,),
             )
@@ -143,7 +155,13 @@ async def _document_download_response(document_id: str, request: Request) -> Res
     key = _object_key_from_source_uri(str(row.get("source_uri") or ""), store.bucket)
     if key is None:
         raise HTTPException(status_code=404, detail="document original is missing")
-    data = await _get_required_object(store, key, "document original is missing")
+    data = await _get_required_object(
+        store,
+        key,
+        "document original is missing",
+        expected_sha256=row.get("content_sha256"),
+        context=f"document {document_id} original",
+    )
 
     filename = _attachment_filename(row, document_id)
     return Response(
@@ -200,7 +218,13 @@ async def _document_page_png_response(
     key = _object_key_from_source_uri(str(row.get("source_uri") or ""), store.bucket)
     if key is None:
         raise HTTPException(status_code=404, detail="document original is missing")
-    pdf_bytes = await _get_required_object(store, key, "document original is missing")
+    pdf_bytes = await _get_required_object(
+        store,
+        key,
+        "document original is missing",
+        expected_sha256=row.get("content_sha256"),
+        context=f"document {document_id} original",
+    )
 
     try:
         png = await anyio.to_thread.run_sync(_render_pdf_page_png, pdf_bytes, page_number)

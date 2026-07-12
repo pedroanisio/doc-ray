@@ -304,7 +304,7 @@ uv-built image.
 | BL-093 | Format-extraction coverage guard: every registered extractor has a golden-fixture test | testing | infra | done | XS | medium | shared |
 | BL-094 | Backup download route is completely unauthenticated and bypasses RLS | security | bug | done | S | critical | shared |
 | BL-095 | Duplicate re-upload silently downgrades a document's stored Content-Type | persistence | bug | done | XS | low | shared |
-| BL-096 | No read-side integrity verification despite content_sha256 being threaded for exactly that purpose | persistence | tech-debt | parked | S | medium | shared |
+| BL-096 | No read-side integrity verification despite content_sha256 being threaded for exactly that purpose | persistence | tech-debt | done | S | medium | shared |
 | BL-097 | deleteDocument never deletes the document's blob — permanent storage leak | persistence | bug | done | S | medium | shared |
 | BL-098 | ingestDocument has no upload size cap — unbounded memory buffering | security | bug | done | S | high | shared |
 | BL-099 | No encryption enforcement for object storage, at rest or in transit | security | tech-debt | parked | M | medium | shared |

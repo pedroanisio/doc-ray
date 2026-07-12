@@ -184,11 +184,17 @@ def handle_ingest(
     title/filename from the *uploaded* name, not a random temp name. An explicit
     payload ``title`` overrides whatever the extractor derived.
     """
+    from doc_ray.application.integrity import verify_bytes
     from doc_ray.application.pipeline import ingest_file
 
     if store is None:
         raise RuntimeError("ingest requires an object store")
-    data = store.get(job.payload["storage_key"])
+    storage_key = str(job.payload["storage_key"])
+    data = verify_bytes(
+        store.get(storage_key),
+        job.payload.get("sha256"),
+        context=f"ingest upload {storage_key}",
+    )
     original = job.payload.get("original_filename") or f"upload{job.payload.get('extension', '')}"
     safe_name = Path(str(original)).name or "upload"
     # pipeline.ingest_file is path-based; materialise the blob under its real name so
