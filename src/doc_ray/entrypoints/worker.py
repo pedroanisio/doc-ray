@@ -41,6 +41,19 @@ _CLAIM_TIMEOUT_SECONDS = float(os.environ.get("WORKER_CLAIM_TIMEOUT_SECONDS", "1
 _RECONNECT_BACKOFF_SECONDS = float(os.environ.get("WORKER_RECONNECT_BACKOFF_SECONDS", "2"))
 
 
+def _kinds_from_env(name: str) -> tuple[str, ...] | None:
+    """Parse a comma-separated job-kind list from the environment, or ``None``."""
+    kinds = tuple(k.strip() for k in os.environ.get(name, "").split(",") if k.strip())
+    return kinds or None
+
+
+#: Kind filters for this worker's claims: a dedicated short-job lane sets
+#: WORKER_EXCLUDE_KINDS=annotate,reannotate so user-facing jobs (ingest,
+#: metadata edits, backups) never queue behind hours-long NLP runs.
+_ONLY_KINDS = _kinds_from_env("WORKER_ONLY_KINDS")
+_EXCLUDE_KINDS = _kinds_from_env("WORKER_EXCLUDE_KINDS")
+
+
 def run(cfg: Config | None = None, *, worker_id: str | None = None) -> int:
     """Run the claim/dispatch loop until SIGTERM/SIGINT.
 
@@ -80,6 +93,8 @@ def run(cfg: Config | None = None, *, worker_id: str | None = None) -> int:
                         heartbeat_conn=hb_conn,
                         heartbeat_interval=_HEARTBEAT_SECONDS,
                         shutdown=shutdown,
+                        only_kinds=_ONLY_KINDS,
+                        exclude_kinds=_EXCLUDE_KINDS,
                     )
                     if job is None:
                         shutdown.wait(_POLL_SECONDS)  # idle: sleep, but wake on shutdown

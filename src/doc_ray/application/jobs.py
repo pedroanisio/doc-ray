@@ -15,7 +15,7 @@ import os
 import signal
 import tempfile
 import threading
-from collections.abc import Callable, Iterator, Mapping
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from pathlib import Path
 from types import FrameType
 from typing import TYPE_CHECKING, Any, cast
@@ -593,6 +593,8 @@ def run_once(
     heartbeat_interval: float = 15.0,
     job_timeouts: Mapping[str, float | None] | None = None,
     shutdown: threading.Event | None = None,
+    only_kinds: Sequence[str] | None = None,
+    exclude_kinds: Sequence[str] | None = None,
 ) -> Job | None:
     """Claim one job, dispatch it, and finalize it; return the job (or ``None``).
 
@@ -613,12 +615,15 @@ def run_once(
         shutdown: The worker loop's shutdown event; when it is set mid-handler,
             the heartbeat thread stamps a drain request on the job so a
             SIGKILL after the stop-grace window does not spend an attempt.
+        only_kinds: When set, claim only these job kinds.
+        exclude_kinds: When set, never claim these job kinds (a short-job
+            lane worker passes the long-running kinds here).
 
     Returns:
         The claimed :class:`Job`, or ``None`` if the queue was empty.
     """
     registry = handlers if handlers is not None else HANDLERS
-    job = queue.claim(conn, worker_id=worker_id)
+    job = queue.claim(conn, worker_id=worker_id, only_kinds=only_kinds, exclude_kinds=exclude_kinds)
     if job is None:
         _logger.debug("worker %s found no queued job", worker_id)
         return None

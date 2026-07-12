@@ -19,6 +19,7 @@ shape. Callers own the connection; nothing here opens, closes, or commits.
 from __future__ import annotations
 
 import json
+from collections.abc import Sequence
 from typing import Any
 
 import psycopg
@@ -37,12 +38,14 @@ _CLAIM = """
 WITH picked AS (
     SELECT id FROM jobs
      WHERE status = 'queued' AND run_after <= now()
+       AND (%(only_kinds)s::text[] IS NULL OR kind = ANY(%(only_kinds)s::text[]))
+       AND (%(exclude_kinds)s::text[] IS NULL OR kind <> ALL(%(exclude_kinds)s::text[]))
      ORDER BY priority, run_after, id
      FOR UPDATE SKIP LOCKED
      LIMIT 1
 )
 UPDATE jobs j
-   SET status = 'running', locked_by = %s, started_at = COALESCE(j.started_at, now()),
+   SET status = 'running', locked_by = %(worker_id)s, started_at = COALESCE(j.started_at, now()),
        heartbeat_at = now(), attempts = j.attempts + 1,
        -- A fresh attempt starts clean: a dead attempt's progress must not be
        -- displayed as this attempt's, and its drain stamp must not release us.
@@ -165,9 +168,25 @@ async def enqueue_async(
     return job_id
 
 
-def claim(conn: psycopg.Connection[Any], *, worker_id: str) -> Job | None:
-    """Atomically claim the next eligible queued job, or return ``None``."""
-    row = conn.execute(_CLAIM, (worker_id,)).fetchone()
+def claim(
+    conn: psycopg.Connection[Any],
+    *,
+    worker_id: str,
+    only_kinds: Sequence[str] | None = None,
+    exclude_kinds: Sequence[str] | None = None,
+) -> Job | None:
+    """Atomically claim the next eligible queued job, or return ``None``.
+
+    ``only_kinds``/``exclude_kinds`` restrict which kinds this claimer takes,
+    so a dedicated worker can serve a short-job lane (e.g. everything except
+    annotate/reannotate) while jobs it skips stay queued for its peers.
+    """
+    params = {
+        "worker_id": worker_id,
+        "only_kinds": list(only_kinds) if only_kinds else None,
+        "exclude_kinds": list(exclude_kinds) if exclude_kinds else None,
+    }
+    row = conn.execute(_CLAIM, params).fetchone()
     _notify_job_event(conn, row)
     return _to_job(row) if row is not None else None
 

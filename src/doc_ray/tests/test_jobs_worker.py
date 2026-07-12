@@ -896,3 +896,19 @@ def test_main_configures_logging_before_running(monkeypatch):
     monkeypatch.setattr(worker_mod, "run", lambda: calls.append("ran") or 0)
     assert worker_mod.main() == 0
     assert calls == ["configured", "ran"]
+
+
+def test_run_once_exclude_kinds_leaves_long_jobs_for_general_workers(qconn):
+    def ok_handler(conn: Any, store: Any, job: Job) -> dict[str, Any]:
+        return {"ok": True}
+
+    long_id = queue.enqueue(qconn, "stub_long", {})
+    short_id = queue.enqueue(qconn, "stub_short", {})
+    handlers = {"stub_long": ok_handler, "stub_short": ok_handler}
+
+    got = jobs_mod.run_once(
+        qconn, None, worker_id="t-fast", handlers=handlers, exclude_kinds=("stub_long",)
+    )
+    assert got is not None and got.id == short_id
+    row = qconn.execute("SELECT status FROM jobs WHERE id=%s", (long_id,)).fetchone()
+    assert row is not None and row["status"] == "queued"

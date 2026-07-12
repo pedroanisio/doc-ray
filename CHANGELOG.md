@@ -21,7 +21,20 @@ doc-ray carries **one global version** covering both the application package
 
 ## [Unreleased]
 
-No unreleased changes yet.
+### Added
+- **Short-job lane: kind-filtered claiming + reserved `worker-fast` service**
+  (Claude Fable 5 via Claude Code) — the 2026-07-12 starvation incident's
+  final follow-up: with every worker chewing a book-sized reannotate, a
+  seconds-long ingest sat `Queued` for 25+ minutes with no worker available.
+  `queue_postgres.claim()` (and `run_once`) now accept `only_kinds`/
+  `exclude_kinds`; the worker reads `WORKER_ONLY_KINDS`/`WORKER_EXCLUDE_KINDS`
+  (comma-separated) and passes them to every claim. A new compose
+  `worker-fast` service runs with `WORKER_EXCLUDE_KINDS=annotate,reannotate`
+  (override via `WORKER_FAST_EXCLUDE_KINDS`) as reserved capacity for
+  user-facing jobs — ingest, metadata edits, deletes, backups — so they never
+  queue behind hours-long spaCy runs. Jobs a filtered worker skips stay
+  queued for its peers; unfiltered workers are unchanged. Regression tests
+  cover exclude/only/unfiltered claiming and `run_once` threading.
 
 ## [1.22.0] - 2026-07-12
 

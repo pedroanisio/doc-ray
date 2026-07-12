@@ -330,3 +330,47 @@ def test_claim_resets_previous_attempt_progress_and_drain_marker(qconn):
         "progress_stage": None,
         "drain_requested_at": None,
     }
+
+
+# ---------------------------------------------------------------------------
+# Kind-filtered claiming — the short-job lane (2026-07-12 starvation incident:
+# a seconds-long ingest queued behind hours-long reannotates because every
+# worker claims every kind).
+# ---------------------------------------------------------------------------
+
+
+def test_claim_exclude_kinds_skips_long_jobs(qconn):
+    conn, created = qconn
+    long_id = q.enqueue(conn, "annotate", {"lang": "en"})
+    created.append(long_id)
+    short_id = q.enqueue(conn, "ingest", {"path": "/x"})
+    created.append(short_id)
+
+    # The annotate is older (would be claimed first unfiltered); the fast
+    # lane must skip it and take the ingest.
+    job = q.claim(conn, worker_id="fast", exclude_kinds=("annotate", "reannotate"))
+    assert job is not None and job.id == short_id
+
+    # Nothing else is claimable for the fast lane; the annotate stays queued
+    # for a general worker.
+    assert q.claim(conn, worker_id="fast", exclude_kinds=("annotate", "reannotate")) is None
+    general = q.claim(conn, worker_id="general")
+    assert general is not None and general.id == long_id
+
+
+def test_claim_only_kinds_claims_nothing_else(qconn):
+    conn, created = qconn
+    ingest_id = q.enqueue(conn, "ingest", {"path": "/x"})
+    created.append(ingest_id)
+
+    assert q.claim(conn, worker_id="w", only_kinds=("backup",)) is None
+    job = q.claim(conn, worker_id="w", only_kinds=("ingest", "backup"))
+    assert job is not None and job.id == ingest_id
+
+
+def test_claim_without_kind_filters_is_unchanged(qconn):
+    conn, created = qconn
+    jid = q.enqueue(conn, "annotate", {"lang": "en"})
+    created.append(jid)
+    job = q.claim(conn, worker_id="w")
+    assert job is not None and job.id == jid

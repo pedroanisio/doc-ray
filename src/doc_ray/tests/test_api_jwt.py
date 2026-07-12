@@ -73,7 +73,9 @@ def test_config_reads_api_jwt_settings(monkeypatch):
 
 
 def test_header_token_authenticator_accepts_signed_access_jwt():
-    now = datetime(2026, 7, 12, 12, 0, tzinfo=UTC)
+    # Mint at real wall-clock time: the authenticator verifies expiry against
+    # now(), so a frozen `now=` here is a time bomb that fails once the clock
+    # passes issuance + TTL (it did, 15 minutes after this test was written).
     principal_id = str(uuid4())
     token = issue_access_jwt(
         Principal(
@@ -85,7 +87,6 @@ def test_header_token_authenticator_accepts_signed_access_jwt():
         issuer="doc-ray",
         audience="docray-api",
         ttl_seconds=900,
-        now=now,
     )
     authenticator = HeaderTokenAuthenticator(
         tokens={},

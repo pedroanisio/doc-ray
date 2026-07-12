@@ -293,6 +293,33 @@ services:
       DOCRAY_RESOLVER_TIMEOUT_SECONDS: ${DOCRAY_RESOLVER_TIMEOUT_SECONDS:-60}
     entrypoint: ["python", "-m", "doc_ray.entrypoints.worker"]
 
+  # Short-job lane: a reserved worker that never claims the hours-long spaCy
+  # kinds, so user-facing jobs (ingest, metadata edits, backups, deletes) are
+  # never starved behind them. 2026-07-12 incident: with every worker chewing
+  # a book-sized reannotate, a seconds-long ingest sat queued for 25+ minutes.
+  worker-fast:
+    build: .
+    restart: unless-stopped
+    stop_grace_period: 60s
+    depends_on:
+      postgres:
+        condition: service_healthy
+      createbucket:
+        condition: service_completed_successfully
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      PYTHONPATH: /app/src
+      DATABASE_URL: postgresql://${POSTGRES_USER:-docray}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD to a non-default secret}@postgres:5432/${POSTGRES_DB:-docray}
+      S3_ENDPOINT: http://minio:9000
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY:-minioadmin}
+      S3_SECRET_KEY: ${S3_SECRET_KEY:-minioadmin}
+      S3_BUCKET: ${S3_BUCKET:-documents}
+      WORKER_JOB_TIMEOUT_SECONDS: ${WORKER_JOB_TIMEOUT_SECONDS:-3600}
+      WORKER_EXCLUDE_KINDS: ${WORKER_FAST_EXCLUDE_KINDS:-annotate,reannotate}
+      DOCRAY_RESOLVER_TIMEOUT_SECONDS: ${DOCRAY_RESOLVER_TIMEOUT_SECONDS:-60}
+    entrypoint: ["python", "-m", "doc_ray.entrypoints.worker"]
+
   # Scheduled backup trigger + retention pruning. The worker performs the
   # actual archive creation; this service only enqueues backup jobs.
   backup-scheduler:
