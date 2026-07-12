@@ -30,7 +30,7 @@ try:
     from webapp.document_metadata import submit_metadata_update
     from webapp.graphql_client import API_URL, api_auth_headers, gql
     from webapp.health_contract import operator_health_payload
-    from webapp.job_view import decorate_job_rows, summarize_progress
+    from webapp.job_view import decorate_job_rows, is_active_job, summarize_progress
     from webapp.operator_health import build_operator_health, require_operator_health
     from webapp.rate_limit import FixedWindowRateLimiter, rate_limit_rule_from_env
     from webapp.reader_blocks import attach_page_blocks, latest_annotation_state
@@ -40,7 +40,7 @@ except ModuleNotFoundError:  # pragma: no cover - direct ``python webapp/app.py`
     from document_metadata import submit_metadata_update
     from graphql_client import API_URL, api_auth_headers, gql
     from health_contract import operator_health_payload
-    from job_view import decorate_job_rows, summarize_progress
+    from job_view import decorate_job_rows, is_active_job, summarize_progress
     from operator_health import build_operator_health, require_operator_health
     from rate_limit import FixedWindowRateLimiter, rate_limit_rule_from_env
     from reader_blocks import attach_page_blocks, latest_annotation_state
@@ -236,10 +236,15 @@ _REPROCESS_CONFIG = {
 
 
 def _active_reprocess_jobs(doc_id: str) -> dict[str, dict]:
-    """Return active pipeline jobs keyed by reprocess step."""
+    """Return active pipeline jobs keyed by reprocess step.
+
+    A running job whose heartbeat went stale (worker killed mid-run) is
+    excluded — it must not block re-running the step it will never finish.
+    """
     rows = q(
         """
-        SELECT id, kind, status, progress_current, progress_total, progress_stage
+        SELECT id, kind, status, progress_current, progress_total, progress_stage,
+               started_at, heartbeat_at
         FROM jobs
         WHERE document_id = %s AND status IN ('queued', 'running')
         ORDER BY id DESC
@@ -248,7 +253,7 @@ def _active_reprocess_jobs(doc_id: str) -> dict[str, dict]:
     )
     active: dict[str, dict] = {}
     for row in rows:
-        if row.get("status") not in {"queued", "running"}:
+        if not is_active_job(row):
             continue
         for step, cfg in _REPROCESS_CONFIG.items():
             if row.get("kind") in cfg["active_kinds"] and step not in active:

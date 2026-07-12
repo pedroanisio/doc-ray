@@ -22,6 +22,32 @@ doc-ray carries **one global version** covering both the application package
 ## [Unreleased]
 
 ### Fixed
+- **Job progress that actually advances, ETA, stalled-job recovery, and a
+  guarded corpus-truncate task** (Claude Fable 5 via Claude Code) — closes
+  the gaps found verifying BL-123's first landing against the operator's
+  bar ("no status, no progress, no ETA, no %"):
+  - The progress reporter moved to `domain/progress.py` (contextvar), so
+    adapters can report without breaking the hexagonal import direction
+    (guarded by a new AST test); `application.jobs` re-exports it unchanged.
+  - `SpacyAnnotator.annotate` now reports seven phase boundaries (load →
+    spaCy pipeline → sentence index → span registration → layer build →
+    validation → persist) instead of a frozen `0/1`; deterministic semantic
+    enrichment reports its five layers. A 248-page annotate now shows an
+    advancing bar with stage text rather than a spinner-equivalent.
+  - `webapp/job_view.summarize_progress` derives a naive linear **ETA**
+    from `started_at` once progress advances ("~3m left"), rendered next to
+    the percent in the pipeline panel and job page.
+  - A running job whose heartbeat went stale (worker killed mid-run by a
+    deploy — Docker's default 10s stop grace) now reads as **"Stalled
+    (worker lost)"** and no longer blocks the BL-119 reprocess buttons;
+    the compose worker gets `stop_grace_period: 120s` so drains can finish.
+    Root cause of tonight's stuck annotate: repeated deploy restarts killed
+    attempt after attempt, exhausting retries while the row wore `running`.
+  - New `make truncate-db CONFIRM=yes` (first Makefile) wipes the corpus
+    for fresh uploads behind a fail-closed guard and an automatic
+    `make db-dump` safety backup; `scripts/truncate_corpus.py` preserves
+    schema/auth/canonical-registry/backups, with live-schema tests forcing
+    a wipe-or-preserve decision for any future table.
 - **Duplicate upload Content-Type preservation** (Codex GPT-5) — BL-095 makes
   `ingestDocument` use the extractor-owned content type for its pre-worker blob
   upload, so re-uploading an already-ingested file no longer downgrades object

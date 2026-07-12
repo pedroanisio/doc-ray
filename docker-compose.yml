@@ -250,6 +250,10 @@ services:
   worker:
     build: .
     restart: unless-stopped
+    # SIGTERM triggers a graceful drain of the in-flight job; Docker's default
+    # 10s grace killed long annotates mid-run on every deploy, leaving zombie
+    # 'running' rows until the reaper caught up. Give the drain a real window.
+    stop_grace_period: 120s
     depends_on:
       postgres:
         condition: service_healthy

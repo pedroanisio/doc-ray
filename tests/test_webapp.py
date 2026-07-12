@@ -2032,3 +2032,65 @@ def test_responses_carry_security_headers(client):
     csp = resp.headers["Content-Security-Policy"]
     assert "default-src 'self'" in csp
     assert "frame-ancestors 'none'" in csp
+
+
+# ---------------------------------------------------------------------------
+# BL-123 gap — a running job must show an ETA once progress advances, and a
+# running job whose heartbeat went stale must read as stalled (and stop
+# blocking the reprocess controls) instead of wearing "running" forever.
+# ---------------------------------------------------------------------------
+
+
+def _dt(seconds_ago: float):
+    from datetime import timedelta, timezone
+
+    return datetime.now(timezone.utc) - timedelta(seconds=seconds_ago)
+
+
+def test_summarize_progress_derives_an_eta_from_started_at():
+    from webapp.job_view import summarize_progress
+
+    job = {
+        "progress_current": 1,
+        "progress_total": 4,
+        "progress_stage": "Running spaCy pipeline",
+        "started_at": _dt(60),
+        "status": "running",
+    }
+    progress = summarize_progress(job)
+    assert progress is not None
+    # 60s elapsed for 1/4 -> ~180s remaining, humanized to minutes.
+    assert progress["eta_seconds"] == pytest.approx(180, rel=0.2)
+    assert progress["eta_label"] == "~3m left"
+
+
+def test_summarize_progress_omits_eta_without_signal():
+    from webapp.job_view import summarize_progress
+
+    no_advance = summarize_progress(
+        {"progress_current": 0, "progress_total": 4, "started_at": _dt(60), "status": "running"}
+    )
+    assert no_advance is not None and "eta_label" not in no_advance
+    no_start = summarize_progress({"progress_current": 2, "progress_total": 4, "status": "running"})
+    assert no_start is not None and "eta_label" not in no_start
+    finished = summarize_progress(
+        {"progress_current": 4, "progress_total": 4, "started_at": _dt(60), "status": "succeeded"}
+    )
+    assert finished is not None and "eta_label" not in finished
+
+
+def test_stalled_running_job_is_flagged_and_not_active():
+    from webapp.job_view import decorate_job_rows, is_active_job
+
+    fresh = {"id": "j1", "kind": "annotate", "status": "running", "heartbeat_at": _dt(10)}
+    stale = {"id": "j2", "kind": "annotate", "status": "running", "heartbeat_at": _dt(900)}
+    queued = {"id": "j3", "kind": "annotate", "status": "queued", "heartbeat_at": None}
+
+    assert is_active_job(fresh) is True
+    assert is_active_job(stale) is False, "stale-heartbeat running job must not block retries"
+    assert is_active_job(queued) is True
+
+    decorated = {row["id"]: row for row in decorate_job_rows([fresh, stale, queued])}
+    assert decorated["j2"]["stalled"] is True
+    assert decorated["j1"]["stalled"] is False
+    assert "stalled" in decorated["j2"]["status_label"].lower()

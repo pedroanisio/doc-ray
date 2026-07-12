@@ -261,7 +261,10 @@ def test_handle_annotate_skips_language_update_when_annotator_reports_none(qconn
         conn.execute("DELETE FROM documents WHERE id = %s", (doc_id,))
 
 
-def test_delete_handler_removes_document(qconn):
+def test_delete_handler_soft_deletes_document(qconn):
+    """BL-059 made ``delete`` a reversible soft delete: the row stays, the
+    lifecycle flips to ``deleted`` (this test previously asserted the pre-BL-059
+    hard delete and went red when the semantics changed)."""
     import _itdb
 
     conn, created = qconn
@@ -273,5 +276,10 @@ def test_delete_handler_removes_document(qconn):
 
     run_once(conn, None, worker_id="w1", handlers=HANDLERS)
 
-    gone = conn.execute("SELECT 1 FROM documents WHERE id = %s", (doc_id,)).fetchone()
-    assert gone is None  # document (and its cascaded job) removed
+    row = conn.execute(
+        "SELECT lifecycle_state, deleted_at FROM documents WHERE id = %s", (doc_id,)
+    ).fetchone()
+    assert row is not None, "soft delete must keep the row for restore (BL-059)"
+    assert row["lifecycle_state"] == "deleted"
+    assert row["deleted_at"] is not None
+    conn.execute("DELETE FROM documents WHERE id = %s", (doc_id,))

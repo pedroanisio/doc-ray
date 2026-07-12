@@ -42,6 +42,7 @@
           <div class="progress-line">
             <progress class="job-progress" value="{{ j.progress.current }}" max="{{ j.progress.total }}">{{ j.progress.label }}</progress>
             <span class="mono">{{ j.progress.label }}</span>
+            {% if j.progress.eta_label %}<span class="mono" style="color:var(--ink-faint)">{{ j.progress.eta_label }}</span>{% endif %}
           </div>
         {% endif %}
         {% if j.progress.stage %}<p class="progress-stage">{{ j.progress.stage }}</p>{% endif %}

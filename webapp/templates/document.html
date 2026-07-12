@@ -375,6 +375,9 @@
                     <div style="display:flex; align-items:center; gap:.5rem; margin-top:.35rem">
                       <progress class="job-progress" value="{{ step.progress.current }}" max="{{ step.progress.total }}">{{ step.progress.label }}</progress>
                       <span class="mono">{{ step.progress.label }}</span>
+                      {% if step.progress.eta_label %}
+                        <span class="mono" style="color:var(--ink-faint)">{{ step.progress.eta_label }}</span>
+                      {% endif %}
                     </div>
                   {% endif %}
                   {% if step.progress.stage %}

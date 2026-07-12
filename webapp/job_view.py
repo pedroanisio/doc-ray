@@ -2,9 +2,16 @@
 
 from __future__ import annotations
 
+import os
 import re
 from collections.abc import Mapping, Sequence
+from datetime import datetime, timezone
 from typing import Any
+
+#: A running job whose heartbeat is older than this reads as stalled: the
+#: worker died (deploy restart, crash) and the reaper hasn't caught up yet.
+#: Kept well above the worker's claim timeout (default 120s) to avoid flapping.
+STALLED_AFTER_SECONDS = float(os.environ.get("DOCRAY_WEBAPP_STALLED_AFTER_SECONDS", "300"))
 
 KIND_LABELS = {
     "ingest": "Upload and ingest",
@@ -106,8 +113,35 @@ def summarize_outcome(job: Mapping[str, Any]) -> dict[str, str | None]:
     }
 
 
-def summarize_progress(job: Mapping[str, Any]) -> dict[str, Any] | None:
-    """Build a display model for a job's persisted progress fields."""
+def _now(now: datetime | None = None) -> datetime:
+    return now if now is not None else datetime.now(timezone.utc)
+
+
+def _seconds_since(value: Any, now: datetime | None = None) -> float | None:
+    if not isinstance(value, datetime):
+        return None
+    stamped = value if value.tzinfo is not None else value.replace(tzinfo=timezone.utc)
+    return (_now(now) - stamped).total_seconds()
+
+
+def _eta_label(seconds: float) -> str:
+    if seconds < 90:
+        return f"~{max(1, round(seconds))}s left"
+    if seconds < 90 * 60:
+        return f"~{max(1, round(seconds / 60))}m left"
+    return f"~{max(1, round(seconds / 3600))}h left"
+
+
+def summarize_progress(
+    job: Mapping[str, Any], now: datetime | None = None
+) -> dict[str, Any] | None:
+    """Build a display model for a job's persisted progress fields.
+
+    For a running job that has advanced past its first step, derive a naive
+    linear ETA from ``started_at``: ``elapsed * remaining / done``. Rough by
+    design — phases are not equally sized — but it turns a bare percentage
+    into an answer to the question operators actually ask.
+    """
     current = job.get("progress_current")
     total = job.get("progress_total")
     stage = str(job.get("progress_stage") or "").strip() or None
@@ -120,13 +154,46 @@ def summarize_progress(job: Mapping[str, Any]) -> dict[str, Any] | None:
         return {"stage": stage} if stage else None
     current_int = max(0, min(current_int, total_int))
     percent = round((current_int / total_int) * 100)
-    return {
+    progress: dict[str, Any] = {
         "current": current_int,
         "total": total_int,
         "percent": percent,
         "label": f"{percent}%",
         "stage": stage,
     }
+    elapsed = _seconds_since(job.get("started_at"), now)
+    if (
+        str(job.get("status") or "") == "running"
+        and 0 < current_int < total_int
+        and elapsed is not None
+        and elapsed >= 5
+    ):
+        eta = elapsed * (total_int - current_int) / current_int
+        progress["eta_seconds"] = eta
+        progress["eta_label"] = _eta_label(eta)
+    return progress
+
+
+def is_stalled(job: Mapping[str, Any], now: datetime | None = None) -> bool:
+    """Return whether a *running* job's heartbeat has gone stale."""
+    if str(job.get("status") or "") != "running":
+        return False
+    beat_age = _seconds_since(job.get("heartbeat_at"), now)
+    return beat_age is not None and beat_age > STALLED_AFTER_SECONDS
+
+
+def is_active_job(job: Mapping[str, Any], now: datetime | None = None) -> bool:
+    """Return whether a job should block re-running its pipeline step.
+
+    Queued jobs and fresh running jobs are active; a running job with a stale
+    heartbeat is a corpse the reaper hasn't collected yet — treating it as
+    active would lock the reprocess controls behind a job that will never
+    finish (the exact failure mode of a worker killed mid-run by a deploy).
+    """
+    status = str(job.get("status") or "")
+    if status == "queued":
+        return True
+    return status == "running" and not is_stalled(job, now)
 
 
 def decorate_job_rows(rows: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
@@ -134,9 +201,19 @@ def decorate_job_rows(rows: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]
     decorated = []
     for row in rows:
         item = dict(row)
+        stalled = is_stalled(row)
+        item["stalled"] = stalled
         item["kind_label"] = humanize_kind(item.get("kind"))
-        item["status_label"] = humanize_status(item.get("status"))
+        item["status_label"] = (
+            "Stalled (worker lost)" if stalled else humanize_status(item.get("status"))
+        )
         item["outcome"] = summarize_outcome(item)
         item["progress"] = summarize_progress(item)
+        if stalled:
+            item["outcome"] = {
+                "summary": f"{item['kind_label']} stalled — its worker stopped reporting.",
+                "detail": "The job will be reclaimed automatically, or the step can be re-run.",
+                "action": "Use the reprocess controls to run this step again.",
+            }
         decorated.append(item)
     return decorated
