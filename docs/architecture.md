@@ -88,6 +88,19 @@ deterministic and auditable in the `jobs` table, and the mechanism behind
 enriched, and canonicalized document (`annotate` -> `semantic_enrich` ->
 `canonicalize`) with no further calls.
 
+The API also exposes `GET /jobs/events` as a Server-Sent Events stream for
+pipeline status changes. Query with `document_id=<uuid>` to receive only jobs
+visible for one document, `job_id=<ulid>` to follow one job, or neither for the
+same recent-job scope as `jobs(limit:)`; `once=true` returns a finite initial
+snapshot for diagnostics. The stream authenticates with the same bearer or
+`X-DocRay-API-Token` headers as GraphQL, binds the Postgres connection to the
+caller's principal, and re-reads every notified job through RLS before emitting
+it. The queue remains the source of truth: `queue_postgres` emits Postgres
+`NOTIFY docray_job_events` payloads from job status transitions, while the
+stream only uses those payloads as invalidation hints. The nginx front door has
+a dedicated `/jobs/events` location to the API with `proxy_buffering off`, so
+EventSource delivery is not delayed by response buffering.
+
 ## Entity canonicalization
 
 A shared **canonical registry** (`canonical` + the `form_index` remissive

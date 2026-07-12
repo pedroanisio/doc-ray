@@ -113,6 +113,20 @@ mutation($f: Upload!) {
 # poll pipeline progress with: { jobs(documentId: "...") { kind status } }
 ```
 
+For push-based progress, the API also serves Server-Sent Events at
+`GET /jobs/events`. Use the same bearer token or `X-DocRay-API-Token` header as
+GraphQL, then filter with `document_id=<uuid>` or `job_id=<ulid>`:
+
+```bash
+curl -N -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:8000/jobs/events?document_id=PASTE_DOCUMENT_UUID"
+```
+
+Events are emitted from Postgres job-status transitions and are re-read through
+the caller's RLS-bound API connection before streaming. The nginx TLS front door
+has a dedicated `/jobs/events` location with response buffering disabled; add
+`once=true` for a finite initial snapshot in diagnostics or smoke tests.
+
 Other query/mutation surface: `documents(docType:, status:, tags:)` /
 `document` / `documentMetadataHistory` / `searchSentences` / `fullTextSearch` /
 `lexeme(s)` / `entities` / `entityFrequency` / `job` / `jobs` /

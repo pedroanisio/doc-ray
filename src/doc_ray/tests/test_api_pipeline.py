@@ -8,6 +8,7 @@ steps explicitly. All writes enqueue worker jobs — nothing runs in-request.
 from __future__ import annotations
 
 from dataclasses import replace
+from uuid import uuid4
 
 import pytest
 
@@ -172,6 +173,53 @@ def test_job_queries_expose_queue_timing_and_attempts(api_env):
             assert queued["maxAttempts"] == 5
     finally:
         conn.execute("DELETE FROM jobs WHERE id IN (%s, %s)", (queued_id, finished_id))
+
+
+def test_job_events_streams_visible_document_jobs(api_env):
+    conn, doc_id, principal_id = api_env
+    job_id = queue.enqueue(
+        conn, "annotate", {"chain": []}, priority=-9_999, max_attempts=5, document_id=doc_id
+    )
+    try:
+        with _client(principal_id) as client:
+            response = client.get(
+                f"/jobs/events?document_id={doc_id}&once=true",
+                headers={"Authorization": "Bearer test-token"},
+            )
+            assert response.status_code == 200
+            assert response.headers["content-type"].startswith("text/event-stream")
+            body = response.text
+
+        assert "event: job" in body
+        assert f'"id":"{job_id}"' in body
+        assert '"status":"queued"' in body
+        assert '"kind":"annotate"' in body
+    finally:
+        conn.execute("DELETE FROM jobs WHERE id = %s", (job_id,))
+
+
+def test_job_events_respect_document_rls(api_env):
+    conn, doc_id, _principal_id = api_env
+    job_id = queue.enqueue(
+        conn, "annotate", {"chain": []}, priority=-9_999, max_attempts=5, document_id=doc_id
+    )
+    try:
+        with _client(str(uuid4())) as client:
+            response = client.get(
+                f"/jobs/events?document_id={doc_id}&once=true",
+                headers={"Authorization": "Bearer test-token"},
+            )
+        assert response.status_code == 200
+        assert response.text == ""
+    finally:
+        conn.execute("DELETE FROM jobs WHERE id = %s", (job_id,))
+
+
+def test_job_events_requires_api_authentication(api_env):
+    _conn, doc_id, principal_id = api_env
+    with _client(principal_id) as client:
+        response = client.get(f"/jobs/events?document_id={doc_id}&once=true")
+    assert response.status_code == 401
 
 
 def test_jobs_query_with_invalid_document_id_returns_empty_not_an_error(api_env):

@@ -13,6 +13,8 @@ so a single unbounded query cannot monopolize a backend indefinitely.
 
 from __future__ import annotations
 
+import json
+import uuid
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any, cast
@@ -22,11 +24,13 @@ import anyio
 import psycopg
 from botocore.exceptions import ClientError
 from fastapi import FastAPI, HTTPException, Request, Response
+from fastapi.responses import StreamingResponse
 from psycopg.rows import dict_row
 from psycopg_pool import AsyncConnectionPool
 from strawberry.fastapi import GraphQLRouter
 
 from doc_ray import __version__
+from doc_ray.adapters import queue_postgres as queue
 from doc_ray.adapters.object_store import ObjectStore
 from doc_ray.application.integrity import IntegrityError, verify_bytes
 from doc_ray.config import Config
@@ -37,12 +41,22 @@ from doc_ray.entrypoints.api.schema import build_schema
 from doc_ray.entrypoints.api.security import (
     Authenticator,
     HeaderTokenAuthenticator,
+    Principal,
     apply_principal,
     reset_principal,
 )
 from doc_ray.logging_setup import configure_logging
 
 _PDF_PAGE_RENDER_DPI = 144
+_JOB_EVENTS_KEEPALIVE_SECONDS = 15.0
+
+
+def _clean_uuid(value: str) -> str | None:
+    """Return canonical UUID text, or None for malformed request arguments."""
+    try:
+        return str(uuid.UUID(value))
+    except ValueError:
+        return None
 
 
 def _object_key_from_source_uri(source_uri: str, bucket: str) -> str | None:
@@ -248,6 +262,125 @@ async def _readiness_checks(
     }
 
 
+def _job_event_data(row: dict[str, Any]) -> dict[str, Any]:
+    document_id = row.get("document_id")
+    return {
+        "id": str(row["id"]),
+        "kind": str(row["kind"]),
+        "status": str(row["status"]),
+        "documentId": str(document_id) if document_id is not None else None,
+        "createdAt": row["created_at"].isoformat() if row.get("created_at") else None,
+        "startedAt": row["started_at"].isoformat() if row.get("started_at") else None,
+        "finishedAt": row["finished_at"].isoformat() if row.get("finished_at") else None,
+        "attempts": int(row["attempts"]),
+        "maxAttempts": int(row["max_attempts"]),
+        "error": row.get("error"),
+    }
+
+
+def _sse_event(event: str, data: dict[str, Any]) -> str:
+    payload = json.dumps(data, separators=(",", ":"))
+    return f"event: {event}\ndata: {payload}\n\n"
+
+
+def _job_matches_filters(
+    row: dict[str, Any], *, job_id: str | None, document_id: str | None
+) -> bool:
+    if job_id is not None and str(row["id"]) != job_id:
+        return False
+    return not (document_id is not None and str(row.get("document_id")) != document_id)
+
+
+async def _job_event_stream(
+    request: Request,
+    *,
+    principal: Principal,
+    job_id: str | None,
+    document_id: str | None,
+    limit: int,
+    once: bool,
+) -> AsyncIterator[str]:
+    """Yield RLS-filtered job rows as Server-Sent Events."""
+    pool: AsyncConnectionPool = request.app.state.pool
+    bounded_limit = max(1, min(limit, 200))
+
+    async with pool.connection() as raw_conn:
+        conn = cast(psycopg.AsyncConnection[dict[str, Any]], raw_conn)
+        await apply_principal(conn, principal)
+        try:
+            await conn.execute(f"LISTEN {queue.JOB_EVENTS_CHANNEL}")
+            if job_id is not None:
+                row = await queue.status_async(conn, job_id)
+                if row is not None and _job_matches_filters(
+                    row, job_id=job_id, document_id=document_id
+                ):
+                    yield _sse_event("job", _job_event_data(row))
+            else:
+                rows = await queue.list_async(conn, document_id=document_id, limit=bounded_limit)
+                for row in rows:
+                    yield _sse_event("job", _job_event_data(row))
+            if once:
+                return
+
+            while not await request.is_disconnected():
+                received = False
+                async for notify in conn.notifies(timeout=_JOB_EVENTS_KEEPALIVE_SECONDS):
+                    received = True
+                    if notify.channel != queue.JOB_EVENTS_CHANNEL:
+                        continue
+                    try:
+                        payload = json.loads(notify.payload)
+                    except json.JSONDecodeError:
+                        continue
+                    event_job_id = payload.get("job_id")
+                    if not event_job_id:
+                        continue
+                    row = await queue.status_async(conn, str(event_job_id))
+                    if row is None or not _job_matches_filters(
+                        row, job_id=job_id, document_id=document_id
+                    ):
+                        continue
+                    yield _sse_event("job", _job_event_data(row))
+                if not received:
+                    yield ": keep-alive\n\n"
+        finally:
+            await reset_principal(conn, principal)
+
+
+def _register_job_events_route(app: FastAPI) -> None:
+    @app.get("/jobs/events")
+    async def job_events(
+        request: Request,
+        job_id: str | None = None,
+        document_id: str | None = None,
+        limit: int = 20,
+        once: bool = False,
+    ) -> StreamingResponse:
+        """Stream RLS-filtered job status events as Server-Sent Events."""
+        clean_document_id: str | None = None
+        if document_id is not None:
+            clean_document_id = _clean_uuid(document_id)
+            if clean_document_id is None:
+                raise HTTPException(status_code=400, detail="invalid document_id")
+        authenticator: Authenticator = request.app.state.authenticator
+        principal = await authenticator.authenticate(request)
+        return StreamingResponse(
+            _job_event_stream(
+                request,
+                principal=principal,
+                job_id=job_id,
+                document_id=clean_document_id,
+                limit=limit,
+                once=once,
+            ),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "X-Accel-Buffering": "no",
+            },
+        )
+
+
 async def _get_context(request: Request) -> AsyncIterator[RequestContext]:
     """Yield a per-request context: a pooled connection bound to the principal.
 
@@ -411,6 +544,8 @@ def create_app(cfg: Config | None = None, authenticator: Authenticator | None = 
     ) -> Response:
         """Render a cached PNG image for one original-PDF page."""
         return await _document_page_png_response(document_id, page_number, request)
+
+    _register_job_events_route(app)
 
     return app
 

@@ -7,6 +7,7 @@ migrations. Exercises the SKIP-LOCKED claim semantics, retry/backoff, and reapin
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -57,6 +58,33 @@ def test_enqueue_claim_complete(qconn):
     q.complete(conn, job_id, result={"document_id": "d1"})
     done = q.get(conn, job_id)
     assert done is not None and done.status is JobStatus.SUCCEEDED
+
+
+def test_job_status_transitions_emit_notifications(qconn):
+    import _itdb
+
+    conn, created = qconn
+    listener = _itdb.connect()
+    listener.execute("LISTEN docray_job_events")
+    try:
+        job_id = q.enqueue(conn, "ingest", {"path": "/x"}, priority=-100_000)
+        created.append(job_id)
+        claimed = q.claim(conn, worker_id="w-events")
+        assert claimed is not None
+        assert claimed.id == job_id
+        assert q.complete(conn, job_id, worker_id="w-events")
+
+        events = [
+            json.loads(n.payload)
+            for n in listener.notifies(timeout=1.0, stop_after=3)
+            if n.channel == "docray_job_events"
+        ]
+    finally:
+        listener.close()
+
+    assert [event["status"] for event in events] == ["queued", "running", "succeeded"]
+    assert {event["job_id"] for event in events} == {job_id}
+    assert all(event["kind"] == "ingest" for event in events)
 
 
 def test_skip_locked_claims_are_disjoint(qconn):

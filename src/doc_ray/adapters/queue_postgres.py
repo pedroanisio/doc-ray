@@ -15,6 +15,7 @@ shape. Callers own the connection; nothing here opens, closes, or commits.
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 import psycopg
@@ -48,6 +49,35 @@ _SELECT = (
     "SELECT id, kind, status, payload, attempts, max_attempts, document_id FROM jobs WHERE id = %s"
 )
 
+JOB_EVENTS_CHANNEL = "docray_job_events"
+
+
+def _event_payload(row: dict[str, Any]) -> str:
+    doc = row.get("document_id")
+    return json.dumps(
+        {
+            "job_id": str(row["id"]),
+            "kind": str(row["kind"]),
+            "status": str(row["status"]),
+            "document_id": str(doc) if doc is not None else None,
+        },
+        separators=(",", ":"),
+    )
+
+
+def _notify_job_event(conn: psycopg.Connection[Any], row: dict[str, Any] | None) -> None:
+    if row is None:
+        return
+    conn.execute("SELECT pg_notify(%s, %s)", (JOB_EVENTS_CHANNEL, _event_payload(row)))
+
+
+async def _notify_job_event_async(
+    conn: psycopg.AsyncConnection[Any], row: dict[str, Any] | None
+) -> None:
+    if row is None:
+        return
+    await conn.execute("SELECT pg_notify(%s, %s)", (JOB_EVENTS_CHANNEL, _event_payload(row)))
+
 
 def _to_job(row: dict[str, Any]) -> Job:
     """Map a jobs row (dict_row) to a :class:`Job`."""
@@ -75,6 +105,10 @@ def enqueue(
     """Insert a queued job (sync) and return its new id."""
     job_id = new_ulid_str()
     conn.execute(_INSERT, (job_id, kind, priority, Jsonb(payload), max_attempts, document_id))
+    _notify_job_event(
+        conn,
+        {"id": job_id, "kind": kind, "status": JobStatus.QUEUED.value, "document_id": document_id},
+    )
     return job_id
 
 
@@ -90,12 +124,17 @@ async def enqueue_async(
     """Insert a queued job (async, for the API) and return its new id."""
     job_id = new_ulid_str()
     await conn.execute(_INSERT, (job_id, kind, priority, Jsonb(payload), max_attempts, document_id))
+    await _notify_job_event_async(
+        conn,
+        {"id": job_id, "kind": kind, "status": JobStatus.QUEUED.value, "document_id": document_id},
+    )
     return job_id
 
 
 def claim(conn: psycopg.Connection[Any], *, worker_id: str) -> Job | None:
     """Atomically claim the next eligible queued job, or return ``None``."""
     row = conn.execute(_CLAIM, (worker_id,)).fetchone()
+    _notify_job_event(conn, row)
     return _to_job(row) if row is not None else None
 
 
@@ -128,10 +167,13 @@ def cancel(conn: psycopg.Connection[Any], job_id: str, *, reason: str | None = N
     cur = conn.execute(
         "UPDATE jobs SET status = 'canceled', started_at = COALESCE(started_at, now()), "
         "finished_at = now(), error = %s, locked_by = NULL "
-        "WHERE id = %s AND status IN ('queued', 'running')",
+        "WHERE id = %s AND status IN ('queued', 'running') "
+        "RETURNING id, kind, status, document_id",
         (reason or "canceled by operator", job_id),
     )
-    return cur.rowcount > 0
+    row = cur.fetchone()
+    _notify_job_event(conn, row)
+    return row is not None
 
 
 async def cancel_async(
@@ -148,6 +190,7 @@ async def cancel_async(
     )
     row: dict[str, Any] | None = await cur.fetchone()
     if row is not None:
+        await _notify_job_event_async(conn, row)
         return row
     return await status_async(conn, job_id)
 
@@ -206,10 +249,13 @@ def complete(
     cur = conn.execute(
         "UPDATE jobs SET status = 'succeeded', finished_at = now(), result = %s "
         "WHERE id = %s AND status = 'running' "
-        "AND (%s::text IS NULL OR locked_by = %s)",
+        "AND (%s::text IS NULL OR locked_by = %s) "
+        "RETURNING id, kind, status, document_id",
         (Jsonb(result) if result is not None else None, job_id, worker_id, worker_id),
     )
-    return cur.rowcount > 0
+    row = cur.fetchone()
+    _notify_job_event(conn, row)
+    return row is not None
 
 
 def fail(
@@ -221,17 +267,21 @@ def fail(
 ) -> None:
     """Fail a job: requeue with backoff if *retry_in_seconds* is set, else terminal."""
     if retry_in_seconds is None:
-        conn.execute(
+        row = conn.execute(
             "UPDATE jobs SET status = 'failed', finished_at = now(), error = %s, locked_by = NULL "
-            "WHERE id = %s",
+            "WHERE id = %s "
+            "RETURNING id, kind, status, document_id",
             (error, job_id),
-        )
+        ).fetchone()
+        _notify_job_event(conn, row)
         return
-    conn.execute(
+    row = conn.execute(
         "UPDATE jobs SET status = 'queued', run_after = now() + (%s * interval '1 second'), "
-        "error = %s, locked_by = NULL WHERE id = %s",
+        "error = %s, locked_by = NULL WHERE id = %s "
+        "RETURNING id, kind, status, document_id",
         (retry_in_seconds, error, job_id),
-    )
+    ).fetchone()
+    _notify_job_event(conn, row)
 
 
 def reap_stale(conn: psycopg.Connection[Any], *, older_than_seconds: float) -> int:
@@ -242,16 +292,22 @@ def reap_stale(conn: psycopg.Connection[Any], *, older_than_seconds: float) -> i
     if it has already exhausted its attempts).
     """
     cutoff = "now() - (%s * interval '1 second')"
-    requeued = conn.execute(
+    requeued_rows = conn.execute(
         f"UPDATE jobs SET status = 'queued', locked_by = NULL, run_after = now(), "
         f"error = 'reclaimed: stale heartbeat' "
-        f"WHERE status = 'running' AND heartbeat_at < {cutoff} AND attempts < max_attempts",
+        f"WHERE status = 'running' AND heartbeat_at < {cutoff} AND attempts < max_attempts "
+        f"RETURNING id, kind, status, document_id",
         (older_than_seconds,),
-    ).rowcount
-    exhausted = conn.execute(
+    ).fetchall()
+    for row in requeued_rows:
+        _notify_job_event(conn, row)
+    exhausted_rows = conn.execute(
         f"UPDATE jobs SET status = 'failed', finished_at = now(), locked_by = NULL, "
         f"error = 'reclaimed: stale heartbeat, attempts exhausted' "
-        f"WHERE status = 'running' AND heartbeat_at < {cutoff} AND attempts >= max_attempts",
+        f"WHERE status = 'running' AND heartbeat_at < {cutoff} AND attempts >= max_attempts "
+        f"RETURNING id, kind, status, document_id",
         (older_than_seconds,),
-    ).rowcount
-    return requeued + exhausted
+    ).fetchall()
+    for row in exhausted_rows:
+        _notify_job_event(conn, row)
+    return len(requeued_rows) + len(exhausted_rows)
