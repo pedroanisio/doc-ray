@@ -29,6 +29,7 @@ from doc_ray.application.integrity import verify_bytes
 from doc_ray.config import Config
 from doc_ray.domain import sentences as sent_mod
 from doc_ray.domain.jobs import KIND_REEXTRACT
+from doc_ray.domain.progress import report_progress
 from doc_ray.ports.object_store import ObjectStore
 
 
@@ -62,6 +63,7 @@ def backfill_document_geometry(
     matches the stored canonical text, then projects geometry onto existing
     spans keyed by their character offsets. It does not delete annotations.
     """
+    report_progress(0, None, "Re-extracting document geometry")
     extracted = extract_mod.extract(data, filename=filename, extension=ext)
     full_text = extracted.full_text or ""
     row = conn.execute(
@@ -71,6 +73,20 @@ def backfill_document_geometry(
     if full_text != stored:
         raise RuntimeError("re-extraction text drift: stored text differs from extracted text")
 
+    page_runs = extracted.page_runs or []
+    observed_pages = {
+        int(run["page"])
+        for run in page_runs
+        if isinstance(run, dict) and run.get("page") is not None
+    }
+    page_count = int(extracted.page_count or len(observed_pages))
+    total_units = page_count + 2
+    for page_index in range(page_count):
+        report_progress(
+            page_index + 1,
+            total_units,
+            f"Projecting geometry for page {page_index + 1} of {page_count}",
+        )
     layout_rows = db.layout_runs_from_page_runs(full_text, extracted.page_runs)
     with conn.transaction():
         if extracted.page_count is not None:
@@ -90,6 +106,7 @@ def backfill_document_geometry(
             (doc_id,),
         ).fetchone()
 
+    report_progress(page_count + 1, total_units, "Persisting geometry")
     return {
         "extractor": extracted.extractor,
         "layout_runs": len(layout_rows),

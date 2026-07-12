@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 
 import _itdb
 import pytest
 
 from doc_ray.application import pipeline
 from doc_ray.config import Config
+from doc_ray.domain import progress as domain_progress
 
 
 class FakeStore:
@@ -121,3 +123,48 @@ def test_ingest_file_with_no_extractable_text_fails_clearly(pg, store, tmp_path)
     ).fetchone()
     assert row["status"] == "failed"
     assert "OCR" in row["error"]
+
+
+def test_ingest_file_reports_inner_progress_stages(monkeypatch, store, tmp_path):
+    path = _txt(tmp_path, "progress.txt", "Alpha. Beta.")
+    events: list[tuple[int | None, int | None, str | None]] = []
+    token = domain_progress.set_progress_reporter(
+        lambda current, total, stage: events.append((current, total, stage))
+    )
+
+    monkeypatch.setattr(pipeline.db, "find_by_sha256", lambda *_args: None)
+    monkeypatch.setattr(
+        pipeline.extract_mod,
+        "extract",
+        lambda *_args, **_kwargs: SimpleNamespace(
+            doc_type="text",
+            title="progress",
+            author=None,
+            page_count=None,
+            full_text="Alpha. Beta.",
+            content_type="text/plain",
+            extractor="fake",
+            extractor_version="1",
+            metadata={},
+            page_runs=None,
+        ),
+    )
+    monkeypatch.setattr(
+        pipeline.db,
+        "insert_document",
+        lambda *_args, **_kwargs: "doc-progress",
+    )
+
+    try:
+        result = pipeline.ingest_file(object(), store, path)  # type: ignore[arg-type]
+    finally:
+        domain_progress.reset_progress_reporter(token)
+
+    assert result.document_id == "doc-progress"
+    assert events == [
+        (0, 5, "Reading file"),
+        (1, 5, "Checking duplicate content"),
+        (2, 5, "Extracting document text"),
+        (3, 5, "Storing original blob"),
+        (4, 5, "Persisting extracted document"),
+    ]

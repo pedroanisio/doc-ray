@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import contextlib
 import hashlib
 from types import SimpleNamespace
 
 import pytest
 
 from doc_ray.application import reextract
+from doc_ray.domain import progress as domain_progress
 
 DOC_ID = "11111111-1111-1111-1111-111111111111"
 
@@ -119,3 +121,58 @@ def test_backfill_document_geometry_refuses_text_drift(monkeypatch) -> None:
 
     with pytest.raises(RuntimeError, match="text drift"):
         reextract.backfill_document_geometry(conn, DOC_ID, b"pdf", "report", ".pdf")
+
+
+def test_backfill_document_geometry_reports_page_progress(monkeypatch) -> None:
+    class ProgressConn:
+        def execute(self, sql, params=()):
+            if "SELECT full_text" in sql:
+                return _Rows([{"full_text": "Stored text."}])
+            if "SELECT char_start, char_end" in sql:
+                return _Rows([{"char_start": 0, "char_end": 6}])
+            if "count(*) AS n" in sql:
+                return _Rows([{"n": 1}])
+            return _Rows([])
+
+        def transaction(self):
+            return contextlib.nullcontext()
+
+    monkeypatch.setattr(
+        reextract.extract_mod,
+        "extract",
+        lambda *_args, **_kwargs: SimpleNamespace(
+            full_text="Stored text.",
+            page_runs=[
+                {"page": 0, "text": "Stored", "bbox": (0, 0, 1, 1)},
+                {"page": 1, "text": "text.", "bbox": (0, 0, 1, 1)},
+            ],
+            page_count=2,
+            extractor="fake",
+        ),
+    )
+    monkeypatch.setattr(
+        reextract.db,
+        "layout_runs_from_page_runs",
+        lambda *_args: [{"page_number": 1}, {"page_number": 2}],
+    )
+    monkeypatch.setattr(reextract.db, "replace_document_layout_runs", lambda *_args: None)
+    monkeypatch.setattr(reextract.db, "ensure_spans", lambda *_args: {})
+
+    events: list[tuple[int | None, int | None, str | None]] = []
+    token = domain_progress.set_progress_reporter(
+        lambda current, total, stage: events.append((current, total, stage))
+    )
+    try:
+        result = reextract.backfill_document_geometry(
+            ProgressConn(), DOC_ID, b"pdf", "report", ".pdf"  # type: ignore[arg-type]
+        )
+    finally:
+        domain_progress.reset_progress_reporter(token)
+
+    assert result["layout_runs"] == 2
+    assert events == [
+        (0, None, "Re-extracting document geometry"),
+        (1, 4, "Projecting geometry for page 1 of 2"),
+        (2, 4, "Projecting geometry for page 2 of 2"),
+        (3, 4, "Persisting geometry"),
+    ]

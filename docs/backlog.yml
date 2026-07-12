@@ -4020,7 +4020,7 @@ items:
       pattern, so landing second can reuse it.
     category:     "ops"
     type:         "feature"
-    status:       "ready"
+    status:       "done"
     complexity:   "M"
     priority:     "high"
     rationale:    "Operator requirement (2026-07-12). Status-transition events alone (BL-122) cannot answer 'how far along is this job' — that requires the worker to report from inside the handler. The heartbeat write path already exists at exactly the right cadence, making this an instrumentation surface rather than new machinery."
@@ -4037,5 +4037,5 @@ items:
       - "src/doc_ray/entrypoints/api/types.py"
       - "webapp/job_view.py"
     owner:        "shared"
-    source:       "Operator requirement 2026-07-12 (this session): 'the ingestion, processing, extraction, need a first class async progress indicator or eventsource full' — the same message selected SSE for BL-122."
+    source:       "Operator requirement 2026-07-12 (this session): 'the ingestion, processing, extraction, need a first class async progress indicator or eventsource full' — the same message selected SSE for BL-122. Completed 2026-07-12 with domain-level progress reporting usable from adapters, page-level PyMuPDF extraction reports, inner ingest/reextract/backup/annotation/semantic-enrichment progress stages, queue progress notifications, GraphQL/SSE exposure, and webapp progress rendering; validated locally and in the isolated Docker test stack."
     tags:         ["ops", "jobs", "progress", "observability", "feature"]

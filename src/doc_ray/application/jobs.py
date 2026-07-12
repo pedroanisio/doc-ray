@@ -10,7 +10,6 @@ registry — without those heavy dependencies present.
 from __future__ import annotations
 
 import contextlib
-import contextvars
 import logging
 import tempfile
 import threading
@@ -41,6 +40,15 @@ from doc_ray.domain.jobs import (
     KIND_UPDATE_METADATA,
     Job,
 )
+
+# The reporter lives in domain.progress (BL-123) so adapters can report
+# phase boundaries without importing this module; every handler (and the
+# worker tests) still addresses it as ``jobs.report_progress``.
+from doc_ray.domain.progress import (
+    report_progress,
+    reset_progress_reporter,
+    set_progress_reporter,
+)
 from doc_ray.ports.object_store import ObjectStore
 
 _logger = logging.getLogger("doc_ray.jobs")
@@ -52,27 +60,14 @@ if TYPE_CHECKING:
 
 #: A handler runs one job and returns a JSON-able result recorded on the job row.
 Handler = Callable[[psycopg.Connection[Any], ObjectStore | None, Job], dict[str, Any]]
-ProgressReporter = Callable[[int | None, int | None, str | None], None]
 
 _BACKOFF_BASE_SECONDS = 5.0
 _BACKOFF_CAP_SECONDS = 300.0
-_PROGRESS_REPORTER: contextvars.ContextVar[ProgressReporter | None] = contextvars.ContextVar(
-    "doc_ray_job_progress_reporter", default=None
-)
 
 
 def backoff_seconds(attempts: int) -> float:
     """Return the exponential backoff (capped) for the *attempts*-th failure."""
     return float(min(_BACKOFF_BASE_SECONDS * 2 ** max(0, attempts - 1), _BACKOFF_CAP_SECONDS))
-
-
-def report_progress(
-    current: int | None = None, total: int | None = None, stage: str | None = None
-) -> None:
-    """Persist progress for the currently running worker job, when one exists."""
-    reporter = _PROGRESS_REPORTER.get()
-    if reporter is not None:
-        reporter(current, total, stage)
 
 
 def handle_delete(
@@ -540,7 +535,7 @@ def run_once(
             worker_id=worker_id,
         )
 
-    token = _PROGRESS_REPORTER.set(_report)
+    token = set_progress_reporter(_report)
     try:
         report_progress(0, None, f"Starting {job.kind}")
         result = handler(conn, store, job)
@@ -586,7 +581,7 @@ def run_once(
         )
         queue.fail(conn, job.id, error=repr(exc), retry_in_seconds=retry)
     finally:
-        _PROGRESS_REPORTER.reset(token)
+        reset_progress_reporter(token)
         if stop_heartbeat is not None:
             stop_heartbeat()
     return job

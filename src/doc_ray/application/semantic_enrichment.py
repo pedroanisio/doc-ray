@@ -9,6 +9,7 @@ from typing import Any
 
 from doc_ray.adapters import persistence as db
 from doc_ray.adapters.persistence import DictConnection
+from doc_ray.domain.progress import report_progress
 from doc_ray.domain.ulid import new_ulid_str
 
 DiscourseRow = tuple[str, str, str, str, str, str]
@@ -205,10 +206,15 @@ def annotate_document(conn: DictConnection, doc_id: str) -> dict[str, int]:
             "VALUES (%s, %s, %s, %s, %s)",
             (annotation_id, doc_id, LAYER_NAME, TOOL_NAME, TOOL_VERSION),
         )
+        report_progress(0, 5, "Deriving discourse relations")
         discourse = _discourse_rows(conn, doc_id, annotation_id, sentences)
+        report_progress(1, 5, "Extracting temporal expressions")
         timexes = _timex_rows(conn, doc_id, annotation_id, full_text)
+        report_progress(2, 5, "Classifying events")
         events = _event_rows(annotation_id, tokens)
+        report_progress(3, 5, "Scoring sentiment")
         sentiments = _sentiment_rows(annotation_id, tokens)
+        report_progress(4, 5, "Computing sentence embeddings")
         embeddings = _embedding_rows(conn, doc_id, sentences)
         with conn.cursor() as cur:
             cur.executemany(

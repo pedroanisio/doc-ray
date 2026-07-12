@@ -362,7 +362,7 @@ which is modifying the same queue plumbing as this is written.
 | BL-120 | Webapp: bulk reprocess actions (re-annotate / re-extract across a selection) | webapp | feature | done | S | low | shared |
 | BL-121 | GraphQL Job type omits the queue timing the jobs table already stores | api | tech-debt | done | XS | medium | shared |
 | BL-122 | Push-based pipeline progress: subscriptions, webhooks, or SSE instead of poll-only | api | feature | done | M | high | shared |
-| BL-123 | First-class async job progress: within-job progress reporting from worker handlers, surfaced live | ops | feature | ready | M | high | shared |
+| BL-123 | First-class async job progress: within-job progress reporting from worker handlers, surfaced live | ops | feature | done | M | high | shared |
 
 See [`backlog.yml`](backlog.yml) for each item's full description, rationale,
 acceptance criteria, dependencies, related decisions (`D-###`), and references.

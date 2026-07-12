@@ -36,6 +36,7 @@ import psycopg
 from psycopg.rows import tuple_row
 
 from doc_ray.application.integrity import sha256_hex, verify_bytes
+from doc_ray.domain.progress import report_progress
 from doc_ray.domain.ulid import new_ulid_str
 from doc_ray.ports.object_store import ObjectStore
 
@@ -196,6 +197,8 @@ def _build_and_upload(
 ) -> dict[str, Any]:
     tables = _covered_tables(conn)
     cols_by_table = {t: _columns(conn, t) for t in tables}
+    progress_total = len(tables) + 2
+    report_progress(0, progress_total, "Preparing backup archive")
     buf = io.BytesIO()
     counts: dict[str, int] = {}
     table_rows = 0
@@ -204,7 +207,8 @@ def _build_and_upload(
         # Consistent point-in-time snapshot of the whole database.
         with conn.transaction():
             conn.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
-            for table in tables:
+            for index, table in enumerate(tables):
+                report_progress(index, progress_total, f"Backing up table {table}")
                 cols = cols_by_table[table]
                 n = _scalar(conn, f'SELECT count(*) FROM "{table}"')
                 counts[table] = int(n)
@@ -223,6 +227,7 @@ def _build_and_upload(
         doc_count = int(_scalar(conn, "SELECT count(*) FROM documents"))
 
         # Blobs (everything except prior backup archives).
+        report_progress(len(tables), progress_total, "Backing up object blobs")
         blob_keys = [k for k in store.list_objects() if not k.startswith(_BACKUP_PREFIX)]
         expected_hashes = _document_blob_hashes(conn, store.bucket)
         blob_manifest: list[dict[str, Any]] = []
@@ -254,6 +259,7 @@ def _build_and_upload(
 
     archive = buf.getvalue()
     object_key = f"{_BACKUP_PREFIX}{backup_id}.tar.gz"
+    report_progress(len(tables) + 1, progress_total, "Uploading backup archive")
     store.put(object_key, archive, "application/gzip")
     return {
         "id": backup_id,

@@ -10,6 +10,7 @@ from __future__ import annotations
 import pytest
 
 from doc_ray.adapters import extraction as extract
+from doc_ray.domain import progress as domain_progress
 
 fitz = pytest.importorskip("fitz", reason="PyMuPDF not installed")
 
@@ -89,6 +90,22 @@ def test_pymupdf_extractor_surfaces_page_and_bbox_per_run():
     b_bbox = beta[0]["bbox"]
     assert len(a_bbox) == 4 and len(b_bbox) == 4
     assert (a_bbox[1], a_bbox[3]) != (b_bbox[1], b_bbox[3])
+
+
+def test_pymupdf_extractor_reports_progress_per_page():
+    events: list[tuple[int | None, int | None, str | None]] = []
+    token = domain_progress.set_progress_reporter(
+        lambda current, total, stage: events.append((current, total, stage))
+    )
+    try:
+        extract.extract_pdf_pymupdf(_make_two_page_pdf(), fallback_title="synthetic")
+    finally:
+        domain_progress.reset_progress_reporter(token)
+
+    assert events == [
+        (0, 2, "Extracting PDF page 1 of 2"),
+        (1, 2, "Extracting PDF page 2 of 2"),
+    ]
 
 
 def test_pdf_heading_thresholds_are_loaded_from_environment(monkeypatch):

@@ -22,6 +22,7 @@ from doc_ray.adapters import migrate as migrate_mod
 from doc_ray.adapters.object_store import ObjectStore
 from doc_ray.application import backup as bk
 from doc_ray.config import Config
+from doc_ray.domain import progress as domain_progress
 
 _DBNAME = "docray_bkptest"
 
@@ -41,7 +42,10 @@ def _cfg(database_url: str, bucket: str) -> Config:
 @pytest.fixture(scope="module")
 def isolated():
     """A migrated throwaway DB + a throwaway bucket. Yields (conn, store)."""
-    admin = psycopg.connect(_itdb.DB_URL, autocommit=True)
+    try:
+        admin = psycopg.connect(_itdb.DB_URL, autocommit=True)
+    except psycopg.OperationalError as exc:
+        pytest.skip(f"isolated backup env unavailable: {exc}")
     admin.execute(f"DROP DATABASE IF EXISTS {_DBNAME} WITH (FORCE)")
     admin.execute(f"CREATE DATABASE {_DBNAME} TEMPLATE template0")
     url = _itdb.DB_URL.rsplit("/", 1)[0] + f"/{_DBNAME}"
@@ -95,6 +99,30 @@ def test_create_backup_archive_structure(isolated):
         manifest = json.loads(tar.extractfile("manifest.json").read())
     assert "jobs" not in [t["name"] for t in manifest["tables"]]
     assert conn.execute("SELECT 1 FROM documents WHERE id=%s", (doc_id,)).fetchone()
+
+
+def test_create_backup_reports_table_blob_and_upload_progress(isolated):
+    conn, store = isolated
+    _seed_doc(conn, store, "Progress backup probe.")
+    events: list[tuple[int | None, int | None, str | None]] = []
+    token = domain_progress.set_progress_reporter(
+        lambda current, total, stage: events.append((current, total, stage))
+    )
+    try:
+        summary = bk.create_backup(conn, store, note="progress")
+    finally:
+        domain_progress.reset_progress_reporter(token)
+
+    table_stages = [stage for _current, _total, stage in events if stage]
+    assert summary["object_key"].startswith("backups/")
+    assert "Preparing backup archive" in table_stages
+    assert any(stage == "Backing up table documents" for stage in table_stages)
+    assert any(stage == "Backing up object blobs" for stage in table_stages)
+    assert table_stages[-1] == "Uploading backup archive"
+    totals = {total for _current, total, _stage in events if total is not None}
+    assert len(totals) == 1
+    currents = [current for current, _total, _stage in events if current is not None]
+    assert currents == sorted(currents)
 
 
 def test_restore_is_point_in_time_rewind(isolated):

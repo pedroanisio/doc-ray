@@ -15,6 +15,7 @@ from doc_ray.adapters.object_store import ObjectStore
 from doc_ray.config import Config
 from doc_ray.domain import provenance as prov_mod
 from doc_ray.domain import sentences as sent_mod
+from doc_ray.domain.progress import report_progress
 
 
 @dataclass
@@ -51,10 +52,12 @@ def ingest_file(conn: psycopg.Connection[Any], store: ObjectStore, path: Path) -
         An ``IngestResult`` describing the outcome (ingested, duplicate, or
         failed).
     """
+    report_progress(0, 5, "Reading file")
     data = path.read_bytes()
     sha = _sha256(data)
 
     # Dedupe: identical bytes are skipped.
+    report_progress(1, 5, "Checking duplicate content")
     existing = db.find_by_sha256(conn, sha)
     if existing:
         return IngestResult(str(path), str(existing["id"]), "duplicate")
@@ -93,6 +96,7 @@ def ingest_file(conn: psycopg.Connection[Any], store: ObjectStore, path: Path) -
         return IngestResult(str(path), doc_id, "failed", error)
 
     try:
+        report_progress(2, 5, "Extracting document text")
         extracted = extract_mod.extract(data, filename=path.stem, extension=ext)
     except Exception as exc:  # extraction failed -> still record the blob + failure
         return record_failure(str(exc))
@@ -105,11 +109,13 @@ def ingest_file(conn: psycopg.Connection[Any], store: ObjectStore, path: Path) -
             "no extractable text — scanned/image-only file? OCR required before ingest"
         )
 
+    report_progress(3, 5, "Storing original blob")
     uri = store.put(key, data, extracted.content_type)
 
     full_text = extracted.full_text or ""
     text_sha = _sha256(full_text.encode("utf-8"))
     sentences = sent_mod.build_sentences(full_text)
+    report_progress(4, 5, "Persisting extracted document")
     provenance = prov_mod.build_events(
         content_sha256=sha,
         source_filename=path.name,

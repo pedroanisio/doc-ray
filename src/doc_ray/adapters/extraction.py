@@ -28,6 +28,7 @@ from defusedxml import ElementTree as ET
 from pypdf import PdfReader
 
 from doc_ray.domain import pdf_layout
+from doc_ray.domain.progress import report_progress
 
 
 class _PyMuPDFRect(Protocol):
@@ -214,7 +215,10 @@ def _blocks_from_pages(
 ) -> list[dict[str, Any]]:
     """Extract simplified text blocks from a PyMuPDF document."""
     blocks: list[dict[str, Any]] = []
+    total_pages = int(getattr(doc, "page_count", 0) or 0)
     for pageno, page in enumerate(doc):
+        verb = "OCRing" if ocr else "Extracting"
+        report_progress(pageno, total_pages, f"{verb} PDF page {pageno + 1} of {total_pages}")
         page_w = page.rect.width
         page_h = page.rect.height
         textpage = page.get_textpage_ocr(language=language) if ocr else None

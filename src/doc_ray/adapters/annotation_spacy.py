@@ -18,10 +18,8 @@ Usage:  python -m ingest.annotate_spacy --all
 
 from __future__ import annotations
 
-import argparse
 import bisect
 import os
-import sys
 from collections.abc import Callable
 from typing import Any
 
@@ -37,8 +35,8 @@ from doc_ray.adapters.annotation_capabilities import (
 )
 from doc_ray.adapters.annotation_validation import validate_spacy_annotation_output
 from doc_ray.adapters.persistence import DictConnection
-from doc_ray.config import Config
 from doc_ray.domain import lexemes as lex
+from doc_ray.domain.progress import report_progress
 from doc_ray.domain.ulid import ULIDFactory, new_ulid_str
 
 __all__ = [
@@ -219,6 +217,7 @@ class SpacyAnnotator:
         Returns:
             A summary mapping of per-layer counts plus ``lang`` and ``tool``.
         """
+        report_progress(0, 7, "Loading text and language model")
         row = conn.execute(
             "SELECT full_text FROM document_content WHERE document_id=%s", (doc_id,)
         ).fetchone()
@@ -229,8 +228,10 @@ class SpacyAnnotator:
         language_resolution = self.resolve_language(detected_lang, lang_default=lang_default)
         lang = language_resolution.annotation_language
         nlp, tool = self.nlp_for(lang, lang_default=lang_default)
+        report_progress(1, 7, "Running spaCy pipeline")
         doc = nlp(text)
 
+        report_progress(2, 7, "Indexing sentences")
         # sentence-span index for offset containment
         sent_spans = conn.execute(
             "SELECT s.id, sp.char_start, sp.char_end FROM sentences s "
@@ -246,11 +247,13 @@ class SpacyAnnotator:
             return None
 
         # Register every span we need (tokens, entities, chunks) in one bulk call.
+        report_progress(3, 7, "Registering token and entity spans")
         tok_spans = [(t.idx, t.idx + len(t.text)) for t in doc if t.text.strip()]
         ent_spans = [(e.start_char, e.end_char) for e in doc.ents]
         chunk_spans = [(c.start_char, c.end_char) for c in doc.noun_chunks]
         span_map = db.ensure_spans(conn, doc_id, tok_spans + ent_spans + chunk_spans)
 
+        report_progress(4, 7, "Building annotation layers")
         token_rows, feat_rows, tok_id = self._build_tokens(conn, doc, span_map, sentence_of, lang)
 
         dep_rows: list[DepRow] = []
@@ -271,6 +274,7 @@ class SpacyAnnotator:
         # produced and committed together.
         lex_occ = lexeme_projection_from_tokens(token_rows)
         lex_tool, lex_version = _split_tool_tag(tool)
+        report_progress(5, 7, "Validating annotation output")
         validation_summary = validate_spacy_annotation_output(
             text_length=len(text),
             span_map=span_map,
@@ -286,6 +290,7 @@ class SpacyAnnotator:
             language_resolution=language_resolution,
         )
 
+        report_progress(6, 7, "Persisting annotation layers")
         self._write(
             conn,
             doc_id,
@@ -478,63 +483,3 @@ class SpacyAnnotator:
                     "INSERT INTO provenance_params (event_id, key, value) VALUES (%s, %s, %s)",
                     [(provenance_id, key, str(value)) for key, value in provenance_params.items()],
                 )
-
-
-def _target_ids(conn: DictConnection, args: argparse.Namespace) -> list[str]:
-    """Resolve CLI selectors to an ordered list of document ids."""
-    if args.id:
-        return [args.id]
-    if args.filename:
-        rows = conn.execute(
-            "SELECT id FROM documents WHERE original_filename=%s", (args.filename,)
-        ).fetchall()
-    else:
-        rows = conn.execute(
-            "SELECT id FROM documents WHERE status='extracted' ORDER BY created_at"
-        ).fetchall()
-    return [str(r["id"]) for r in rows]
-
-
-def main(argv: list[str] | None = None) -> int:
-    """CLI entrypoint: annotate the selected documents with spaCy.
-
-    Args:
-        argv: Optional argument vector (defaults to ``sys.argv``).
-
-    Returns:
-        Process exit code (0 on success, 1 when no documents match).
-    """
-    ap = argparse.ArgumentParser(description="Annotate documents with spaCy (tokens/deps/NER/…).")
-    g = ap.add_mutually_exclusive_group()
-    g.add_argument("--id")
-    g.add_argument("--filename")
-    g.add_argument("--all", action="store_true")
-    args = ap.parse_args(argv)
-
-    ann = SpacyAnnotator()
-    with db.connect(Config.from_env()) as conn:
-        ids = _target_ids(conn, args)
-        if not ids:
-            print("No documents.", file=sys.stderr)
-            return 1
-        for doc_id in ids:
-            title_row = conn.execute(
-                "SELECT left(coalesce(original_filename,title),36) t FROM documents WHERE id=%s",
-                (doc_id,),
-            ).fetchone()
-            assert title_row is not None  # doc_id came from a documents query
-            title = title_row["t"]
-            try:
-                r = ann.annotate(conn, doc_id)
-                print(
-                    f"  {title:36}  {r.get('tokens', 0):>6} tok  "
-                    f"{r.get('entities', 0):>4} ent  {r.get('chunks', 0):>4} chunk  "
-                    f"{r.get('coref_chains', 0):>3} coref  [{r.get('tool', '-')}]"
-                )
-            except Exception as e:
-                print(f"  {title:36}  SKIPPED: {type(e).__name__}: {e}", file=sys.stderr)
-    return 0
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())
