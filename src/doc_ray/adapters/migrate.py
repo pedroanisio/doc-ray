@@ -82,10 +82,15 @@ def applied_filenames(conn: psycopg.Connection[Any]) -> set[str]:
     Returns:
         The set of applied migration filenames.
     """
-    try:
-        rows = conn.execute("SELECT filename AS filename FROM schema_migrations").fetchall()
-    except psycopg.errors.UndefinedTable:
+    table_row = conn.execute(
+        "SELECT to_regclass('public.schema_migrations') AS table_name"
+    ).fetchone()
+    table_name = (
+        None if table_row is None else _optional_row_value(table_row, "table_name")
+    )
+    if not table_name:
         return set()
+    rows = conn.execute("SELECT filename AS filename FROM schema_migrations").fetchall()
     return {(row["filename"] if isinstance(row, dict) else row[0]) for row in rows}
 
 
@@ -130,6 +135,14 @@ def _row_value(row: object, key: str, index: int = 0) -> str:
         return str(row[key])
     if isinstance(row, Sequence) and not isinstance(row, (bytes, str)):
         return str(row[index])
+    raise TypeError(f"unsupported row type: {type(row).__name__}")
+
+
+def _optional_row_value(row: object, key: str, index: int = 0) -> object | None:
+    if isinstance(row, Mapping):
+        return row.get(key)
+    if isinstance(row, Sequence) and not isinstance(row, (bytes, str)):
+        return row[index] if len(row) > index else None
     raise TypeError(f"unsupported row type: {type(row).__name__}")
 
 

@@ -57,20 +57,53 @@ class _Rows:
     def __init__(self, rows):
         self.rows = rows
 
+    def fetchone(self):
+        return self.rows[0] if self.rows else None
+
     def fetchall(self):
         return self.rows
 
 
 class _TupleRowConnection:
+    def __init__(self):
+        self.executed: list[str] = []
+
     def execute(self, sql):
+        self.executed.append(sql)
+        if "to_regclass" in sql:
+            return _Rows([("schema_migrations",)])
         assert sql == "SELECT filename AS filename FROM schema_migrations"
         return _Rows([("001_init.sql",), ("002_normalize_4nf.sql",)])
 
 
 def test_applied_filenames_accepts_tuple_rows():
-    applied = migrate.applied_filenames(_TupleRowConnection())
+    conn = _TupleRowConnection()
+    applied = migrate.applied_filenames(conn)
 
     assert applied == {"001_init.sql", "002_normalize_4nf.sql"}
+    assert conn.executed == [
+        "SELECT to_regclass('public.schema_migrations') AS table_name",
+        "SELECT filename AS filename FROM schema_migrations",
+    ]
+
+
+def test_applied_filenames_avoids_missing_schema_migrations_select():
+    class _MissingSchemaMigrationsConnection:
+        def __init__(self):
+            self.executed: list[str] = []
+
+        def execute(self, sql):
+            self.executed.append(sql)
+            if "to_regclass" in sql:
+                return _Rows([(None,)])
+            raise AssertionError("should not query absent schema_migrations")
+
+    conn = _MissingSchemaMigrationsConnection()
+
+    assert migrate.applied_filenames(conn) == set()
+    assert conn.executed == [
+        "SELECT to_regclass('public.schema_migrations') AS table_name"
+    ]
 
 
 def test_apply_migrations_replays_recorded_idempotent_repairs(monkeypatch, tmp_path):
@@ -92,6 +125,8 @@ def test_apply_migrations_replays_recorded_idempotent_repairs(monkeypatch, tmp_p
             return False
 
         def execute(self, sql, params=None):
+            if "to_regclass" in sql:
+                return _Rows([("schema_migrations",)])
             if sql == "SELECT filename AS filename FROM schema_migrations":
                 return _Rows([("001_init.sql",), (repair_name,)])
             if sql.startswith("SELECT pg_advisory_"):
@@ -131,6 +166,8 @@ def test_apply_migrations_skips_recorded_repair_when_catalog_is_converged(
             return False
 
         def execute(self, sql, params=None):
+            if "to_regclass" in sql:
+                return _Rows([("schema_migrations",)])
             if sql == "SELECT filename AS filename FROM schema_migrations":
                 return _Rows([(repair_name,)])
             if sql.startswith("SELECT pg_advisory_"):
