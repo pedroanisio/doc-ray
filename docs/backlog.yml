@@ -110,7 +110,7 @@ metadata:
   generated_by:     "Claude Sonnet 5 via Claude Code (merge of Claude Opus 4.8 backlog + OpenAI Codex improvement-proposal candidates)"
   generated_on:     "2026-07-05"
   system_of_record: "docs/backlog.yml"
-  total_items:      118
+  total_items:      123
 
 items:
 
@@ -2519,7 +2519,7 @@ items:
       as "no row" rather than a set of nullable columns.
     category:     "persistence"
     type:         "feature"
-    status:       "parked"
+    status:       "done"
     complexity:   "M"
     priority:     "high"
     rationale:    "Without a persisted column or table, BL-076's geometry lives only for the duration of one ingest request — gone the moment the job finishes — so nothing downstream (backfill, page rendering, the overlay view) has anything to read back."
@@ -3321,7 +3321,7 @@ items:
       manual SQL surgery against the `jobs` table.
     category:     "ops"
     type:         "feature"
-    status:       "parked"
+    status:       "done"
     complexity:   "S"
     priority:     "low"
     rationale:    "A status value the schema already models but the application never exposes is a half-finished feature — cheaper to complete than to leave as a trap for the next person who assumes cancellation exists because the enum says it does."
@@ -3334,7 +3334,7 @@ items:
       - "db/migrations/020_jobs.sql"
       - "src/doc_ray/adapters/queue_postgres.py"
     owner:        "shared"
-    source:       "Full-codebase gap-analysis 2026-07-10 (worker/job-queue subsystem audit)."
+    source:       "Full-codebase gap-analysis 2026-07-10 (worker/job-queue subsystem audit). Completed 2026-07-12 via admin-gated cancelJob, queue cancel transition, and worker safe checkpoint (commit 481d1f5)."
     tags:         ["ops", "feature", "jobs"]
 
   - id:          "BL-103"
@@ -3830,3 +3830,207 @@ items:
     owner:        "shared"
     source:       "Full-codebase gap-analysis 2026-07-10 (observability subsystem audit)."
     tags:         ["ops", "observability", "metrics", "tracing", "feature"]
+
+  - id:          "BL-119"
+    title:        "Webapp: per-document pipeline reprocess controls (re-extract, re-annotate, re-enrich, re-canonicalize)"
+    summary:      "The document page's pipeline-status panel is read-only: it shows each step's jobs and failures but offers no way to run anything again. Every reprocess lever is GraphQL- or CLI-only (reannotate, annotateDocument, semanticEnrichDocument, canonicalizeDocument, reextractDocument, python -m doc_ray.entrypoints.reextract), so an operator looking at a failed step — or at BL-082's 'Original overlay is not available until this PDF is re-extracted' notice — has to leave the UI and hand-craft a mutation or docker exec to act on what the page just told them."
+    description: |
+      Confirmed live 2026-07-12 while backfilling span geometry (BL-078):
+      the only way to command a re-extraction was `docker exec` into the
+      worker container and run the CLI; the webapp renders the
+      unavailable-overlay notice with no action attached, and the pipeline
+      panel (webapp/job_view.py rows on document.html) exposes no controls.
+
+      Add a Reprocess control block on the document page (or per-row
+      actions in the pipeline panel): one action per step — re-extract
+      (PDF-only), re-annotate, semantic-enrich, re-canonicalize — each
+      posting through the webapp's existing thin GraphQL write path
+      (graphql_client.gql, the same route upload/seeding/backups use),
+      behind the shared CSRF hook (BL-103) with a Seed-style confirm
+      guardrail (BL-030) and the standard "queued" redirect notice, since
+      every write is an async job (D-004/D-005).
+    category:     "webapp"
+    type:         "feature"
+    status:       "done"
+    complexity:   "S"
+    priority:     "medium"
+    rationale:    "Closes the loop between the read-only pipeline panel and the write path that already exists end to end — every needed mutation ships today; the UI just never grew the buttons. Requested by the operator on 2026-07-12 after hitting the CLI-only re-extraction path."
+    acceptance_criteria:
+      - "The document page exposes controls to enqueue reannotate, semanticEnrichDocument, canonicalizeDocument, and (for PDFs only) reextractDocument for that document, each behind the shared CSRF check and a confirm affordance."
+      - "Controls reflect live job state: a step with a queued or running job shows that state instead of offering a second enqueue (no accidental double-enqueue)."
+      - "BL-082's overlay-unavailable notice links directly to (or embeds) the re-extract action instead of dead-ending."
+      - "A clean error is surfaced when the API principal lacks write/admin scope, matching the upload/seeding error pattern."
+      - "Webapp tests cover render, successful enqueue redirect with the right mutation variables, and the error path — mirroring the seeding screen's test pattern."
+    dependencies: []
+    references:
+      - "webapp/app.py"
+      - "webapp/templates/document.html"
+      - "webapp/job_view.py"
+      - "src/doc_ray/entrypoints/api/mutation.py"
+    owner:        "shared"
+    source:       "Operator request 2026-07-12 (this session): reprocessing any pipeline step is CLI/GraphQL-only; surfaced while running the BL-078 geometry backfill for a document whose overlay view asked for re-extraction. Completed 2026-07-12 with document-page controls, duplicate active-job suppression, CSRF coverage, and overlay re-extract action (commit b56c2c3)."
+    tags:         ["webapp", "pipeline", "reprocess", "ux"]
+
+  - id:          "BL-120"
+    title:        "Webapp: bulk reprocess actions (re-annotate / re-extract across a selection)"
+    summary:      "BL-060 landed a bulk-action bar scoped to tag/archive/move/delete; reprocessing many documents at once (corpus-wide geometry backfill after BL-078, re-annotation after a spaCy model upgrade) still requires the reextract CLI's --enqueue-all or scripted GraphQL calls — reextractDocuments exists but nothing in the UI drives it, and re-annotation has no batch surface at all."
+    description: |
+      Extend the documents-list bulk-action bar (BL-060) with re-annotate
+      and re-extract actions over the current selection, driving the
+      existing batch mutation where one exists (reextractDocuments) and
+      per-id enqueues otherwise. Batches are bounded by the same
+      MAX_BATCH_IDS guard the API already enforces (BL-109 pattern) and
+      the confirm dialog states the exact number of jobs about to be
+      queued, so a stray click cannot flood the job queue.
+    category:     "webapp"
+    type:         "feature"
+    status:       "done"
+    complexity:   "S"
+    priority:     "low"
+    rationale:    "The UI equivalent of the CLI-only --enqueue-all path: model upgrades and geometry backfills are corpus-scale operations, and doing them one document page at a time (BL-119) does not scale past a handful of documents."
+    acceptance_criteria:
+      - "The bulk-action bar offers re-annotate and re-extract over the current selection, enqueueing one job per applicable document (re-extract skips non-PDFs and reports the skip count)."
+      - "Batch size is bounded by the API's existing MAX_BATCH_IDS guard and the confirm dialog states the number of jobs to be queued."
+      - "Webapp tests cover the enqueue path, the non-PDF skip behavior, and the over-limit rejection."
+    dependencies: ["BL-060"]
+    references:
+      - "webapp/templates/documents.html"
+      - "webapp/app.py"
+      - "src/doc_ray/entrypoints/api/mutation.py"
+    owner:        "shared"
+    source:       "Operator request 2026-07-12 (this session), alongside BL-119; split out because the positioning surface (bulk bar vs document page) and the queue-flood guardrails differ. Completed 2026-07-12 with corpus bulk re-annotate/re-extract actions, skip reporting, and batch-limit tests (commit cf82ffa)."
+    tags:         ["webapp", "pipeline", "reprocess", "bulk", "ux"]
+
+  - id:          "BL-121"
+    title:        "GraphQL Job type omits the queue timing the jobs table already stores"
+    summary:      "The jobs table records created_at, run_after, started_at, finished_at, heartbeat_at, attempts, and max_attempts, but the GraphQL Job type exposes only id/kind/status/documentId/error/result/cursor — an API client cannot compute queue wait, job latency, or retry count, and cannot build a pipeline timeline. The webapp's pipeline panel sidesteps the gap by reading Postgres directly, making API consumers second-class for exactly the data an operator most wants when a job looks stuck."
+    description: |
+      Confirmed live 2026-07-12: information_schema lists 16 columns on
+      jobs, including created_at/started_at/finished_at/attempts;
+      entrypoints/api/types.py's Job type maps none of them in from_row.
+      The fix is additive field exposure — nullable createdAt/startedAt/
+      finishedAt (started/finished are null until the transition happens)
+      plus attempts/maxAttempts — with no schema or queue change, since
+      the columns already exist and every job read path already selects
+      full rows. Non-breaking for existing clients (new nullable fields).
+    category:     "api"
+    type:         "tech-debt"
+    status:       "done"
+    complexity:   "XS"
+    priority:     "medium"
+    rationale:    "Surfaced 2026-07-12 while watching reextract backfill jobs ride out worker restarts: status alone cannot distinguish 'queued for two seconds' from 'queued behind a 1703-page sibling for ten minutes', and attempts is invisible even though stale-heartbeat reclaims actively increment it."
+    acceptance_criteria:
+      - "Job exposes createdAt, startedAt, finishedAt (nullable datetimes) and attempts/maxAttempts, mapped in from_row from the existing queue columns."
+      - "jobs(documentId:) and job(id) both return the new fields; a regression test asserts a finished job carries all three timestamps and a queued one carries only createdAt."
+      - "Existing clients are unaffected (fields are additive and nullable)."
+    dependencies: []
+    references:
+      - "src/doc_ray/entrypoints/api/types.py"
+      - "db/migrations/020_jobs.sql"
+    owner:        "shared"
+    source:       "Operator request 2026-07-12 (this session): asked whether an endpoint reports pipeline history/events; gap confirmed against information_schema vs types.py. Completed 2026-07-12 by exposing Job timing and attempt fields in GraphQL with regression coverage (commit e1e1765)."
+    tags:         ["api", "jobs", "observability", "tech-debt"]
+
+  - id:          "BL-122"
+    title:        "Push-based pipeline progress: subscriptions, webhooks, or SSE instead of poll-only"
+    summary:      "Every pipeline surface is poll-only by design (D-004/D-005: mutations enqueue and return a job; clients poll job(id); the webapp meta-refreshes every 3s while anything is queued or running). No GraphQL subscription, webhook registration, or SSE endpoint exists anywhere — an API consumer driving ingestion (an AI agent, a CI pipeline) must busy-poll to learn a job finished."
+    description: |
+      Confirmed live 2026-07-12: the Strawberry schema registers no
+      subscription type, and a repo-wide grep for webhook/callback/SSE
+      surfaces nothing. Three candidate mechanisms with genuinely
+      different trade-offs, which is why this is parked pending an
+      operator decision rather than ready:
+
+      (a) GraphQL subscriptions (Strawberry supports them over
+      websockets) — most natural for the existing API, but adds a
+      websocket leg to the uvicorn deployment and needs a bridge from
+      job-status transitions (Postgres LISTEN/NOTIFY fits, since every
+      transition already goes through queue_postgres).
+      (b) Outbound webhooks — best for unattended automations, but adds
+      callback-URL registration, delivery/retry semantics, and an SSRF
+      surface that would need the same hardening posture as BL-088/BL-094.
+      (c) Server-sent events — the smallest server-push option, one-way,
+      proxy-friendly (the nginx front door would need buffering off for
+      the SSE location).
+
+      Whichever lands should treat the jobs table as the single source of
+      truth (NOTIFY on status transition, no parallel event store), and
+      delivery must respect the same principal scoping as job reads
+      (BL-064's document_acl model). Synergy: BL-117's correlation ids
+      would ride the same events; BL-121's timestamps make the payloads
+      useful.
+
+      DECIDED 2026-07-12 (operator): EventSource/SSE — option (c). The
+      stream should also carry BL-123's within-job progress updates, not
+      only status transitions, so one EventSource covers both "the job
+      moved state" and "the job is 60% through extraction". Unparked to
+      ready on that decision; nginx config gains proxy_buffering off for
+      the SSE location when this lands.
+    category:     "api"
+    type:         "feature"
+    status:       "done"
+    complexity:   "M"
+    priority:     "high"
+    rationale:    "Originally parked because the mechanism pick (subscriptions vs webhooks vs SSE) was the operator's call; the operator picked EventSource/SSE on 2026-07-12 and named async progress a first-class requirement, which resolves the design question and raises the priority."
+    acceptance_criteria:
+      - "An API consumer can receive job status transitions (queued -> running -> succeeded/failed, including reclaim/retry) for a document or job without polling, via the chosen mechanism."
+      - "Event delivery respects the same principal/document scoping as job reads — no cross-tenant/cross-grant leakage of job events."
+      - "The jobs table remains the source of truth: events are emitted from status transitions (e.g. LISTEN/NOTIFY), not a second event store."
+      - "docs/architecture.md and the API docs describe the mechanism and its deployment implications (websocket leg, webhook retries, or SSE buffering at the nginx front door)."
+    dependencies: []
+    references:
+      - "src/doc_ray/entrypoints/api/schema.py"
+      - "src/doc_ray/adapters/queue_postgres.py"
+      - "docs/architecture.md"
+    owner:        "shared"
+    source:       "Operator request 2026-07-12 (this session), same investigation as BL-121: no push mechanism exists; poll-only confirmed against schema.py and a repo-wide webhook/SSE grep. Completed 2026-07-12 with an RLS-filtered EventSource/SSE job event stream, Postgres NOTIFY transition events, nginx buffering config, and docs (commit 0179632)."
+    tags:         ["api", "jobs", "events", "subscriptions", "webhooks", "feature"]
+
+  - id:          "BL-123"
+    title:        "First-class async job progress: within-job progress reporting from worker handlers, surfaced live"
+    summary:      "A running job is opaque today: the jobs row flips queued -> running -> succeeded/failed with nothing in between, so a 1703-page PDF extraction and a 3-sentence text ingest look identical while running — the webapp panel can only show a spinner and API consumers can only poll a status that never changes mid-job. Operators cannot distinguish 'working through page 900 of 1703' from 'hung' (BL-100's timeout gap is the failure-side twin of this visibility gap)."
+    description: |
+      Requirement named by the operator 2026-07-12: ingestion, processing,
+      and extraction need a first-class async progress indicator.
+
+      Shape: the jobs table gains progress fields (progress_current,
+      progress_total, progress_stage text), written by long-running worker
+      handlers at natural batch boundaries — extraction per page,
+      annotation per sentence batch, semantic enrichment per layer,
+      backup per table, reextract per page — piggybacking on the existing
+      heartbeat write cadence so progress costs no extra round-trips
+      (queue_postgres already touches the row via heartbeat_at while a
+      job runs). Surfaces, in order: GraphQL Job exposes
+      progressCurrent/progressTotal/progressStage alongside BL-121's
+      timestamps; the webapp pipeline panel renders a real progress bar
+      with stage text during its existing refresh cycle; BL-122's
+      EventSource stream pushes progress events live so both the webapp
+      and unattended API consumers can drop polling entirely.
+
+      Sequencing note: the same queue plumbing (application/jobs.py,
+      ports/queue.py, adapters/queue_postgres.py) is being modified by
+      BL-102 (job cancellation) at the time of writing — land this after
+      BL-102 merges to avoid painful conflicts; cancellation checks and
+      progress writes will likely share the same handler checkpoint
+      pattern, so landing second can reuse it.
+    category:     "ops"
+    type:         "feature"
+    status:       "ready"
+    complexity:   "M"
+    priority:     "high"
+    rationale:    "Operator requirement (2026-07-12). Status-transition events alone (BL-122) cannot answer 'how far along is this job' — that requires the worker to report from inside the handler. The heartbeat write path already exists at exactly the right cadence, making this an instrumentation surface rather than new machinery."
+    acceptance_criteria:
+      - "A migration adds progress fields to jobs; long-running handlers (ingest/extract, annotate, semantic_enrich, canonicalize, backup, reextract) update them at batch boundaries without measurable throughput regression."
+      - "GraphQL Job exposes progressCurrent/progressTotal/progressStage; a mid-run job shows advancing values, a completed one shows current == total."
+      - "The webapp pipeline panel shows a progress bar + stage text for running jobs (graceful fallback to today's spinner when a handler reports no progress)."
+      - "Progress updates are emitted on BL-122's EventSource stream when it lands, using the same event channel as status transitions."
+      - "Tests cover a handler that reports progress, one that doesn't (fallback), and the API field exposure."
+    dependencies: ["BL-102"]
+    references:
+      - "src/doc_ray/application/jobs.py"
+      - "src/doc_ray/adapters/queue_postgres.py"
+      - "src/doc_ray/entrypoints/api/types.py"
+      - "webapp/job_view.py"
+    owner:        "shared"
+    source:       "Operator requirement 2026-07-12 (this session): 'the ingestion, processing, extraction, need a first class async progress indicator or eventsource full' — the same message selected SSE for BL-122."
+    tags:         ["ops", "jobs", "progress", "observability", "feature"]

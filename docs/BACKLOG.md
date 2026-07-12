@@ -205,6 +205,37 @@ service healthy as uid 10001; a full ingest→annotate→semantic_enrich→
 canonicalize pipeline and a scheduled backup ran end-to-end non-root on the
 uv-built image.
 
+**2026-07-12 pipeline-reprocess UX (operator request):** added `BL-119`
+(per-document reprocess controls — re-extract/re-annotate/re-enrich/
+re-canonicalize on the document page, wired to the mutations that all exist
+today) and `BL-120` (bulk re-annotate/re-extract on BL-060's bulk-action bar,
+bounded by `MAX_BATCH_IDS`). Gap surfaced while running the BL-078 geometry
+backfill: the pipeline panel and BL-082's "re-extract needed" notice are
+read-only dead ends — commanding the re-extraction required `docker exec` +
+CLI. Both items are UI wiring over the existing thin GraphQL write path
+(CSRF hook, Seed-style confirm, async "queued" notice), no new API surface.
+
+**2026-07-12 pipeline observability API gaps (operator request):** added
+`BL-121` (the GraphQL `Job` type hid the queue timing the `jobs` table
+already stores — createdAt/startedAt/finishedAt/attempts were additive,
+nullable field exposures) and `BL-122` (push-based pipeline progress —
+subscriptions vs webhooks vs SSE laid out with their deployment and security
+trade-offs; the operator later picked SSE). Both were confirmed live:
+`information_schema` vs `types.py` for the former; no subscription type in the
+Strawberry schema and a clean webhook/SSE grep for the latter.
+
+**2026-07-12 async progress becomes first-class (operator decision):** the
+operator selected **EventSource/SSE** as BL-122's push mechanism and named
+async pipeline progress a first-class requirement — BL-122 later landed as
+the SSE job stream, and its stream now also carries within-job progress; new
+`BL-123` (ready/M/high) adds the progress source itself: `jobs` gains
+`progress_current/progress_total/progress_stage` written by long-running
+handlers at batch boundaries (extraction per page, annotation per sentence
+batch, backup per table) on the existing heartbeat write cadence, exposed on
+the GraphQL `Job`, rendered as a real progress bar in the pipeline panel,
+and pushed over the SSE stream. Sequenced after BL-102 (job cancellation),
+which is modifying the same queue plumbing as this is written.
+
 ## Items
 
 | ID | Item | Category | Type | Status | Cx | Priority | Owner |
@@ -310,7 +341,7 @@ uv-built image.
 | BL-099 | No encryption enforcement for object storage, at rest or in transit | security | tech-debt | parked | M | medium | shared |
 | BL-100 | Worker detects crashed jobs but not hung ones — no execution timeout | ops | bug | parked | M | medium | shared |
 | BL-101 | Worker's outer poll loop has no resilience to a dropped DB connection | ops | bug | done | S | medium | shared |
-| BL-102 | JobStatus.CANCELED is a dead status — no code path ever sets it | ops | feature | parked | S | low | shared |
+| BL-102 | JobStatus.CANCELED is a dead status — no code path ever sets it | ops | feature | done | S | low | shared |
 | BL-103 | Webapp has no CSRF protection on any state-changing form | security | bug | done | M | high | shared |
 | BL-104 | Webapp sends no security response headers (CSP, X-Frame-Options, etc.) | security | tech-debt | done | S | medium | shared |
 | BL-105 | No rate limiting on expensive webapp routes (search, upload) | security | tech-debt | parked | M | medium | shared |
@@ -327,6 +358,11 @@ uv-built image.
 | BL-116 | Webapp: 3 of 5 exception handlers never log to app.logger | webapp | bug | done | XS | low | shared |
 | BL-117 | No request/correlation-id threading across webapp -> API -> queue -> worker | ops | feature | parked | M | low | shared |
 | BL-118 | Zero metrics/tracing integration anywhere in the stack | ops | feature | parked | L | low | shared |
+| BL-119 | Webapp: per-document pipeline reprocess controls (re-extract, re-annotate, re-enrich, re-canonicalize) | webapp | feature | done | S | medium | shared |
+| BL-120 | Webapp: bulk reprocess actions (re-annotate / re-extract across a selection) | webapp | feature | done | S | low | shared |
+| BL-121 | GraphQL Job type omits the queue timing the jobs table already stores | api | tech-debt | done | XS | medium | shared |
+| BL-122 | Push-based pipeline progress: subscriptions, webhooks, or SSE instead of poll-only | api | feature | done | M | high | shared |
+| BL-123 | First-class async job progress: within-job progress reporting from worker handlers, surfaced live | ops | feature | ready | M | high | shared |
 
 See [`backlog.yml`](backlog.yml) for each item's full description, rationale,
 acceptance criteria, dependencies, related decisions (`D-###`), and references.
