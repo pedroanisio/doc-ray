@@ -19,7 +19,7 @@ import secrets
 from html import escape as html_escape
 
 import psycopg
-from flask import Flask, g, jsonify, redirect, render_template, request, url_for
+from flask import Flask, g, jsonify, make_response, redirect, render_template, request, url_for
 from psycopg import sql
 from psycopg.rows import dict_row
 
@@ -32,6 +32,7 @@ try:
     from webapp.health_contract import operator_health_payload
     from webapp.job_view import decorate_job_rows, summarize_progress
     from webapp.operator_health import build_operator_health, require_operator_health
+    from webapp.rate_limit import FixedWindowRateLimiter, rate_limit_rule_from_env
     from webapp.reader_blocks import attach_page_blocks, latest_annotation_state
     from webapp.security_headers import apply_security_headers
 except ModuleNotFoundError:  # pragma: no cover - direct ``python webapp/app.py`` path.
@@ -41,6 +42,7 @@ except ModuleNotFoundError:  # pragma: no cover - direct ``python webapp/app.py`
     from health_contract import operator_health_payload
     from job_view import decorate_job_rows, summarize_progress
     from operator_health import build_operator_health, require_operator_health
+    from rate_limit import FixedWindowRateLimiter, rate_limit_rule_from_env
     from reader_blocks import attach_page_blocks, latest_annotation_state
     from security_headers import apply_security_headers
 
@@ -63,6 +65,54 @@ app.add_url_rule("/help", "help_page", lambda: render_template("help.html"))
 # of one process even when unset (dev-only — set explicitly for a real deployment).
 app.secret_key = os.environ.get("DOCRAY_WEBAPP_SECRET_KEY") or secrets.token_hex(32)
 app.jinja_env.globals["csrf_token"] = csrf_token
+
+_RATE_LIMITER = FixedWindowRateLimiter()
+
+
+def reset_rate_limits() -> None:
+    """Clear webapp rate-limit counters; used by tests and local diagnostics."""
+    _RATE_LIMITER.reset()
+
+
+def _client_identifier() -> str:
+    return request.access_route[0] if request.access_route else (request.remote_addr or "unknown")
+
+
+def _rate_limit_response(retry_after_seconds: int):
+    response = make_response("Too many requests. Please retry later.\n", 429)
+    response.headers["Retry-After"] = str(retry_after_seconds)
+    return response
+
+
+def enforce_webapp_rate_limits():
+    """Throttle expensive unauthenticated webapp routes per client."""
+    route = None
+    rule = None
+    if request.endpoint == "search":
+        route = "search"
+        rule = rate_limit_rule_from_env(
+            os.environ,
+            "DOCRAY_WEBAPP_SEARCH_RATE_LIMIT",
+            default_requests=60,
+            default_window_seconds=60,
+        )
+    elif request.endpoint == "upload_submit":
+        route = "upload"
+        rule = rate_limit_rule_from_env(
+            os.environ,
+            "DOCRAY_WEBAPP_UPLOAD_RATE_LIMIT",
+            default_requests=10,
+            default_window_seconds=60,
+        )
+    if route is None or rule is None:
+        return None
+    result = _RATE_LIMITER.check(route, _client_identifier(), rule)
+    if not result.allowed:
+        return _rate_limit_response(result.retry_after_seconds)
+    return None
+
+
+app.before_request(enforce_webapp_rate_limits)
 app.before_request(require_csrf_token)
 app.after_request(apply_security_headers)
 

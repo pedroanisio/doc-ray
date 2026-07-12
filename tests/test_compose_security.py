@@ -88,6 +88,27 @@ def test_env_example_does_not_publish_the_historical_default_password():
     assert "POSTGRES_PASSWORD=change-me" in text
 
 
+def test_webapp_rate_limit_knobs_are_exposed_in_compose_and_env_example():
+    """BL-105: operators can tune expensive webapp route throttles in Compose."""
+    compose_env = _compose("docker-compose.yml")["services"]["webapp"]["environment"]
+    env_text = (_ROOT / ".env.example").read_text(encoding="utf-8")
+
+    expected = {
+        "DOCRAY_WEBAPP_SEARCH_RATE_LIMIT_REQUESTS": "${DOCRAY_WEBAPP_SEARCH_RATE_LIMIT_REQUESTS:-60}",
+        "DOCRAY_WEBAPP_SEARCH_RATE_LIMIT_WINDOW_SECONDS": (
+            "${DOCRAY_WEBAPP_SEARCH_RATE_LIMIT_WINDOW_SECONDS:-60}"
+        ),
+        "DOCRAY_WEBAPP_UPLOAD_RATE_LIMIT_REQUESTS": "${DOCRAY_WEBAPP_UPLOAD_RATE_LIMIT_REQUESTS:-10}",
+        "DOCRAY_WEBAPP_UPLOAD_RATE_LIMIT_WINDOW_SECONDS": (
+            "${DOCRAY_WEBAPP_UPLOAD_RATE_LIMIT_WINDOW_SECONDS:-60}"
+        ),
+    }
+
+    for key, value in expected.items():
+        assert compose_env[key] == value
+        assert f"{key}=" in env_text
+
+
 def test_ingester_is_profiled_as_an_on_demand_run_only_service():
     compose = _compose("docker-compose.yml")
     ingester = compose["services"]["ingester"]

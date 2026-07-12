@@ -344,7 +344,7 @@ which is modifying the same queue plumbing as this is written.
 | BL-102 | JobStatus.CANCELED is a dead status — no code path ever sets it | ops | feature | done | S | low | shared |
 | BL-103 | Webapp has no CSRF protection on any state-changing form | security | bug | done | M | high | shared |
 | BL-104 | Webapp sends no security response headers (CSP, X-Frame-Options, etc.) | security | tech-debt | done | S | medium | shared |
-| BL-105 | No rate limiting on expensive webapp routes (search, upload) | security | tech-debt | parked | M | medium | shared |
+| BL-105 | No rate limiting on expensive webapp routes (search, upload) | security | tech-debt | done | M | medium | shared |
 | BL-106 | Upload extension is client-controlled and unchecked before the blob is stored | security | bug | done | S | medium | shared |
 | BL-107 | Operator health token travels via URL query string, not a header | security | bug | done | XS | medium | shared |
 | BL-108 | GraphQL introspection and GraphiQL are enabled with no production gating | security | bug | done | XS | high | shared |

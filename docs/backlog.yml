@@ -3410,7 +3410,7 @@ items:
       cheap to hammer repeatedly and expensive to serve.
     category:     "security"
     type:         "tech-debt"
-    status:       "parked"
+    status:       "done"
     complexity:   "M"
     priority:     "medium"
     rationale:    "An unauthenticated-by-default deployment (DOCRAY_API_ALLOW_ANONYMOUS defaults true) with no throttle on its most expensive routes is a straightforward resource-exhaustion target."
@@ -3420,7 +3420,7 @@ items:
     references:
       - "webapp/app.py"
     owner:        "shared"
-    source:       "Full-codebase gap-analysis 2026-07-10 (webapp security subsystem audit)."
+    source:       "Full-codebase gap-analysis 2026-07-10 (webapp security subsystem audit). Completed 2026-07-12 with an in-process fixed-window limiter wired before the search/upload route bodies, per-client buckets, configurable Compose/env knobs, clean 429 + Retry-After responses, and route/unit regression tests."
     tags:         ["security", "webapp", "dos", "tech-debt"]
 
   - id:          "BL-106"
