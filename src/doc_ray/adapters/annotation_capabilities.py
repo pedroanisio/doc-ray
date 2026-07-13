@@ -17,7 +17,11 @@ SUPPORTED_SPACY_LAYERS = (
     "lexeme_projection",
 )
 
-CAPABILITY_MODELS = {"en": "en_core_web_sm", "pt": "pt_core_news_sm"}
+CAPABILITY_MODELS = {
+    "en": "en_core_web_sm",
+    "pt": "pt_core_news_sm",
+    "fr": "fr_core_news_sm",
+}
 
 
 @dataclass(frozen=True)

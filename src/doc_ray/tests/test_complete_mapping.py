@@ -11,6 +11,7 @@ from __future__ import annotations
 import _itdb
 import pytest
 
+from doc_ray.adapters.annotation_capabilities import CAPABILITY_MODELS
 from doc_ray.adapters.annotation_spacy import (
     SpacyAnnotator,
     TokenRow,
@@ -48,29 +49,54 @@ def test_spacy_capability_registry_exposes_models_layers_and_install_status():
     } <= set(caps["en"].supported_layers)
 
 
+def test_configured_languages_have_installable_models():
+    """en, pt, and fr are all first-class annotation languages.
+
+    fr and pt were added so genuinely non-English documents (e.g. a
+    French-dominant book) annotate instead of failing closed with
+    UnsupportedAnnotationLanguage; each maps to its own spaCy model.
+    """
+    assert CAPABILITY_MODELS == {
+        "en": "en_core_web_sm",
+        "pt": "pt_core_news_sm",
+        "fr": "fr_core_news_sm",
+    }
+
+
+def test_spacy_annotator_resolves_french_without_fallback():
+    ann = SpacyAnnotator()
+
+    resolution = ann.resolve_language("fr", lang_default="en")
+
+    assert resolution.annotation_language == "fr"
+    assert resolution.model == "fr_core_news_sm"
+    assert resolution.fallback_used is False
+
+
 def test_spacy_annotator_rejects_unsupported_language_by_default():
     ann = SpacyAnnotator()
 
-    with pytest.raises(UnsupportedAnnotationLanguage, match="fr"):
-        ann.resolve_language("fr", lang_default="en")
+    # 'de' has no configured model (supported: en, fr, pt), so it must fail closed.
+    with pytest.raises(UnsupportedAnnotationLanguage, match="de"):
+        ann.resolve_language("de", lang_default="en")
 
 
 def test_spacy_annotator_fallback_policy_is_explicit_and_provenance_ready():
     ann = SpacyAnnotator(fallback_policy="fallback")
 
-    resolution = ann.resolve_language("fr", lang_default="en")
+    resolution = ann.resolve_language("de", lang_default="en")
 
-    assert resolution.requested_language == "fr"
+    assert resolution.requested_language == "de"
     assert resolution.annotation_language == "en"
     assert resolution.model == "en_core_web_sm"
     assert resolution.fallback_used is True
     assert resolution.provenance_params() == {
-        "detected_language": "fr",
+        "detected_language": "de",
         "annotation_language": "en",
         "language_model": "en_core_web_sm",
         "language_fallback_policy": "fallback",
         "language_fallback_used": True,
-        "language_fallback_from": "fr",
+        "language_fallback_from": "de",
         "language_fallback_to": "en",
     }
 
