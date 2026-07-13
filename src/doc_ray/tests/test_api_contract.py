@@ -64,7 +64,7 @@ def test_graphql_exposes_document_collections_surface():
     assert "addDocumentToCollection(" in sdl
     assert "removeDocumentFromCollection(" in sdl
     assert "type DocumentCollection" in sdl
-    assert "collections(" in sdl[sdl.index("type Document "):]
+    assert "collections(" in sdl[sdl.index("type Document ") :]
 
 
 def test_graphql_job_type_exposes_queue_timing_and_attempts():
