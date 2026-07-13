@@ -287,8 +287,9 @@ def collection_rule_summary(rule: CollectionRuleInput) -> str:
         parts.append(f"type: {normalized['doc_type']}")
     if normalized.get("status"):
         parts.append(f"status: {normalized['status']}")
-    if normalized.get("tags"):
-        parts.append("tags: " + ", ".join(str(tag) for tag in normalized["tags"]))
+    tags = normalized.get("tags")
+    if isinstance(tags, (list, tuple)) and tags:
+        parts.append("tags: " + ", ".join(str(tag) for tag in tags))
     return "; ".join(parts) if parts else "all documents"
 
 

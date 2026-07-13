@@ -499,11 +499,13 @@ class Mutation:
             (clean_name, description.strip(), clean_kind, json.dumps(clean_rule, sort_keys=True)),
         )
         row = await cur.fetchone()
+        if row is None:  # INSERT ... RETURNING always yields a row; guard the contract
+            raise RuntimeError("collection insert returned no row")
         await _audit_mutation_event(
             ctx,
             action="mutation.create_collection",
             target_type="collection",
-            target_id=str(row["id"]) if row else None,
+            target_id=str(row["id"]),
             outcome="success",
         )
         return await _collection_status(ctx, str(row["id"]))
