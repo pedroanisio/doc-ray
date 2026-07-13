@@ -354,7 +354,14 @@ second red gate no item tracked: `check_version_consistency.py` failing on
 main (`__version__` 1.22.0 vs schema 1.24.0 — migrations 074–077 landed
 without a version bump or CHANGELOG sections). Filed and fixed as `BL-136`
 the same session: version bumped, 1.23.0/1.24.0 release sections
-reconstructed from git history.
+reconstructed from git history. `BL-129`'s split program was then executed
+in full — all 14 over-cap files split into sibling modules (one commit each,
+full suite green, every core module re-exporting the moved names so the D-019
+grep checks and caller imports stayed stable), restoring
+`check_file_size.py` to exit 0 on main. Four pre-existing red tests
+(`test_api_refresh_tokens`, `test_read_surface_parity`, `test_doc_hygiene`,
+`test_truncate_corpus`) were fixed first so the suite was green to split
+against.
 
 ## Items
 
@@ -488,7 +495,7 @@ reconstructed from git history.
 | BL-126 | Persist per-page dimensions for every PDF page so a text-free page is a representable fact | persistence | tech-debt | done | S | medium | shared |
 | BL-127 | GraphQL lexeme reads leak hidden-document vocabulary to anonymous callers | security | bug | done | S | high | shared |
 | BL-128 | auth_admin CLI: raw traceback on unreachable DB, divergent host-side DB defaults, and no operator docs | tooling | bug | done | S | medium | shared |
-| BL-129 | Restore the D-015 400-net-LOC gate: 14 files are over the cap after the recent landings | tooling | tech-debt | ready | L | high | shared |
+| BL-129 | Restore the D-015 400-net-LOC gate: 14 files are over the cap after the recent landings | tooling | tech-debt | done | L | high | shared |
 | BL-130 | test_api_jwt signed-access-JWT acceptance test fails on clean main | testing | bug | done | S | high | shared |
 | BL-131 | Webapp collection writes silently rolled back — created collections vanished after the redirect | webapp | bug | done | XS | high | shared |
 | BL-132 | Deploy-kills burned job attempts: long annotate jobs permanently failed by consecutive fleet deploys | ops | bug | done | S | high | shared |

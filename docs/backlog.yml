@@ -4232,18 +4232,26 @@ items:
     title:        "Restore the D-015 400-net-LOC gate: 14 files are over the cap after the recent landings"
     summary:      "check_file_size.py fails on main with 14 files over 400 net LOC (re-measured 2026-07-13; was 12 when filed): webapp/app.py (1563, was 1234 before the design-system refresh), entrypoints/api/app.py (852), adapters/extraction.py (797), tests/test_jobs_worker.py (763), entrypoints/api/mutation.py (623), tests/test_mutations.py (615), adapters/persistence.py (590), application/jobs.py (559), adapters/persistence_read.py (471), entrypoints/api/types.py (456), tests/test_extract_formats.py (435), tests/test_jobs_pipeline.py (413), tests/test_api_jwt.py (410), tests/test_api_app.py (408). Fleet landings run pytest but skip the static gates, so the cap has eroded steadily; every list entry is an independent split task, ideal for parallel consumption."
     description: |
-      Split, do not trim: follow the repo's established split precedents —
-      webapp/app.py into route/blueprint modules (collections, lifecycle,
-      reprocess, auth-session, backups, seeding already have natural seams;
-      job_view/security_headers/csrf show the sibling-module pattern);
-      extraction.py by format family; api/app.py by route group (SSE,
-      downloads, metrics); jobs.py by handler domain; test files by concern
-      (test_mutations was split once already and regrew). Each split is its
-      own commit with the full suite green; do not exceed one source file
-      per task to keep locks narrow and collisions rare.
+      Done (2026-07-13): all 14 files split into sibling modules, one commit
+      each with the full suite green, following the repo's split precedents —
+      webapp/app.py into auth_web/corpus_web/document_web/collections_web/
+      admin_web/overlay_web/previews; api/app.py into downloads/job_events/
+      auth_routes/audit_export; extraction.py by format family
+      (extraction_common/pdf/markup/svg/office); mutation.py into
+      mutation_guards + mutation_collections; types.py into document_types;
+      persistence.py into persistence_geometry + persistence_doc_admin;
+      jobs.py into job_handlers; persistence_read.py into
+      persistence_read_collections; and the six over-cap test files by
+      concern. Every core module re-exports the moved names, so the D-019
+      grep checks and every caller's import surface stayed stable. No file
+      was trimmed to game the counter. check_file_size.py now exits 0 on
+      main. Four pre-existing red tests (test_api_refresh_tokens,
+      test_read_surface_parity, test_doc_hygiene, test_truncate_corpus) and
+      the version-consistency gate (BL-136) were fixed first so the suite
+      was green to split against.
     category:     "tooling"
     type:         "tech-debt"
-    status:       "ready"
+    status:       "done"
     complexity:   "L"
     priority:     "high"
     rationale:    "A gate that is red on main stops gating: agents rationally skip a check that already fails, which is how 9 violations became 12 in one evening. Restoring it file-by-file is parallelizable across the fleet."
