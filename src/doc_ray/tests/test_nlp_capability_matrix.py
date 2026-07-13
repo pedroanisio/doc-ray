@@ -15,6 +15,9 @@ _ROOT = Path(__file__).resolve().parents[3]
 _MATRIX = _ROOT / "docs" / "nlp_capability_matrix.md"
 _QUERY = _ROOT / "src" / "doc_ray" / "entrypoints" / "api" / "query.py"
 _TYPES = _ROOT / "src" / "doc_ray" / "entrypoints" / "api" / "types.py"
+#: The document cluster's types moved to document_types.py (D-015 split);
+#: field refs on `Document` resolve against both files.
+_DOCUMENT_TYPES = _ROOT / "src" / "doc_ray" / "entrypoints" / "api" / "document_types.py"
 _BACKLOG = _ROOT / "docs" / "backlog.yml"
 
 _REF_RE = re.compile(r"`([^`]+)`")
@@ -40,8 +43,9 @@ def _path_from_ref(ref: str) -> Path:
 
 
 def _source_for_graphql_type(type_name: str) -> str:
-    path = _QUERY if type_name == "Query" else _TYPES
-    return path.read_text(encoding="utf-8")
+    if type_name == "Query":
+        return _QUERY.read_text(encoding="utf-8")
+    return _TYPES.read_text(encoding="utf-8") + _DOCUMENT_TYPES.read_text(encoding="utf-8")
 
 
 def test_matrix_covers_all_twenty_nlp_layers_with_status_and_evidence():
