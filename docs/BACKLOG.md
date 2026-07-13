@@ -341,6 +341,21 @@ outgrew the 120s reap window. Progress now flows through the heartbeat
 connection under a shared mutex; the regression test proves the row stays
 unlocked and progress stays visible during a REPEATABLE READ handler.
 
+**2026-07-13 backlog-vs-codebase inspection (operator directive):** audited
+all 135 statuses against the live tree. Spot-verified `done` claims held
+(BL-064/094/108/131–135 all evidence-backed in code), but both `ready` items
+had drifted: `BL-130`'s "red JWT test" had already been fixed in `ad9d62f`
+the day it was filed — root cause was the fixture (a frozen `now=` minted a
+token that expired at 12:15Z, a time bomb), not the authenticator — so it was
+reconciled to `done`; `BL-129`'s violation inventory was stale (14 files over
+the D-015 cap by re-measure, not 12; `webapp/app.py` grew 1234 → 1563 in the
+design refresh) and was refreshed in place. The inspection also found a
+second red gate no item tracked: `check_version_consistency.py` failing on
+main (`__version__` 1.22.0 vs schema 1.24.0 — migrations 074–077 landed
+without a version bump or CHANGELOG sections). Filed and fixed as `BL-136`
+the same session: version bumped, 1.23.0/1.24.0 release sections
+reconstructed from git history.
+
 ## Items
 
 | ID | Item | Category | Type | Status | Cx | Priority | Owner |
@@ -473,13 +488,14 @@ unlocked and progress stays visible during a REPEATABLE READ handler.
 | BL-126 | Persist per-page dimensions for every PDF page so a text-free page is a representable fact | persistence | tech-debt | done | S | medium | shared |
 | BL-127 | GraphQL lexeme reads leak hidden-document vocabulary to anonymous callers | security | bug | done | S | high | shared |
 | BL-128 | auth_admin CLI: raw traceback on unreachable DB, divergent host-side DB defaults, and no operator docs | tooling | bug | done | S | medium | shared |
-| BL-129 | Restore the D-015 400-net-LOC gate: 12 files are over the cap after tonight's landings | tooling | tech-debt | ready | L | high | shared |
-| BL-130 | test_api_jwt signed-access-JWT acceptance test fails on clean main | testing | bug | ready | S | high | shared |
+| BL-129 | Restore the D-015 400-net-LOC gate: 14 files are over the cap after the recent landings | tooling | tech-debt | ready | L | high | shared |
+| BL-130 | test_api_jwt signed-access-JWT acceptance test fails on clean main | testing | bug | done | S | high | shared |
 | BL-131 | Webapp collection writes silently rolled back — created collections vanished after the redirect | webapp | bug | done | XS | high | shared |
 | BL-132 | Deploy-kills burned job attempts: long annotate jobs permanently failed by consecutive fleet deploys | ops | bug | done | S | high | shared |
 | BL-133 | Span-geometry backfill was O(spans x layout rows): book annotation ran for hours and hit the execution timeout | nlp | bug | done | S | high | shared |
 | BL-134 | Pipeline polish: janitor reap, attempt-relative started_at, reap progress hygiene | ops | tech-debt | done | S | high | shared |
 | BL-135 | Backup heartbeat starved: progress writes rode the handler's snapshot transaction | ops | bug | done | S | high | shared |
+| BL-136 | check_version_consistency gate red on main: package version left at 1.22.0 while schema moved to 1.24.0 | tooling | bug | done | XS | high | shared |
 
 See [`backlog.yml`](backlog.yml) for each item's full description, rationale,
 acceptance criteria, dependencies, related decisions (`D-###`), and references.

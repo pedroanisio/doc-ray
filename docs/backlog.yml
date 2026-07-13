@@ -110,7 +110,7 @@ metadata:
   generated_by:     "Claude Sonnet 5 via Claude Code (merge of Claude Opus 4.8 backlog + OpenAI Codex improvement-proposal candidates)"
   generated_on:     "2026-07-05"
   system_of_record: "docs/backlog.yml"
-  total_items:      135
+  total_items:      136
 
 items:
 
@@ -4229,8 +4229,8 @@ items:
     tags:         ["tooling", "cli", "auth", "ux", "bug"]
 
   - id:          "BL-129"
-    title:        "Restore the D-015 400-net-LOC gate: 12 files are over the cap after tonight's landings"
-    summary:      "check_file_size.py fails on main with 12 files over 400 net LOC: webapp/app.py (1234), adapters/extraction.py (797), entrypoints/api/app.py (682), tests/test_mutations.py (613), adapters/persistence.py (567), entrypoints/api/mutation.py (489), application/jobs.py (481), tests/test_jobs_worker.py (480), tests/test_extract_formats.py (432), tests/test_jobs_pipeline.py (413), entrypoints/api/types.py (411), tests/test_api_app.py (408). Fleet landings run pytest but skip the static gates, so the cap has eroded steadily; every list entry is an independent split task, ideal for parallel consumption."
+    title:        "Restore the D-015 400-net-LOC gate: 14 files are over the cap after the recent landings"
+    summary:      "check_file_size.py fails on main with 14 files over 400 net LOC (re-measured 2026-07-13; was 12 when filed): webapp/app.py (1563, was 1234 before the design-system refresh), entrypoints/api/app.py (852), adapters/extraction.py (797), tests/test_jobs_worker.py (763), entrypoints/api/mutation.py (623), tests/test_mutations.py (615), adapters/persistence.py (590), application/jobs.py (559), adapters/persistence_read.py (471), entrypoints/api/types.py (456), tests/test_extract_formats.py (435), tests/test_jobs_pipeline.py (413), tests/test_api_jwt.py (410), tests/test_api_app.py (408). Fleet landings run pytest but skip the static gates, so the cap has eroded steadily; every list entry is an independent split task, ideal for parallel consumption."
     description: |
       Split, do not trim: follow the repo's established split precedents —
       webapp/app.py into route/blueprint modules (collections, lifecycle,
@@ -4264,15 +4264,20 @@ items:
     title:        "test_api_jwt signed-access-JWT acceptance test fails on clean main"
     summary:      "src/doc_ray/tests/test_api_jwt.py::test_header_token_authenticator_accepts_signed_access_jwt fails deterministically on an unmodified checkout (verified via stash round-trip during unrelated work); the other 18 JWT tests pass. Either the BL-071 access-JWT implementation or its test landed red."
     description: |
-      Reproduce: pytest src/doc_ray/tests/test_api_jwt.py -q on main (with
-      DOCRAY_TEST_ALLOW_LIVE_DB=1 or the isolated test DB). One test fails,
-      18 pass. Root-cause rather than patch the assertion: determine whether
-      the header-token authenticator genuinely rejects a validly signed
-      access JWT (a real regression for API clients using BL-071 tokens) or
-      the test fixture builds an invalid token (clock, audience, issuer).
+      Resolved — root cause was the FIXTURE, not the implementation: the
+      test minted its access JWT with a frozen ``now=`` (12:00Z issue time +
+      900s TTL), a time bomb that expired every run after 12:15Z. Commit
+      ad9d62f ("also fixed two stragglers full-suite verification exposed")
+      re-minted the token at real time the same day this entry was filed,
+      but the backlog status was never flipped. Verified 2026-07-13: the
+      full test_api_jwt.py suite (now 22 tests) passes on clean main,
+      including test_header_token_authenticator_accepts_signed_access_jwt
+      run in isolation. The header-token authenticator never rejected a
+      validly signed, unexpired access JWT — no API-client regression
+      existed.
     category:     "testing"
     type:         "bug"
-    status:       "ready"
+    status:       "done"
     complexity:   "S"
     priority:     "high"
     rationale:    "A red test on main is either a broken feature or a broken guard; both erode the suite's authority, and every agent that runs the full gate now sees noise it learns to ignore."
@@ -4283,7 +4288,7 @@ items:
       - "src/doc_ray/tests/test_api_jwt.py"
       - "src/doc_ray/entrypoints/api/security.py"
     owner:        "shared"
-    source:       "Found 2026-07-12 during the gate-restoration sweep; confirmed pre-existing via stash round-trip on clean HEAD."
+    source:       "Found 2026-07-12 during the gate-restoration sweep; confirmed pre-existing via stash round-trip on clean HEAD. Root-caused and reconciled 2026-07-13: fixture time bomb, fixed in ad9d62f."
     tags:         ["testing", "jwt", "auth", "bug"]
 
   - id:          "BL-131"
@@ -4460,3 +4465,33 @@ items:
     owner:        "shared"
     source:       "Found during the operator's 2026-07-12 ingest/verification pass: two failed backup jobs at 23:06/23:26 with stale-heartbeat exhaustion but no drain stamp and no worker crash."
     tags:         ["worker", "backup", "transactions", "ops", "bug"]
+
+  - id:          "BL-136"
+    title:        "check_version_consistency gate red on main: package version left at 1.22.0 while schema moved to 1.24.0"
+    summary:      "Migrations 074-077 (local auth -> schema 1.23.0; reader corpus read -> schema 1.24.0) landed without bumping doc_ray.__version__ or cutting CHANGELOG release sections, so scripts/check_version_consistency.py exited 1 on main — the same red-gate-stops-gating failure mode as BL-129, in a second gate. Found 2026-07-13 during a backlog-vs-codebase inspection."
+    description: |
+      Fixed: __version__ bumped to 1.24.0 and the missing 1.23.0/1.24.0
+      CHANGELOG release sections reconstructed from the git history (local
+      self-service auth / short-job lane / pipeline fixes under 1.23.0;
+      the four MAJOR auth-audit closures, verification delivery, and
+      role-based corpus read visibility under 1.24.0), with the entries that
+      predated those releases moved out of Unreleased. __init__.py's own
+      docstring already mandated bumping version and schema together; the
+      gate existed and was simply left red.
+    category:     "tooling"
+    type:         "bug"
+    status:       "done"
+    complexity:   "XS"
+    priority:     "high"
+    rationale:    "A gate that is red on main stops gating (BL-129's rationale, verbatim): every agent that runs check_version_consistency.py learns to ignore it, and the version surfaces drift further apart with each schema bump."
+    acceptance_criteria:
+      - "python scripts/check_version_consistency.py exits 0 on main."
+      - "CHANGELOG.md's latest release heading matches doc_ray.__version__ and docray_schema_version()."
+    dependencies: []
+    references:
+      - "scripts/check_version_consistency.py"
+      - "src/doc_ray/__init__.py"
+      - "CHANGELOG.md"
+    owner:        "shared"
+    source:       "Backlog-vs-codebase inspection 2026-07-13 (Claude Fable 5 via Claude Code): gate replayed with its true exit code after the tail-pipe masked it; fixed the same session."
+    tags:         ["tooling", "gates", "versioning", "bug"]

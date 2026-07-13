@@ -313,6 +313,23 @@ These principles have zero exceptions:
 - Semantic versioning for schemas (`major.minor.patch`).
 - AI-generated artifacts must be labeled with their source model/tool.
 
+### Landing checklist — static gates, not only pytest (BL-129)
+
+Run ALL of these before every commit — the D-015 and version-consistency
+gates went red on main precisely because fleet landings ran pytest alone:
+
+```bash
+ruff check src scripts webapp && ruff format --check src scripts webapp  # D-011
+mypy src                                                                 # D-012
+python scripts/check_file_size.py src/doc_ray webapp scripts             # D-015
+python scripts/check_version_consistency.py                              # version lockstep
+pytest tests src/doc_ray/tests                                           # D-013
+```
+
+A gate that is already red on main is not license to skip it: fix it or file
+a backlog item in the same session — never land a commit that widens an
+existing violation.
+
 ### Architecture Decisions
 
 - Document significant decisions with rationale.
