@@ -9,14 +9,34 @@
 <section class="auth-panel">
   {% if error %}
     <div class="errbox">{{ error }}</div>
+  {% elif resent %}
+    <div class="notice">
+      If that address has a pending registration, a new verification link has been sent.
+    </div>
   {% else %}
     <div class="notice">
       {% if email %}Verification is pending for {{ email }}.{% else %}Verification is pending.{% endif %}
+      {% if not send_failed %}Check your inbox for the verification link.{% endif %}
     </div>
+    {% if send_failed %}
+      <div class="errbox">
+        The verification email could not be sent. Use resend below to try again.
+      </div>
+    {% endif %}
     {% if verification_token %}
       <p class="muted">Development token:</p>
       <code>{{ verification_token }}</code>
+      <p class="muted">
+        <a href="{{ url_for('verify_email_form', token=verification_token) }}">Verify with this token</a>
+      </p>
     {% endif %}
   {% endif %}
+  <form method="post" action="{{ url_for('resend_verification') }}" style="margin-top:1rem">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <label for="resend-email">Resend the verification link</label>
+    <input id="resend-email" type="email" name="email" required
+           value="{{ email or '' }}" autocomplete="email">
+    <button type="submit">Resend verification email</button>
+  </form>
 </section>
 {% endblock %}

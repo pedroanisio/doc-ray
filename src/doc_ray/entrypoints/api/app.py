@@ -14,6 +14,8 @@ so a single unbounded query cannot monopolize a backend indefinitely.
 from __future__ import annotations
 
 import json
+import logging
+import os
 import uuid
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -80,6 +82,9 @@ from doc_ray.entrypoints.api.security_audit import (
     source_ip_from_request,
 )
 from doc_ray.logging_setup import configure_logging
+from doc_ray.ports.mailer import Mailer
+
+_logger = logging.getLogger("doc_ray.api")
 
 _PDF_PAGE_RENDER_DPI = 144
 _JOB_EVENTS_KEEPALIVE_SECONDS = 15.0
@@ -636,16 +641,55 @@ def _register_local_auth_routes(app: FastAPI, settings: Config) -> None:  # noqa
             raise HTTPException(status_code=503, detail="local authentication is not configured")
         return cast(LocalAuthService, local_auth)
 
+    def mailer(request: Request) -> Mailer | None:
+        return cast(Mailer | None, getattr(request.app.state, "verification_mailer", None))
+
+    def deliver_verification(request: Request, email_normalized: str, token: str) -> bool:
+        """Email the verification link; returns False when sending failed."""
+        from doc_ray.adapters.mailer_smtp import verification_email
+        from doc_ray.ports.mailer import MailerError
+
+        outbound = mailer(request)
+        if outbound is None:
+            return False
+        base = os.environ.get("DOCRAY_PUBLIC_BASE_URL", "").strip().rstrip("/")
+        if not base:
+            return False
+        subject, body = verification_email(f"{base}/verify-email?token={token}")
+        try:
+            outbound.send(to=email_normalized, subject=subject, body=body)
+        except MailerError:
+            _logger.exception("verification email delivery failed for %s", email_normalized)
+            return False
+        return True
+
+    def delivery_configured(request: Request) -> bool:
+        return mailer(request) is not None and bool(
+            os.environ.get("DOCRAY_PUBLIC_BASE_URL", "").strip()
+        )
+
     @app.post("/auth/register", status_code=202)
     async def register_local_account(payload: dict[str, Any], request: Request) -> dict[str, Any]:
         """Register a self-service local account pending email verification."""
         if not settings.auth_registration_enabled:
             raise HTTPException(status_code=404, detail="local registration is not enabled")
+        local_auth = service(request)
+        if not delivery_configured(request) and not settings.auth_expose_verification_token:
+            # Fail closed BEFORE creating the account: the raw token is
+            # discarded after this request (only its hash is stored), so
+            # without a delivery path the address would be stranded forever.
+            raise HTTPException(
+                status_code=503,
+                detail=(
+                    "registration is unavailable: no verification email delivery "
+                    "is configured (set DOCRAY_SMTP_HOST and DOCRAY_PUBLIC_BASE_URL)"
+                ),
+            )
         try:
             display_name = (
                 str(payload["display_name"]) if payload.get("display_name") is not None else None
             )
-            result = service(request).register(
+            result = local_auth.register(
                 email=str(payload.get("email", "")),
                 password=str(payload.get("password", "")),
                 display_name=display_name,
@@ -654,14 +698,26 @@ def _register_local_auth_routes(app: FastAPI, settings: Config) -> None:  # noqa
             raise HTTPException(status_code=409, detail="email is already registered") from exc
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
+        sent = deliver_verification(request, result.email_normalized, result.verification_token)
         response: dict[str, Any] = {
             "principal_id": result.principal_id,
             "email": result.email_normalized,
             "email_verification_required": True,
+            "verification_email_sent": sent,
         }
         if settings.auth_expose_verification_token:
             response["verification_token"] = result.verification_token
         return response
+
+    @app.post("/auth/resend-verification", status_code=202)
+    async def resend_local_verification(
+        payload: dict[str, Any], request: Request
+    ) -> dict[str, Any]:
+        """Reissue a verification link; the response never reveals account state."""
+        token = service(request).resend_verification(email=str(payload.get("email", "")))
+        if token is not None:
+            deliver_verification(request, str(payload.get("email", "")).strip().lower(), token)
+        return {"accepted": True}
 
     @app.post("/auth/verify-email")
     async def verify_local_email(payload: dict[str, Any], request: Request) -> dict[str, Any]:
@@ -862,6 +918,9 @@ def create_app(cfg: Config | None = None, authenticator: Authenticator | None = 
     app.state.authenticator = auth
     app.state.object_store = store
     app.state.refresh_token_store = InMemoryRefreshTokenStore()
+    from doc_ray.adapters.mailer_smtp import SmtpMailer
+
+    app.state.verification_mailer = SmtpMailer.from_env()
     app.state.local_auth_service = (
         LocalAuthService(
             PostgresLocalAuthRepository(settings.database_url),

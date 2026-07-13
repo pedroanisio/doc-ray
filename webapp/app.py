@@ -161,6 +161,15 @@ def enforce_webapp_rate_limits():
             default_requests=10,
             default_window_seconds=60,
         )
+    elif request.endpoint == "resend_verification":
+        # Sends outbound mail on behalf of arbitrary input — throttle hard.
+        route = "resend_verification"
+        rule = rate_limit_rule_from_env(
+            os.environ,
+            "DOCRAY_WEBAPP_RESEND_RATE_LIMIT",
+            default_requests=5,
+            default_window_seconds=3600,
+        )
     if route is None or rule is None:
         return None
     result = _RATE_LIMITER.check(route, _client_identifier(), rule)
@@ -184,6 +193,7 @@ _AUTH_PUBLIC_ENDPOINTS = {
     "register_form",
     "register_submit",
     "verify_email_form",
+    "resend_verification",
     "oidc_callback",
     "saml_callback",
     "logout",
@@ -355,6 +365,42 @@ def register_local_user(email: str, password: str, display_name: str | None = No
     )
 
 
+def resend_local_verification(email: str) -> str | None:
+    """Reissue a verification token for a pending registration (or None)."""
+    return _local_auth_service().resend_verification(email=email)
+
+
+def _verification_mailer():
+    """Return the configured outbound mailer, or None when SMTP is unset."""
+    from doc_ray.adapters.mailer_smtp import SmtpMailer
+
+    return SmtpMailer.from_env()
+
+
+def _verification_url(token: str) -> str:
+    base = os.environ.get("DOCRAY_PUBLIC_BASE_URL", "").strip().rstrip("/")
+    if base:
+        return f"{base}/verify-email?token={token}"
+    return url_for("verify_email_form", token=token, _external=True)
+
+
+def _send_verification_email(mailer, email_normalized: str, token: str) -> bool:
+    """Deliver the verification link; returns False when sending failed."""
+    from doc_ray.adapters.mailer_smtp import verification_email
+    from doc_ray.ports.mailer import MailerError
+
+    ttl_hours = max(
+        1, int(os.environ.get("DOCRAY_AUTH_EMAIL_VERIFICATION_TTL_SECONDS", "86400")) // 3600
+    )
+    subject, body = verification_email(_verification_url(token), ttl_hours=ttl_hours)
+    try:
+        mailer.send(to=email_normalized, subject=subject, body=body)
+    except MailerError:
+        app.logger.exception("verification email delivery failed for %s", email_normalized)
+        return False
+    return True
+
+
 def complete_local_login(email: str, password: str) -> AuthenticatedWebPrincipal:
     """Authenticate a verified local user for a browser session."""
     principal = _local_auth_service().login(email=email, password=password)
@@ -446,11 +492,28 @@ def register_form():
 
 @app.post("/register")
 def register_submit():
-    """Register a local account and wait for email verification."""
+    """Register a local account and deliver its email-verification link."""
     if not (_local_auth_enabled() and _local_registration_enabled()):
         return "webapp registration is not configured", 404
     email = request.form.get("email", "")
     display_name = request.form.get("display_name") or None
+    mailer = _verification_mailer()
+    expose_token = _env_bool("DOCRAY_AUTH_EXPOSE_VERIFICATION_TOKEN", False)
+    if mailer is None and not expose_token:
+        # Fail closed BEFORE creating the account: with no delivery mechanism
+        # the token would be discarded (only its hash is stored) and the
+        # address permanently stranded, unable to verify or ever re-register.
+        return (
+            render_template(
+                "register.html",
+                email=email,
+                error=(
+                    "Registration is unavailable: no verification email "
+                    "delivery is configured (set DOCRAY_SMTP_HOST)."
+                ),
+            ),
+            503,
+        )
     try:
         result = register_local_user(email, request.form.get("password", ""), display_name)
     except EmailAlreadyRegistered:
@@ -461,8 +524,12 @@ def register_submit():
     except ValueError as exc:
         return render_template("register.html", email=email, error=str(exc)), 400
     session["pending_verification_email"] = result.email_normalized
-    if _env_bool("DOCRAY_AUTH_EXPOSE_VERIFICATION_TOKEN", False):
+    if expose_token:
         session["pending_verification_token"] = result.verification_token
+    if mailer is not None and not _send_verification_email(
+        mailer, result.email_normalized, result.verification_token
+    ):
+        session["pending_verification_send_failed"] = True
     return redirect(url_for("verify_email_form"))
 
 
@@ -477,6 +544,7 @@ def verify_email_form():
             "verify_email.html",
             email=session.get("pending_verification_email"),
             verification_token=session.get("pending_verification_token"),
+            send_failed=session.pop("pending_verification_send_failed", False),
         )
     try:
         principal = verify_local_email(token)
@@ -488,6 +556,31 @@ def verify_email_form():
     session.pop("pending_verification_email", None)
     session.pop("pending_verification_token", None)
     return redirect(url_for("documents"))
+
+
+@app.post("/resend-verification")
+def resend_verification():
+    """Reissue and deliver a verification link for a pending registration.
+
+    Responds identically whether or not the address has a pending
+    registration, so this endpoint cannot be used to enumerate accounts.
+    """
+    if not _local_auth_enabled():
+        return "webapp email verification is not configured", 404
+    email = request.form.get("email", "").strip()
+    token = resend_local_verification(email) if email else None
+    if token is not None:
+        mailer = _verification_mailer()
+        if mailer is not None:
+            _send_verification_email(mailer, email.lower(), token)
+        elif _env_bool("DOCRAY_AUTH_EXPOSE_VERIFICATION_TOKEN", False):
+            session["pending_verification_token"] = token
+    return render_template(
+        "verify_email.html",
+        email=email or session.get("pending_verification_email"),
+        verification_token=session.get("pending_verification_token"),
+        resent=True,
+    )
 
 
 @app.get("/profile")

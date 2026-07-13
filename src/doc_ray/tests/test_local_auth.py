@@ -13,6 +13,7 @@ from doc_ray.application.local_auth import (
     InvalidCredentials,
     LocalAuthService,
     VerificationTokenExpired,
+    VerificationTokenInvalid,
 )
 
 _ROOT = Path(__file__).resolve().parents[3]
@@ -94,6 +95,11 @@ class _FakeLocalAuthRepository:
     def mark_login_failure(self, *, email_normalized: str, now: datetime) -> None:
         return None
 
+    def discard_email_verification_tokens(self, *, principal_id: str, now: datetime) -> None:
+        for row in self.tokens.values():
+            if row["principal_id"] == principal_id and row["consumed_at"] is None:
+                row["consumed_at"] = now
+
 
 def test_register_user_creates_unverified_reader_principal_with_argon2id_hash() -> None:
     repo = _FakeLocalAuthRepository()
@@ -121,9 +127,7 @@ def test_register_user_creates_unverified_reader_principal_with_argon2id_hash() 
 
 
 def test_local_auth_migration_stores_hashes_and_requires_verified_email() -> None:
-    migration = (_ROOT / "db" / "migrations" / "074_local_auth.sql").read_text(
-        encoding="utf-8"
-    )
+    migration = (_ROOT / "db" / "migrations" / "074_local_auth.sql").read_text(encoding="utf-8")
 
     assert "CREATE TABLE IF NOT EXISTS principal_credentials" in migration
     assert "password_hash" in migration
@@ -179,6 +183,36 @@ def test_login_rejects_wrong_password_without_revealing_account_state() -> None:
 
     with pytest.raises(InvalidCredentials):
         service.login(email="alice@example.com", password="wrong password")
+
+
+def test_resend_verification_reissues_token_and_discards_the_old_one() -> None:
+    """Regression for the delivery blocker: a lost/undelivered verification
+    email must be recoverable — resend issues a fresh token and the stale one
+    stops working, so no address is ever permanently stranded."""
+    repo = _FakeLocalAuthRepository()
+    tokens = iter(["first-token", "second-token"])
+    service = LocalAuthService(repo, token_factory=lambda: next(tokens))
+    service.register(email="alice@example.com", password="correct horse battery staple")
+
+    fresh = service.resend_verification(email="alice@example.com")
+
+    assert fresh == "second-token"
+    with pytest.raises(VerificationTokenInvalid):
+        service.verify_email("first-token")
+    assert service.verify_email("second-token").email_normalized == "alice@example.com"
+
+
+def test_resend_verification_returns_none_for_unknown_or_already_verified() -> None:
+    repo = _FakeLocalAuthRepository()
+    tokens = iter(["first-token", "second-token"])
+    service = LocalAuthService(repo, token_factory=lambda: next(tokens))
+    registration = service.register(
+        email="alice@example.com", password="correct horse battery staple"
+    )
+    service.verify_email(registration.verification_token)
+
+    assert service.resend_verification(email="alice@example.com") is None
+    assert service.resend_verification(email="nobody@example.com") is None
 
 
 def test_expired_verification_token_does_not_verify_email() -> None:

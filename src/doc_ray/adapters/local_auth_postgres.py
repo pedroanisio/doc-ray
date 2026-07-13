@@ -161,6 +161,18 @@ class PostgresLocalAuthRepository:
                 (now, now, principal_id),
             )
 
+    def discard_email_verification_tokens(self, *, principal_id: str, now: datetime) -> None:
+        """Invalidate every outstanding verification token for a principal."""
+        with self._connect() as conn:
+            conn.execute(
+                """
+                UPDATE email_verification_tokens
+                   SET consumed_at = %s
+                 WHERE principal_id = %s AND consumed_at IS NULL
+                """,
+                (now, principal_id),
+            )
+
     def mark_login_failure(self, *, email_normalized: str, now: datetime) -> None:
         """Record a failed local login attempt."""
         with self._connect() as conn:

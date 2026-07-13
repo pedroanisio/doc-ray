@@ -87,6 +87,104 @@ def _cfg() -> Config:
     )
 
 
+class _ApiRecordingMailer:
+    def __init__(self) -> None:
+        self.sent: list[tuple[str, str, str]] = []
+
+    def send(self, *, to: str, subject: str, body: str) -> None:
+        self.sent.append((to, subject, body))
+
+
+class _ResendCapableService(_FakeLocalAuthService):
+    def __init__(self, fresh_token: str | None) -> None:
+        super().__init__()
+        self.fresh_token = fresh_token
+        self.resend_calls: list[str] = []
+
+    def resend_verification(self, *, email: str) -> str | None:
+        self.resend_calls.append(email)
+        return self.fresh_token
+
+
+def _cfg_production() -> Config:
+    """Like _cfg() but with the dev token-exposure flag OFF (production shape)."""
+    import dataclasses
+
+    return dataclasses.replace(_cfg(), auth_expose_verification_token=False)
+
+
+def test_api_register_fails_closed_without_verification_delivery(monkeypatch) -> None:
+    """Regression for the audit blocker: no mailer + no dev exposure means the
+    token would be silently discarded — the API must refuse with 503 and must
+    not create the account."""
+    monkeypatch.setattr(api_app, "AsyncConnectionPool", lambda *args, **kwargs: _ClosedAuditPool())
+    app = create_app(_cfg_production())
+    service = _FakeLocalAuthService()
+    app.state.local_auth_service = service
+    app.state.verification_mailer = None
+
+    resp = asyncio.run(
+        _post(
+            app,
+            "/auth/register",
+            json={"email": "alice@example.com", "password": "correct horse battery staple"},
+        )
+    )
+
+    assert resp.status_code == 503
+    assert "delivery" in resp.json()["detail"].lower()
+    assert service.registered is False
+
+
+def test_api_register_emails_the_verification_link(monkeypatch) -> None:
+    monkeypatch.setattr(api_app, "AsyncConnectionPool", lambda *args, **kwargs: _ClosedAuditPool())
+    monkeypatch.setenv("DOCRAY_PUBLIC_BASE_URL", "https://docs.example.com")
+    app = create_app(_cfg_production())
+    app.state.local_auth_service = _FakeLocalAuthService()
+    mailer = _ApiRecordingMailer()
+    app.state.verification_mailer = mailer
+
+    resp = asyncio.run(
+        _post(
+            app,
+            "/auth/register",
+            json={"email": "Alice@Example.com", "password": "correct horse battery staple"},
+        )
+    )
+
+    assert resp.status_code == 202
+    assert "verification_token" not in resp.json()
+    assert len(mailer.sent) == 1
+    to, _subject, body = mailer.sent[0]
+    assert to == "alice@example.com"
+    assert "https://docs.example.com/verify-email?token=verify-token" in body
+
+
+def test_api_resend_verification_is_generic_and_sends_when_pending(monkeypatch) -> None:
+    monkeypatch.setattr(api_app, "AsyncConnectionPool", lambda *args, **kwargs: _ClosedAuditPool())
+    monkeypatch.setenv("DOCRAY_PUBLIC_BASE_URL", "https://docs.example.com")
+    app = create_app(_cfg_production())
+    pending = _ResendCapableService(fresh_token="fresh-token")
+    app.state.local_auth_service = pending
+    mailer = _ApiRecordingMailer()
+    app.state.verification_mailer = mailer
+
+    accepted = asyncio.run(
+        _post(app, "/auth/resend-verification", json={"email": "alice@example.com"})
+    )
+
+    app.state.local_auth_service = _ResendCapableService(fresh_token=None)
+    unknown = asyncio.run(
+        _post(app, "/auth/resend-verification", json={"email": "nobody@example.com"})
+    )
+
+    assert accepted.status_code == 202
+    assert unknown.status_code == 202
+    assert accepted.json() == unknown.json()
+    assert len(mailer.sent) == 1
+    assert "token=fresh-token" in mailer.sent[0][2]
+
+
 def test_local_register_requires_email_verification_before_login(monkeypatch) -> None:
     monkeypatch.setattr(api_app, "AsyncConnectionPool", lambda *args, **kwargs: _ClosedAuditPool())
     app = create_app(_cfg())

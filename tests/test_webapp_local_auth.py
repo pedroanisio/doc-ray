@@ -49,6 +49,7 @@ def test_webapp_register_does_not_login_until_email_verified(monkeypatch) -> Non
         email_normalized = "alice@example.com"
         verification_token = "verify-token"
 
+    monkeypatch.setattr(webapp, "_verification_mailer", lambda: _RecordingMailer())
     monkeypatch.setattr(
         webapp,
         "register_local_user",
@@ -97,6 +98,161 @@ def test_webapp_verify_email_establishes_session(monkeypatch) -> None:
     assert record is not None
     assert record.principal_id == principal_id
     assert record.subject == "local:alice@example.com"
+
+
+class _RecordingMailer:
+    def __init__(self, fail: bool = False) -> None:
+        self.sent: list[tuple[str, str, str]] = []
+        self.fail = fail
+
+    def send(self, *, to: str, subject: str, body: str) -> None:
+        if self.fail:
+            from doc_ray.ports.mailer import MailerError
+
+            raise MailerError("smtp relay down")
+        self.sent.append((to, subject, body))
+
+
+class _Registration:
+    principal_id = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
+    email_normalized = "alice@example.com"
+    verification_token = "verify-token"
+
+
+def _auth_client(monkeypatch):
+    webapp.auth_sessions.reset()
+    monkeypatch.setenv("DOCRAY_AUTH_LOCAL_ENABLED", "true")
+    monkeypatch.setenv("DOCRAY_AUTH_REGISTRATION_ENABLED", "true")
+    monkeypatch.delenv("DOCRAY_AUTH_EXPOSE_VERIFICATION_TOKEN", raising=False)
+    client = webapp.app.test_client()
+    with client.session_transaction() as sess:
+        sess["_csrf_token"] = "csrf-1"
+    return client
+
+
+def test_webapp_register_fails_closed_when_no_verification_delivery_exists(monkeypatch) -> None:
+    """Regression for the audit blocker: with no mailer and no dev token
+    exposure, registration must refuse loudly BEFORE creating an account —
+    never strand a user who could not possibly receive their token."""
+    client = _auth_client(monkeypatch)
+    monkeypatch.setattr(webapp, "_verification_mailer", lambda: None, raising=False)
+    monkeypatch.setattr(
+        webapp,
+        "register_local_user",
+        lambda *a, **k: (_ for _ in ()).throw(AssertionError("account must not be created")),
+    )
+
+    resp = client.post(
+        "/register",
+        data={"csrf_token": "csrf-1", "email": "a@example.com", "password": "x" * 12},
+    )
+
+    assert resp.status_code == 503
+    assert "delivery" in resp.get_data(as_text=True).lower()
+
+
+def test_webapp_register_emails_the_verification_link(monkeypatch) -> None:
+    client = _auth_client(monkeypatch)
+    mailer = _RecordingMailer()
+    monkeypatch.setattr(webapp, "_verification_mailer", lambda: mailer, raising=False)
+    monkeypatch.setattr(
+        webapp, "register_local_user", lambda email, password, display_name=None: _Registration()
+    )
+
+    resp = client.post(
+        "/register",
+        data={"csrf_token": "csrf-1", "email": "Alice@Example.com", "password": "x" * 12},
+    )
+
+    assert resp.status_code == 302
+    assert len(mailer.sent) == 1
+    to, _subject, body = mailer.sent[0]
+    assert to == "alice@example.com"
+    assert "/verify-email?token=verify-token" in body
+    with client.session_transaction() as sess:
+        assert sess.get("pending_verification_email") == "alice@example.com"
+        assert "pending_verification_token" not in sess
+
+
+def test_webapp_register_survives_send_failure_and_offers_resend(monkeypatch) -> None:
+    client = _auth_client(monkeypatch)
+    created = []
+    monkeypatch.setattr(
+        webapp, "_verification_mailer", lambda: _RecordingMailer(fail=True), raising=False
+    )
+    monkeypatch.setattr(
+        webapp,
+        "register_local_user",
+        lambda email, password, display_name=None: created.append(email) or _Registration(),
+    )
+
+    resp = client.post(
+        "/register",
+        data={"csrf_token": "csrf-1", "email": "alice@example.com", "password": "x" * 12},
+        follow_redirects=True,
+    )
+
+    assert created, "the account itself must still be created"
+    body = resp.get_data(as_text=True).lower()
+    assert "could not be sent" in body
+    assert "resend" in body
+
+
+def test_webapp_resend_verification_sends_a_fresh_token(monkeypatch) -> None:
+    client = _auth_client(monkeypatch)
+    mailer = _RecordingMailer()
+    monkeypatch.setattr(webapp, "_verification_mailer", lambda: mailer, raising=False)
+    monkeypatch.setattr(
+        webapp, "resend_local_verification", lambda email: "fresh-token", raising=False
+    )
+
+    resp = client.post(
+        "/resend-verification",
+        data={"csrf_token": "csrf-1", "email": "alice@example.com"},
+    )
+
+    assert resp.status_code == 200
+    assert "verification link has been sent" in resp.get_data(as_text=True).lower()
+    assert len(mailer.sent) == 1
+    assert "/verify-email?token=fresh-token" in mailer.sent[0][2]
+
+
+def test_webapp_resend_verification_is_indistinguishable_for_unknown_email(monkeypatch) -> None:
+    """Anti-enumeration: unknown/verified addresses get the identical page."""
+    client = _auth_client(monkeypatch)
+    mailer = _RecordingMailer()
+    monkeypatch.setattr(webapp, "_verification_mailer", lambda: mailer, raising=False)
+    monkeypatch.setattr(webapp, "resend_local_verification", lambda email: None, raising=False)
+
+    resp = client.post(
+        "/resend-verification",
+        data={"csrf_token": "csrf-1", "email": "nobody@example.com"},
+    )
+
+    assert resp.status_code == 200
+    assert "verification link has been sent" in resp.get_data(as_text=True).lower()
+    assert mailer.sent == []
+
+
+def test_webapp_resend_verification_is_rate_limited(monkeypatch) -> None:
+    from webapp.rate_limit import FixedWindowRateLimiter
+
+    client = _auth_client(monkeypatch)
+    monkeypatch.setenv("DOCRAY_WEBAPP_RESEND_RATE_LIMIT_REQUESTS", "1")
+    monkeypatch.setenv("DOCRAY_WEBAPP_RESEND_RATE_LIMIT_WINDOW_SECONDS", "3600")
+    monkeypatch.setattr(webapp, "_RATE_LIMITER", FixedWindowRateLimiter())
+    monkeypatch.setattr(webapp, "_verification_mailer", lambda: _RecordingMailer(), raising=False)
+    monkeypatch.setattr(webapp, "resend_local_verification", lambda email: None, raising=False)
+
+    first = client.post(
+        "/resend-verification", data={"csrf_token": "csrf-1", "email": "a@example.com"}
+    )
+    second = client.post(
+        "/resend-verification", data={"csrf_token": "csrf-1", "email": "a@example.com"}
+    )
+
+    assert first.status_code == 200
+    assert second.status_code == 429
 
 
 def test_webapp_header_shows_login_and_register_when_anonymous(monkeypatch) -> None:

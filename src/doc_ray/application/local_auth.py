@@ -115,6 +115,10 @@ class LocalAuthRepository(Protocol):
         """Record a failed local login attempt."""
         ...
 
+    def discard_email_verification_tokens(self, *, principal_id: str, now: datetime) -> None:
+        """Invalidate every outstanding verification token for a principal."""
+        ...
+
 
 class LocalAuthService:
     """Register, verify, and authenticate local first-party users."""
@@ -172,6 +176,36 @@ class LocalAuthService:
             email_normalized=email_normalized,
             verification_token=token,
         )
+
+    def resend_verification(self, *, email: str) -> str | None:
+        """Issue a fresh verification token for a pending registration.
+
+        Returns the raw token to deliver, or ``None`` when the email is
+        unknown, already verified, or disabled — callers must respond
+        identically in every case so this cannot be used to enumerate
+        accounts. The previous token is discarded, so a lost or undelivered
+        verification email can never permanently strand an address.
+        """
+        try:
+            email_normalized = normalize_email(email)
+        except ValueError:
+            return None
+        row = self._repo.local_identity_by_email(email_normalized)
+        if row is None or row.get("email_verified_at") is not None:
+            return None
+        if row.get("disabled_at") is not None or row.get("principal_disabled_at") is not None:
+            return None
+        now = self._now()
+        principal_id = str(row["principal_id"])
+        self._repo.discard_email_verification_tokens(principal_id=principal_id, now=now)
+        token = self._token_factory()
+        self._repo.store_email_verification_token(
+            principal_id=principal_id,
+            token_hash=hash_token(token),
+            expires_at=now + self._verification_ttl,
+            now=now,
+        )
+        return token
 
     def verify_email(self, token: str) -> VerificationResult:
         """Consume an email verification token and enable local login."""
