@@ -46,6 +46,8 @@ RLS_PATH = {
     "tlink": "annotation_id → annotations",
     "sentiment": "annotation_id → annotations",
     "embedding": "span_id → spans",
+    "jobs": "document_id (admin-only when NULL)",
+    "seed_suggestion": "document_id",
     "backups": "docray_is_admin()",
     "audit_events": "insert-only security audit log",
 }
@@ -185,4 +187,317 @@ MIGRATIONS = [
     ),
     ("070_schema_version_1_20_0", "advance the schema SemVer to 1.20.0"),
     ("071_schema_version_1_21_0", "advance the schema SemVer to 1.21.0"),
+    (
+        "072_jobs_drain_requested_at",
+        "jobs.drain_requested_at: deploy-kill of a draining worker releases the job "
+        "without spending an attempt (BL-132)",
+    ),
+    ("073_schema_version_1_22_0", "advance the schema SemVer to 1.22.0"),
+    (
+        "074_local_auth",
+        "local self-service auth: principal_credentials (argon2id), "
+        "email_verification_tokens, auth_refresh_tokens",
+    ),
+    ("075_schema_version_1_23_0", "advance the schema SemVer to 1.23.0"),
+    (
+        "076_reader_corpus_read",
+        "docray_readable_documents() gains the role-permission read branch (reader "
+        "role sees the tenant corpus) excluding sensitivity=sensitive documents",
+    ),
+    ("077_schema_version_1_24_0", "advance the schema SemVer to 1.24.0"),
+]
+
+# ---------------------------------------------------------------------------
+# Curated metadata: how tables group into layers, and a one-line purpose each.
+# (Table shapes/columns come from the catalog; this is just narrative + order.)
+# ---------------------------------------------------------------------------
+
+GROUPS: list[tuple[str, str, list[str]]] = [
+    (
+        "Document entity & bibliographic identity",
+        "The document is a first-class entity. Independent multivalued facts "
+        "(authors, tags, identifiers, format metadata) are decomposed to their own "
+        "relations (4NF); blobs live in object storage, only an `s3://` pointer + "
+        "sha256 are stored.",
+        [
+            "documents",
+            "document_content",
+            "authors",
+            "document_authors",
+            "tags",
+            "document_tags",
+            "document_identifiers",
+            "document_metadata",
+            "document_pages",
+            "document_layout_runs",
+        ],
+    ),
+    (
+        "Provenance (append-only lineage)",
+        "Every processing/lineage event on a document, with its parameters "
+        "normalized out of a JSON bag into `(event, key) -> value`. "
+        "`document_metadata_history` is the analogous append-only trail for "
+        "editable title/description/tags edits (BL-058) — a distinct concern "
+        "from pipeline/ingest events, RLS-scoped and read-granted the same way.",
+        ["document_provenance", "provenance_params", "document_metadata_history"],
+    ),
+    (
+        "Segmentation & the span registry",
+        "Character offsets are a first-class, addressable entity (`spans`); every "
+        "stand-off annotation references a span by FK rather than repeating offset "
+        "triples. Sentences are ULID-keyed and reference a span.",
+        ["spans", "sentences"],
+    ),
+    (
+        "Lexeme & annotation backbone",
+        "`lexemes` is analyzer-independent type identity; `annotations` is one "
+        "analyzer run over a document scoped by `(layer, tool)`; `lexeme_occurrences` "
+        "is the materialized projection of token-level lexeme links that the "
+        "webapp/API render for lexeme and KWIC reads.",
+        ["lexemes", "annotations", "lexeme_occurrences"],
+    ),
+    (
+        "Tokens, morphology & subwords (NLP layers 3–7)",
+        "The token is the addressable unit syntax/morphology reference. UD FEATS and "
+        "BPE/WordPiece pieces decompose into child relations (no arrays, no pipe-strings).",
+        ["tokens", "token_feature", "subword"],
+    ),
+    (
+        "Syntax — shallow & deep (layers 8–10)",
+        "Chunking (BIO collapsed to spans), constituency (adjacency-list tree), and "
+        "dependency (each token has exactly one head → a function).",
+        ["chunk", "constituent", "dependency"],
+    ),
+    (
+        "Entities & reference (layers 11–13)",
+        "Named-entity mentions, entity linking to a KB, and coreference chains.",
+        ["entity_mention", "entity_link", "coref_chain", "coref_mention"],
+    ),
+    (
+        "Canonical entities & resolution",
+        "The tenant-global canonical entity registry mentions link to: `canonical` "
+        "rows carry KB identity + an HNSW-indexed name embedding, `form_index` maps "
+        "normalized surface forms to canonicals, `canonical_merge` is the append-only "
+        "merge audit, and `seed_suggestion`/`resolution_review` are the operator "
+        "workflow queues for seeding and ambiguous-link review.",
+        [
+            "canonical",
+            "form_index",
+            "canonical_merge",
+            "seed_suggestion",
+            "resolution_review",
+        ],
+    ),
+    (
+        "Meaning, discourse, temporal & sentiment (layers 14–19)",
+        "Semantic role labeling, word-sense disambiguation, AMR meaning graphs, "
+        "PDTB discourse relations, TimeML (TIMEX/EVENT/TLINK), and sentiment.",
+        [
+            "srl_predicate",
+            "srl_argument",
+            "word_sense",
+            "amr_node",
+            "amr_edge",
+            "discourse_relation",
+            "timex",
+            "event",
+            "tlink",
+            "sentiment",
+        ],
+    ),
+    (
+        "Distributed representations (layer 20)",
+        "pgvector embeddings over spans, ANN-indexed with HNSW (cosine).",
+        ["embedding"],
+    ),
+    (
+        "Collections & curation",
+        "Operator-facing curation surfaces: manual and smart (rule-driven) document "
+        "collections, and the reviewed-suggestion queue for LLM/heuristic metadata "
+        "proposals (BL-058).",
+        [
+            "document_collections",
+            "document_collection_members",
+            "document_metadata_suggestion",
+        ],
+    ),
+    (
+        "Access control — RBAC & row-level security",
+        "Principals, roles, permissions and per-document ACLs. Every document-scoped "
+        "table above is protected by tenant-scoped RLS keyed on these (see §Access "
+        "control).",
+        [
+            "tenants",
+            "principals",
+            "roles",
+            "permissions",
+            "role_permissions",
+            "principal_roles",
+            "document_acl",
+        ],
+    ),
+    (
+        "Authentication & identity provisioning",
+        "Local self-service auth (argon2id credentials, e-mail verification, refresh "
+        "tokens — migration 074) plus enterprise identity: SCIM-provisioned groups "
+        "and tenant-scoped SAML identity providers. Admin stays operator-seeded; "
+        "self-registered principals get the reader role only.",
+        [
+            "principal_credentials",
+            "email_verification_tokens",
+            "auth_refresh_tokens",
+            "scim_groups",
+            "scim_group_members",
+            "tenant_saml_identity_providers",
+        ],
+    ),
+    (
+        "Security audit trail",
+        "Append-only access and authentication events: who did what, against which "
+        "target, from which source address, and whether it succeeded or was denied.",
+        ["audit_events"],
+    ),
+    (
+        "Evaluation & drift artifacts",
+        "Corpus snapshots, evaluation runs, metric rows, and gold samples make quality and drift "
+        "measurements durable and citeable instead of one-off operator observations.",
+        ["corpus_snapshot", "evaluation_run", "evaluation_metric", "gold_sample"],
+    ),
+    (
+        "Jobs & operations",
+        "The background job queue (claimed FOR UPDATE SKIP LOCKED, heartbeat + "
+        "drain-aware reaping, first-class progress), the applied-migration ledger, "
+        "the schema's SemVer, and the corpus-backup catalogue. `backups` and the "
+        "`jobs` queue are excluded from every snapshot and from restore, so a "
+        "restore never clobbers the queue or the archive index it is reading from.",
+        ["jobs", "schema_migrations", "schema_version", "backups"],
+    ),
+]
+
+
+# Mermaid ER diagrams for §3, grouped by domain.
+
+ERDS = [
+    (
+        "Document entity, 4NF satellites & provenance",
+        """\
+erDiagram
+    documents ||--o| document_content : "1:1 text + FTS"
+    documents ||--o{ document_authors : ""
+    authors   ||--o{ document_authors : ""
+    documents ||--o{ document_tags : ""
+    tags      ||--o{ document_tags : ""
+    documents ||--o{ document_identifiers : "(scheme,value)"
+    documents ||--o{ document_metadata : "(key,value)"
+    documents ||--o{ document_pages : "page geometry"
+    documents ||--o{ document_provenance : "events"
+    document_provenance ||--o{ provenance_params : "(key,value)"
+    documents ||--o| documents : "derived_from"
+""",
+    ),
+    (
+        "Segmentation, span registry & the annotation backbone",
+        """\
+erDiagram
+    documents   ||--o{ spans : "owns offsets"
+    documents   ||--o{ sentences : ""
+    documents   ||--o{ annotations : "analyzer runs"
+    spans       ||--o{ sentences : "span_id"
+    annotations ||--o{ lexeme_occurrences : ""
+    spans       ||--o{ lexeme_occurrences : "span_id"
+    lexemes     ||--o{ lexeme_occurrences : "type identity"
+""",
+    ),
+    (
+        "Tokens, morphology & syntax",
+        """\
+erDiagram
+    annotations ||--o{ tokens : ""
+    spans       ||--o{ tokens : "span_id"
+    sentences   ||--o{ tokens : "sentence_id (SET NULL)"
+    lexemes     ||--o{ tokens : "lemma+UPOS"
+    tokens      ||--o{ token_feature : "UD FEATS"
+    tokens      ||--o{ subword : "BPE/WordPiece"
+    tokens      ||--o{ dependency : "dependent/head"
+    annotations ||--o{ dependency : ""
+    annotations ||--o{ chunk : "NP/VP/PP"
+    annotations ||--o{ constituent : "tree"
+    constituent ||--o{ constituent : "parent_id"
+""",
+    ),
+    (
+        "Entities, reference, meaning, temporal & embeddings",
+        """\
+erDiagram
+    annotations   ||--o{ entity_mention : ""
+    entity_mention ||--o{ entity_link : "KB id"
+    annotations   ||--o{ coref_chain : ""
+    coref_chain   ||--o{ coref_mention : ""
+    annotations   ||--o{ srl_predicate : ""
+    srl_predicate ||--o{ srl_argument : "ARG*"
+    tokens        ||--o{ word_sense : ""
+    annotations   ||--o{ amr_node : ""
+    amr_node      ||--o{ amr_edge : "role"
+    annotations   ||--o{ timex : ""
+    annotations   ||--o{ event : ""
+    timex         ||--o{ tlink : "source/target"
+    event         ||--o{ tlink : "source/target"
+    spans         ||--o{ embedding : "vector(768)"
+""",
+    ),
+    (
+        "Canonical entities, resolution workflow & curation",
+        """\
+erDiagram
+    canonical      ||--o{ form_index : "normalized surface"
+    canonical      ||--o{ canonical_merge : "into_id (append-only)"
+    canonical      ||--o{ resolution_review : "proposed_canonical_id"
+    entity_mention ||--o{ resolution_review : "ambiguous link"
+    principals     ||--o{ resolution_review : "reviewer"
+    principals     ||--o{ canonical_merge : "actor"
+    documents      ||--o{ seed_suggestion : "per-document seeds"
+    documents      ||--o{ document_metadata_suggestion : "title/desc proposals"
+    document_collections ||--o{ document_collection_members : ""
+    documents      ||--o{ document_collection_members : ""
+""",
+    ),
+    (
+        "Jobs & operations",
+        """\
+erDiagram
+    documents ||--o{ jobs : "document_id (NULL = corpus-wide)"
+    jobs      }o--o| jobs : "chain (payload)"
+    backups   ||..o{ jobs : "created by backup/restore kinds"
+""",
+    ),
+    (
+        "Access control (RBAC) — decided per document, inherited via RLS",
+        """\
+erDiagram
+    tenants          ||--o{ principals : ""
+    tenants          ||--o{ documents : ""
+    principals       ||--o{ principal_roles : ""
+    roles            ||--o{ principal_roles : ""
+    roles            ||--o{ role_permissions : ""
+    permissions      ||--o{ role_permissions : ""
+    principals       ||--o{ document_acl : "grantee"
+    documents        ||--o{ document_acl : "resource"
+    permissions      ||--o{ document_acl : "action"
+    principals       ||--o{ document_provenance : "actor_principal_id"
+""",
+    ),
+    (
+        "Authentication & identity provisioning",
+        """\
+erDiagram
+    principals ||--o| principal_credentials : "argon2id (1:1)"
+    tenants    ||--o{ principal_credentials : "(tenant, email) unique"
+    principals ||--o{ email_verification_tokens : "hashed, expiring"
+    principals ||--o{ auth_refresh_tokens : "hashed, rotating"
+    tenants    ||--o{ scim_groups : ""
+    scim_groups ||--o{ scim_group_members : ""
+    principals ||--o{ scim_group_members : ""
+    tenants    ||--o{ tenant_saml_identity_providers : "SAML IdP config"
+""",
+    ),
 ]

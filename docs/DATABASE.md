@@ -1,6 +1,6 @@
 # doc-ray — Database ERD & Data Dictionary
 
-**Schema version `1.22.0`** (SemVer) · 73 migrations applied
+**Schema version `1.24.0`** (SemVer) · 77 migrations applied
 
 > Generated from the live schema by `scripts/gen_data_dictionary.py`. Do not edit by hand — re-run the generator.
 
@@ -113,6 +113,31 @@ erDiagram
     spans         ||--o{ embedding : "vector(768)"
 ```
 
+### Canonical entities, resolution workflow & curation
+
+```mermaid
+erDiagram
+    canonical      ||--o{ form_index : "normalized surface"
+    canonical      ||--o{ canonical_merge : "into_id (append-only)"
+    canonical      ||--o{ resolution_review : "proposed_canonical_id"
+    entity_mention ||--o{ resolution_review : "ambiguous link"
+    principals     ||--o{ resolution_review : "reviewer"
+    principals     ||--o{ canonical_merge : "actor"
+    documents      ||--o{ seed_suggestion : "per-document seeds"
+    documents      ||--o{ document_metadata_suggestion : "title/desc proposals"
+    document_collections ||--o{ document_collection_members : ""
+    documents      ||--o{ document_collection_members : ""
+```
+
+### Jobs & operations
+
+```mermaid
+erDiagram
+    documents ||--o{ jobs : "document_id (NULL = corpus-wide)"
+    jobs      }o--o| jobs : "chain (payload)"
+    backups   ||..o{ jobs : "created by backup/restore kinds"
+```
+
 ### Access control (RBAC) — decided per document, inherited via RLS
 
 ```mermaid
@@ -127,6 +152,20 @@ erDiagram
     documents        ||--o{ document_acl : "resource"
     permissions      ||--o{ document_acl : "action"
     principals       ||--o{ document_provenance : "actor_principal_id"
+```
+
+### Authentication & identity provisioning
+
+```mermaid
+erDiagram
+    principals ||--o| principal_credentials : "argon2id (1:1)"
+    tenants    ||--o{ principal_credentials : "(tenant, email) unique"
+    principals ||--o{ email_verification_tokens : "hashed, expiring"
+    principals ||--o{ auth_refresh_tokens : "hashed, rotating"
+    tenants    ||--o{ scim_groups : ""
+    scim_groups ||--o{ scim_group_members : ""
+    principals ||--o{ scim_group_members : ""
+    tenants    ||--o{ tenant_saml_identity_providers : "SAML IdP config"
 ```
 
 
@@ -281,7 +320,7 @@ format metadata) are decomposed to their own relations (4NF); blobs live in obje
 | Column | Type | Null | Key | Default | Notes |
 |---|---|---|---|---|---|
 | `id` | uuid |  | PK | `gen_random_uuid()` |  |
-| `document_id` | uuid |  | FK→documents |  |  |
+| `document_id` | uuid |  | FK→documents, UQ |  |  |
 | `page_number` | integer |  | UQ |  |  |
 | `page_width` | double precision |  |  |  |  |
 | `page_height` | double precision |  |  |  |  |
@@ -289,15 +328,48 @@ format metadata) are decomposed to their own relations (4NF); blobs live in obje
 | `text_run_count` | integer |  |  | `0` |  |
 
 - **Primary key:** (id)
-- **Unique:** (document_id, page_number)
+- **Unique:** UNIQUE (document_id, page_number)
 - **FK:** FOREIGN KEY (document_id) REFERENCES documents(id) ON DELETE CASCADE
-- **Check:** CHECK ((page_number > 0))
-- **Check:** CHECK ((page_width > (0)::double precision))
-- **Check:** CHECK ((page_height > (0)::double precision))
-- **Check:** CHECK ((text_run_count >= 0))
 - **Check:** CHECK ((has_text OR (text_run_count = 0)))
 - **Check:** CHECK (((NOT has_text) OR (text_run_count > 0)))
+- **Check:** CHECK ((page_height > (0)::double precision))
+- **Check:** CHECK ((page_number > 0))
+- **Check:** CHECK ((page_width > (0)::double precision))
+- **Check:** CHECK ((text_run_count >= 0))
+- **Index** `document_pages_document_id_page_number_key`: public.document_pages USING btree (document_id, page_number)
 - **Index** `idx_document_pages_document_page`: public.document_pages USING btree (document_id, page_number)
+- **RLS:** enabled — read/write policies via *document_id*
+
+#### `document_layout_runs`
+
+| Column | Type | Null | Key | Default | Notes |
+|---|---|---|---|---|---|
+| `id` | uuid |  | PK | `gen_random_uuid()` |  |
+| `document_id` | uuid |  | FK→documents, UQ |  |  |
+| `ordinal` | integer |  | UQ |  |  |
+| `page_number` | integer |  |  |  |  |
+| `char_start` | integer |  |  |  |  |
+| `char_end` | integer |  |  |  |  |
+| `bbox_x0` | double precision |  |  |  |  |
+| `bbox_y0` | double precision |  |  |  |  |
+| `bbox_x1` | double precision |  |  |  |  |
+| `bbox_y1` | double precision |  |  |  |  |
+| `text` | text |  |  | `''::text` |  |
+| `page_width` | double precision | yes |  |  |  |
+| `page_height` | double precision | yes |  |  |  |
+
+- **Primary key:** (id)
+- **Unique:** UNIQUE (document_id, ordinal)
+- **FK:** FOREIGN KEY (document_id) REFERENCES documents(id) ON DELETE CASCADE
+- **Check:** CHECK ((char_end >= char_start))
+- **Check:** CHECK ((bbox_x1 >= bbox_x0))
+- **Check:** CHECK ((bbox_y1 >= bbox_y0))
+- **Check:** CHECK (((page_height IS NULL) OR (page_height > (0)::double precision)))
+- **Check:** CHECK ((page_number > 0))
+- **Check:** CHECK (((page_width IS NULL) OR (page_width > (0)::double precision)))
+- **Index** `document_layout_runs_document_id_ordinal_key`: public.document_layout_runs USING btree (document_id, ordinal)
+- **Index** `idx_document_layout_runs_document_page`: public.document_layout_runs USING btree (document_id, page_number, ordinal)
+- **Index** `idx_document_layout_runs_document_range`: public.document_layout_runs USING btree (document_id, char_start, char_end)
 - **RLS:** enabled — read/write policies via *document_id*
 
 ### 5.2 Provenance (append-only lineage)
@@ -643,7 +715,116 @@ Named-entity mentions, entity linking to a KB, and coreference chains.
 - **Index** `idx_coref_mention_span`: public.coref_mention USING btree (span_id)
 - **RLS:** enabled — read/write policies via *span_id → spans*
 
-### 5.8 Meaning, discourse, temporal & sentiment (layers 14–19)
+### 5.8 Canonical entities & resolution
+
+The tenant-global canonical entity registry mentions link to: `canonical` rows carry KB identity +
+an HNSW-indexed name embedding, `form_index` maps normalized surface forms to canonicals,
+`canonical_merge` is the append-only merge audit, and `seed_suggestion`/`resolution_review` are the
+operator workflow queues for seeding and ambiguous-link review.
+
+#### `canonical`
+
+| Column | Type | Null | Key | Default | Notes |
+|---|---|---|---|---|---|
+| `id` | bigint |  | PK | `nextval('canonical_id_seq'::regclass)` |  |
+| `wikidata_id` | text | yes | UQ |  |  |
+| `preferred` | text |  |  |  |  |
+| `entity_type` | text |  |  |  |  |
+| `description` | text | yes |  |  |  |
+| `lang_primary` | text | yes |  |  |  |
+| `embedding` | vector(768) | yes |  |  |  |
+| `created_at` | timestamp with time zone |  |  | `now()` |  |
+| `updated_at` | timestamp with time zone |  |  | `now()` |  |
+
+- **Primary key:** (id)
+- **Unique:** UNIQUE (wikidata_id)
+- **Index** `canonical_wikidata_id_key`: public.canonical USING btree (wikidata_id)
+- **Index** `idx_canonical_embedding_hnsw`: public.canonical USING hnsw (embedding vector_cosine_ops)
+- **Index** `idx_canonical_type`: public.canonical USING btree (entity_type)
+
+#### `form_index`
+
+| Column | Type | Null | Key | Default | Notes |
+|---|---|---|---|---|---|
+| `form_norm` | text |  | PK |  |  |
+| `form_surface` | text |  |  |  |  |
+| `canonical_id` | bigint |  | PK, FK→canonical |  |  |
+| `lang` | text |  | PK | `''::text` |  |
+| `form_type` | text |  |  |  |  |
+| `confidence` | real |  |  | `1.0` |  |
+| `occurrences` | integer |  |  | `0` |  |
+| `source_types` | text[] |  |  | `'{}'::text[]` |  |
+| `first_seen` | timestamp with time zone |  |  | `now()` |  |
+
+- **Primary key:** (form_norm, canonical_id, lang)
+- **FK:** FOREIGN KEY (canonical_id) REFERENCES canonical(id) ON DELETE CASCADE
+- **Index** `idx_form_by_canonical`: public.form_index USING btree (canonical_id)
+- **Index** `idx_form_lookup`: public.form_index USING btree (form_norm)
+
+#### `canonical_merge`
+
+| Column | Type | Null | Key | Default | Notes |
+|---|---|---|---|---|---|
+| `from_id` | bigint |  | PK |  |  |
+| `into_id` | bigint |  | PK, FK→canonical |  |  |
+| `actor` | uuid | yes | FK→principals |  |  |
+| `reason` | text | yes |  |  |  |
+| `merged_at` | timestamp with time zone |  | PK | `now()` |  |
+
+- **Primary key:** (from_id, into_id, merged_at)
+- **FK:** FOREIGN KEY (actor) REFERENCES principals(id) ON DELETE SET NULL
+- **FK:** FOREIGN KEY (into_id) REFERENCES canonical(id) ON DELETE CASCADE
+
+#### `seed_suggestion`
+
+| Column | Type | Null | Key | Default | Notes |
+|---|---|---|---|---|---|
+| `id` | ulid |  | PK |  |  |
+| `document_id` | uuid |  | FK→documents, UQ |  |  |
+| `term` | text |  | UQ |  |  |
+| `occurrences` | integer |  |  | `0` |  |
+| `source` | text |  |  | `'mention'::text` |  |
+| `qid` | text | yes |  |  |  |
+| `label` | text | yes |  |  |  |
+| `description` | text | yes |  |  |  |
+| `entity_type` | text | yes |  |  |  |
+| `status` | text |  |  | `'pending'::text` |  |
+| `created_at` | timestamp with time zone |  |  | `now()` |  |
+| `decided_at` | timestamp with time zone | yes |  |  |  |
+
+- **Primary key:** (id)
+- **Unique:** UNIQUE (document_id, term)
+- **FK:** FOREIGN KEY (document_id) REFERENCES documents(id) ON DELETE CASCADE
+- **Check:** CHECK ((status = ANY (ARRAY['pending'::text, 'approved'::text, 'rejected'::text, 'seeded'::text])))
+- **Index** `idx_seed_suggestion_doc`: public.seed_suggestion USING btree (document_id, status)
+- **Index** `seed_suggestion_document_id_term_key`: public.seed_suggestion USING btree (document_id, term)
+- **RLS:** enabled — read/write policies via *document_id*
+
+#### `resolution_review`
+
+| Column | Type | Null | Key | Default | Notes |
+|---|---|---|---|---|---|
+| `id` | ulid |  | PK |  |  |
+| `mention_id` | ulid |  | FK→entity_mention |  |  |
+| `candidates` | jsonb |  |  | `'[]'::jsonb` |  |
+| `proposed_canonical_id` | bigint | yes | FK→canonical |  |  |
+| `confidence` | real | yes |  |  |  |
+| `status` | text |  |  | `'pending'::text` |  |
+| `reason` | text | yes |  |  |  |
+| `reviewer` | uuid | yes | FK→principals |  |  |
+| `created_at` | timestamp with time zone |  |  | `now()` |  |
+| `decided_at` | timestamp with time zone | yes |  |  |  |
+
+- **Primary key:** (id)
+- **FK:** FOREIGN KEY (mention_id) REFERENCES entity_mention(id) ON DELETE CASCADE
+- **FK:** FOREIGN KEY (proposed_canonical_id) REFERENCES canonical(id) ON DELETE SET NULL
+- **FK:** FOREIGN KEY (reviewer) REFERENCES principals(id) ON DELETE SET NULL
+- **Check:** CHECK (((decided_at IS NULL) OR (status <> 'pending'::text)))
+- **Check:** CHECK ((status = ANY (ARRAY['pending'::text, 'approved'::text, 'rejected'::text, 'merged'::text])))
+- **Index** `idx_resolution_review_mention`: public.resolution_review USING btree (mention_id)
+- **Index** `idx_resolution_review_status`: public.resolution_review USING btree (status, id)
+
+### 5.9 Meaning, discourse, temporal & sentiment (layers 14–19)
 
 Semantic role labeling, word-sense disambiguation, AMR meaning graphs, PDTB discourse relations,
 TimeML (TIMEX/EVENT/TLINK), and sentiment.
@@ -825,7 +1006,7 @@ TimeML (TIMEX/EVENT/TLINK), and sentiment.
 - **Index** `idx_sentiment_target_span`: public.sentiment USING btree (target_span_id)
 - **RLS:** enabled — read/write policies via *annotation_id → annotations*
 
-### 5.9 Distributed representations (layer 20)
+### 5.10 Distributed representations (layer 20)
 
 pgvector embeddings over spans, ANN-indexed with HNSW (cosine).
 
@@ -842,7 +1023,75 @@ pgvector embeddings over spans, ANN-indexed with HNSW (cosine).
 - **Index** `idx_embedding_hnsw`: public.embedding USING hnsw (vector vector_cosine_ops)
 - **RLS:** enabled — read/write policies via *span_id → spans*
 
-### 5.10 Access control — RBAC & row-level security
+### 5.11 Collections & curation
+
+Operator-facing curation surfaces: manual and smart (rule-driven) document collections, and the
+reviewed-suggestion queue for LLM/heuristic metadata proposals (BL-058).
+
+#### `document_collections`
+
+| Column | Type | Null | Key | Default | Notes |
+|---|---|---|---|---|---|
+| `id` | uuid |  | PK | `gen_random_uuid()` |  |
+| `name` | text |  | UQ |  |  |
+| `description` | text |  |  | `''::text` |  |
+| `kind` | text |  |  |  |  |
+| `rule` | jsonb |  |  | `'{}'::jsonb` |  |
+| `created_at` | timestamp with time zone |  |  | `now()` |  |
+| `updated_at` | timestamp with time zone |  |  | `now()` |  |
+
+- **Primary key:** (id)
+- **Unique:** UNIQUE (name)
+- **Check:** CHECK (((kind = 'smart'::text) OR (rule = '{}'::jsonb)))
+- **Check:** CHECK ((kind = ANY (ARRAY['manual'::text, 'smart'::text])))
+- **Index** `document_collections_name_key`: public.document_collections USING btree (name)
+- **Index** `idx_document_collections_kind`: public.document_collections USING btree (kind, name)
+- **Index** `idx_document_collections_rule`: public.document_collections USING gin (rule jsonb_path_ops)
+
+#### `document_collection_members`
+
+| Column | Type | Null | Key | Default | Notes |
+|---|---|---|---|---|---|
+| `collection_id` | uuid |  | PK, FK→document_collections |  |  |
+| `document_id` | uuid |  | PK, FK→documents |  |  |
+| `added_at` | timestamp with time zone |  |  | `now()` |  |
+
+- **Primary key:** (collection_id, document_id)
+- **FK:** FOREIGN KEY (collection_id) REFERENCES document_collections(id) ON DELETE CASCADE
+- **FK:** FOREIGN KEY (document_id) REFERENCES documents(id) ON DELETE CASCADE
+- **Index** `idx_collection_members_collection_added`: public.document_collection_members USING btree (collection_id, added_at DESC)
+- **Index** `idx_collection_members_document`: public.document_collection_members USING btree (document_id, collection_id)
+- **RLS:** enabled — read/write policies via *document_id*
+
+#### `document_metadata_suggestion`
+
+| Column | Type | Null | Key | Default | Notes |
+|---|---|---|---|---|---|
+| `id` | ulid |  | PK |  |  |
+| `document_id` | uuid |  | FK→documents, UQ |  |  |
+| `field` | text |  | UQ |  |  |
+| `current_value` | text | yes |  |  |  |
+| `suggested_value` | text |  | UQ |  |  |
+| `confidence` | real |  |  |  |  |
+| `reason` | text |  |  |  |  |
+| `source` | text |  |  | `'verified-deterministic'::text` |  |
+| `status` | text |  |  | `'pending'::text` |  |
+| `created_at` | timestamp with time zone |  |  | `now()` |  |
+| `decided_at` | timestamp with time zone | yes |  |  |  |
+
+- **Primary key:** (id)
+- **Unique:** UNIQUE (document_id, field, suggested_value)
+- **FK:** FOREIGN KEY (document_id) REFERENCES documents(id) ON DELETE CASCADE
+- **Check:** CHECK (((confidence >= (0)::double precision) AND (confidence <= (1)::double precision)))
+- **Check:** CHECK ((field = ANY (ARRAY['title'::text, 'tags'::text, 'duplicate'::text])))
+- **Check:** CHECK ((length(btrim(reason)) > 0))
+- **Check:** CHECK ((status = ANY (ARRAY['pending'::text, 'approved'::text, 'rejected'::text])))
+- **Check:** CHECK ((length(btrim(suggested_value)) > 0))
+- **Index** `document_metadata_suggestion_document_id_field_suggested_va_key`: public.document_metadata_suggestion USING btree (document_id, field, suggested_value)
+- **Index** `idx_document_metadata_suggestion_doc`: public.document_metadata_suggestion USING btree (document_id, status, confidence DESC)
+- **RLS:** enabled — read/write policies via *document_id*
+
+### 5.12 Access control — RBAC & row-level security
 
 Principals, roles, permissions and per-document ACLs. Every document-scoped table above is protected
 by tenant-scoped RLS keyed on these (see §Access control).
@@ -876,6 +1125,9 @@ Tenant partition catalogue; the default tenant preserves existing deployments.
 | `created_at` | timestamp with time zone |  |  | `now()` |  |
 | `db_role` | name | yes | UQ |  |  |
 | `tenant_id` | uuid |  | FK→tenants | `docray_default_tenant_id()` |  |
+| `managed_by` | text | yes |  |  |  |
+| `managed_source_id` | text | yes |  |  |  |
+| `active` | boolean |  |  | `true` |  |
 
 - **Primary key:** (id)
 - **Unique:** UNIQUE (db_role)
@@ -883,6 +1135,8 @@ Tenant partition catalogue; the default tenant preserves existing deployments.
 - **FK:** FOREIGN KEY (tenant_id) REFERENCES tenants(id)
 - **Check:** CHECK (((db_role IS NULL) OR (db_role <> ALL (ARRAY['docray'::name, 'docray_client'::name, 'docray_api'::name]))))
 - **Check:** CHECK ((kind = ANY (ARRAY['human'::text, 'service'::text])))
+- **Check:** CHECK (((managed_by IS NULL) OR (managed_by = 'scim'::text)))
+- **Index** `idx_principals_managed_source`: public.principals USING btree (tenant_id, managed_by, managed_source_id) WHERE ((managed_by IS NOT NULL) AND (managed_source_id IS NOT NULL))
 - **Index** `idx_principals_tenant`: public.principals USING btree (tenant_id)
 - **Index** `principals_db_role_key`: public.principals USING btree (db_role)
 - **Index** `principals_display_name_key`: public.principals USING btree (display_name)
@@ -908,11 +1162,6 @@ Tenant partition catalogue; the default tenant preserves existing deployments.
 - **Primary key:** (id)
 - **Unique:** UNIQUE (action)
 - **Index** `permissions_action_key`: public.permissions USING btree (action)
-
-Seeded actions include `read`, `annotate`, `delete`, `redact`, `admin`, and
-`sensitive`. The `sensitive` action is an ABAC overlay grant: it does not grant
-normal write access by itself, but permits a write that already passed RBAC when
-the target document is marked `document_metadata.sensitivity=sensitive`.
 
 #### `role_permissions`
 
@@ -954,7 +1203,126 @@ the target document is marked `document_metadata.sensitivity=sensitive`.
 - **Index** `idx_document_acl_document`: public.document_acl USING btree (document_id)
 - **Index** `idx_document_acl_principal`: public.document_acl USING btree (principal_id)
 
-### 5.11 Security audit trail
+### 5.13 Authentication & identity provisioning
+
+Local self-service auth (argon2id credentials, e-mail verification, refresh tokens — migration 074)
+plus enterprise identity: SCIM-provisioned groups and tenant-scoped SAML identity providers. Admin
+stays operator-seeded; self-registered principals get the reader role only.
+
+#### `principal_credentials`
+
+| Column | Type | Null | Key | Default | Notes |
+|---|---|---|---|---|---|
+| `principal_id` | uuid |  | PK, FK→principals |  |  |
+| `tenant_id` | uuid |  | FK→tenants, UQ |  |  |
+| `email_normalized` | text |  | UQ |  |  |
+| `password_hash` | text |  |  |  |  |
+| `password_algo` | text |  |  | `'argon2id'::text` |  |
+| `email_verified_at` | timestamp with time zone | yes |  |  |  |
+| `disabled_at` | timestamp with time zone | yes |  |  |  |
+| `failed_login_count` | integer |  |  | `0` |  |
+| `last_failed_login_at` | timestamp with time zone | yes |  |  |  |
+| `last_login_at` | timestamp with time zone | yes |  |  |  |
+| `created_at` | timestamp with time zone |  |  | `now()` |  |
+| `updated_at` | timestamp with time zone |  |  | `now()` |  |
+
+- **Primary key:** (principal_id)
+- **Unique:** UNIQUE (tenant_id, email_normalized)
+- **FK:** FOREIGN KEY (principal_id) REFERENCES principals(id) ON DELETE CASCADE
+- **FK:** FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE
+- **Check:** CHECK ((email_normalized = lower(email_normalized)))
+- **Check:** CHECK ((failed_login_count >= 0))
+- **Check:** CHECK ((password_algo = 'argon2id'::text))
+- **Check:** CHECK ((password_hash ~~ '$argon2%'::text))
+- **Index** `idx_principal_credentials_email`: public.principal_credentials USING btree (email_normalized)
+- **Index** `principal_credentials_tenant_id_email_normalized_key`: public.principal_credentials USING btree (tenant_id, email_normalized)
+
+#### `email_verification_tokens`
+
+| Column | Type | Null | Key | Default | Notes |
+|---|---|---|---|---|---|
+| `token_hash` | text |  | PK |  |  |
+| `principal_id` | uuid |  | FK→principals |  |  |
+| `expires_at` | timestamp with time zone |  |  |  |  |
+| `consumed_at` | timestamp with time zone | yes |  |  |  |
+| `created_at` | timestamp with time zone |  |  | `now()` |  |
+
+- **Primary key:** (token_hash)
+- **FK:** FOREIGN KEY (principal_id) REFERENCES principals(id) ON DELETE CASCADE
+- **Check:** CHECK ((length(token_hash) = 64))
+- **Index** `idx_email_verification_tokens_principal`: public.email_verification_tokens USING btree (principal_id)
+
+#### `auth_refresh_tokens`
+
+| Column | Type | Null | Key | Default | Notes |
+|---|---|---|---|---|---|
+| `token_id` | text |  | PK |  |  |
+| `family_id` | text |  |  |  |  |
+| `principal_id` | uuid |  | FK→principals |  |  |
+| `subject` | text |  |  |  |  |
+| `scopes` | text[] |  |  |  |  |
+| `expires_at` | timestamp with time zone |  |  |  |  |
+| `status` | text |  |  | `'active'::text` |  |
+| `created_at` | timestamp with time zone |  |  | `now()` |  |
+| `updated_at` | timestamp with time zone |  |  | `now()` |  |
+
+- **Primary key:** (token_id)
+- **FK:** FOREIGN KEY (principal_id) REFERENCES principals(id) ON DELETE CASCADE
+- **Check:** CHECK ((status = ANY (ARRAY['active'::text, 'rotated'::text, 'revoked'::text, 'expired'::text])))
+- **Index** `idx_auth_refresh_tokens_family`: public.auth_refresh_tokens USING btree (family_id)
+- **Index** `idx_auth_refresh_tokens_principal`: public.auth_refresh_tokens USING btree (principal_id)
+
+#### `scim_groups`
+
+| Column | Type | Null | Key | Default | Notes |
+|---|---|---|---|---|---|
+| `id` | uuid |  | PK | `gen_random_uuid()` |  |
+| `tenant_id` | uuid |  | FK→tenants, UQ |  |  |
+| `source_id` | text |  | UQ |  |  |
+| `display_name` | text |  |  |  |  |
+| `active` | boolean |  |  | `true` |  |
+| `created_at` | timestamp with time zone |  |  | `now()` |  |
+| `updated_at` | timestamp with time zone |  |  | `now()` |  |
+
+- **Primary key:** (id)
+- **Unique:** UNIQUE (tenant_id, source_id)
+- **FK:** FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE
+- **Index** `scim_groups_tenant_id_source_id_key`: public.scim_groups USING btree (tenant_id, source_id)
+
+#### `scim_group_members`
+
+| Column | Type | Null | Key | Default | Notes |
+|---|---|---|---|---|---|
+| `group_id` | uuid |  | PK, FK→scim_groups |  |  |
+| `principal_id` | uuid |  | PK, FK→principals |  |  |
+
+- **Primary key:** (group_id, principal_id)
+- **FK:** FOREIGN KEY (group_id) REFERENCES scim_groups(id) ON DELETE CASCADE
+- **FK:** FOREIGN KEY (principal_id) REFERENCES principals(id) ON DELETE CASCADE
+
+#### `tenant_saml_identity_providers`
+
+| Column | Type | Null | Key | Default | Notes |
+|---|---|---|---|---|---|
+| `tenant_id` | uuid |  | PK, FK→tenants |  |  |
+| `entity_id` | text |  |  |  |  |
+| `metadata_url` | text | yes |  |  |  |
+| `metadata_xml` | text | yes |  |  |  |
+| `sso_url` | text | yes |  |  |  |
+| `x509_cert_pem` | text | yes |  |  |  |
+| `service_provider_entity_id` | text |  |  |  |  |
+| `acs_url` | text | yes |  |  |  |
+| `allow_unsigned_assertions` | boolean |  |  | `false` |  |
+| `jit_provisioning` | boolean |  |  | `false` |  |
+| `created_at` | timestamp with time zone |  |  | `now()` |  |
+| `updated_at` | timestamp with time zone |  |  | `now()` |  |
+
+- **Primary key:** (tenant_id)
+- **FK:** FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE
+- **Check:** CHECK (((metadata_url IS NOT NULL) OR (metadata_xml IS NOT NULL)))
+- **Index** `idx_tenant_saml_idp_entity`: public.tenant_saml_identity_providers USING btree (entity_id)
+
+### 5.14 Security audit trail
 
 Append-only access and authentication events: who did what, against which target, from which source
 address, and whether it succeeded or was denied.
@@ -988,7 +1356,7 @@ address, and whether it succeeded or was denied.
 - **Index** `idx_audit_events_time`: public.audit_events USING btree (occurred_at DESC)
 - **RLS:** enabled — read/write policies via *insert-only security audit log*
 
-### 5.12 Evaluation & drift artifacts
+### 5.15 Evaluation & drift artifacts
 
 Corpus snapshots, evaluation runs, metric rows, and gold samples make quality and drift measurements
 durable and citeable instead of one-off operator observations.
@@ -1069,11 +1437,51 @@ durable and citeable instead of one-off operator observations.
 - **FK:** FOREIGN KEY (span_id) REFERENCES spans(id) ON DELETE CASCADE
 - **Index** `idx_gold_sample_label`: public.gold_sample USING btree (label, created_at DESC)
 
-### 5.13 Meta
+### 5.16 Jobs & operations
 
-Applied-migration ledger, the schema's SemVer, and the corpus-backup catalogue. `backups` is
-operational: it and the `jobs` queue are excluded from every snapshot and from restore, so a restore
-never clobbers the queue or the archive index it is reading from.
+The background job queue (claimed FOR UPDATE SKIP LOCKED, heartbeat + drain-aware reaping, first-
+class progress), the applied-migration ledger, the schema's SemVer, and the corpus-backup catalogue.
+`backups` and the `jobs` queue are excluded from every snapshot and from restore, so a restore never
+clobbers the queue or the archive index it is reading from.
+
+#### `jobs`
+
+| Column | Type | Null | Key | Default | Notes |
+|---|---|---|---|---|---|
+| `id` | ulid |  | PK |  |  |
+| `kind` | text |  |  |  |  |
+| `status` | text |  |  | `'queued'::text` |  |
+| `priority` | integer |  |  | `100` |  |
+| `payload` | jsonb |  |  | `'{}'::jsonb` |  |
+| `result` | jsonb | yes |  |  |  |
+| `error` | text | yes |  |  |  |
+| `attempts` | integer |  |  | `0` |  |
+| `max_attempts` | integer |  |  | `3` |  |
+| `document_id` | uuid | yes | FK→documents |  |  |
+| `created_at` | timestamp with time zone |  |  | `now()` |  |
+| `run_after` | timestamp with time zone |  |  | `now()` |  |
+| `started_at` | timestamp with time zone | yes |  |  |  |
+| `finished_at` | timestamp with time zone | yes |  |  |  |
+| `heartbeat_at` | timestamp with time zone | yes |  |  |  |
+| `locked_by` | text | yes |  |  |  |
+| `progress_current` | integer | yes |  |  |  |
+| `progress_total` | integer | yes |  |  |  |
+| `progress_stage` | text | yes |  |  |  |
+| `drain_requested_at` | timestamp with time zone | yes |  |  | Set while running when the claim-holding worker was asked to shut down; a stale-heartbeat reap of such a job requeues it without burning an attempt. |
+
+- **Primary key:** (id)
+- **FK:** FOREIGN KEY (document_id) REFERENCES documents(id) ON DELETE CASCADE
+- **Check:** CHECK ((attempts <= max_attempts))
+- **Check:** CHECK (((finished_at IS NULL) OR (started_at IS NOT NULL)))
+- **Check:** CHECK (((progress_current IS NULL) OR (progress_total IS NULL) OR (progress_current <= progress_total)))
+- **Check:** CHECK (((progress_current IS NULL) OR (progress_current >= 0)))
+- **Check:** CHECK (((progress_total IS NULL) OR (progress_total >= 0)))
+- **Check:** CHECK ((status = ANY (ARRAY['queued'::text, 'running'::text, 'succeeded'::text, 'failed'::text, 'canceled'::text])))
+- **Index** `idx_jobs_claimable`: public.jobs USING btree (priority, run_after, id) WHERE (status = 'queued'::text)
+- **Index** `idx_jobs_document`: public.jobs USING btree (document_id, id)
+- **Index** `idx_jobs_running_heartbeat`: public.jobs USING btree (heartbeat_at) WHERE (status = 'running'::text)
+- **Index** `idx_jobs_status`: public.jobs USING btree (status, id)
+- **RLS:** enabled — read/write policies via *document_id (admin-only when NULL)*
 
 #### `schema_migrations`
 
@@ -1166,8 +1574,8 @@ SELECT a.document_id,
 
 | Function | Returns | Security | Lang |
 |---|---|---|---|
-| `docray_attach_rls(tbl regclass, tmpl text)` | `void` | invoker | plpgsql |
 | `docray_abac_document_write_allowed(target_document uuid)` | `TABLE(ok boolean, reason text)` | DEFINER | sql |
+| `docray_attach_rls(tbl regclass, tmpl text)` | `void` | invoker | plpgsql |
 | `docray_audit_tenant_for_principal(actor uuid)` | `uuid` | DEFINER | sql |
 | `docray_create_principal_login(principal uuid, role_name name, password text DEFAULT NULL::text)` | `name` | DEFINER | plpgsql |
 | `docray_current_principal()` | `uuid` | DEFINER | sql |
@@ -1177,6 +1585,7 @@ SELECT a.document_id,
 | `docray_is_admin()` | `boolean` | DEFINER | sql |
 | `docray_prevent_audit_event_mutation()` | `trigger` | invoker | plpgsql |
 | `docray_readable_documents()` | `SETOF uuid` | DEFINER | sql |
+| `docray_reject_manual_scim_role_edit()` | `trigger` | DEFINER | plpgsql |
 | `docray_schema_version()` | `text` | invoker | sql |
 | `docray_ts_config(lang text)` | `regconfig` | invoker | sql |
 | `docray_writable_documents()` | `SETOF uuid` | DEFINER | sql |
@@ -1191,6 +1600,7 @@ SELECT a.document_id,
 - **document_content** `trg_content_fts`: CREATE TRIGGER trg_content_fts BEFORE INSERT OR UPDATE OF full_text …
 - **documents** `trg_documents_language_fts`: CREATE TRIGGER trg_documents_language_fts AFTER UPDATE OF language …
 - **documents** `trg_documents_updated_at`: CREATE TRIGGER trg_documents_updated_at BEFORE UPDATE …
+- **principal_roles** `trg_reject_manual_scim_role_edit`: CREATE TRIGGER trg_reject_manual_scim_role_edit BEFORE INSERT OR DELETE OR UPDATE …
 
 
 ## 8. Access control (RBAC + RLS)
@@ -1200,15 +1610,7 @@ document-scoped table. A principal may **read** a same-tenant document iff it is
 *admin* or holds any `document_acl` row on it, and may **write** iff *admin* or
 holds an `annotate`/`delete`/`admin` grant.
 
-An ABAC layer runs after the RBAC/document ACL decision for API document writes.
-The shipped policy uses resource attributes: if
-`document_metadata.sensitivity=sensitive`, the write is denied unless the caller
-is admin or holds an additional explicit `document_acl.permission='sensitive'`
-grant for that same document. The helper
-`docray_abac_document_write_allowed(uuid)` is `SECURITY DEFINER`, so the app role
-can evaluate this rule without receiving raw `document_acl` table access.
-
-**Enforcement.** RLS is `ENABLE`d (not `FORCE`) on 36 tables (incl. `jobs` and
+**Enforcement.** RLS is `ENABLE`d (not `FORCE`) on 42 tables (incl. `jobs` and
 `backups` since migration 043 — BL-064). The `docray`
 role is a **superuser and table owner**, so it **bypasses RLS** — the ingest
 pipeline and admin tooling use it as the trusted batch writer. End-user / API
@@ -1319,5 +1721,9 @@ owner's bypass.
 | 069 | `069_document_pages.sql` | per-page PDF geometry rows, including text-free pages (BL-126) |
 | 070 | `070_schema_version_1_20_0.sql` | advance the schema SemVer to 1.20.0 |
 | 071 | `071_schema_version_1_21_0.sql` | advance the schema SemVer to 1.21.0 |
-| 072 | `072_jobs_drain_requested_at.sql` | jobs.drain_requested_at: deploy-kill of a draining worker releases the job without spending an attempt |
+| 072 | `072_jobs_drain_requested_at.sql` | jobs.drain_requested_at: deploy-kill of a draining worker releases the job without spending an attempt (BL-132) |
 | 073 | `073_schema_version_1_22_0.sql` | advance the schema SemVer to 1.22.0 |
+| 074 | `074_local_auth.sql` | local self-service auth: principal_credentials (argon2id), email_verification_tokens, auth_refresh_tokens |
+| 075 | `075_schema_version_1_23_0.sql` | advance the schema SemVer to 1.23.0 |
+| 076 | `076_reader_corpus_read.sql` | docray_readable_documents() gains the role-permission read branch (reader role sees the tenant corpus) excluding sensitivity=sensitive documents |
+| 077 | `077_schema_version_1_24_0.sql` | advance the schema SemVer to 1.24.0 |

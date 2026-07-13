@@ -22,6 +22,19 @@ doc-ray carries **one global version** covering both the application package
 ## [Unreleased]
 
 ### Fixed
+- **Database ERD & data dictionary caught up with the live schema** (Claude
+  Fable 5 via Claude Code). `docs/DATABASE.md` had drifted to 1.22.0/73
+  migrations because the generator's own curated inputs were stale: 16 live
+  tables (jobs, collections, canonicalization, layout runs, local-auth,
+  SCIM/SAML) had never been added to its groups, the migration list stopped
+  at 071, and the RLS table count was hard-coded. The generator now documents
+  all 69 tables in five new/extended §5 groups, carries three new §3 Mermaid
+  ERDs (canonicalization & curation, jobs & operations, authentication &
+  identity), computes the RLS count from the catalog, and lists migrations
+  through 077; `docs/doc-ray-database-erd.svg` was rebuilt to the full
+  1.24.0 scope. Curated data moved to `scripts/_data_dictionary_content.py`
+  to stay within the D-015 cap.
+
 - **Backup jobs no longer starve their own heartbeat** (Claude Fable 5 via
   Claude Code) — BL-135. Progress reports wrote through the worker's main
   connection, so inside the backup handler's minutes-long REPEATABLE READ
@@ -34,6 +47,79 @@ doc-ray carries **one global version** covering both the application package
   regression test drives a real snapshot-isolation handler and proves the
   jobs row stays unlocked (FOR UPDATE NOWAIT) with progress visible
   mid-transaction.
+- **`createCollection` no longer 500s on a missing RETURNING row or scalar
+  smart-rule tags** (Claude Fable 5 via Claude Code) — the mutation guards
+  the INSERT's RETURNING row and normalizes non-list smart-rule tag values.
+- **Package version reconciled with the schema** (Claude Fable 5 via Claude
+  Code) — `doc_ray.__version__` had been left at 1.22.0 while migrations
+  075/077 moved the schema to 1.24.0, leaving
+  `scripts/check_version_consistency.py` red on main; the 1.23.0/1.24.0
+  release sections below were reconstructed from the git history at the same
+  time.
+
+### Changed
+- **Modernist design-system refresh across all webapp templates**
+  (Claude Fable 5 via Claude Code) — typography, layout, and navigation pass
+  over the browser UI; no route or data-contract changes.
+
+## [1.24.0] - 2026-07-13
+
+Schema 1.24.0 (migrations 076–077).
+
+### Fixed
+- **The four MAJOR local-auth audit findings** (Claude Fable 5 via Claude
+  Code, TDD) — brute-force lockout (`DOCRAY_AUTH_MAX_FAILED_LOGINS` /
+  `DOCRAY_AUTH_LOCKOUT_SECONDS`) plus `/login`–`/register` rate limits with
+  no account-state oracle; refresh-token rotation state persisted in
+  `auth_refresh_tokens` (previously process-memory only, so every API
+  restart revoked all sessions); role-based corpus read visibility so a
+  fresh reader sees the tenant corpus except `sensitivity=sensitive`
+  documents, which stay ACL-gated (migration 076); and webapp→API writes now
+  act as the logged-in principal via an explicit `impersonate`-scoped
+  `X-DocRay-Act-As` delegation instead of riding the admin service token.
+- **Verification-delivery blocker** (Claude Fable 5 via Claude Code) — a
+  registered account could never verify: the raw token was discarded and no
+  mail sender existed anywhere in the repo. New `Mailer` port + stdlib SMTP
+  adapter (`DOCRAY_SMTP_*`, STARTTLS, optional AUTH), fail-closed
+  registration when delivery is unavailable, and a resend route.
+- **Browser corpus access requires web auth** (fleet agent) — webapp read
+  routes no longer serve anonymous sessions.
+
+## [1.23.0] - 2026-07-12
+
+Schema 1.23.0 (migrations 074–075).
+
+### Added
+- **Local self-service auth** (fleet agent) — Argon2id credential storage
+  (`principal_credentials`), email-verification tokens, and webapp
+  registration/login for reader-role principals (migrations 074–075).
+- **Document collections exposed in GraphQL** (fleet agent).
+- **`pipeline_health_check`** (Claude Fable 5 via Claude Code) — one-shot
+  broken-state report for the pipeline.
+- **Short-job lane: kind-filtered claiming + reserved `worker-fast` service**
+  (Claude Fable 5 via Claude Code) — the 2026-07-12 starvation incident's
+  final follow-up: with every worker chewing a book-sized reannotate, a
+  seconds-long ingest sat `Queued` for 25+ minutes with no worker available.
+  `queue_postgres.claim()` (and `run_once`) now accept `only_kinds`/
+  `exclude_kinds`; the worker reads `WORKER_ONLY_KINDS`/`WORKER_EXCLUDE_KINDS`
+  (comma-separated) and passes them to every claim. A new compose
+  `worker-fast` service runs with `WORKER_EXCLUDE_KINDS=annotate,reannotate`
+  (override via `WORKER_FAST_EXCLUDE_KINDS`) as reserved capacity for
+  user-facing jobs — ingest, metadata edits, deletes, backups — so they never
+  queue behind hours-long spaCy runs. Jobs a filtered worker skips stay
+  queued for its peers; unfiltered workers are unchanged. Regression tests
+  cover exclude/only/unfiltered claiming and `run_once` threading.
+
+### Changed
+- **Hot paths stop per-row `substring(full_text)` detoasting**
+  (Claude Fable 5 via Claude Code) — enrichment and webapp queries no longer
+  detoast the full document text per row.
+
+### Fixed
+- **Language detection ignores single-letter tokens** (Claude Fable 5 via
+  Claude Code).
+- **Honest pipeline-step status in the webapp** (Claude Fable 5 via Claude
+  Code) — failure banners, elapsed time, no fabricated ETA.
 - **Pipeline polish pass** (Claude Fable 5 via Claude Code) — BL-134, four
   root-cause fixes from the 2026-07-12 incident review, each with a
   regression test:
@@ -67,21 +153,6 @@ doc-ray carries **one global version** covering both the application package
   (O((n+m) log m)); the caller uses EXISTS. Regression tests pin the
   duplicate-vote semantics, equivalence with the original scan, and a
   12k×12k wall-clock budget (44.6s → 0.1s).
-
-### Added
-- **Short-job lane: kind-filtered claiming + reserved `worker-fast` service**
-  (Claude Fable 5 via Claude Code) — the 2026-07-12 starvation incident's
-  final follow-up: with every worker chewing a book-sized reannotate, a
-  seconds-long ingest sat `Queued` for 25+ minutes with no worker available.
-  `queue_postgres.claim()` (and `run_once`) now accept `only_kinds`/
-  `exclude_kinds`; the worker reads `WORKER_ONLY_KINDS`/`WORKER_EXCLUDE_KINDS`
-  (comma-separated) and passes them to every claim. A new compose
-  `worker-fast` service runs with `WORKER_EXCLUDE_KINDS=annotate,reannotate`
-  (override via `WORKER_FAST_EXCLUDE_KINDS`) as reserved capacity for
-  user-facing jobs — ingest, metadata edits, deletes, backups — so they never
-  queue behind hours-long spaCy runs. Jobs a filtered worker skips stay
-  queued for its peers; unfiltered workers are unchanged. Regression tests
-  cover exclude/only/unfiltered claiming and `run_once` threading.
 
 ## [1.22.0] - 2026-07-12
 
