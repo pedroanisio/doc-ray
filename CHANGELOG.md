@@ -22,6 +22,18 @@ doc-ray carries **one global version** covering both the application package
 ## [Unreleased]
 
 ### Fixed
+- **Backup jobs no longer starve their own heartbeat** (Claude Fable 5 via
+  Claude Code) — BL-135. Progress reports wrote through the worker's main
+  connection, so inside the backup handler's minutes-long REPEATABLE READ
+  snapshot transaction each per-table report joined that transaction and held
+  the jobs-row lock until commit — blocking the heartbeat on the same row
+  until the reaper stole the job from a *living* worker ("could not complete;
+  claim may have been lost", three attempts exhausted per backup). Progress
+  now flows through the heartbeat (side) connection under a shared mutex,
+  committing immediately and never joining handler transactions. The
+  regression test drives a real snapshot-isolation handler and proves the
+  jobs row stays unlocked (FOR UPDATE NOWAIT) with progress visible
+  mid-transaction.
 - **Pipeline polish pass** (Claude Fable 5 via Claude Code) — BL-134, four
   root-cause fixes from the 2026-07-12 incident review, each with a
   regression test:

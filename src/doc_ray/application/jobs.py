@@ -541,17 +541,21 @@ def _start_heartbeat(
     worker_id: str,
     interval: float,
     shutdown: threading.Event | None = None,
+    conn_lock: threading.Lock | None = None,
 ) -> Callable[[], None]:
     """Refresh *job*'s heartbeat on a daemon thread; return a stop() callable.
 
     Uses a dedicated connection (never the one the handler is using — psycopg
-    connections are not safe for concurrent use). When *shutdown* is set while
-    the handler is still running, the thread also stamps the job's drain
-    request (once): if the process is later SIGKILLed mid-handler, the reaper
-    releases the job without spending an attempt instead of treating the
-    deploy-kill as a crash (see ``queue.request_drain``/``queue.reap_stale``).
+    connections are not safe for concurrent use); *conn_lock* serializes that
+    connection with the handler thread's progress reports, which share it (see
+    ``run_once``). When *shutdown* is set while the handler is still running,
+    the thread also stamps the job's drain request (once): if the process is
+    later SIGKILLed mid-handler, the reaper releases the job without spending
+    an attempt instead of treating the deploy-kill as a crash (see
+    ``queue.request_drain``/``queue.reap_stale``).
     """
     stop = threading.Event()
+    lock = conn_lock or threading.Lock()
 
     def _beat() -> None:
         drain_stamped = False
@@ -564,13 +568,13 @@ def _start_heartbeat(
         step = min(1.0, interval)
         while not stop.wait(step):
             if shutdown is not None and shutdown.is_set() and not drain_stamped:
-                with contextlib.suppress(Exception):
+                with contextlib.suppress(Exception), lock:
                     queue.request_drain(conn, job.id, worker_id=worker_id)
                     drain_stamped = True
             since_beat += step
             if since_beat >= interval:
                 since_beat = 0.0
-                with contextlib.suppress(Exception):
+                with contextlib.suppress(Exception), lock:
                     queue.heartbeat(conn, job.id, worker_id=worker_id)
 
     thread = threading.Thread(target=_beat, daemon=True)
@@ -653,8 +657,9 @@ def run_once(
         )
         queue.fail(conn, job.id, error=f"unknown job kind {job.kind!r}", retry_in_seconds=None)
         return job
+    side_lock = threading.Lock()
     stop_heartbeat = (
-        _start_heartbeat(heartbeat_conn, job, worker_id, heartbeat_interval, shutdown)
+        _start_heartbeat(heartbeat_conn, job, worker_id, heartbeat_interval, shutdown, side_lock)
         if heartbeat_conn is not None
         else None
     )
@@ -663,6 +668,24 @@ def run_once(
     def _report(current: int | None, total: int | None, stage: str | None) -> None:
         nonlocal last_progress
         last_progress = (current, total, stage)
+        # Progress must never ride the main connection while a handler holds a
+        # transaction open there: the UPDATE would join that transaction and
+        # hold the jobs-row lock until commit, blocking the heartbeat on the
+        # same row until the reaper stole the job from a living worker
+        # (BL-135: the backup handler's snapshot transaction did exactly this).
+        # The side connection commits each report immediately; side_lock
+        # serializes it with the heartbeat thread, which shares it.
+        if heartbeat_conn is not None:
+            with side_lock:
+                queue.update_progress(
+                    heartbeat_conn,
+                    job.id,
+                    current=current,
+                    total=total,
+                    stage=stage,
+                    worker_id=worker_id,
+                )
+            return
         queue.update_progress(
             conn,
             job.id,

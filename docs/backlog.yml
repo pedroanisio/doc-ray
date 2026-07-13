@@ -110,7 +110,7 @@ metadata:
   generated_by:     "Claude Sonnet 5 via Claude Code (merge of Claude Opus 4.8 backlog + OpenAI Codex improvement-proposal candidates)"
   generated_on:     "2026-07-05"
   system_of_record: "docs/backlog.yml"
-  total_items:      134
+  total_items:      135
 
 items:
 
@@ -4431,3 +4431,32 @@ items:
     owner:        "shared"
     source:       "Operator directive 2026-07-12: 'run an full refine/enhance/polish pass on the pipeline' + 'fix root causes, and add regression tests when needed.'"
     tags:         ["worker", "queue", "ops", "performance", "tech-debt"]
+
+  - id:          "BL-135"
+    title:        "Backup heartbeat starved: progress writes rode the handler's snapshot transaction"
+    summary:      "Backups failed 3/3 with 'reclaimed: stale heartbeat, attempts exhausted' while their worker was alive and finishing ('could not complete; claim may have been lost'). Root cause: run_once's progress reporter wrote through the worker's main connection, so inside the backup handler's minutes-long REPEATABLE READ snapshot transaction each per-table report_progress joined that transaction and held the jobs-row lock until commit — blocking the heartbeat thread's UPDATE on the same row past the 120s staleness cutoff. Surfaced when the corpus tripled and the dump outgrew the reap window."
+    description: |
+      Fixed (TDD): run_once routes progress reports through the heartbeat
+      (side) connection, serialized with the heartbeat thread by a shared
+      mutex, so reports commit immediately and never join a handler-opened
+      transaction. Regression test drives a real REPEATABLE READ handler and
+      proves via a third connection that the jobs row is not locked
+      (FOR UPDATE NOWAIT) and progress is visible mid-transaction.
+    category:     "ops"
+    type:         "bug"
+    status:       "done"
+    complexity:   "S"
+    priority:     "high"
+    rationale:    "Backups are the corpus's only recovery path; the defect class (any long handler transaction plus progress) would have silently broken every future snapshot-style job as data grew."
+    acceptance_criteria:
+      - "A handler holding an open transaction that calls report_progress leaves the jobs row unlocked for concurrent writers."
+      - "Progress reported inside a handler transaction is visible to other connections immediately."
+      - "Backup jobs complete on the grown corpus with heartbeats flowing throughout."
+    dependencies: ["BL-132"]
+    references:
+      - "src/doc_ray/application/jobs.py"
+      - "src/doc_ray/application/backup.py"
+      - "src/doc_ray/tests/test_worker.py"
+    owner:        "shared"
+    source:       "Found during the operator's 2026-07-12 ingest/verification pass: two failed backup jobs at 23:06/23:26 with stale-heartbeat exhaustion but no drain stamp and no worker crash."
+    tags:         ["worker", "backup", "transactions", "ops", "bug"]

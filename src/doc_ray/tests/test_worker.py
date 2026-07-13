@@ -11,11 +11,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import psycopg
 import pytest
 
 from doc_ray.adapters import queue_postgres as q
 from doc_ray.application.jobs import backoff_seconds, run_once
 from doc_ray.domain.jobs import JobStatus
+from doc_ray.domain.progress import report_progress
 
 _MIGRATIONS = Path(__file__).resolve().parents[3] / "db" / "migrations"
 
@@ -41,6 +43,64 @@ def qconn():
         for job_id in created:
             conn.execute("DELETE FROM jobs WHERE id = %s", (job_id,))
         conn.close()
+
+
+def test_progress_reports_do_not_ride_a_handler_opened_transaction(qconn):
+    """Progress writes must not join the handler's transaction on the main conn.
+
+    Live failure (2026-07-12, BL-135): the backup handler dumps tables inside a
+    minutes-long REPEATABLE READ transaction and reports progress per table.
+    Those progress UPDATEs rode the main connection's open transaction, holding
+    the jobs-row lock until commit — which blocked the heartbeat thread's
+    UPDATE on the same row until the reaper declared a *living* worker stale
+    and stole its job ("could not complete; claim may have been lost").
+
+    With the fix, progress flows through the side (heartbeat) connection: the
+    handler's transaction never locks the jobs row (FOR UPDATE NOWAIT from a
+    third connection succeeds) and the progress is visible outside at once.
+    """
+    import _itdb
+
+    conn, created = qconn
+    hb_conn = _itdb.connect()
+    probe = _itdb.connect()
+    observed: dict = {}
+
+    def snapshotting_handler(handler_conn, store, job):
+        with handler_conn.transaction():
+            handler_conn.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
+            handler_conn.execute("SELECT count(*) FROM jobs")  # take the snapshot
+            report_progress(1, 3, "Backing up table documents")
+            try:
+                with probe.transaction():
+                    probe.execute("SELECT 1 FROM jobs WHERE id = %s FOR UPDATE NOWAIT", (job.id,))
+                observed["locked"] = False
+            except psycopg.errors.LockNotAvailable:
+                observed["locked"] = True
+            seen = probe.execute(
+                "SELECT progress_stage FROM jobs WHERE id = %s", (job.id,)
+            ).fetchone()
+            observed["stage_outside"] = seen["progress_stage"] if seen else None
+        return {}
+
+    try:
+        jid = q.enqueue(conn, "snap", {}, priority=-90_000)
+        created.append(jid)
+        run_once(
+            conn,
+            None,
+            worker_id="t-txn",
+            handlers={"snap": snapshotting_handler},
+            heartbeat_conn=hb_conn,
+            heartbeat_interval=0.05,
+        )
+        assert observed["locked"] is False, "handler transaction held the jobs-row lock"
+        assert observed["stage_outside"] == "Backing up table documents"
+        row = conn.execute("SELECT status FROM jobs WHERE id = %s", (jid,)).fetchone()
+        assert row is not None and row["status"] == "succeeded"
+    finally:
+        hb_conn.close()
+        probe.close()
 
 
 def test_backoff_growth_and_cap():

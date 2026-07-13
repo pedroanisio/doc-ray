@@ -331,6 +331,16 @@ hours of elapsed time); reap clears progress on queued rows (no dead-attempt
 percentages); and the layout fetch drops its correlated `_span_stage`
 predicate (an O(rows x spans) planner nested loop in waiting).
 
+**2026-07-12 backup heartbeat poisoning (found during ingest verification):**
+added and completed `BL-135` (S/high). Progress reports wrote through the
+worker's main connection; inside the backup handler's minutes-long snapshot
+transaction each per-table report joined the transaction, held the jobs-row
+lock until commit, and starved the heartbeat until the reaper stole the job
+from a living worker — three attempts burned per backup once the corpus
+outgrew the 120s reap window. Progress now flows through the heartbeat
+connection under a shared mutex; the regression test proves the row stays
+unlocked and progress stays visible during a REPEATABLE READ handler.
+
 ## Items
 
 | ID | Item | Category | Type | Status | Cx | Priority | Owner |
@@ -469,6 +479,7 @@ predicate (an O(rows x spans) planner nested loop in waiting).
 | BL-132 | Deploy-kills burned job attempts: long annotate jobs permanently failed by consecutive fleet deploys | ops | bug | done | S | high | shared |
 | BL-133 | Span-geometry backfill was O(spans x layout rows): book annotation ran for hours and hit the execution timeout | nlp | bug | done | S | high | shared |
 | BL-134 | Pipeline polish: janitor reap, attempt-relative started_at, reap progress hygiene | ops | tech-debt | done | S | high | shared |
+| BL-135 | Backup heartbeat starved: progress writes rode the handler's snapshot transaction | ops | bug | done | S | high | shared |
 
 See [`backlog.yml`](backlog.yml) for each item's full description, rationale,
 acceptance criteria, dependencies, related decisions (`D-###`), and references.
