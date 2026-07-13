@@ -30,6 +30,26 @@ def pytest_sessionstart(session):
     conn.close()
 
 
+@pytest.fixture()
+def qconn():
+    """A connection whose ``jobs`` table is a private temp shadow.
+
+    Shared by the job-dispatch/worker test modules (test_jobs_worker*.py,
+    D-015 split): the session-local TEMP table shadows ``public.jobs`` via
+    search-path precedence, so nothing here can claim, complete, or fail
+    another process's real queued work.
+    """
+    import _itdb
+
+    migrations = Path(__file__).resolve().parents[3] / "db" / "migrations"
+    conn = _itdb.connect()
+    conn.execute((migrations / "059_job_progress.sql").read_text())
+    conn.execute((migrations / "072_jobs_drain_requested_at.sql").read_text())
+    conn.execute("CREATE TEMP TABLE jobs (LIKE public.jobs INCLUDING ALL)")
+    yield conn
+    conn.close()
+
+
 @pytest.fixture
 def pg():
     """A live DB connection + a doc-id cleanup registry for integration tests.
