@@ -93,10 +93,10 @@ def test_audit_export_endpoint_maps_non_admin_to_forbidden(monkeypatch: pytest.M
     async def deny_admin(_conn: object) -> None:
         raise PermissionError("audit events require an admin principal")
 
-    monkeypatch.setattr("doc_ray.entrypoints.api.app.apply_principal", noop)
-    monkeypatch.setattr("doc_ray.entrypoints.api.app.reset_principal", noop)
+    monkeypatch.setattr("doc_ray.entrypoints.api.audit_export.apply_principal", noop)
+    monkeypatch.setattr("doc_ray.entrypoints.api.audit_export.reset_principal", noop)
     monkeypatch.setattr(
-        "doc_ray.entrypoints.api.app.security_audit_read.require_audit_admin",
+        "doc_ray.entrypoints.api.audit_export.security_audit_read.require_audit_admin",
         deny_admin,
     )
     request = SimpleNamespace(
