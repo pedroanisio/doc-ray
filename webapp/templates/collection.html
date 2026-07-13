@@ -29,7 +29,7 @@
 </details>
 {% endif %}
 
-<div class="card">
+<div class="card table-card">
   <table>
     <thead><tr>
       <th>Preview</th><th>Title</th><th>Type</th><th>Status</th>
@@ -51,10 +51,10 @@
             </a>
           {% endif %}
         </td>
-        <td style="font-family:var(--display); font-size:1.15rem">
+        <td class="table-title">
           <a href="{{ url_for('document', doc_id=d.id) }}">{{ d.title }}</a>
         </td>
-        <td class="mono" style="color:var(--ink-faint)">{{ d.doc_type }}</td>
+        <td class="meta-cell">{{ d.doc_type }}</td>
         <td>{{ d.status }}</td>
         <td class="num">{{ d.page_count or "—" }}</td>
         <td class="num">{{ "{:,}".format(d.n_sentences or 0) }}</td>

@@ -16,7 +16,7 @@
   and tagged for part of speech. Open one to read it with its annotation layer.
 </p>
 
-<div class="card" style="margin-top:1.6rem; display:flex; flex-wrap:wrap; gap:.5rem 0">
+<div class="card stats-band">
   <div class="stat"><b>{{ "{:,}".format(totals.docs) }}</b><span>documents</span></div>
   <div class="stat"><b>{{ "{:,}".format(totals.sents) }}</b><span>sentences</span></div>
   <div class="stat"><b>{{ "{:,}".format(totals.lexemes) }}</b><span>lexemes</span></div>
@@ -33,9 +33,9 @@
 <p class="notice error">{{ bulk_error }}</p>
 {% endif %}
 
-<form action="{{ url_for('documents_bulk_action') }}" method="post" class="card">
+<form action="{{ url_for('documents_bulk_action') }}" method="post" class="card table-card">
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-  <div class="toolbar" style="margin-bottom:1rem">
+  <div class="toolbar">
     <label>
       Tags
       <input name="tags" placeholder="reviewed, source-a">
@@ -70,20 +70,20 @@
             <div class="preview-status preview-status-{{ preview.state }}">{{ preview.status_label }}</div>
           {% endif %}
         </td>
-        <td style="font-family:var(--display); font-size:1.15rem">
+        <td class="table-title">
           <a href="{{ url_for('document', doc_id=d.id) }}">{{ d.title }}</a></td>
-        <td style="color:var(--ink-faint)" class="mono">{{ d.doc_type }}</td>
+        <td class="meta-cell">{{ d.doc_type }}</td>
         <td>{% if d.language %}<span class="pill lang">{{ d.language }}</span>{% endif %}</td>
         <td class="num">{{ "{:,}".format(d.char_count or 0) }}</td>
         <td class="num">{{ d.page_count or "—" }}</td>
         <td class="num">{{ "{:,}".format(d.n_sentences) }}</td>
-        <td class="mono" style="color:var(--ink-faint); font-size:.72rem">{{ d.tools or "—" }}</td>
+        <td class="meta-cell">{{ d.tools or "—" }}</td>
       </tr>
     {% else %}
       <tr>
         <td colspan="9" style="padding:1.4rem; text-align:center">
           <strong>No documents yet.</strong>
-          <span style="color:var(--ink-muted)">Start by adding a file to the corpus.</span>
+          <span style="color:var(--ink-faint)">Start by adding a file to the corpus.</span>
           <a href="{{ url_for('upload_form') }}">Upload the first document</a>
         </td>
       </tr>

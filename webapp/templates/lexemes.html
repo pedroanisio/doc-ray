@@ -22,7 +22,7 @@
   <button type="submit">Filter</button>
 </form>
 
-<div class="card">
+<div class="card table-card">
   <table>
     <thead><tr>
       <th>Lemma</th><th>POS</th><th>Lang</th><th class="num">Uses</th>
@@ -30,7 +30,7 @@
     <tbody>
     {% for l in rows %}
       <tr class="p-{{ l.pos }}">
-        <td style="font-family:var(--display); font-size:1.1rem">
+        <td class="table-title">
           <a href="{{ url_for('lexeme', uid=l.uid) }}" style="color:var(--c)">{{ l.lemma }}</a></td>
         <td>{{ terms.pos_pill(l.pos, 'pill', 'color:var(--c); border-color:var(--c)') }}</td>
         <td><span class="pill lang">{{ l.lang }}</span></td>

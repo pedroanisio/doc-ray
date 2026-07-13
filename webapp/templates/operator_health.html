@@ -4,8 +4,8 @@
 {% block body %}
 <style>
   .health-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:.65rem; }
-  .metric { background:var(--panel); border:1px solid var(--line); border-radius:var(--r-sm);
-    padding:.8rem .9rem; box-shadow:var(--shadow-sm); }
+  .metric { background:var(--panel); border:2px solid var(--line); border-radius:0;
+    padding:.8rem .9rem; box-shadow:none; }
   .metric b { display:block; font-family:var(--display); font-size:1.65rem; line-height:1.05; }
   .metric span { font-family:var(--mono); font-size:.62rem; letter-spacing:.1em;
     text-transform:uppercase; color:var(--ink-faint); }
@@ -19,7 +19,7 @@
   .issue:first-of-type { border-top:0; }
   .issue-code { display:inline-flex; font-family:var(--mono); font-size:.66rem; letter-spacing:.05em;
     text-transform:uppercase; color:var(--ink-soft); border:1px solid var(--line);
-    border-radius:3px; padding:.08rem .4rem; margin-bottom:.25rem; }
+    border-radius:0; padding:.08rem .4rem; margin-bottom:.25rem; }
   .empty { color:var(--ink-faint); font-size:.86rem; }
   .job-spool td { vertical-align:top; }
   .job-meta { display:flex; flex-wrap:wrap; gap:.25rem .4rem; margin-top:.2rem; }
@@ -74,6 +74,7 @@
     </div>
 
     <h2>Jobs</h2>
+    <div class="card table-card">
     <table class="compact">
       <thead><tr><th>Kind</th><th>Status</th><th class="num">Count</th></tr></thead>
       <tbody>
@@ -85,8 +86,10 @@
       {% endfor %}
       </tbody>
     </table>
+    </div>
 
     <h2>Job spool</h2>
+    <div class="card table-card">
     <table class="compact job-spool">
       <thead>
         <tr>
@@ -138,6 +141,7 @@
       {% endfor %}
       </tbody>
     </table>
+    </div>
   </div>
 
   <div>
@@ -166,6 +170,7 @@
     </div>
 
     <h2>Connections</h2>
+    <div class="card table-card">
     <table class="compact">
       <thead><tr><th>State</th><th class="num">Count</th></tr></thead>
       <tbody>
@@ -176,6 +181,7 @@
       {% endfor %}
       </tbody>
     </table>
+    </div>
   </div>
 </section>
 {% endblock %}

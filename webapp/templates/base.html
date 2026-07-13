@@ -15,7 +15,7 @@
   </script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;0,9..144,700;1,9..144,400&family=Hanken+Grotesk:wght@400;500;600;700&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;600;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="{{ url_for('static', filename='design-system.css') }}">
 </head>
 <body>
@@ -27,7 +27,7 @@
         <a href="{{ url_for('collections') }}" class="{{ 'on' if request.endpoint in ['collections','collections_create','collection_detail','collection_document_update'] }}">Collections</a>
         <a href="{{ url_for('lexemes') }}" class="{{ 'on' if request.endpoint in ['lexemes','lexeme'] }}">Lexicon</a>
         <a href="{{ url_for('search') }}" class="{{ 'on' if request.endpoint == 'search' }}">Search</a>
-        <a href="{{ url_for('upload_form') }}" class="{{ 'on' if request.endpoint in ['upload_form','upload_submit','job_status'] }}">Upload</a>
+        <a href="{{ url_for('upload_form') }}" class="nav-action {{ 'on' if request.endpoint in ['upload_form','upload_submit','job_status'] }}">+ Upload</a>
         <a href="{{ url_for('help_page') }}" class="{{ 'on' if request.endpoint == 'help_page' }}">Help</a>
       </span>
       <span class="nav-group nav-admin">

@@ -18,7 +18,7 @@
 </div>
 
 <h2>Occurrences <span style="color:var(--ink-faint)">· {{ "{:,}".format(n_occ) }}{% if n_occ > 80 %}, first 80{% endif %}</span></h2>
-<div class="card p-{{ lex.pos }}">
+<div class="card table-card p-{{ lex.pos }}">
   <table>
     <tbody>
     {% for o in occ %}
