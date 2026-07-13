@@ -56,3 +56,11 @@ def _seed(pg) -> str:
     doc_id = _itdb.make_doc(conn, "Reannotate me. Second sentence.")
     created.append(doc_id)
     return doc_id
+
+
+def _make_principal(conn, *, display_name: str) -> str:
+    """Insert a bare human principal and return its id."""
+    return conn.execute(
+        "INSERT INTO principals (kind, display_name) VALUES ('human', %s) RETURNING id",
+        (display_name,),
+    ).fetchone()["id"]
