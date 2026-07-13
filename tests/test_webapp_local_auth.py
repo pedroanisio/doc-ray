@@ -234,6 +234,56 @@ def test_webapp_resend_verification_is_indistinguishable_for_unknown_email(monke
     assert mailer.sent == []
 
 
+def test_webapp_login_is_rate_limited(monkeypatch) -> None:
+    """Regression for the brute-force MAJOR: /login had no throttle at all."""
+    from webapp.rate_limit import FixedWindowRateLimiter
+
+    client = _auth_client(monkeypatch)
+    monkeypatch.setenv("DOCRAY_WEBAPP_LOGIN_RATE_LIMIT_REQUESTS", "1")
+    monkeypatch.setenv("DOCRAY_WEBAPP_LOGIN_RATE_LIMIT_WINDOW_SECONDS", "3600")
+    monkeypatch.setattr(webapp, "_RATE_LIMITER", FixedWindowRateLimiter())
+    monkeypatch.setattr(
+        webapp,
+        "complete_local_login",
+        lambda email, password: (_ for _ in ()).throw(webapp.InvalidCredentials("nope")),
+    )
+
+    first = client.post(
+        "/login", data={"csrf_token": "csrf-1", "email": "a@example.com", "password": "x" * 12}
+    )
+    second = client.post(
+        "/login", data={"csrf_token": "csrf-1", "email": "a@example.com", "password": "x" * 12}
+    )
+
+    assert first.status_code == 401
+    assert second.status_code == 429
+
+
+def test_webapp_register_is_rate_limited(monkeypatch) -> None:
+    from webapp.rate_limit import FixedWindowRateLimiter
+
+    client = _auth_client(monkeypatch)
+    monkeypatch.setenv("DOCRAY_WEBAPP_REGISTER_RATE_LIMIT_REQUESTS", "1")
+    monkeypatch.setenv("DOCRAY_WEBAPP_REGISTER_RATE_LIMIT_WINDOW_SECONDS", "3600")
+    monkeypatch.setattr(webapp, "_RATE_LIMITER", FixedWindowRateLimiter())
+    monkeypatch.setattr(webapp, "_verification_mailer", lambda: _RecordingMailer())
+    monkeypatch.setattr(
+        webapp, "register_local_user", lambda email, password, display_name=None: _Registration()
+    )
+
+    first = client.post(
+        "/register",
+        data={"csrf_token": "csrf-1", "email": "a@example.com", "password": "x" * 12},
+    )
+    second = client.post(
+        "/register",
+        data={"csrf_token": "csrf-1", "email": "b@example.com", "password": "x" * 12},
+    )
+
+    assert first.status_code == 302
+    assert second.status_code == 429
+
+
 def test_webapp_resend_verification_is_rate_limited(monkeypatch) -> None:
     from webapp.rate_limit import FixedWindowRateLimiter
 
@@ -253,6 +303,35 @@ def test_webapp_resend_verification_is_rate_limited(monkeypatch) -> None:
 
     assert first.status_code == 200
     assert second.status_code == 429
+
+
+def test_webapp_api_headers_forward_the_session_principal(monkeypatch) -> None:
+    """Regression for the authorization-inversion MAJOR: proxied API calls
+    must act as the logged-in user (X-DocRay-Act-As), not as the webapp's
+    admin-grade service token alone."""
+    webapp.auth_sessions.reset()
+    principal_id = "99999999-9999-9999-9999-999999999999"
+    sid = webapp.auth_sessions.create(principal_id=principal_id, subject="local:a@example.com")
+
+    from webapp.graphql_client import api_auth_headers
+
+    with webapp.app.test_request_context("/"):
+        from flask import session
+
+        session["_auth_sid"] = sid
+        headers = api_auth_headers()
+
+    assert headers.get("X-DocRay-Act-As") == principal_id
+
+
+def test_webapp_api_headers_omit_act_as_without_a_session(monkeypatch) -> None:
+    webapp.auth_sessions.reset()
+    from webapp.graphql_client import api_auth_headers
+
+    with webapp.app.test_request_context("/"):
+        headers = api_auth_headers()
+
+    assert "X-DocRay-Act-As" not in headers
 
 
 def test_webapp_header_shows_login_and_register_when_anonymous(monkeypatch) -> None:

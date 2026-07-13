@@ -67,7 +67,6 @@ from doc_ray.entrypoints.api.scim import register_scim_routes
 from doc_ray.entrypoints.api.security import (
     Authenticator,
     HeaderTokenAuthenticator,
-    InMemoryRefreshTokenStore,
     Principal,
     apply_principal,
     issue_access_jwt,
@@ -917,7 +916,11 @@ def create_app(cfg: Config | None = None, authenticator: Authenticator | None = 
     app.state.pool = pool
     app.state.authenticator = auth
     app.state.object_store = store
-    app.state.refresh_token_store = InMemoryRefreshTokenStore()
+    # Durable rotation state (auth_refresh_tokens): restarts and scale-out no
+    # longer revoke every refresh session. Tests inject InMemoryRefreshTokenStore.
+    from doc_ray.adapters.refresh_token_store_postgres import PostgresRefreshTokenStore
+
+    app.state.refresh_token_store = PostgresRefreshTokenStore(settings.database_url)
     from doc_ray.adapters.mailer_smtp import SmtpMailer
 
     app.state.verification_mailer = SmtpMailer.from_env()
@@ -925,6 +928,8 @@ def create_app(cfg: Config | None = None, authenticator: Authenticator | None = 
         LocalAuthService(
             PostgresLocalAuthRepository(settings.database_url),
             verification_ttl=timedelta(seconds=settings.auth_email_verification_ttl_seconds),
+            max_failed_logins=int(os.environ.get("DOCRAY_AUTH_MAX_FAILED_LOGINS", "10")),
+            lockout_seconds=int(os.environ.get("DOCRAY_AUTH_LOCKOUT_SECONDS", "900")),
         )
         if settings.auth_local_enabled
         else None

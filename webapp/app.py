@@ -170,6 +170,24 @@ def enforce_webapp_rate_limits():
             default_requests=5,
             default_window_seconds=3600,
         )
+    elif request.endpoint == "login_submit" and request.method == "POST":
+        # Online brute-force guard; the account-level lockout in
+        # LocalAuthService is the second layer.
+        route = "login"
+        rule = rate_limit_rule_from_env(
+            os.environ,
+            "DOCRAY_WEBAPP_LOGIN_RATE_LIMIT",
+            default_requests=10,
+            default_window_seconds=300,
+        )
+    elif request.endpoint == "register_submit" and request.method == "POST":
+        route = "register"
+        rule = rate_limit_rule_from_env(
+            os.environ,
+            "DOCRAY_WEBAPP_REGISTER_RATE_LIMIT",
+            default_requests=5,
+            default_window_seconds=3600,
+        )
     if route is None or rule is None:
         return None
     result = _RATE_LIMITER.check(route, _client_identifier(), rule)
@@ -352,6 +370,8 @@ def _local_auth_service() -> LocalAuthService:
             verification_ttl=timedelta(
                 seconds=int(os.environ.get("DOCRAY_AUTH_EMAIL_VERIFICATION_TTL_SECONDS", "86400"))
             ),
+            max_failed_logins=int(os.environ.get("DOCRAY_AUTH_MAX_FAILED_LOGINS", "10")),
+            lockout_seconds=int(os.environ.get("DOCRAY_AUTH_LOCKOUT_SECONDS", "900")),
         )
     return _LOCAL_AUTH_SERVICE
 

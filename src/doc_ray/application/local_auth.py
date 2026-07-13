@@ -132,6 +132,8 @@ class LocalAuthService:
         password_hasher: PasswordHasher | None = None,
         verification_ttl: timedelta = timedelta(hours=24),
         default_role: str = "reader",
+        max_failed_logins: int = 10,
+        lockout_seconds: int = 900,
     ) -> None:
         """Initialize the local auth service."""
         self._repo = repository
@@ -140,6 +142,8 @@ class LocalAuthService:
         self._hasher = password_hasher or PasswordHasher()
         self._verification_ttl = verification_ttl
         self._default_role = default_role
+        self._max_failed_logins = max(1, max_failed_logins)
+        self._lockout = timedelta(seconds=max(0, lockout_seconds))
 
     def register(
         self,
@@ -233,6 +237,11 @@ class LocalAuthService:
             or row.get("active") is False
         ):
             raise DisabledPrincipal("principal is disabled")
+        if self._locked_out(row):
+            # Same message as a bad password: the lockout must not become an
+            # account-state oracle. No failure is recorded here, so attackers
+            # cannot extend a victim's lockout indefinitely.
+            raise InvalidCredentials("invalid email or password")
         try:
             verified = self._hasher.verify(str(row["password_hash"]), password)
         except VerifyMismatchError as exc:
@@ -250,6 +259,14 @@ class LocalAuthService:
             principal_id=principal_id,
             scopes=frozenset({"read"}),
         )
+
+    def _locked_out(self, row: dict[str, Any]) -> bool:
+        """Return whether the credential is inside its brute-force lockout window."""
+        failures = int(row.get("failed_login_count") or 0)
+        last_failed = row.get("last_failed_login_at")
+        if failures < self._max_failed_logins or not isinstance(last_failed, datetime):
+            return False
+        return self._now() < last_failed + self._lockout
 
 
 def normalize_email(email: str) -> str:

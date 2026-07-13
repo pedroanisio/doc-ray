@@ -10,7 +10,11 @@ import httpx
 import doc_ray.entrypoints.api.app as api_app
 from doc_ray.config import Config
 from doc_ray.entrypoints.api.app import create_app
-from doc_ray.entrypoints.api.security import HeaderTokenAuthenticator, Principal
+from doc_ray.entrypoints.api.security import (
+    HeaderTokenAuthenticator,
+    InMemoryRefreshTokenStore,
+    Principal,
+)
 
 
 class _ClosedAuditPool:
@@ -121,6 +125,7 @@ def test_api_register_fails_closed_without_verification_delivery(monkeypatch) ->
     app = create_app(_cfg_production())
     service = _FakeLocalAuthService()
     app.state.local_auth_service = service
+    app.state.refresh_token_store = InMemoryRefreshTokenStore()
     app.state.verification_mailer = None
 
     resp = asyncio.run(
@@ -190,6 +195,7 @@ def test_local_register_requires_email_verification_before_login(monkeypatch) ->
     app = create_app(_cfg())
     service = _FakeLocalAuthService()
     app.state.local_auth_service = service
+    app.state.refresh_token_store = InMemoryRefreshTokenStore()
 
     registered = asyncio.run(
         _post(
@@ -221,6 +227,7 @@ def test_local_verify_then_login_returns_rls_bound_access_token(monkeypatch) -> 
     app = create_app(_cfg())
     service = _FakeLocalAuthService()
     app.state.local_auth_service = service
+    app.state.refresh_token_store = InMemoryRefreshTokenStore()
     asyncio.run(
         _post(
             app,

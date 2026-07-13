@@ -90,10 +90,16 @@ class _FakeLocalAuthRepository:
         return None
 
     def mark_login_success(self, *, principal_id: str, now: datetime) -> None:
-        return None
+        for row in self.credentials.values():
+            if row["principal_id"] == principal_id:
+                row["failed_login_count"] = 0
+                row["last_login_at"] = now
 
     def mark_login_failure(self, *, email_normalized: str, now: datetime) -> None:
-        return None
+        row = self.credentials.get(email_normalized)
+        if row is not None:
+            row["failed_login_count"] = int(row.get("failed_login_count") or 0) + 1
+            row["last_failed_login_at"] = now
 
     def discard_email_verification_tokens(self, *, principal_id: str, now: datetime) -> None:
         for row in self.tokens.values():
@@ -183,6 +189,75 @@ def test_login_rejects_wrong_password_without_revealing_account_state() -> None:
 
     with pytest.raises(InvalidCredentials):
         service.login(email="alice@example.com", password="wrong password")
+
+
+def test_login_locks_out_after_max_failures_even_with_correct_password() -> None:
+    """Regression for the brute-force MAJOR: failed_login_count was write-only.
+    After max_failed_logins failures, login is refused for lockout_seconds even
+    with the correct password, then works again once the window passes — and a
+    success resets the counter."""
+    current = {"now": datetime(2026, 7, 13, tzinfo=UTC)}
+    repo = _FakeLocalAuthRepository()
+    service = LocalAuthService(
+        repo,
+        now=lambda: current["now"],
+        token_factory=lambda: "verify-token",
+        max_failed_logins=3,
+        lockout_seconds=900,
+    )
+    registration = service.register(
+        email="alice@example.com", password="correct horse battery staple"
+    )
+    service.verify_email(registration.verification_token)
+
+    for _ in range(3):
+        with pytest.raises(InvalidCredentials):
+            service.login(email="alice@example.com", password="wrong password")
+
+    with pytest.raises(InvalidCredentials) as locked:
+        service.login(email="alice@example.com", password="correct horse battery staple")
+    # Identical message to a plain bad password: lockout must not become an
+    # account-state oracle.
+    assert str(locked.value) == "invalid email or password"
+
+    current["now"] += timedelta(seconds=901)
+    principal = service.login(email="alice@example.com", password="correct horse battery staple")
+    assert principal.principal_id == registration.principal_id
+    assert repo.credentials["alice@example.com"]["failed_login_count"] == 0
+
+
+def test_locked_out_login_does_not_extend_its_own_lockout() -> None:
+    """Attempts during the locked window are rejected without re-marking
+    failure — otherwise an attacker could keep a victim locked out forever."""
+    current = {"now": datetime(2026, 7, 13, tzinfo=UTC)}
+    repo = _FakeLocalAuthRepository()
+    service = LocalAuthService(
+        repo,
+        now=lambda: current["now"],
+        token_factory=lambda: "verify-token",
+        max_failed_logins=2,
+        lockout_seconds=900,
+    )
+    registration = service.register(
+        email="alice@example.com", password="correct horse battery staple"
+    )
+    service.verify_email(registration.verification_token)
+    for _ in range(2):
+        with pytest.raises(InvalidCredentials):
+            service.login(email="alice@example.com", password="wrong password")
+
+    current["now"] += timedelta(seconds=899)
+    with pytest.raises(InvalidCredentials):
+        service.login(email="alice@example.com", password="wrong password")
+    assert repo.credentials["alice@example.com"]["failed_login_count"] == 2
+
+    current["now"] += timedelta(seconds=2)  # 901s after the LAST counted failure
+    assert (
+        service.login(
+            email="alice@example.com", password="correct horse battery staple"
+        ).principal_id
+        == registration.principal_id
+    )
 
 
 def test_resend_verification_reissues_token_and_discards_the_old_one() -> None:

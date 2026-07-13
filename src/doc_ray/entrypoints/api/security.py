@@ -81,6 +81,23 @@ class RefreshTokenRecord:
     status: str = "active"
 
 
+@runtime_checkable
+class RefreshTokenStore(Protocol):
+    """Rotation-state surface shared by the in-memory and Postgres stores."""
+
+    def remember(self, record: RefreshTokenRecord) -> None:
+        """Record a newly-issued active refresh token."""
+        ...
+
+    def consume(self, token_id: str, *, now: datetime) -> RefreshTokenRecord:
+        """Consume one active token; reuse revokes its family before raising."""
+        ...
+
+    def revoke_family(self, family_id: str) -> None:
+        """Mark every token in *family_id* revoked."""
+        ...
+
+
 class InMemoryRefreshTokenStore:
     """Process-local refresh token rotation state.
 
@@ -215,7 +232,44 @@ class HeaderTokenAuthenticator:
                 detail="Invalid API token",
                 headers={"WWW-Authenticate": "Bearer"},
             ) from exc
-        return Principal(subject=f"token:{token}", principal_id=principal_id, scopes=scopes)
+        return _apply_act_as(
+            request,
+            Principal(subject=f"token:{token}", principal_id=principal_id, scopes=scopes),
+        )
+
+
+def _apply_act_as(request: Request, principal: Principal) -> Principal:
+    """Delegate a static-token principal to the ``X-DocRay-Act-As`` identity.
+
+    Trusted service callers (the webapp) authenticate with their own token but
+    act on behalf of the logged-in browser user, so RLS and DB-side
+    authorization apply to that USER rather than the service token's (often
+    admin-grade) principal. Delegation requires the explicit ``impersonate``
+    scope on the token (``DOCRAY_API_TOKENS=token=uuid:read+write+impersonate``)
+    and is never available to JWT/anonymous callers. Both identities stay in
+    ``subject`` for the audit trail; the ``impersonate`` capability itself is
+    not forwarded.
+    """
+    act_as = request.headers.get("x-docray-act-as", "").strip()
+    if not act_as:
+        return principal
+    if "impersonate" not in principal.scopes:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="this API token may not act on behalf of other principals",
+        )
+    try:
+        acted_principal_id = str(uuid.UUID(act_as))
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="X-DocRay-Act-As must be a principal UUID",
+        ) from exc
+    return Principal(
+        subject=f"{principal.subject}#act-as:{acted_principal_id}",
+        principal_id=acted_principal_id,
+        scopes=frozenset(principal.scopes - {"impersonate"}),
+    )
 
 
 def issue_access_jwt(
@@ -314,7 +368,7 @@ def issue_refresh_token(
     issuer: str,
     audience: str | None,
     ttl_seconds: int,
-    store: InMemoryRefreshTokenStore,
+    store: RefreshTokenStore,
     now: datetime | None = None,
     family_id: str | None = None,
 ) -> str:
@@ -365,7 +419,7 @@ def rotate_refresh_token(
     audience: str | None,
     ttl_seconds: int,
     access_ttl_seconds: int,
-    store: InMemoryRefreshTokenStore,
+    store: RefreshTokenStore,
     now: datetime | None = None,
 ) -> tuple[str, str]:
     """Consume *token* and return a fresh ``(access_token, refresh_token)`` pair."""

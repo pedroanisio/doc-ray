@@ -26,6 +26,7 @@ class PostgresLocalAuthRepository:
                 """
                 SELECT pc.principal_id, p.tenant_id, pc.email_normalized,
                        pc.password_hash, pc.email_verified_at, pc.disabled_at,
+                       pc.failed_login_count, pc.last_failed_login_at,
                        p.disabled_at AS principal_disabled_at, p.active
                   FROM principal_credentials pc
                   JOIN principals p ON p.id = pc.principal_id

@@ -23,14 +23,36 @@ API_URL = os.environ.get("DOCRAY_API_URL", "http://localhost:8000/graphql")
 API_TOKEN = os.environ.get("DOCRAY_WEBAPP_API_TOKEN") or None
 
 
+def _session_act_as_principal() -> str | None:
+    """Return the logged-in browser user's principal id, if any."""
+    if not has_request_context():
+        return None
+    from flask import session
+
+    from webapp.auth_session import auth_sessions
+
+    sid = session.get("_auth_sid")
+    record = auth_sessions.get(sid) if sid else None
+    return record.principal_id if record is not None else None
+
+
 def api_auth_headers() -> dict[str, str]:
-    """Auth plus request-id headers for API calls."""
+    """Auth plus request-id headers for API calls.
+
+    When a browser user is logged in, the proxied call acts on their behalf
+    (``X-DocRay-Act-As``): the API applies RLS and authorization to the USER's
+    principal instead of the webapp's admin-grade service token. Requires the
+    service token to carry the ``impersonate`` scope in ``DOCRAY_API_TOKENS``.
+    """
     headers = {"Authorization": f"Bearer {API_TOKEN}"} if API_TOKEN else {}
     headers[REQUEST_ID_HEADER] = (
         ensure_request_id_from_headers(request.headers)
         if has_request_context()
         else new_request_id()
     )
+    act_as = _session_act_as_principal()
+    if act_as:
+        headers["X-DocRay-Act-As"] = act_as
     return headers
 
 
