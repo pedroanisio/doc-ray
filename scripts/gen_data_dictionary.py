@@ -269,6 +269,32 @@ def _in_sync(text: str, out_path: str) -> tuple[bool, str]:
     )
 
 
+def _coverage_gap(live_tables: set[str], grouped_tables: set[str]) -> tuple[set[str], set[str]]:
+    """Return ``(ungrouped_live, grouped_but_absent)`` — the §5 GROUPS coverage gap.
+
+    Pure and offline (no DB) so the completeness invariant is unit-testable. This
+    guards the defect class that let DATABASE.md drift: a table can exist in the
+    live schema yet be omitted from every ``GROUPS`` entry, and because ``--check``
+    only compares committed text to freshly-generated text — both built from the
+    *same* incomplete ``GROUPS`` — the omission is invisible to the drift gate. A
+    live table with no group must therefore be a hard error at generation time,
+    not a silent skip. (The reverse — a grouped name with no live table — would
+    otherwise surface only as a mid-run ``regclass`` failure.)
+    """
+    return live_tables - grouped_tables, grouped_tables - live_tables
+
+
+def _live_base_tables(conn) -> set[str]:
+    return {
+        r["table_name"]
+        for r in q(
+            conn,
+            "SELECT table_name FROM information_schema.tables "
+            "WHERE table_schema='public' AND table_type='BASE TABLE'",
+        )
+    }
+
+
 def main(argv: list[str] | None = None) -> int:
     import argparse
 
@@ -301,6 +327,22 @@ def main(argv: list[str] | None = None) -> int:
             )
             return 0
         raise
+
+    # Fail-closed on §5 coverage: every live base table must be in a GROUP. This
+    # is the invariant the drift gate cannot see (see _coverage_gap) — enforce it
+    # in both generate and --check modes so a new migration that forgets to group
+    # its table breaks loudly instead of silently vanishing from the dictionary.
+    grouped = {t for _, _, tables in GROUPS for t in tables}
+    ungrouped, phantom = _coverage_gap(_live_base_tables(conn), grouped)
+    if ungrouped or phantom:
+        print(
+            "GROUPS is out of sync with the live schema — edit "
+            "scripts/_data_dictionary_content.py:\n"
+            f"  live tables in no GROUP: {sorted(ungrouped) or 'none'}\n"
+            f"  GROUP names with no live table: {sorted(phantom) or 'none'}"
+        )
+        return 1
+
     applied = conn.execute("SELECT count(*) n FROM schema_migrations").fetchone()["n"]
     try:
         ver = conn.execute("SELECT docray_schema_version() v").fetchone()["v"]

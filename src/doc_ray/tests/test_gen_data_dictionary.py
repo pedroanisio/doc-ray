@@ -11,7 +11,9 @@ migrations are applied).
 
 from __future__ import annotations
 
+import importlib
 import importlib.util
+import sys
 from pathlib import Path
 
 _ROOT = Path(__file__).resolve().parents[3]
@@ -56,3 +58,39 @@ def test_in_sync_missing_file(tmp_path):
     mod = _load()
     ok, msg = mod._in_sync("x", str(tmp_path / "nope.md"))
     assert not ok and "does not exist" in msg
+
+
+# --- §5 GROUPS coverage invariant -----------------------------------------
+# The drift gate (--check) compares committed text to freshly-generated text,
+# both built from the SAME GROUPS list, so a live table omitted from every
+# GROUP is invisible to it — exactly how DATABASE.md drifted 16 tables behind.
+# _coverage_gap makes that omission a hard error; these cover the pure logic.
+
+
+def test_coverage_gap_none_when_groups_match_live():
+    mod = _load()
+    ungrouped, phantom = mod._coverage_gap({"documents", "jobs"}, {"documents", "jobs"})
+    assert ungrouped == set() and phantom == set()
+
+
+def test_coverage_gap_flags_live_table_missing_from_groups():
+    mod = _load()
+    # a new migration adds `jobs` but nobody grouped it
+    ungrouped, phantom = mod._coverage_gap({"documents", "jobs"}, {"documents"})
+    assert ungrouped == {"jobs"} and phantom == set()
+
+
+def test_coverage_gap_flags_grouped_name_with_no_live_table():
+    mod = _load()
+    # a table was renamed/dropped but its GROUP entry lingers
+    ungrouped, phantom = mod._coverage_gap({"documents"}, {"documents", "lexeme_forms"})
+    assert ungrouped == set() and phantom == {"lexeme_forms"}
+
+
+def test_groups_list_has_no_duplicate_tables():
+    """A table appearing in two GROUPS would render twice — GROUPS must partition."""
+    sys.path.insert(0, str(_ROOT / "scripts"))
+    content = importlib.import_module("_data_dictionary_content")
+    grouped = [t for _, _, tables in content.GROUPS for t in tables]
+    dupes = {t for t in grouped if grouped.count(t) > 1}
+    assert not dupes, f"tables listed in more than one GROUP: {sorted(dupes)}"
