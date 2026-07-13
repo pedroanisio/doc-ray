@@ -21,7 +21,7 @@ COPY Dockerfile docker-compose.yml docker-compose.api.yml docker-compose.test.ym
 COPY .dockerignore .env.example .env.test.example .gitignore ./
 COPY .pre-commit-config.yaml CLAUDE.md ./
 COPY .github ./.github
-COPY README.md CHANGELOG.md engineering_decisions.yml uv.lock ./
+COPY README.md CHANGELOG.md engineering_decisions.yml uv.lock Makefile ./
 COPY src ./src
 COPY tests ./tests
 COPY scripts ./scripts

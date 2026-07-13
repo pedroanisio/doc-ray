@@ -8,6 +8,7 @@
 docs/reports/
 .env
 .env.test
+.env.uat
 *egg-info*
 books/
 static/fixtures/
@@ -21,3 +22,4 @@ quarantine-summaries.md
 quarantine-manifest.json
 drift-risk-map.md
 drift-risk-map.svg
+_ingest/
