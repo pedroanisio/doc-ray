@@ -157,6 +157,40 @@ class ReadRepository(Protocol):
         """Return a document's title/description/tags edit history, oldest first."""
         ...
 
+    async def list_collections(
+        self,
+        conn: psycopg.AsyncConnection[Row],
+        *,
+        limit: int = 50,
+        after: str | None = None,
+        kind: str | None = None,
+    ) -> list[Row]:
+        """Return collection rows (with document counts) newest-first."""
+        ...
+
+    async def get_collection(
+        self, conn: psycopg.AsyncConnection[Row], collection_id: str
+    ) -> Row | None:
+        """Return one collection with its projection, or ``None`` if absent."""
+        ...
+
+    async def list_collection_documents(
+        self,
+        conn: psycopg.AsyncConnection[Row],
+        collection: Row,
+        *,
+        limit: int = 50,
+        after: str | None = None,
+    ) -> list[Row]:
+        """Return a collection's visible member documents newest-first."""
+        ...
+
+    async def collections_for_document(
+        self, conn: psycopg.AsyncConnection[Row], document_id: str
+    ) -> list[Row]:
+        """Return collections that include a visible document explicitly or by rule."""
+        ...
+
     async def authors_by_documents(
         self, conn: psycopg.AsyncConnection[Row], document_ids: list[str]
     ) -> dict[str, list[str]]:

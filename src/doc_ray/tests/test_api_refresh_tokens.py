@@ -41,6 +41,15 @@ async def _post(app: object, path: str, **kwargs: object) -> httpx.Response:
         return await client.post(path, **kwargs)
 
 
+def _app_with_memory_store(cfg: Config) -> object:
+    """create_app defaults to PostgresRefreshTokenStore (durable rotation state);
+    these endpoint-contract tests inject the in-memory store instead, exactly as
+    the local-auth/JWT suites do, so no live database is required."""
+    app = create_app(cfg)
+    app.state.refresh_token_store = InMemoryRefreshTokenStore()
+    return app
+
+
 def _cfg(principal_id: str) -> Config:
     return Config(
         database_url="postgresql://example",
@@ -67,7 +76,7 @@ def test_config_reads_refresh_token_ttl(monkeypatch):
 
 def test_token_exchange_returns_access_and_refresh_tokens(monkeypatch):
     _disable_route_db_pool(monkeypatch)
-    app = create_app(_cfg(str(uuid4())))
+    app = _app_with_memory_store(_cfg(str(uuid4())))
 
     response = asyncio.run(
         _post(app, "/auth/token", headers={"authorization": "Bearer static-token"})
@@ -85,7 +94,7 @@ def test_token_exchange_returns_access_and_refresh_tokens(monkeypatch):
 
 def test_refresh_endpoint_rotates_presented_refresh_token(monkeypatch):
     _disable_route_db_pool(monkeypatch)
-    app = create_app(_cfg(str(uuid4())))
+    app = _app_with_memory_store(_cfg(str(uuid4())))
     first = asyncio.run(
         _post(app, "/auth/token", headers={"authorization": "Bearer static-token"})
     ).json()
@@ -103,7 +112,7 @@ def test_refresh_endpoint_rotates_presented_refresh_token(monkeypatch):
 
 def test_reusing_rotated_refresh_token_revokes_token_family(monkeypatch):
     _disable_route_db_pool(monkeypatch)
-    app = create_app(_cfg(str(uuid4())))
+    app = _app_with_memory_store(_cfg(str(uuid4())))
     first = asyncio.run(
         _post(app, "/auth/token", headers={"authorization": "Bearer static-token"})
     ).json()

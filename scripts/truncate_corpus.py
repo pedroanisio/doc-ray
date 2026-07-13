@@ -100,6 +100,13 @@ PRESERVED_TABLES = (
     "scim_groups",
     "scim_group_members",
     "tenant_saml_identity_providers",
+    # Local-auth account state (migrations 074/076): credentials and pending
+    # email verifications belong to principals, and refresh-token rotation
+    # state is session continuity — a corpus wipe must not delete accounts or
+    # force every user to log in again.
+    "principal_credentials",
+    "email_verification_tokens",
+    "auth_refresh_tokens",
     "audit_events",
     "canonical",
     "canonical_merge",
