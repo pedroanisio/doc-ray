@@ -123,6 +123,10 @@ services:
       DOCRAY_API_POOL_TIMEOUT: ${DOCRAY_API_POOL_TIMEOUT:-10}
       DOCRAY_API_TOKENS: ${DOCRAY_API_TOKENS:-}
       DOCRAY_API_ALLOW_ANONYMOUS: ${DOCRAY_API_ALLOW_ANONYMOUS:-true}
+      # GraphQL introspection + the GraphiQL IDE (BL-108). Off by default —
+      # in production, anonymous schema enumeration is free reconnaissance.
+      # Dev/local turns it on via DOCRAY_API_DEBUG=1 in .env.
+      DOCRAY_API_DEBUG: ${DOCRAY_API_DEBUG:-false}
       DOCRAY_API_JWT_SECRET: ${DOCRAY_API_JWT_SECRET:-}
       DOCRAY_API_JWT_ISSUER: ${DOCRAY_API_JWT_ISSUER:-doc-ray}
       DOCRAY_API_JWT_AUDIENCE: ${DOCRAY_API_JWT_AUDIENCE:-}
