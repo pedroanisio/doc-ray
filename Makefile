@@ -1,15 +1,51 @@
-# doc-ray operator tasks. Quality gates run as direct commands (see README
-# § "Quality gates"); this Makefile only wraps stateful operations that need
-# guardrails. Reads DATABASE_URL and friends from .env when present.
+# doc-ray operator tasks. `make check` runs the full landing-checklist quality
+# gates (CLAUDE.md § "Landing checklist — static gates, not only pytest"); the
+# remaining targets wrap stateful operations that need guardrails. Reads
+# DATABASE_URL and friends from .env when present.
 
 SHELL := /bin/bash
 STAMP := $(shell date -u +%Y%m%dT%H%M%SZ)
 DOCRAY_WORKERS ?= 3
+# Interpreter for the quality gates. Prefer the project venv (matches
+# truncate-db); override with e.g. `make check PYTHON=python3`.
+PYTHON ?= $(shell [ -x .venv/bin/python ] && echo .venv/bin/python || echo python3)
 
-.PHONY: help db-dump truncate-db workers-up workers-status
+.PHONY: help check check-static db-dump truncate-db workers-up workers-status
 
 help: ## List available tasks
 	@grep -E '^[a-z][a-zA-Z_-]*:.*## ' $(MAKEFILE_LIST) | awk -F ':.*## ' '{printf "  %-14s %s\n", $$1, $$2}'
+
+check-static: ## Run the static landing gates only (lint, types, size, version) — fast, no DB
+	@fail=0; \
+	echo "── ruff check (D-011) ──────────────────────────"; \
+	  $(PYTHON) -m ruff check src scripts webapp || fail=1; \
+	echo "── ruff format --check (D-011) ─────────────────"; \
+	  $(PYTHON) -m ruff format --check src scripts webapp || fail=1; \
+	echo "── mypy (D-012) ────────────────────────────────"; \
+	  $(PYTHON) -m mypy src || fail=1; \
+	echo "── file size (D-015) ───────────────────────────"; \
+	  $(PYTHON) scripts/check_file_size.py src/doc_ray webapp scripts || fail=1; \
+	echo "── version consistency ─────────────────────────"; \
+	  $(PYTHON) scripts/check_version_consistency.py || fail=1; \
+	if [ $$fail -ne 0 ]; then echo; echo "static gates: FAILED"; exit 1; fi; \
+	echo; echo "static gates: PASSED"
+
+check: ## Run ALL landing-checklist gates (static gates + pytest); mirrors CLAUDE.md
+	@fail=0; \
+	echo "── ruff check (D-011) ──────────────────────────"; \
+	  $(PYTHON) -m ruff check src scripts webapp || fail=1; \
+	echo "── ruff format --check (D-011) ─────────────────"; \
+	  $(PYTHON) -m ruff format --check src scripts webapp || fail=1; \
+	echo "── mypy (D-012) ────────────────────────────────"; \
+	  $(PYTHON) -m mypy src || fail=1; \
+	echo "── file size (D-015) ───────────────────────────"; \
+	  $(PYTHON) scripts/check_file_size.py src/doc_ray webapp scripts || fail=1; \
+	echo "── version consistency ─────────────────────────"; \
+	  $(PYTHON) scripts/check_version_consistency.py || fail=1; \
+	echo "── pytest (D-013) ──────────────────────────────"; \
+	  $(PYTHON) -m pytest tests src/doc_ray/tests || fail=1; \
+	if [ $$fail -ne 0 ]; then echo; echo "make check: FAILED"; exit 1; fi; \
+	echo; echo "make check: PASSED"
 
 workers-up: ## Start/reconcile the worker pool (DOCRAY_WORKERS=3 by default)
 	docker compose up -d --scale worker=$(DOCRAY_WORKERS) worker
