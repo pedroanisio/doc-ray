@@ -23,3 +23,7 @@ quarantine-manifest.json
 drift-risk-map.md
 drift-risk-map.svg
 _ingest/
+node_modules/
+visual-essay/
+concept-cinema/
+.claude/settings.json
