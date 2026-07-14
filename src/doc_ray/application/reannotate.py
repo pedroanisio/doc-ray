@@ -19,11 +19,16 @@ from typing import Any
 import psycopg
 
 from doc_ray.adapters import persistence as db
+from doc_ray.adapters.annotation_capabilities import CAPABILITY_MODELS
 from doc_ray.config import Config
 from doc_ray.domain import lexemes as lex
 from doc_ray.domain.ulid import new_ulid_str
 
-_MODELS = {"en": "en_core_web_sm", "pt": "pt_core_news_sm", "fr": "fr_core_news_sm"}
+# Single source of truth shared with the full annotate pass (annotation_spacy):
+# English resolves to en_core_web_trf, so an operator "reannotate" refreshes the
+# lexeme layer with the same transformer-quality POS the annotate pass produces,
+# not a divergent en_core_web_sm run.
+_MODELS = CAPABILITY_MODELS
 
 
 class SpacyAnalyzer:
@@ -51,6 +56,10 @@ class SpacyAnalyzer:
         from spacy.tokens import Doc
 
         model = _MODELS[lang]
+        # Transformer models (en_core_web_trf) run on GPU when available; no-op
+        # returning False on CPU-only hosts. Must precede spacy.load so the
+        # pipeline binds to the right device.
+        spacy.prefer_gpu()  # type: ignore[attr-defined]  # re-exported from thinc
         self._nlp = spacy.load(model, exclude=["ner", "parser"])
         self._Doc = Doc
         self._batch = batch

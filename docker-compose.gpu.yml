@@ -1,0 +1,36 @@
+# GPU overlay for the annotate worker — en_core_web_trf (transformer) on-device.
+#
+# Reserves the host NVIDIA GPU via CDI (nvidia.com/gpu) for the `worker`
+# service so spaCy's transformer English pipeline runs on GPU instead of CPU
+# (annotation_spacy calls spacy.prefer_gpu()). fr/pt stay on CNN models and do
+# not need the GPU.
+#
+# Deploy (scale sized to VRAM — torch+cupy hold ~6 GB per trf worker at peak,
+# so an 8 GB card fits exactly ONE; two OOM):
+#   docker compose -f docker-compose.yml -f docker-compose.gpu.yml \
+#     up -d --scale worker=1 worker
+#
+# Requirements: nvidia-container-toolkit CDI specs present in /etc/cdi and an
+# NVIDIA driver at least matching the torch CUDA build (CUDA 13.x). Verify with
+#   docker run --rm --device nvidia.com/gpu=all nvidia/cuda:12.4.0-base-ubuntu22.04 nvidia-smi -L
+#
+# CPU-only hosts must NOT apply this overlay — the base compose already runs the
+# worker on CPU (spacy.prefer_gpu() is a no-op there).
+services:
+  worker:
+    environment:
+      # 8 GB consumer cards fit ONE trf worker: torch (transformer) + cupy
+      # (thinc tagger/parser/ner) each hold a growing device pool, ~6 GB
+      # combined at peak. Run a single GPU worker (scale=1) — two OOM. Keep the
+      # non-GPU worker-fast pool for the rest of the queue.
+      # expandable_segments curbs allocator fragmentation across docs of
+      # varying length (the OOM hint torch itself prints).
+      PYTORCH_CUDA_ALLOC_CONF: expandable_segments:True
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: cdi
+              capabilities: ["gpu"]
+              device_ids:
+                - nvidia.com/gpu=all

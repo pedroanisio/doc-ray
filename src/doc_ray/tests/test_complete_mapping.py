@@ -35,7 +35,7 @@ def _n(conn, sql, doc_id):
 def test_spacy_capability_registry_exposes_models_layers_and_install_status():
     caps = {c.language: c for c in spacy_capabilities()}
 
-    assert caps["en"].model == "en_core_web_sm"
+    assert caps["en"].model == "en_core_web_trf"
     assert caps["pt"].model == "pt_core_news_sm"
     assert isinstance(caps["en"].installed, bool)
     assert {
@@ -57,7 +57,7 @@ def test_configured_languages_have_installable_models():
     UnsupportedAnnotationLanguage; each maps to its own spaCy model.
     """
     assert CAPABILITY_MODELS == {
-        "en": "en_core_web_sm",
+        "en": "en_core_web_trf",
         "pt": "pt_core_news_sm",
         "fr": "fr_core_news_sm",
     }
@@ -88,12 +88,12 @@ def test_spacy_annotator_fallback_policy_is_explicit_and_provenance_ready():
 
     assert resolution.requested_language == "de"
     assert resolution.annotation_language == "en"
-    assert resolution.model == "en_core_web_sm"
+    assert resolution.model == "en_core_web_trf"
     assert resolution.fallback_used is True
     assert resolution.provenance_params() == {
         "detected_language": "de",
         "annotation_language": "en",
-        "language_model": "en_core_web_sm",
+        "language_model": "en_core_web_trf",
         "language_fallback_policy": "fallback",
         "language_fallback_used": True,
         "language_fallback_from": "de",

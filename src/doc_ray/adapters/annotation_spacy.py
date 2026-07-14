@@ -79,12 +79,51 @@ def _split_tool_tag(tool: str) -> tuple[str, str | None]:
     return name, version
 
 
+# Process-wide loaded-pipeline cache, keyed by model name. The worker builds a
+# fresh SpacyAnnotator per job (application.jobs.handle_annotate), so a
+# per-instance cache would reload the model on every job. For GPU transformer
+# models that is fatal: each load pins ~2 GB of VRAM that torch's caching
+# allocator never returns, so VRAM climbs job-over-job until every allocation
+# OOMs. Caching at module scope loads each model exactly once per process and
+# reuses it across jobs, holding GPU memory flat. The worker is single-threaded
+# (one job at a time), so no locking is needed.
+_NLP_CACHE: dict[str, tuple[SpacyNlp, str]] = {}
+
+
+def _release_gpu_memory() -> None:
+    """Return the previous document's GPU activations to the device.
+
+    The module-level model cache keeps the pipeline resident (loaded once), but a
+    transformer's per-document forward-pass activations are retained by torch's
+    (and cupy's) caching allocators after the document is processed. Across a
+    batch on a small GPU those pools only grow, until the next allocation OOMs
+    even though the tensors are dead. Releasing between documents holds peak VRAM
+    at model + one document instead of model + every document processed so far.
+    No-op on CPU-only hosts (torch/cupy absent or no CUDA device).
+    """
+    import contextlib
+    import gc
+
+    gc.collect()
+    with contextlib.suppress(Exception):
+        import torch
+
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+    with contextlib.suppress(Exception):
+        import cupy  # type: ignore[import-untyped]  # no stubs; GPU-only dep
+
+        cupy.get_default_memory_pool().free_all_blocks()
+
+
 class SpacyAnnotator:
     """Runs a spaCy pipeline and persists its multi-layer annotation output."""
 
     def __init__(self, fallback_policy: str | None = None) -> None:
         """Initialize the empty per-language pipeline and lexeme caches."""
-        self._nlp: dict[str, tuple[SpacyNlp, str]] = {}
+        # Loaded pipelines live in the module-level _NLP_CACHE (loaded once per
+        # process, reused across jobs) — see its definition for the GPU rationale.
+        self._nlp = _NLP_CACHE
         self.lexeme_cache: dict[str, str] = {}
         self.fallback_policy = self._normalize_policy(
             fallback_policy or os.environ.get("DOCRAY_SPACY_FALLBACK_POLICY", "fail")
@@ -163,7 +202,21 @@ class SpacyAnnotator:
 
             import spacy
 
-            nlp = spacy.load(model)
+            # Transformer models (en_core_web_trf) run an order of magnitude
+            # faster on GPU. prefer_gpu() is a no-op returning False when no CUDA
+            # device / cupy is available, so CPU-only hosts (CI, dev) still work.
+            spacy.prefer_gpu()  # type: ignore[attr-defined]  # re-exported from thinc
+            # Transformer pipelines: run the RoBERTa forward pass in fp16. This
+            # halves the dominant activation/output tensors so longer documents
+            # fit an 8 GB GPU (fp32 OOMs well before the corpus's larger books);
+            # fp16 inference is standard and does not change POS/NER/dep output.
+            # No-op for the CNN "news" models, which lack a transformer component.
+            overrides: dict[str, Any] = {}
+            if model.endswith("_trf"):
+                overrides["config"] = {
+                    "components": {"transformer": {"model": {"mixed_precision": True}}}
+                }
+            nlp = spacy.load(model, **overrides)
             nlp.max_length = 5_000_000
             ver = importlib.metadata.version("spacy")
             self._nlp[model] = (nlp, f"spacy/{model}@{ver}")
@@ -218,6 +271,12 @@ class SpacyAnnotator:
         Returns:
             A summary mapping of per-layer counts plus ``lang`` and ``tool``.
         """
+        # Free the prior job's GPU activation pool before this document. The
+        # worker builds a fresh SpacyAnnotator per job over the shared model
+        # cache; without this, transformer activations accumulate on the GPU
+        # across the batch until an OOM. Runs regardless of how the prior job
+        # ended (commit or exception).
+        _release_gpu_memory()
         report_progress(0, _ANNOTATE_PROGRESS_TOTAL, "Loading text and language model")
         row = conn.execute(
             "SELECT full_text FROM document_content WHERE document_id=%s", (doc_id,)

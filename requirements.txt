@@ -30,8 +30,18 @@ anthropic==0.113.*
 
 # Stage-1 NLP annotation (adapters/annotation_spacy) — required by the WORKER so the
 # 'annotate' job can produce entity mentions in production, not only via host CLIs.
-spacy==3.8.*
-en_core_web_sm @ https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl
+# [transformers] pulls spacy-curated-transformers + torch for the RoBERTa-based
+# en_core_web_trf pipeline. On CPU-only hosts spacy.prefer_gpu() is a no-op and
+# everything runs on CPU.
+spacy[transformers]==3.8.*
+# spaCy's thinc GPU ops need cupy. torch's PyPI wheels bundle CUDA 13 runtime
+# libs (libcudart.so.13), so cupy MUST match that major — cupy-cuda12x fails with
+# "libcudart.so.12: cannot open shared object file" and prefer_gpu() silently
+# returns False (transformer falls back to CPU). Keep this cuda13x aligned with
+# whatever CUDA major torch ships.
+cupy-cuda13x==14.*
+# English annotation uses the transformer pipeline (higher-accuracy POS/NER/parse).
+en_core_web_trf @ https://github.com/explosion/spacy-models/releases/download/en_core_web_trf-3.8.0/en_core_web_trf-3.8.0-py3-none-any.whl
 # Non-English annotation models (annotation_capabilities.CAPABILITY_MODELS). pt was
 # configured but never installed (docs mis-detected as pt failed closed); fr added so
 # French-dominant documents annotate instead of raising UnsupportedAnnotationLanguage.

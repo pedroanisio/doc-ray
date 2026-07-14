@@ -18,7 +18,11 @@ SUPPORTED_SPACY_LAYERS = (
 )
 
 CAPABILITY_MODELS = {
-    "en": "en_core_web_sm",
+    # English uses the transformer pipeline (RoBERTa-based) for higher-accuracy
+    # POS/NER/parsing. It runs on GPU when one is present (annotation_spacy calls
+    # spacy.prefer_gpu()) and falls back to CPU otherwise. fr/pt stay on the
+    # lighter CNN "news" models — no transformer wheels shipped for them here.
+    "en": "en_core_web_trf",
     "pt": "pt_core_news_sm",
     "fr": "fr_core_news_sm",
 }
