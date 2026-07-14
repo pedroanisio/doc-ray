@@ -1,0 +1,60 @@
+# doc-ray — UAT overlay for docker-compose.yml.
+#
+# Adds the environment pass-throughs the base compose predates (this session's
+# auth fixes: SMTP delivery, public base URL, brute-force lockout, and the
+# login/register/resend rate limits) to the api and webapp services, so the
+# values in .env.uat actually reach the containers. The core auth flags
+# (DOCRAY_AUTH_LOCAL_ENABLED / _REGISTRATION_ENABLED / JWT / tokens) are already
+# passed through by the base file and flow from .env.uat unchanged.
+#
+# Run:
+#   docker compose --env-file .env.uat \
+#     -f docker-compose.yml -f docker-compose.uat.yml up -d
+#
+# Migrations are applied by the base `migrate` one-shot; run it the same way if
+# a fresh volume needs bootstrapping. Every var below keeps the base default so
+# this overlay is also safe to apply with auth still switched off.
+
+services:
+  api:
+    environment:
+      # Brute-force lockout (fix A) — API login path reads these.
+      DOCRAY_AUTH_MAX_FAILED_LOGINS: ${DOCRAY_AUTH_MAX_FAILED_LOGINS:-10}
+      DOCRAY_AUTH_LOCKOUT_SECONDS: ${DOCRAY_AUTH_LOCKOUT_SECONDS:-900}
+      # Verification-email delivery (blocker fix). Registration returns 503
+      # until DOCRAY_SMTP_HOST + DOCRAY_PUBLIC_BASE_URL are set (fail-closed).
+      DOCRAY_SMTP_HOST: ${DOCRAY_SMTP_HOST:-}
+      DOCRAY_SMTP_PORT: ${DOCRAY_SMTP_PORT:-587}
+      DOCRAY_SMTP_FROM: ${DOCRAY_SMTP_FROM:-}
+      DOCRAY_SMTP_USERNAME: ${DOCRAY_SMTP_USERNAME:-}
+      DOCRAY_SMTP_PASSWORD: ${DOCRAY_SMTP_PASSWORD:-}
+      DOCRAY_SMTP_STARTTLS: ${DOCRAY_SMTP_STARTTLS:-true}
+      DOCRAY_SMTP_TIMEOUT_SECONDS: ${DOCRAY_SMTP_TIMEOUT_SECONDS:-10}
+      DOCRAY_PUBLIC_BASE_URL: ${DOCRAY_PUBLIC_BASE_URL:-}
+
+  webapp:
+    environment:
+      # Account lockout (fix A) — webapp builds its LocalAuthService with these.
+      DOCRAY_AUTH_MAX_FAILED_LOGINS: ${DOCRAY_AUTH_MAX_FAILED_LOGINS:-10}
+      DOCRAY_AUTH_LOCKOUT_SECONDS: ${DOCRAY_AUTH_LOCKOUT_SECONDS:-900}
+      # Per-client throttles on the auth POST routes (fix A + resend blocker).
+      DOCRAY_WEBAPP_LOGIN_RATE_LIMIT_REQUESTS: ${DOCRAY_WEBAPP_LOGIN_RATE_LIMIT_REQUESTS:-10}
+      DOCRAY_WEBAPP_LOGIN_RATE_LIMIT_WINDOW_SECONDS: ${DOCRAY_WEBAPP_LOGIN_RATE_LIMIT_WINDOW_SECONDS:-300}
+      DOCRAY_WEBAPP_REGISTER_RATE_LIMIT_REQUESTS: ${DOCRAY_WEBAPP_REGISTER_RATE_LIMIT_REQUESTS:-5}
+      DOCRAY_WEBAPP_REGISTER_RATE_LIMIT_WINDOW_SECONDS: ${DOCRAY_WEBAPP_REGISTER_RATE_LIMIT_WINDOW_SECONDS:-3600}
+      DOCRAY_WEBAPP_RESEND_RATE_LIMIT_REQUESTS: ${DOCRAY_WEBAPP_RESEND_RATE_LIMIT_REQUESTS:-5}
+      DOCRAY_WEBAPP_RESEND_RATE_LIMIT_WINDOW_SECONDS: ${DOCRAY_WEBAPP_RESEND_RATE_LIMIT_WINDOW_SECONDS:-3600}
+      # Verification-email delivery (the webapp sends the link on registration).
+      DOCRAY_SMTP_HOST: ${DOCRAY_SMTP_HOST:-}
+      DOCRAY_SMTP_PORT: ${DOCRAY_SMTP_PORT:-587}
+      DOCRAY_SMTP_FROM: ${DOCRAY_SMTP_FROM:-}
+      DOCRAY_SMTP_USERNAME: ${DOCRAY_SMTP_USERNAME:-}
+      DOCRAY_SMTP_PASSWORD: ${DOCRAY_SMTP_PASSWORD:-}
+      DOCRAY_SMTP_STARTTLS: ${DOCRAY_SMTP_STARTTLS:-true}
+      DOCRAY_SMTP_TIMEOUT_SECONDS: ${DOCRAY_SMTP_TIMEOUT_SECONDS:-10}
+      DOCRAY_PUBLIC_BASE_URL: ${DOCRAY_PUBLIC_BASE_URL:-}
+
+  # UAT runs a real worker pool by default (base leaves scaling manual).
+  worker:
+    deploy:
+      replicas: ${DOCRAY_WORKERS:-3}
