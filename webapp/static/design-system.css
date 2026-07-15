@@ -955,8 +955,24 @@ dialog.confirm p { margin: 0 0 var(--space-5); color: var(--ink-soft); font-size
    page body. Composition + tokens only. */
 .site-footer {
   margin-top: var(--space-8);
-  border-top: 1px solid var(--line);
-  background: color-mix(in srgb, var(--panel) 55%, transparent);
+  /* High-contrast footer band: a dark slate surface anchors the page and lifts
+     the footer clear of the near-matching page background (the old translucent
+     panel was almost invisible). Footer text switches to a footer-scoped light
+     ink ramp; the brand dot and link hover stay accent red for pop. */
+  background: #13161b;
+  border-top: 1px solid #05070a;
+  box-shadow: inset 0 1px 0 color-mix(in srgb, #ffffff 7%, transparent);
+  color: var(--footer-soft);
+  --footer-ink: #f6f8fb;
+  --footer-soft: #c4ccd8;
+  --footer-faint: #8b95a4;
+  --footer-line: color-mix(in srgb, #ffffff 13%, transparent);
+}
+/* Dark theme: the page is already near-black, so the footer lifts UP to a
+   lighter elevated panel to stay distinct instead of dropping darker. */
+html[data-theme="dark"] .site-footer {
+  background: #1b212a;
+  border-top: 1px solid #05070a;
 }
 .footer-top,
 .footer-base {
@@ -970,8 +986,8 @@ dialog.confirm p { margin: 0 0 var(--space-5); color: var(--ink-soft); font-size
   align-items: flex-start;
   justify-content: space-between;
   gap: var(--space-6);
-  padding-top: var(--space-6);
-  padding-bottom: var(--space-5);
+  padding-top: var(--space-7);
+  padding-bottom: var(--space-6);
 }
 .footer-brand { max-width: 30rem; }
 .footer-mark {
@@ -980,11 +996,12 @@ dialog.confirm p { margin: 0 0 var(--space-5); color: var(--ink-soft); font-size
   padding: 0;
   border: 0;
   font-size: 1.25rem;
+  color: var(--footer-ink);
 }
-.footer-mark:hover { color: var(--ink); }
+.footer-mark:hover { color: var(--footer-ink); }
 .footer-pitch {
   margin: .55rem 0 0;
-  color: var(--ink-soft);
+  color: var(--footer-soft);
   font-size: .88rem;
   line-height: 1.55;
 }
@@ -992,14 +1009,14 @@ dialog.confirm p { margin: 0 0 var(--space-5); color: var(--ink-soft); font-size
 .footer-col { display: flex; flex-direction: column; gap: .32rem; }
 .footer-h {
   margin-bottom: .2rem;
-  color: var(--ink-faint);
+  color: var(--footer-faint);
   font-family: var(--mono);
   font-size: .66rem;
   font-weight: 600;
   letter-spacing: .1em;
   text-transform: uppercase;
 }
-.footer-col a { color: var(--ink-soft); font-size: .86rem; }
+.footer-col a { color: var(--footer-soft); font-size: .86rem; }
 .footer-col a:hover { color: var(--accent); text-decoration: none; }
 .footer-base {
   display: flex;
@@ -1007,12 +1024,12 @@ dialog.confirm p { margin: 0 0 var(--space-5); color: var(--ink-soft); font-size
   align-items: baseline;
   gap: .4rem var(--space-4);
   padding-top: var(--space-4);
-  padding-bottom: var(--space-5);
-  border-top: 1px solid var(--line-soft);
-  color: var(--ink-faint);
+  padding-bottom: var(--space-6);
+  border-top: 1px solid var(--footer-line);
+  color: var(--footer-faint);
   font-size: .78rem;
 }
-.footer-copy { font-weight: 500; color: var(--ink-soft); }
+.footer-copy { font-weight: 500; color: var(--footer-soft); }
 .footer-creed { font-style: italic; }
 @media (max-width: 640px) {
   .footer-top { gap: var(--space-5); }
