@@ -317,11 +317,13 @@ def test_test_dockerfile_copies_sources_tests_and_migrations_into_the_image():
     assert "apt-get install -y --no-install-recommends" in text
     assert "tesseract-ocr" in text
     assert "tesseract-ocr-eng" in text
+    # Glob so every compose overlay (prod, cloudflared, ollama, pgadmin, ...) is
+    # in the test image — the compose-security guards read them, and a bare list
+    # silently dropped new overlays (FileNotFound in the isolated run).
+    assert "COPY Dockerfile docker-compose*.yml ./" in text
     assert (
-        "COPY Dockerfile docker-compose.yml docker-compose.api.yml docker-compose.test.yml ./"
-        in text
+        "COPY .dockerignore .env.example .env.prod.example .env.test.example .gitignore ./" in text
     )
-    assert "COPY .dockerignore .env.example .env.test.example .gitignore ./" in text
     assert "COPY .pre-commit-config.yaml CLAUDE.md ./" in text
     assert "COPY .github ./.github" in text
     assert "COPY README.md CHANGELOG.md engineering_decisions.yml uv.lock Makefile ./" in text
