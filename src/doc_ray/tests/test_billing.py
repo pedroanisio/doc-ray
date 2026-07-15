@@ -678,6 +678,201 @@ def test_billing_graphql_mutations_create_checkout_and_portal_sessions(pg, monke
         conn.execute("DELETE FROM tenant_billing_accounts WHERE tenant_id = %s", (tenant_id,))
 
 
+def test_graphql_checkout_and_signed_webhooks_activate_billing_entitlement(pg, monkeypatch):
+    conn, _created = pg
+    tenant_id = _apply_billing_migration(conn)
+    stripe_calls: list[tuple[str, dict[str, str], str | None]] = []
+
+    async def fake_stripe_post(
+        self: billing.StripeRestTransport,
+        path: str,
+        form: dict[str, str],
+        *,
+        idempotency_key: str | None = None,
+    ) -> dict[str, Any]:
+        stripe_calls.append((path, form, idempotency_key))
+        if path == "/customers":
+            return {"id": "cus_e2e_1"}
+        if path == "/checkout/sessions":
+            return {"id": "cs_e2e_1", "url": "https://checkout.stripe.test/e2e"}
+        raise AssertionError(f"unexpected Stripe path {path}")
+
+    monkeypatch.setattr(billing.StripeRestTransport, "_post", fake_stripe_post)
+    cfg = replace(
+        _cfg(enforcement_enabled=True),
+        stripe_secret_key="sk_live_realistic",
+        api_tokens={
+            "billing-admin-token": (WRITE_PRINCIPAL.principal_id, frozenset({"read", "write"}))
+        },
+        api_allow_anonymous=False,
+    )
+    app = create_app(cfg)
+    headers = {"authorization": "Bearer billing-admin-token"}
+    checkout_event = {
+        "id": "evt_e2e_checkout_1",
+        "type": "checkout.session.completed",
+        "livemode": True,
+        "data": {
+            "object": {
+                "id": "cs_e2e_1",
+                "customer": "cus_e2e_1",
+                "subscription": "sub_e2e_1",
+                "client_reference_id": tenant_id,
+                "metadata": {"price_id": "price_test_monthly"},
+                "customer_details": {"email": "billing-e2e@example.com"},
+            }
+        },
+    }
+    subscription_event = {
+        "id": "evt_e2e_subscription_1",
+        "type": "customer.subscription.updated",
+        "livemode": True,
+        "data": {
+            "object": {
+                "id": "sub_e2e_1",
+                "customer": "cus_e2e_1",
+                "status": "active",
+                "current_period_end": int(time.time()),
+                "cancel_at_period_end": False,
+                "latest_invoice": "in_e2e_1",
+                "items": {"data": [{"price": {"id": "price_test_monthly"}}]},
+                "metadata": {"tenant_id": tenant_id},
+            }
+        },
+    }
+    invoice_event = {
+        "id": "evt_e2e_invoice_1",
+        "type": "invoice.paid",
+        "livemode": True,
+        "data": {
+            "object": {
+                "id": "in_e2e_1",
+                "customer": "cus_e2e_1",
+                "subscription": "sub_e2e_1",
+                "status": "paid",
+                "amount_paid": 4900,
+                "amount_due": 0,
+                "currency": "usd",
+                "hosted_invoice_url": "https://invoice.stripe.test/in_e2e_1",
+                "invoice_pdf": "https://invoice.stripe.test/in_e2e_1.pdf",
+            }
+        },
+    }
+
+    def signed_event(event: dict[str, Any]) -> tuple[bytes, str]:
+        payload = json.dumps(event, separators=(",", ":"), sort_keys=True).encode()
+        return payload, _signed_header(payload, "whsec_test", int(time.time()))
+
+    try:
+        with TestClient(app) as client:
+            checkout = client.post(
+                "/graphql",
+                json={
+                    "query": """
+                    mutation {
+                      createBillingCheckoutSession {
+                        url
+                      }
+                    }
+                    """
+                },
+                headers=headers,
+            )
+            assert checkout.status_code == 200
+            checkout_body = checkout.json()
+            assert checkout_body.get("errors") is None
+            assert checkout_body["data"]["createBillingCheckoutSession"]["url"] == (
+                "https://checkout.stripe.test/e2e"
+            )
+
+            pending = conn.execute(
+                """
+                SELECT status, checkout_session_id
+                FROM tenant_subscriptions
+                WHERE tenant_id = %s
+                """,
+                (tenant_id,),
+            ).fetchone()
+            assert pending["status"] == "checkout_pending"
+            assert pending["checkout_session_id"] == "cs_e2e_1"
+
+            for event in (checkout_event, subscription_event, invoice_event):
+                payload, signature = signed_event(event)
+                response = client.post(
+                    "/stripe/webhook",
+                    content=payload,
+                    headers={"stripe-signature": signature},
+                )
+                assert response.status_code == 200
+                assert response.json() == {"received": True, "processed": True}
+
+            status_response = client.post(
+                "/graphql",
+                json={
+                    "query": """
+                    query {
+                      billingStatus {
+                        subscriptionStatus
+                        stripeCustomerId
+                        stripeSubscriptionId
+                        stripePriceId
+                        latestInvoiceId
+                        enforcementEnabled
+                        entitled
+                        entitlementReason
+                      }
+                      billingEvents(limit: 5) {
+                        stripeEventId
+                        eventType
+                        objectStatus
+                        amountPaid
+                        hostedInvoiceUrl
+                        processedAt
+                      }
+                    }
+                    """
+                },
+                headers=headers,
+            )
+            assert status_response.status_code == 200
+            status_body = status_response.json()
+            assert status_body.get("errors") is None
+            assert status_body["data"]["billingStatus"] == {
+                "subscriptionStatus": "active",
+                "stripeCustomerId": "cus_e2e_1",
+                "stripeSubscriptionId": "sub_e2e_1",
+                "stripePriceId": "price_test_monthly",
+                "latestInvoiceId": "in_e2e_1",
+                "enforcementEnabled": True,
+                "entitled": True,
+                "entitlementReason": "subscription is active",
+            }
+            events = {
+                event["stripeEventId"]: event
+                for event in status_body["data"]["billingEvents"]
+            }
+            assert events["evt_e2e_invoice_1"]["eventType"] == "invoice.paid"
+            assert events["evt_e2e_invoice_1"]["objectStatus"] == "paid"
+            assert events["evt_e2e_invoice_1"]["amountPaid"] == 4900
+            assert events["evt_e2e_invoice_1"]["hostedInvoiceUrl"] == (
+                "https://invoice.stripe.test/in_e2e_1"
+            )
+            assert events["evt_e2e_invoice_1"]["processedAt"] is not None
+
+        assert stripe_calls[0][0] == "/customers"
+        assert stripe_calls[1][0] == "/checkout/sessions"
+        assert stripe_calls[1][1]["customer"] == "cus_e2e_1"
+        assert stripe_calls[1][1]["client_reference_id"] == tenant_id
+        assert stripe_calls[1][2].startswith(f"docray.checkout.{tenant_id}.")
+    finally:
+        conn.execute("DELETE FROM tenant_subscriptions WHERE tenant_id = %s", (tenant_id,))
+        conn.execute("DELETE FROM tenant_billing_accounts WHERE tenant_id = %s", (tenant_id,))
+        conn.execute(
+            "DELETE FROM stripe_webhook_events WHERE stripe_event_id IN "
+            "('evt_e2e_checkout_1', 'evt_e2e_subscription_1', 'evt_e2e_invoice_1')"
+        )
+
+
 def test_checkout_session_prefills_local_admin_billing_email(pg, monkeypatch):
     conn, _created = pg
     tenant_id = _apply_billing_migration(conn)
