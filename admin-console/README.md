@@ -105,6 +105,10 @@ URL as the hosted Checkout/Portal return target; the API rejects cross-origin
 overrides when billing enforcement is enabled. For the Cloudflare Tunnel
 production path, publish `admin.doc-ray.com` to `http://admin-console:80` and
 protect it with Cloudflare Access before sending operators there.
+Hosted Stripe Checkout and Customer Portal remain disabled until
+`DOCRAY_STRIPE_WEBHOOK_SECRET` and `DOCRAY_PUBLIC_BASE_URL` configure signed
+webhook processing for `/stripe/webhook`; doc-ray updates paid access from
+Stripe webhook events, not from the browser return alone.
 
 ### Local dev
 

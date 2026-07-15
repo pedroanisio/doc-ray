@@ -127,11 +127,14 @@ Paid SaaS writes fail closed when `DOCRAY_BILLING_ENFORCEMENT_ENABLED=true` and
 the tenant does not have an `active` or `trialing` subscription for
 `DOCRAY_STRIPE_PRICE_ID`. Billing mutations are explicit exemptions so a blocked
 tenant can start Checkout, open the Customer Portal, or retry a pending webhook
-event. Hosted-session return URLs are same-origin checked against the configured
-admin-console origin, while `DOCRAY_PUBLIC_BASE_URL` remains the public webhook
-origin. In production the admin console is a loopback-bound sidecar reached via a
-protected HTTPS ingress such as `admin.doc-ray.com`; Stripe posts webhooks to the
-public app origin, not to the admin console.
+event, but hosted Checkout and Customer Portal are refused until signed webhook
+processing is configured with `DOCRAY_STRIPE_WEBHOOK_SECRET` and a valid
+`DOCRAY_PUBLIC_BASE_URL`. Hosted-session return URLs are same-origin checked
+against the configured admin-console origin, while `DOCRAY_PUBLIC_BASE_URL`
+remains the public webhook origin. In production the admin console is a
+loopback-bound sidecar reached via a protected HTTPS ingress such as
+`admin.doc-ray.com`; Stripe posts webhooks to the public app origin, not to the
+admin console.
 
 ## Entity canonicalization
 

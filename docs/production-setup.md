@@ -316,7 +316,10 @@ and select the event types the Billing panel lists as required:
 `customer.subscription.deleted`, `invoice.paid`,
 `invoice.payment_succeeded`, `invoice.payment_failed`, and
 `invoice.finalization_failed`. Put the endpoint signing secret in
-`.env.prod` as `DOCRAY_STRIPE_WEBHOOK_SECRET`.
+`.env.prod` as `DOCRAY_STRIPE_WEBHOOK_SECRET`. Hosted Stripe Checkout and
+Customer Portal flows are blocked until this signed webhook processing path is
+configured, because doc-ray grants tenant access from webhook-derived
+subscription state rather than from the browser return alone.
 
 ## Step 6 — Cloudflare Tunnel ingress (public access)
 

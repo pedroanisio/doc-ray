@@ -231,6 +231,7 @@ def test_architecture_documents_stripe_payment_control_plane():
         "DOCRAY_BILLING_ENFORCEMENT_ENABLED=true",
         "DOCRAY_STRIPE_PRICE_ID",
         "DOCRAY_PUBLIC_BASE_URL",
+        "hosted Checkout and Customer Portal are refused until signed webhook",
         "tenant_billing_accounts",
         "tenant_subscriptions",
         "stripe_webhook_events",

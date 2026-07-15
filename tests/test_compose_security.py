@@ -550,7 +550,11 @@ def test_cloudflared_tunnel_documents_protected_admin_console_ingress():
     assert "admin.doc-ray.com" in prod_doc
     assert "http://admin-console:80" in prod_doc
     assert "Cloudflare Access" in prod_doc
+    assert "Customer Portal flows are blocked until this signed webhook" in prod_doc
     assert "Cloudflare Access" in admin_readme
+    assert "Hosted Stripe Checkout and Customer Portal remain disabled" in admin_readme
+    assert "DOCRAY_STRIPE_WEBHOOK_SECRET" in admin_readme
+    assert "DOCRAY_PUBLIC_BASE_URL" in admin_readme
     assert "DOCRAY_STRIPE_SUCCESS_URL=https://admin.doc-ray.com/billing?checkout=success" in env_text
 
 
