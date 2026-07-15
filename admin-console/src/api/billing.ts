@@ -20,6 +20,7 @@ export interface BillingStatus {
   webhookEndpointUrl: string | null;
   liveModeReady: boolean;
   missingConfiguration: string[];
+  configurationIssues: string[];
   requiredWebhookEvents: string[];
   enforcementEnabled: boolean;
   entitled: boolean;
@@ -62,6 +63,7 @@ export async function fetchBillingStatus(client: ApiClient): Promise<BillingStat
         webhookEndpointUrl
         liveModeReady
         missingConfiguration
+        configurationIssues
         requiredWebhookEvents
         enforcementEnabled
         entitled

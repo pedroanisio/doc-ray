@@ -199,6 +199,7 @@ describe("BillingPage", () => {
             webhookEndpointUrl: "https://app.example.com/stripe/webhook",
             liveModeReady: true,
             missingConfiguration: [],
+            configurationIssues: [],
             requiredWebhookEvents: [
               "checkout.session.completed",
               "customer.subscription.updated",
@@ -237,6 +238,30 @@ describe("BillingPage", () => {
     expect(screen.getByRole("button", { name: /subscription active/i })).toBeDisabled();
     expect(screen.getByText(/Use the Customer Portal/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /manage payment method/i })).toBeEnabled();
+  });
+
+  it("surfaces unsafe live Stripe configuration issues", async () => {
+    const fetchImpl = billingFetch({
+      liveModeReady: false,
+      configurationIssues: [
+        "DOCRAY_STRIPE_SECRET_KEY uses a Stripe test-mode key",
+        "DOCRAY_PUBLIC_BASE_URL must use https for live billing",
+      ],
+    });
+    const services = servicesWithFetch(fetchImpl);
+
+    render(
+      <ServicesProvider services={services}>
+        <MemoryRouter>
+          <BillingPage />
+        </MemoryRouter>
+      </ServicesProvider>,
+    );
+
+    expect(await screen.findByText("needs setup")).toBeInTheDocument();
+    expect(screen.getByText(/DOCRAY_STRIPE_SECRET_KEY uses a Stripe test-mode key/)).toBeInTheDocument();
+    expect(screen.getByText(/DOCRAY_PUBLIC_BASE_URL must use https for live billing/)).toBeInTheDocument();
+    expect(screen.getByText("Live-safe configuration")).toBeInTheDocument();
   });
 
   it("keeps Checkout available when no live subscription exists", async () => {
@@ -285,6 +310,29 @@ describe("BillingPage", () => {
     expect(screen.getByRole("button", { name: /use customer portal/i })).toBeDisabled();
     expect(screen.getByText(/complete recovery/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /manage payment method/i })).toBeEnabled();
+  });
+
+  it("blocks duplicate Checkout while a hosted session is pending", async () => {
+    const fetchImpl = billingFetch({
+      stripeSubscriptionId: null,
+      subscriptionStatus: "checkout_pending",
+      checkoutSessionId: "cs_pending_123",
+      entitled: false,
+      entitlementReason: "subscription is checkout_pending",
+    });
+    const services = servicesWithFetch(fetchImpl);
+
+    render(
+      <ServicesProvider services={services}>
+        <MemoryRouter>
+          <BillingPage />
+        </MemoryRouter>
+      </ServicesProvider>,
+    );
+
+    expect(await screen.findByText("Current tenant")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /checkout pending/i })).toBeDisabled();
+    expect(screen.getByText(/complete recovery/)).toBeInTheDocument();
   });
 
   it("opens hosted Checkout from the Billing page action", async () => {

@@ -31,6 +31,7 @@ class BillingStatus:
     webhook_endpoint_url: str | None
     live_mode_ready: bool
     missing_configuration: list[str]
+    configuration_issues: list[str]
     required_webhook_events: list[str]
     enforcement_enabled: bool
     entitled: bool
@@ -59,6 +60,7 @@ class BillingStatus:
             webhook_endpoint_url=row.get("webhook_endpoint_url"),
             live_mode_ready=bool(row.get("live_mode_ready", False)),
             missing_configuration=list(row.get("missing_configuration") or []),
+            configuration_issues=list(row.get("configuration_issues") or []),
             required_webhook_events=list(row.get("required_webhook_events") or []),
             enforcement_enabled=bool(row.get("enforcement_enabled", False)),
             entitled=bool(row.get("entitled", True)),

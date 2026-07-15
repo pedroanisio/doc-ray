@@ -16,6 +16,7 @@ const ACTIVE_STATUSES = new Set(["active", "trialing"]);
 const MANAGED_SUBSCRIPTION_STATUSES = new Set([
   "active",
   "trialing",
+  "checkout_pending",
   "checkout_completed",
   "incomplete",
   "past_due",
@@ -93,6 +94,8 @@ export function BillingPage({ redirectToHostedUrl = (url) => window.location.ass
   const canStartCheckout = Boolean(status?.checkoutReady && !hasManagedSubscription && busy === null);
   const checkoutButtonLabel = hasLiveSubscription
     ? "Subscription active"
+    : state === "checkout_pending"
+      ? "Checkout pending"
     : hasManagedSubscription
       ? "Use Customer Portal"
     : busy === "checkout"
@@ -148,6 +151,10 @@ export function BillingPage({ redirectToHostedUrl = (url) => window.location.ass
             <ReadinessItem ready={Boolean(status?.portalReady)} label="Customer portal" />
             <ReadinessItem ready={Boolean(status?.webhookReady)} label="Signed Stripe webhook" />
             <ReadinessItem ready={Boolean(status?.enforcementEnabled)} label="Paid-action enforcement" />
+            <ReadinessItem
+              ready={Boolean(status && status.configurationIssues.length === 0)}
+              label="Live-safe configuration"
+            />
           </ul>
           <dl className="detail-list compact">
             <div><dt>Webhook URL</dt><dd>{status?.webhookEndpointUrl ?? "set DOCRAY_PUBLIC_BASE_URL"}</dd></div>
@@ -156,6 +163,11 @@ export function BillingPage({ redirectToHostedUrl = (url) => window.location.ass
           {status && status.missingConfiguration.length > 0 && (
             <p className="alert warn">
               Missing: {status.missingConfiguration.join(", ")}
+            </p>
+          )}
+          {status && status.configurationIssues.length > 0 && (
+            <p className="alert warn">
+              Fix: {status.configurationIssues.join(", ")}
             </p>
           )}
         </section>

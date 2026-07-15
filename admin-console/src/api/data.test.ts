@@ -130,6 +130,7 @@ describe("billing module", () => {
           webhookEndpointUrl: "https://app.example.com/stripe/webhook",
           liveModeReady: true,
           missingConfiguration: [],
+          configurationIssues: [],
           requiredWebhookEvents: ["checkout.session.completed", "invoice.paid"],
           enforcementEnabled: true,
           entitled: true,
@@ -144,6 +145,7 @@ describe("billing module", () => {
     expect(body.query).toContain("billingStatus");
     expect(body.query).toContain("webhookEndpointUrl");
     expect(body.query).toContain("requiredWebhookEvents");
+    expect(body.query).toContain("configurationIssues");
     expect(body.query).toContain("entitlementReason");
   });
 

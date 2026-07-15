@@ -9,7 +9,7 @@ import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Protocol
-from urllib.parse import urlparse
+from urllib.parse import ParseResult, urlparse
 
 import httpx
 import psycopg
@@ -32,10 +32,11 @@ class StripeSignatureError(ValueError):
 
 ENTITLED_SUBSCRIPTION_STATUSES = frozenset({"active", "trialing"})
 CHECKOUT_BLOCKING_SUBSCRIPTION_STATUSES = ENTITLED_SUBSCRIPTION_STATUSES | frozenset(
-    {"checkout_completed", "incomplete", "past_due", "unpaid"}
+    {"checkout_pending", "checkout_completed", "incomplete", "past_due", "unpaid"}
 )
 REQUIRED_WEBHOOK_EVENTS = (
     "checkout.session.completed",
+    "checkout.session.expired",
     "customer.subscription.created",
     "customer.subscription.updated",
     "customer.subscription.deleted",
@@ -179,10 +180,23 @@ def configured_checkout_urls(
         raise BillingConfigurationError(
             "missing Stripe redirect configuration: " + ", ".join(missing)
         )
-    return BillingUrls(
+    urls = BillingUrls(
         success_url=str(resolved_success),
         cancel_url=str(resolved_cancel),
     )
+    _validate_hosted_redirect_url(
+        cfg,
+        urls.success_url,
+        field="success_url",
+        configured_url=cfg.stripe_success_url,
+    )
+    _validate_hosted_redirect_url(
+        cfg,
+        urls.cancel_url,
+        field="cancel_url",
+        configured_url=cfg.stripe_cancel_url,
+    )
+    return urls
 
 
 def configured_portal_url(cfg: Config, *, return_url: str | None = None) -> PortalUrl:
@@ -190,7 +204,51 @@ def configured_portal_url(cfg: Config, *, return_url: str | None = None) -> Port
     resolved = return_url or cfg.stripe_portal_return_url
     if not resolved:
         raise BillingConfigurationError("missing Stripe redirect configuration: portal_return_url")
-    return PortalUrl(return_url=str(resolved))
+    url = PortalUrl(return_url=str(resolved))
+    _validate_hosted_redirect_url(
+        cfg,
+        url.return_url,
+        field="portal_return_url",
+        configured_url=cfg.stripe_portal_return_url,
+    )
+    return url
+
+
+def _validate_hosted_redirect_url(
+    cfg: Config,
+    value: str,
+    *,
+    field: str,
+    configured_url: str | None,
+) -> None:
+    parsed = urlparse(value.strip())
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        raise BillingConfigurationError(
+            f"invalid Stripe redirect configuration: {field} must be an absolute URL"
+        )
+    if cfg.billing_enforcement_enabled and parsed.scheme != "https":
+        raise BillingConfigurationError(
+            f"invalid Stripe redirect configuration: {field} must use https for live billing"
+        )
+
+    expected_origin = _configured_redirect_origin(cfg, configured_url)
+    if expected_origin is not None and _url_origin(parsed) != expected_origin:
+        raise BillingConfigurationError(
+            f"invalid Stripe redirect configuration: {field} must use the configured "
+            "application origin"
+        )
+
+
+def _configured_redirect_origin(cfg: Config, configured_url: str | None) -> str | None:
+    for value in (cfg.public_base_url, configured_url):
+        parsed = urlparse((value or "").strip())
+        if parsed.scheme in {"http", "https"} and parsed.netloc:
+            return _url_origin(parsed)
+    return None
+
+
+def _url_origin(parsed: ParseResult) -> str:
+    return f"{parsed.scheme}://{parsed.netloc.lower()}"
 
 
 def stripe_transport_from_config(cfg: Config) -> StripeRestTransport:
@@ -215,7 +273,10 @@ async def billing_status(conn: psycopg.AsyncConnection[Any], cfg: Config) -> dic
     status["webhook_ready"] = bool(cfg.stripe_webhook_secret and status["webhook_endpoint_url"])
     status["required_webhook_events"] = list(REQUIRED_WEBHOOK_EVENTS)
     status["missing_configuration"] = missing_billing_configuration(cfg)
-    status["live_mode_ready"] = not status["missing_configuration"]
+    status["configuration_issues"] = invalid_billing_configuration(cfg)
+    status["live_mode_ready"] = not status["missing_configuration"] and not status[
+        "configuration_issues"
+    ]
     entitlement = entitlement_from_status(status, cfg)
     status.update(entitlement)
     return status
@@ -260,6 +321,36 @@ def missing_billing_configuration(cfg: Config) -> list[str]:
     return missing
 
 
+def invalid_billing_configuration(cfg: Config) -> list[str]:
+    """Return configured billing values that are unsafe for live payments."""
+    issues: list[str] = []
+    if not cfg.billing_enforcement_enabled:
+        return issues
+
+    if _looks_like_stripe_test_secret(cfg.stripe_secret_key):
+        issues.append("DOCRAY_STRIPE_SECRET_KEY uses a Stripe test-mode key")
+
+    for name, value in (
+        ("DOCRAY_STRIPE_SUCCESS_URL", cfg.stripe_success_url),
+        ("DOCRAY_STRIPE_CANCEL_URL", cfg.stripe_cancel_url),
+        ("DOCRAY_STRIPE_PORTAL_RETURN_URL", cfg.stripe_portal_return_url),
+        ("DOCRAY_PUBLIC_BASE_URL", cfg.public_base_url),
+    ):
+        if value and not _is_https_url(value):
+            issues.append(f"{name} must use https for live billing")
+
+    return issues
+
+
+def _looks_like_stripe_test_secret(value: str | None) -> bool:
+    return bool(value and value.startswith(("sk_test_", "rk_test_")))
+
+
+def _is_https_url(value: str) -> bool:
+    parsed = urlparse(value.strip())
+    return parsed.scheme == "https" and bool(parsed.netloc)
+
+
 def entitlement_from_status(status: dict[str, Any], cfg: Config) -> dict[str, Any]:
     """Return entitlement fields for a billing status row."""
     subscription_status = str(status.get("subscription_status") or "none")
@@ -270,6 +361,14 @@ def entitlement_from_status(status: dict[str, Any], cfg: Config) -> dict[str, An
             "entitlement_reason": "billing enforcement is disabled",
         }
     if subscription_status in ENTITLED_SUBSCRIPTION_STATUSES:
+        configured_price_id = cfg.stripe_price_id
+        subscription_price_id = status.get("stripe_price_id")
+        if configured_price_id and subscription_price_id != configured_price_id:
+            return {
+                "enforcement_enabled": True,
+                "entitled": False,
+                "entitlement_reason": "subscription price does not match configured Stripe price",
+            }
         return {
             "enforcement_enabled": True,
             "entitled": True,
@@ -343,9 +442,19 @@ async def create_checkout_session(
         metadata={"tenant_id": tenant_id, "price_id": cfg.stripe_price_id},
         subscription_metadata={"tenant_id": tenant_id, "price_id": cfg.stripe_price_id},
     )
+    session_id = session.get("id")
+    if not isinstance(session_id, str) or not session_id:
+        raise RuntimeError("Stripe Checkout Session did not include an id")
     url = session.get("url")
     if not isinstance(url, str) or not url:
         raise RuntimeError("Stripe Checkout Session did not include a url")
+    await billing_store.record_checkout_session_started(
+        conn,
+        tenant_id=tenant_id,
+        stripe_customer_id=str(customer_id),
+        checkout_session_id=session_id,
+        stripe_price_id=cfg.stripe_price_id,
+    )
     return url
 
 
@@ -407,13 +516,16 @@ def verify_stripe_signature(
 
 
 async def process_webhook_event(
-    conn: psycopg.AsyncConnection[Any], event: dict[str, Any]
+    conn: psycopg.AsyncConnection[Any],
+    event: dict[str, Any],
+    cfg: Config | None = None,
 ) -> bool:
     """Process one verified Stripe event; return false when already seen."""
     event_id = str(event.get("id") or "")
     event_type = str(event.get("type") or "")
     if not event_id or not event_type:
         raise ValueError("Stripe event is missing id or type")
+    validate_webhook_event_mode(event, cfg)
     inserted = await billing_store.insert_webhook_event(
         conn,
         stripe_event_id=event_id,
@@ -428,6 +540,8 @@ async def process_webhook_event(
         obj = {}
     if event_type == "checkout.session.completed":
         await _process_checkout_completed(conn, event_id, obj)
+    elif event_type == "checkout.session.expired":
+        await _process_checkout_expired(conn, obj)
     elif event_type in {
         "customer.subscription.created",
         "customer.subscription.updated",
@@ -443,6 +557,30 @@ async def process_webhook_event(
         await _process_invoice_event(conn, event_id, event_type, obj)
     await billing_store.mark_webhook_processed(conn, event_id)
     return True
+
+
+def validate_webhook_event_mode(event: dict[str, Any], cfg: Config | None) -> None:
+    """Require Stripe webhook livemode to match the configured Stripe key mode."""
+    expected = _expected_stripe_livemode(cfg)
+    if expected is None:
+        return
+    event_livemode = bool(event.get("livemode", False))
+    if event_livemode != expected:
+        expected_label = "live" if expected else "test"
+        received_label = "live" if event_livemode else "test"
+        raise BillingConfigurationError(
+            "Stripe webhook livemode mismatch: "
+            f"configured for {expected_label} mode but received {received_label} event"
+        )
+
+
+def _expected_stripe_livemode(cfg: Config | None) -> bool | None:
+    key = (cfg.stripe_secret_key if cfg is not None else None) or ""
+    if key.startswith(("sk_live_", "rk_live_")):
+        return True
+    if key.startswith(("sk_test_", "rk_test_")):
+        return False
+    return None
 
 
 async def _process_checkout_completed(
@@ -469,6 +607,19 @@ async def _process_checkout_completed(
         stripe_subscription_id=subscription_id,
         stripe_price_id=price_id,
         stripe_event_id=event_id,
+    )
+
+
+async def _process_checkout_expired(
+    conn: psycopg.AsyncConnection[Any], obj: dict[str, Any]
+) -> None:
+    session_id = _string(obj.get("id"))
+    if not session_id:
+        return
+    await billing_store.expire_checkout_session(
+        conn,
+        checkout_session_id=session_id,
+        tenant_id=_tenant_from_object(obj),
     )
 
 

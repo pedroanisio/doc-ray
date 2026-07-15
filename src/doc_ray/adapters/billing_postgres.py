@@ -163,7 +163,8 @@ async def record_checkout_session(
                 tenant_subscriptions.stripe_price_id
             ),
             status = CASE
-                WHEN tenant_subscriptions.status = 'none' THEN EXCLUDED.status
+                WHEN tenant_subscriptions.status IN ('none', 'checkout_pending')
+                    THEN EXCLUDED.status
                 ELSE tenant_subscriptions.status
             END,
             checkout_session_id = EXCLUDED.checkout_session_id,
@@ -177,6 +178,65 @@ async def record_checkout_session(
             checkout_session_id,
             stripe_event_id,
         ),
+    )
+
+
+async def record_checkout_session_started(
+    conn: psycopg.AsyncConnection[Any],
+    *,
+    tenant_id: str,
+    stripe_customer_id: str,
+    checkout_session_id: str,
+    stripe_price_id: str | None,
+) -> None:
+    """Persist a locally created Checkout Session before Stripe webhooks arrive."""
+    await conn.execute(
+        """
+        INSERT INTO tenant_subscriptions
+            (tenant_id, stripe_customer_id, stripe_price_id, status, checkout_session_id)
+        VALUES (%s, %s, %s, 'checkout_pending', %s)
+        ON CONFLICT (tenant_id) DO UPDATE
+        SET stripe_customer_id = EXCLUDED.stripe_customer_id,
+            stripe_price_id = COALESCE(
+                EXCLUDED.stripe_price_id,
+                tenant_subscriptions.stripe_price_id
+            ),
+            status = CASE
+                WHEN tenant_subscriptions.status IN ('none', 'checkout_pending')
+                    THEN EXCLUDED.status
+                ELSE tenant_subscriptions.status
+            END,
+            checkout_session_id = CASE
+                WHEN tenant_subscriptions.status IN ('none', 'checkout_pending')
+                    THEN EXCLUDED.checkout_session_id
+                ELSE tenant_subscriptions.checkout_session_id
+            END
+        """,
+        (tenant_id, stripe_customer_id, stripe_price_id, checkout_session_id),
+    )
+
+
+async def expire_checkout_session(
+    conn: psycopg.AsyncConnection[Any],
+    *,
+    checkout_session_id: str,
+    tenant_id: str | None,
+) -> None:
+    """Clear a pending Checkout Session after Stripe reports expiration."""
+    await conn.execute(
+        """
+        UPDATE tenant_subscriptions
+        SET status = 'none',
+            checkout_session_id = NULL,
+            last_stripe_event_id = NULL
+        WHERE checkout_session_id = %s
+          AND status = 'checkout_pending'
+          AND (
+              %s::uuid IS NULL
+              OR tenant_id = %s::uuid
+          )
+        """,
+        (checkout_session_id, tenant_id, tenant_id),
     )
 
 
@@ -234,11 +294,18 @@ async def update_invoice_snapshot(
     stripe_event_id: str | None,
 ) -> None:
     """Update invoice details for the matching tenant subscription."""
-    status_clause = "status = COALESCE(%s, status),"
     await conn.execute(
-        f"""
+        """
         UPDATE tenant_subscriptions
-        SET {status_clause}
+        SET status = CASE
+                WHEN %s::text = 'active'
+                     AND status IN ('past_due', 'unpaid', 'incomplete')
+                    THEN %s::text
+                WHEN %s::text = 'past_due'
+                     AND status NOT IN ('canceled', 'cancelled', 'deleted')
+                    THEN %s::text
+                ELSE status
+            END,
             latest_invoice_id = COALESCE(%s, latest_invoice_id),
             last_stripe_event_id = %s
         WHERE stripe_customer_id = %s
@@ -249,6 +316,9 @@ async def update_invoice_snapshot(
           )
         """,
         (
+            fallback_status,
+            fallback_status,
+            fallback_status,
             fallback_status,
             latest_invoice_id,
             stripe_event_id,
