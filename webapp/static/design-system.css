@@ -162,6 +162,11 @@ html[data-theme="dark"] {
 html { scroll-behavior: smooth; -webkit-text-size-adjust: 100%; }
 body {
   margin: 0;
+  /* Sticky footer: body is a full-height column so a short page still pushes
+     .site-footer to the viewport bottom instead of floating mid-screen. */
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
   background: var(--bg);
   color: var(--ink);
   font-family: var(--sans);
@@ -331,8 +336,10 @@ html[data-theme="dark"] .toggle .moon { background: var(--accent); color: var(--
 .nav-cb:focus-visible + .nav-burger { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 main {
+  width: 100%;
   max-width: 1240px;
   margin: 0 auto;
+  flex: 1 0 auto;  /* grow to fill the column so the footer sits at the bottom */
   padding: var(--space-7) clamp(1rem, 4vw, 2.25rem) var(--space-8);
 }
 h1 {
@@ -557,8 +564,14 @@ label {
   letter-spacing: .02em;
   text-transform: none;
 }
+/* `input:not([type])` is deliberate: an input with no type attribute defaults to
+   text but is NOT matched by `input[type=text]`, so a type-less field (e.g.
+   register's display_name) would otherwise fall through to the UA-default white
+   background — invisible-breaking in dark mode. Keep it first in the list. */
+input:not([type]),
 input[type=text], input[type=file], input[type=email], input[type=password],
-input[type=search], input[type=number], select, textarea {
+input[type=search], input[type=number], input[type=tel], input[type=url],
+select, textarea {
   min-height: 2.4rem;
   padding: .55rem .7rem;
   background: var(--panel);
@@ -972,6 +985,7 @@ dialog.confirm p { margin: 0 0 var(--space-5); color: var(--ink-soft); font-size
    container (max-width + side padding) so the signature line aligns with the
    page body. Composition + tokens only. */
 .site-footer {
+  flex-shrink: 0;
   margin-top: var(--space-8);
   /* High-contrast footer band: a dark slate surface anchors the page and lifts
      the footer clear of the near-matching page background (the old translucent
