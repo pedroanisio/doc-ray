@@ -320,12 +320,17 @@ psql "$DATABASE_URL" -c "SELECT docray_schema_version();"
 # instance health against the managed cluster (override the uvicorn entrypoint):
 docker compose --env-file .env.prod -f docker-compose.yml -f docker-compose.prod.yml \
   run --rm --entrypoint python api -m doc_ray.entrypoints.db_health
-curl -I https://doc-ray.com                       # HTTP/2 302 -> /login (served via Cloudflare)
+curl -I https://doc-ray.com                       # HTTP/2 200 — public landing page (served via Cloudflare)
+curl -I https://doc-ray.com/documents             # HTTP/2 302 -> /login (auth wall on corpus routes)
 ```
 
-`REQUIRE_AUTH=true` means `doc-ray.com` lands on `/login`; until an admin exists
-(above) or self-service registration + SMTP is configured, the login page is the
-wall — this is the intended fail-closed posture.
+`REQUIRE_AUTH=true` gates the **corpus**, not the front door: `/` serves a public
+landing page (**200**, with Login/Register links), while protected routes
+(`/documents`, `/search`, `/upload`, `/profile`, …) redirect unauthenticated
+visitors to `/login` (**302**). Until an admin exists (above) or self-service
+registration + SMTP is configured, `/login` is the wall — this is the intended
+fail-closed posture. (Verify against a protected route: a `200` at `/` only means
+the landing page renders, not that auth is enforced.)
 
 ---
 
