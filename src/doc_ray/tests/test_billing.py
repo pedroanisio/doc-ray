@@ -16,7 +16,7 @@ import _itdb
 from _mutations_common import WRITE_PRINCIPAL, _aconn_as
 from fastapi.testclient import TestClient
 
-from doc_ray.application import billing
+from doc_ray.application import billing, billing_stripe
 from doc_ray.config import Config
 from doc_ray.entrypoints.api.app import create_app
 from doc_ray.entrypoints.api.context import RequestContext
@@ -257,12 +257,12 @@ def test_stripe_rest_transport_surfaces_sanitized_error_body(monkeypatch):
             *,
             data: dict[str, str],
             headers: dict[str, str],
-        ) -> billing.httpx.Response:
+        ) -> billing_stripe.httpx.Response:
             assert url == "https://api.stripe.test/v1/checkout/sessions"
             assert data["mode"] == "subscription"
             assert headers["authorization"] == "Bearer sk_live_secret_value"
             assert headers["idempotency-key"] == "docray.checkout.tenant-1.price_test"
-            return billing.httpx.Response(
+            return billing_stripe.httpx.Response(
                 402,
                 json={
                     "error": {
@@ -275,7 +275,7 @@ def test_stripe_rest_transport_surfaces_sanitized_error_body(monkeypatch):
                 headers={"request-id": "req_test_123"},
             )
 
-    monkeypatch.setattr(billing.httpx, "AsyncClient", FakeAsyncClient)
+    monkeypatch.setattr(billing_stripe.httpx, "AsyncClient", FakeAsyncClient)
     transport = billing.StripeRestTransport(
         secret_key="sk_live_secret_value",
         api_base="https://api.stripe.test/v1",

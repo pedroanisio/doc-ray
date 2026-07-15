@@ -1,244 +1,54 @@
-"""Stripe billing orchestration for tenant subscriptions."""
+"""Stripe billing orchestration for tenant subscriptions.
+
+The core billing flows (config/redirect validation, entitlement, checkout,
+portal, status/events, webhook retry). The transport lives in
+:mod:`billing_stripe`, webhook processing in :mod:`billing_webhooks`, and shared
+primitives in :mod:`billing_base` (D-015 split). This module re-exports the
+public names those modules define so ``from doc_ray.application import billing``
+keeps exposing the whole surface (``billing.StripeAPIError``,
+``billing.verify_stripe_signature``, ...) as before.
+"""
 
 from __future__ import annotations
 
 import hashlib
-import hmac
 import json
-import time
-from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, Protocol
+from typing import Any
 from urllib.parse import ParseResult, urlparse
 
-import httpx
 import psycopg
 
 from doc_ray.adapters import billing_postgres as billing_store
+
+# Names used only inside this module are imported plainly; names re-exported for
+# callers (``billing.X``) use the ``X as X`` form so mypy's no-implicit-reexport
+# treats them as an explicit public surface after the D-015 split.
+from doc_ray.application.billing_base import (
+    CHECKOUT_BLOCKING_SUBSCRIPTION_STATUSES,
+    ENTITLED_SUBSCRIPTION_STATUSES,
+    BillingUrls,
+    PortalUrl,
+    _string,
+)
+from doc_ray.application.billing_base import (
+    REQUIRED_WEBHOOK_EVENTS as REQUIRED_WEBHOOK_EVENTS,
+)
+from doc_ray.application.billing_base import BillingConfigurationError as BillingConfigurationError
+from doc_ray.application.billing_base import BillingEntitlementError as BillingEntitlementError
+from doc_ray.application.billing_base import StripeAPIError as StripeAPIError
+from doc_ray.application.billing_base import StripeSignatureError as StripeSignatureError
+from doc_ray.application.billing_base import WebhookProcessingPending as WebhookProcessingPending
+from doc_ray.application.billing_stripe import StripeRestTransport as StripeRestTransport
+from doc_ray.application.billing_stripe import StripeTransport
+from doc_ray.application.billing_webhooks import (
+    _expected_stripe_livemode,
+    _handle_webhook_event,
+    validate_webhook_event_mode,
+)
+from doc_ray.application.billing_webhooks import process_webhook_event as process_webhook_event
+from doc_ray.application.billing_webhooks import verify_stripe_signature as verify_stripe_signature
 from doc_ray.config import Config
-
-
-class BillingConfigurationError(RuntimeError):
-    """Raised when a billing action needs missing Stripe configuration."""
-
-
-class BillingEntitlementError(PermissionError):
-    """Raised when a tenant is not entitled to paid SaaS actions."""
-
-
-class StripeSignatureError(ValueError):
-    """Raised when a Stripe webhook signature cannot be verified."""
-
-
-class StripeAPIError(RuntimeError):
-    """Raised when Stripe rejects or cannot complete an API request."""
-
-    def __init__(
-        self,
-        message: str,
-        *,
-        status_code: int | None = None,
-        stripe_type: str | None = None,
-        stripe_code: str | None = None,
-        decline_code: str | None = None,
-        request_id: str | None = None,
-    ) -> None:
-        """Initialize a sanitized Stripe API error."""
-        super().__init__(message)
-        self.status_code = status_code
-        self.stripe_type = stripe_type
-        self.stripe_code = stripe_code
-        self.decline_code = decline_code
-        self.request_id = request_id
-
-
-class WebhookProcessingPending(RuntimeError):
-    """Raised when a Stripe webhook should be retried later."""
-
-
-ENTITLED_SUBSCRIPTION_STATUSES = frozenset({"active", "trialing"})
-CHECKOUT_BLOCKING_SUBSCRIPTION_STATUSES = ENTITLED_SUBSCRIPTION_STATUSES | frozenset(
-    {"checkout_pending", "checkout_completed", "incomplete", "past_due", "unpaid"}
-)
-REQUIRED_WEBHOOK_EVENTS = (
-    "checkout.session.completed",
-    "checkout.session.expired",
-    "customer.subscription.created",
-    "customer.subscription.updated",
-    "customer.subscription.deleted",
-    "invoice.paid",
-    "invoice.payment_succeeded",
-    "invoice.payment_failed",
-    "invoice.finalization_failed",
-)
-
-
-@dataclass(frozen=True)
-class BillingUrls:
-    """Redirect URLs used by hosted Stripe flows."""
-
-    success_url: str
-    cancel_url: str
-
-
-@dataclass(frozen=True)
-class PortalUrl:
-    """Redirect URL used by Stripe Customer Portal."""
-
-    return_url: str
-
-
-class StripeTransport(Protocol):
-    """Minimal Stripe API surface required by doc-ray billing."""
-
-    async def create_customer(
-        self,
-        *,
-        name: str,
-        email: str | None,
-        metadata: dict[str, str],
-        idempotency_key: str,
-    ) -> dict[str, Any]:
-        """Create a Stripe customer."""
-
-    async def create_checkout_session(
-        self,
-        *,
-        customer_id: str,
-        price_id: str,
-        success_url: str,
-        cancel_url: str,
-        client_reference_id: str,
-        metadata: dict[str, str],
-        subscription_metadata: dict[str, str],
-        idempotency_key: str,
-    ) -> dict[str, Any]:
-        """Create a hosted subscription Checkout Session."""
-
-    async def create_portal_session(self, *, customer_id: str, return_url: str) -> dict[str, Any]:
-        """Create a hosted Customer Portal Session."""
-
-
-class StripeRestTransport:
-    """Small httpx-based Stripe REST client for hosted billing flows."""
-
-    def __init__(self, *, secret_key: str, api_base: str = "https://api.stripe.com/v1") -> None:
-        """Initialize the transport with Stripe credentials."""
-        self._secret_key = secret_key
-        self._api_base = api_base.rstrip("/")
-
-    async def _post(
-        self, path: str, form: dict[str, str], *, idempotency_key: str | None = None
-    ) -> dict[str, Any]:
-        headers = {"authorization": f"Bearer {self._secret_key}"}
-        if idempotency_key:
-            headers["idempotency-key"] = idempotency_key
-        try:
-            async with httpx.AsyncClient(timeout=15.0) as client:
-                response = await client.post(
-                    f"{self._api_base}{path}",
-                    data=form,
-                    headers=headers,
-                )
-        except httpx.HTTPError as exc:
-            message = f"Stripe request failed before receiving a response: {exc}"
-            raise StripeAPIError(message) from exc
-        if response.status_code >= 400:
-            raise _stripe_api_error(response)
-        payload = response.json()
-        if not isinstance(payload, dict):
-            raise RuntimeError("Stripe response was not an object")
-        return payload
-
-    async def create_customer(
-        self,
-        *,
-        name: str,
-        email: str | None,
-        metadata: dict[str, str],
-        idempotency_key: str,
-    ) -> dict[str, Any]:
-        """Create a Stripe customer for a tenant."""
-        form = {"name": name}
-        if email:
-            form["email"] = email
-        form.update(_metadata_form(metadata))
-        return await self._post("/customers", form, idempotency_key=idempotency_key)
-
-    async def create_checkout_session(
-        self,
-        *,
-        customer_id: str,
-        price_id: str,
-        success_url: str,
-        cancel_url: str,
-        client_reference_id: str,
-        metadata: dict[str, str],
-        subscription_metadata: dict[str, str],
-        idempotency_key: str,
-    ) -> dict[str, Any]:
-        """Create a Stripe-hosted subscription Checkout Session."""
-        form = {
-            "mode": "subscription",
-            "customer": customer_id,
-            "success_url": success_url,
-            "cancel_url": cancel_url,
-            "client_reference_id": client_reference_id,
-            "line_items[0][price]": price_id,
-            "line_items[0][quantity]": "1",
-        }
-        form.update(_metadata_form(metadata))
-        form.update(_metadata_form(subscription_metadata, prefix="subscription_data[metadata]"))
-        return await self._post("/checkout/sessions", form, idempotency_key=idempotency_key)
-
-    async def create_portal_session(self, *, customer_id: str, return_url: str) -> dict[str, Any]:
-        """Create a Stripe-hosted Customer Portal Session."""
-        return await self._post(
-            "/billing_portal/sessions",
-            {"customer": customer_id, "return_url": return_url},
-        )
-
-
-def _metadata_form(metadata: dict[str, str], *, prefix: str = "metadata") -> dict[str, str]:
-    return {f"{prefix}[{key}]": value for key, value in metadata.items()}
-
-
-def _stripe_api_error(response: httpx.Response) -> StripeAPIError:
-    error_obj: dict[str, Any] = {}
-    try:
-        payload = response.json()
-    except ValueError:
-        payload = None
-    if isinstance(payload, dict) and isinstance(payload.get("error"), dict):
-        error_obj = payload["error"]
-
-    stripe_type = _string(error_obj.get("type"))
-    stripe_code = _string(error_obj.get("code"))
-    decline_code = _string(error_obj.get("decline_code"))
-    request_id = _string(response.headers.get("request-id")) or _string(
-        response.headers.get("stripe-request-id")
-    )
-    detail = _string(error_obj.get("message"))
-    parts = [f"Stripe request failed with HTTP {response.status_code}"]
-    for label, value in (
-        ("type", stripe_type),
-        ("code", stripe_code),
-        ("decline_code", decline_code),
-        ("request_id", request_id),
-    ):
-        if value:
-            parts.append(f"{label}={value}")
-    message = ", ".join(parts)
-    if detail:
-        message = f"{message}: {detail}"
-    return StripeAPIError(
-        message,
-        status_code=response.status_code,
-        stripe_type=stripe_type,
-        stripe_code=stripe_code,
-        decline_code=decline_code,
-        request_id=request_id,
-    )
 
 
 def configured_checkout_urls(
@@ -673,285 +483,3 @@ async def create_portal_session(
     if not isinstance(portal_url, str) or not portal_url:
         raise RuntimeError("Stripe Portal Session did not include a url")
     return portal_url
-
-
-def verify_stripe_signature(
-    payload: bytes,
-    signature_header: str,
-    webhook_secret: str,
-    *,
-    tolerance_seconds: int = 300,
-    now: int | None = None,
-) -> dict[str, Any]:
-    """Verify a Stripe webhook signature header and decode the event JSON."""
-    timestamp: int | None = None
-    signatures: list[str] = []
-    for part in signature_header.split(","):
-        key, _, value = part.partition("=")
-        if key == "t":
-            try:
-                timestamp = int(value)
-            except ValueError as exc:
-                raise StripeSignatureError("Stripe signature timestamp is malformed") from exc
-        elif key == "v1":
-            signatures.append(value)
-    if timestamp is None or not signatures:
-        raise StripeSignatureError("Stripe signature header is missing t/v1")
-    current = int(time.time()) if now is None else now
-    if abs(current - timestamp) > tolerance_seconds:
-        raise StripeSignatureError("Stripe signature timestamp is outside tolerance")
-    try:
-        payload_text = payload.decode("utf-8")
-    except UnicodeDecodeError as exc:
-        raise StripeSignatureError("Stripe event payload is not valid UTF-8") from exc
-    signed_payload = f"{timestamp}.{payload_text}".encode()
-    expected = hmac.new(webhook_secret.encode(), signed_payload, hashlib.sha256).hexdigest()
-    if not any(hmac.compare_digest(expected, candidate) for candidate in signatures):
-        raise StripeSignatureError("Stripe signature mismatch")
-    try:
-        event = json.loads(payload_text)
-    except json.JSONDecodeError as exc:
-        raise StripeSignatureError("Stripe event payload is not valid JSON") from exc
-    if not isinstance(event, dict):
-        raise StripeSignatureError("Stripe event payload is not an object")
-    return event
-
-
-async def process_webhook_event(
-    conn: psycopg.AsyncConnection[Any],
-    event: dict[str, Any],
-    cfg: Config | None = None,
-) -> bool:
-    """Process one verified Stripe event; return false when already seen.
-
-    Raises:
-        WebhookProcessingPending: The event depends on Stripe state that has not
-            reached doc-ray yet and should be delivered again later.
-    """
-    event_id = str(event.get("id") or "")
-    event_type = str(event.get("type") or "")
-    if not event_id or not event_type:
-        raise ValueError("Stripe event is missing id or type")
-    validate_webhook_event_mode(event, cfg)
-    inserted = await billing_store.insert_webhook_event(
-        conn,
-        stripe_event_id=event_id,
-        event_type=event_type,
-        livemode=bool(event.get("livemode", False)),
-        payload=event,
-    )
-    if not inserted:
-        return False
-    handled = await _handle_webhook_event(conn, event_id, event_type, event)
-    if not handled:
-        raise WebhookProcessingPending(
-            "Stripe webhook is pending tenant mapping; retry delivery later"
-        )
-    await billing_store.mark_webhook_processed(conn, event_id)
-    return True
-
-
-async def _handle_webhook_event(
-    conn: psycopg.AsyncConnection[Any],
-    event_id: str,
-    event_type: str,
-    event: dict[str, Any],
-) -> bool:
-    """Apply an already accepted Stripe event payload to billing snapshots."""
-    obj = event.get("data", {}).get("object", {})
-    if not isinstance(obj, dict):
-        obj = {}
-    if event_type == "checkout.session.completed":
-        await _process_checkout_completed(conn, event_id, obj)
-        handled = True
-    elif event_type == "checkout.session.expired":
-        await _process_checkout_expired(conn, obj)
-        handled = True
-    elif event_type in {
-        "customer.subscription.created",
-        "customer.subscription.updated",
-        "customer.subscription.deleted",
-    }:
-        await _process_subscription_event(conn, event_id, obj)
-        handled = True
-    elif event_type in {
-        "invoice.paid",
-        "invoice.payment_succeeded",
-        "invoice.payment_failed",
-        "invoice.finalization_failed",
-    }:
-        handled = await _process_invoice_event(conn, event_id, event_type, obj)
-    else:
-        handled = True
-    return handled
-
-
-def validate_webhook_event_mode(event: dict[str, Any], cfg: Config | None) -> None:
-    """Require Stripe webhook livemode to match the configured Stripe key mode."""
-    expected = _expected_stripe_livemode(cfg)
-    if expected is None:
-        return
-    event_livemode = bool(event.get("livemode", False))
-    if event_livemode != expected:
-        expected_label = "live" if expected else "test"
-        received_label = "live" if event_livemode else "test"
-        raise BillingConfigurationError(
-            "Stripe webhook livemode mismatch: "
-            f"configured for {expected_label} mode but received {received_label} event"
-        )
-
-
-def _expected_stripe_livemode(cfg: Config | None) -> bool | None:
-    key = (cfg.stripe_secret_key if cfg is not None else None) or ""
-    if key.startswith(("sk_live_", "rk_live_")):
-        return True
-    if key.startswith(("sk_test_", "rk_test_")):
-        return False
-    return None
-
-
-async def _process_checkout_completed(
-    conn: psycopg.AsyncConnection[Any], event_id: str, obj: dict[str, Any]
-) -> None:
-    tenant_id = _tenant_from_object(obj)
-    customer_id = _string(obj.get("customer"))
-    if not tenant_id or not customer_id:
-        return
-    subscription_id = _string(obj.get("subscription"))
-    price_id = _string(obj.get("metadata", {}).get("price_id"))
-    await billing_store.upsert_billing_account(
-        conn,
-        tenant_id=tenant_id,
-        stripe_customer_id=customer_id,
-        billing_email=_string(obj.get("customer_details", {}).get("email")),
-        created_by_principal_id=None,
-    )
-    await billing_store.record_checkout_session(
-        conn,
-        tenant_id=tenant_id,
-        stripe_customer_id=customer_id,
-        checkout_session_id=str(obj.get("id") or ""),
-        stripe_subscription_id=subscription_id,
-        stripe_price_id=price_id,
-        stripe_event_id=event_id,
-    )
-
-
-async def _process_checkout_expired(
-    conn: psycopg.AsyncConnection[Any], obj: dict[str, Any]
-) -> None:
-    session_id = _string(obj.get("id"))
-    if not session_id:
-        return
-    await billing_store.expire_checkout_session(
-        conn,
-        checkout_session_id=session_id,
-        tenant_id=_tenant_from_object(obj),
-    )
-
-
-async def _process_subscription_event(
-    conn: psycopg.AsyncConnection[Any], event_id: str, obj: dict[str, Any]
-) -> None:
-    customer_id = _string(obj.get("customer"))
-    subscription_id = _string(obj.get("id"))
-    if not customer_id or not subscription_id:
-        return
-    tenant_id = await billing_store.tenant_for_stripe_customer(conn, customer_id)
-    if tenant_id is None:
-        tenant_id = _tenant_from_object(obj)
-    if tenant_id is None:
-        return
-    await billing_store.upsert_billing_account(
-        conn,
-        tenant_id=tenant_id,
-        stripe_customer_id=customer_id,
-        billing_email=None,
-        created_by_principal_id=None,
-    )
-    await billing_store.upsert_subscription_snapshot(
-        conn,
-        tenant_id=tenant_id,
-        stripe_customer_id=customer_id,
-        stripe_subscription_id=subscription_id,
-        status=str(obj.get("status") or "unknown"),
-        stripe_price_id=_subscription_price_id(obj),
-        current_period_end=_timestamp_to_datetime(obj.get("current_period_end")),
-        cancel_at_period_end=bool(obj.get("cancel_at_period_end", False)),
-        latest_invoice_id=_string(obj.get("latest_invoice")),
-        stripe_event_id=event_id,
-    )
-
-
-async def _process_invoice_event(
-    conn: psycopg.AsyncConnection[Any],
-    event_id: str,
-    event_type: str,
-    obj: dict[str, Any],
-) -> bool:
-    customer_id = _string(obj.get("customer"))
-    if not customer_id:
-        return True
-    tenant_id = await billing_store.tenant_for_stripe_customer(conn, customer_id)
-    if tenant_id is None:
-        return event_type not in _PAID_INVOICE_EVENTS
-    invoice_subscription_id = _string(obj.get("subscription"))
-    updated = await billing_store.update_invoice_snapshot(
-        conn,
-        stripe_customer_id=customer_id,
-        stripe_subscription_id=invoice_subscription_id,
-        latest_invoice_id=_string(obj.get("id")),
-        fallback_status=_invoice_fallback_status(event_type),
-        stripe_event_id=event_id,
-    )
-    if updated or event_type not in _ACTIONABLE_INVOICE_EVENTS:
-        return True
-    if not invoice_subscription_id:
-        return True
-    status = await billing_store.get_billing_status(conn, tenant_id)
-    known_subscription_id = _string(status.get("stripe_subscription_id"))
-    return bool(known_subscription_id and known_subscription_id != invoice_subscription_id)
-
-
-def _invoice_fallback_status(event_type: str) -> str | None:
-    if event_type in _FAILED_INVOICE_EVENTS:
-        return "past_due"
-    if event_type in _PAID_INVOICE_EVENTS:
-        return "active"
-    return None
-
-
-_FAILED_INVOICE_EVENTS = frozenset({"invoice.payment_failed", "invoice.finalization_failed"})
-_PAID_INVOICE_EVENTS = frozenset({"invoice.paid", "invoice.payment_succeeded"})
-_ACTIONABLE_INVOICE_EVENTS = _FAILED_INVOICE_EVENTS | _PAID_INVOICE_EVENTS
-
-
-def _tenant_from_object(obj: dict[str, Any]) -> str | None:
-    metadata = obj.get("metadata", {})
-    tenant_id = metadata.get("tenant_id") if isinstance(metadata, dict) else None
-    return _string(obj.get("client_reference_id")) or _string(tenant_id)
-
-
-def _subscription_price_id(obj: dict[str, Any]) -> str | None:
-    items = obj.get("items", {}).get("data", [])
-    if not isinstance(items, list) or not items:
-        return None
-    first = items[0]
-    if not isinstance(first, dict):
-        return None
-    return _string(first.get("price", {}).get("id"))
-
-
-def _timestamp_to_datetime(value: object) -> datetime | None:
-    if not isinstance(value, (int, float, str)):
-        return None
-    try:
-        return datetime.fromtimestamp(int(value), tz=timezone.utc)
-    except (TypeError, ValueError, OSError):
-        return None
-
-
-def _string(value: object) -> str | None:
-    if isinstance(value, str) and value:
-        return value
-    return None
