@@ -6,9 +6,10 @@
 
 ## 1. Overview
 
-**doc-ray** is a document-ingestion and NLP-corpus store on **PostgreSQL 16**
-(with the **pgvector** and **pg_trgm** extensions) plus **MinIO/S3** for the
-original bytes. A document is ingested (any of pdf/txt/md/html/epub/docx),
+**doc-ray** is a living library and knowledge base (see [PURPOSE.md](../PURPOSE.md));
+at the storage layer — the scope of this document — it is a document-ingestion and
+NLP-corpus store on **PostgreSQL 16** (with the **pgvector** and **pg_trgm**
+extensions) plus **MinIO/S3** for the original bytes. A document is ingested (any of pdf/txt/md/html/epub/docx),
 its text and metadata extracted, then annotated by real spaCy into the full
 20-layer NLP stack. Everything queryable lives in Postgres; blobs never do.
 

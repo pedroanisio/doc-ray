@@ -10,7 +10,7 @@ disclaimer:
 
 # doc·ray Browser — User Manual
 
-The doc·ray browser is the web front end of the doc·ray corpus store. It lets you
+The doc·ray browser is the web front end of the doc·ray living library. It lets you
 read ingested documents with their linguistic annotation overlaid, explore the
 corpus vocabulary, search sentences, and curate **domain seeding** — the human
 audit step that decides which knowledge-base entities enter the shared canonical

@@ -1,7 +1,11 @@
 # doc-ray
 
-Document store built on **PostgreSQL** (metadata + full text) and **MinIO / S3**
-(original bytes), with a Python ingestion pipeline.
+doc-ray is a **living library and knowledge base**: it ingests documents into a
+queryable, linguistically-annotated corpus — stored on **PostgreSQL** (metadata +
+full text) and **MinIO / S3** (original bytes) — and resolves the people, places,
+dates, and organizations inside them into shared canonical identities that connect
+concepts across the whole corpus, exposed to people, applications, and AI agents.
+See [`PURPOSE.md`](./PURPOSE.md) for why it exists and where it is headed.
 
 ## Disclaimer
 

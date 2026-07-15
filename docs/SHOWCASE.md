@@ -8,7 +8,7 @@ disclaimer:
   date: "2026-07-04"
 ---
 
-# doc-ray — Ingestion Pipeline & Capability Showcase
+# doc-ray — Ingestion & Capability Showcase
 
 This document describes the full ingestion tool-chain and how it populates the
 complete NLP annotation stack (migrations 001–012; entity linking, layer 12,

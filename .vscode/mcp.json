@@ -1,0 +1,19 @@
+{
+  "inputs": [
+    {
+      "type": "promptString",
+      "id": "docray-token",
+      "description": "doc-ray API bearer token (a DOCRAY_API_TOKENS entry, or an access JWT from /auth/token)",
+      "password": true
+    }
+  ],
+  "servers": {
+    "doc-ray": {
+      "type": "http",
+      "url": "http://localhost:8080/mcp",
+      "headers": {
+        "Authorization": "Bearer ${input:docray-token}"
+      }
+    }
+  }
+}

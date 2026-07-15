@@ -54,12 +54,13 @@ Replace `<RELATIVE_PATH_TO_DISCLAIMER>` with the correct path for the file's dep
 
 ## Project Overview
 
-doc-ray is a document ingestion, decomposition, and NLP annotation pipeline: it
-extracts text and metadata from uploaded files (PDF/EPUB/TXT/MD/DOCX) into a
-PostgreSQL-backed corpus (full text, sentences, a 20-layer linguistic
-annotation graph, entity canonicalization, semantic enrichment), stores
-original bytes content-addressed in MinIO/S3, and exposes the result through
-a GraphQL API (Strawberry) and a read-oriented Flask webapp.
+doc-ray is a living library and knowledge base (see `PURPOSE.md` for the product
+identity and its Today/Becoming boundary). Concretely, it ingests documents
+(PDF/EPUB/TXT/MD/DOCX) into a PostgreSQL-backed corpus (full text, sentences, a
+20-layer linguistic annotation graph, entity canonicalization to shared
+identities, semantic enrichment), stores original bytes content-addressed in
+MinIO/S3, and exposes the result through a GraphQL API (Strawberry), a
+read-oriented Flask webapp, and a read-only MCP server for AI agents.
 
 ```
 .

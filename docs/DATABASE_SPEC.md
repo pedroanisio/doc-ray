@@ -28,8 +28,10 @@ additive migration under these same principles, not a revision of them).
 
 ## 1. Purpose
 
-doc-ray is a **document store and NLP annotation platform**. It ingests source
-documents (today: PDFs), extracts their text, and decomposes them into a
+doc-ray is a **living library and knowledge base** (see [PURPOSE.md](../PURPOSE.md)).
+At the data layer — the scope of this spec — it is a **document store and NLP
+annotation corpus**: it ingests source documents (today: PDFs), extracts their
+text, and decomposes them into a
 **fully normalized (4NF), provenance-tracked, reproducible relational model**.
 
 It exists to answer three classes of question over a corpus, in one place:
