@@ -81,6 +81,10 @@ class RegisteredClient:
     grant_types: tuple[str, ...] = ("authorization_code", "refresh_token")
     scope: str = DEFAULT_SCOPE
     client_secret: str | None = None
+    #: A confidential client provisioned for the ``client_credentials`` grant is
+    #: bound to a service principal here (operator action). ``None`` means the
+    #: client cannot use ``client_credentials`` — open-DCR clients never set it.
+    principal_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -295,6 +299,37 @@ class OAuthServerService:
             subject=str(record["subject"]),
             scopes=frozenset(scope.split()),
             resource=(str(record["resource"]) if record.get("resource") else None),
+        )
+
+    def exchange_client_credentials(self, params: dict[str, str]) -> AuthorizationGrant:
+        """Client-credentials grant for a provisioned confidential service client.
+
+        Safe by construction: only a confidential client that an operator has
+        bound to a service ``principal_id`` may obtain a token — an anonymously
+        (open-DCR) registered client has no principal and is refused, so this
+        grant cannot be used to escalate into someone else's corpus.
+        """
+        client_id = params.get("client_id", "")
+        client = self._clients.get_client(client_id) if client_id else None
+        if client is None:
+            raise OAuthError("invalid_client", "unknown client_id", status_code=401)
+        if client.token_endpoint_auth_method == "none":
+            raise OAuthError(
+                "invalid_client",
+                "client_credentials requires a confidential client",
+                status_code=401,
+            )
+        self._authenticate_client(client, params)
+        if not client.principal_id:
+            raise OAuthError(
+                "unauthorized_client", "client is not provisioned for client_credentials"
+            )
+        scope = _narrow_scope(params.get("scope")) if params.get("scope") else client.scope
+        return AuthorizationGrant(
+            principal_id=client.principal_id,
+            subject=f"oauth-client:{client_id}",
+            scopes=frozenset(scope.split()),
+            resource=params.get("resource"),
         )
 
     def _authenticate_client(self, client: RegisteredClient, params: dict[str, str]) -> None:

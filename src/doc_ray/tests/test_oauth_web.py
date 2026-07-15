@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import base64
+import json
 import os
 from dataclasses import replace
 
@@ -86,6 +88,7 @@ def test_authorization_server_metadata(client, svc):
     assert body["registration_endpoint"] == "https://doc-ray.com/oauth/register"
     assert body["code_challenge_methods_supported"] == ["S256"]
     assert "authorization_code" in body["grant_types_supported"]
+    assert "client_credentials" in body["grant_types_supported"]
 
 
 def test_dynamic_client_registration_needs_no_csrf(client, svc):
@@ -139,3 +142,52 @@ def test_token_unsupported_grant(client, svc, monkeypatch):
     resp = client.post("/oauth/token", data={"grant_type": "password"})
     assert resp.status_code == 400
     assert resp.get_json()["error"] == "unsupported_grant_type"
+
+
+def _decode_claims(jwt: str) -> dict:
+    payload = jwt.split(".")[1]
+    payload += "=" * (-len(payload) % 4)
+    return json.loads(base64.urlsafe_b64decode(payload))
+
+
+def test_client_credentials_mints_resource_bound_token(client, svc, monkeypatch):
+    monkeypatch.setenv("DOCRAY_API_JWT_SECRET", "test-secret-value")
+    # Register a confidential client, then provision a service principal on it.
+    c = svc.register_client(
+        {"redirect_uris": ["https://x/cb"], "token_endpoint_auth_method": "client_secret_post"}
+    )
+    pid = "11111111-1111-1111-1111-111111111111"
+    svc._clients.clients[c.client_id] = replace(svc._clients.clients[c.client_id], principal_id=pid)
+
+    resp = client.post(
+        "/oauth/token",
+        data={
+            "grant_type": "client_credentials",
+            "client_id": c.client_id,
+            "client_secret": c.client_secret,
+            "resource": "https://doc-ray.com/mcp",
+        },
+    )
+    assert resp.status_code == 200, resp.data
+    body = resp.get_json()
+    assert body["access_token"] and "refresh_token" not in body  # 2.1: no refresh here
+    claims = _decode_claims(body["access_token"])
+    assert claims["aud"] == "https://doc-ray.com/mcp"  # RFC 8707 audience binding
+    assert claims["principal_id"] == pid
+
+
+def test_client_credentials_refused_for_unprovisioned_client(client, svc, monkeypatch):
+    monkeypatch.setenv("DOCRAY_API_JWT_SECRET", "test-secret-value")
+    c = svc.register_client(
+        {"redirect_uris": ["https://x/cb"], "token_endpoint_auth_method": "client_secret_post"}
+    )
+    resp = client.post(
+        "/oauth/token",
+        data={
+            "grant_type": "client_credentials",
+            "client_id": c.client_id,
+            "client_secret": c.client_secret,
+        },
+    )
+    assert resp.status_code == 400
+    assert resp.get_json()["error"] == "unauthorized_client"

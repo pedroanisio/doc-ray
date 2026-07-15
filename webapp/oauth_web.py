@@ -126,16 +126,23 @@ def _oauth_error_json(exc: OAuthError) -> Response:
     return _json({"error": exc.error, "error_description": exc.description}, status=exc.status_code)
 
 
-def _validate_resource(resource: str | None) -> None:
-    """Reject a token bound to a different host (RFC 8707 audience protection)."""
+def _resolve_resource(resource: str | None) -> str:
+    """Return the resource URI to bind a token's audience to (RFC 8707).
+
+    Defaults to this server's canonical MCP resource when the client omits it, so
+    every issued token is bound to a specific server (``aud``), never a generic
+    shared audience. A resource on a foreign host is rejected — a token must never
+    be mintable for someone else's server.
+    """
     if not resource:
-        return
+        return _resource()
     want = urlparse(_base_url()).netloc.lower()
     got = urlparse(resource).netloc.lower()
     if got and want and got != want:
         raise OAuthError(
             "invalid_target", "resource is not hosted by this server", redirectable=True
         )
+    return resource.rstrip("/")
 
 
 # --- discovery metadata -----------------------------------------------------
@@ -163,7 +170,11 @@ def oauth_authorization_server_metadata() -> Response:
             "token_endpoint": f"{base}/oauth/token",
             "registration_endpoint": f"{base}/oauth/register",
             "response_types_supported": ["code"],
-            "grant_types_supported": ["authorization_code", "refresh_token"],
+            "grant_types_supported": [
+                "authorization_code",
+                "refresh_token",
+                "client_credentials",
+            ],
             "code_challenge_methods_supported": ["S256"],
             "token_endpoint_auth_methods_supported": ["none", "client_secret_post"],
             "scopes_supported": list(SUPPORTED_SCOPES),
@@ -228,7 +239,7 @@ def oauth_authorize() -> Response | tuple[str, int]:
     params = request.args.to_dict()
     try:
         req = _service().validate_authorization_request(params)
-        _validate_resource(params.get("resource"))
+        _resolve_resource(params.get("resource"))
     except OAuthError as exc:
         return _authorize_error(exc, params)
 
@@ -256,7 +267,7 @@ def oauth_authorize_submit() -> Response | tuple[str, int]:
         return redirect(url_for("login"))
     try:
         req = _service().validate_authorization_request(params)
-        _validate_resource(params.get("resource"))
+        _resolve_resource(params.get("resource"))
     except OAuthError as exc:
         return _authorize_error(exc, params)
 
@@ -276,33 +287,42 @@ def _authorize_url(params: dict[str, str]) -> str:
 # --- token endpoint ---------------------------------------------------------
 
 
-def _issue_tokens(principal: Principal, settings: Config) -> dict[str, object]:
+def _issue_tokens(
+    principal: Principal, settings: Config, resource: str, *, with_refresh: bool = True
+) -> dict[str, object]:
+    """Mint an access token (and, unless suppressed, a refresh token).
+
+    ``aud`` is bound to *resource* (RFC 8707), so the token is scoped to one MCP
+    server and cannot be redeemed against another. ``with_refresh`` is False for
+    the client_credentials grant (OAuth 2.1 issues no refresh token there).
+    """
     access_token = issue_access_jwt(
         principal,
         secret=settings.api_jwt_secret or "",
         issuer=settings.api_jwt_issuer,
-        audience=settings.api_jwt_audience,
+        audience=resource,
         ttl_seconds=settings.api_jwt_ttl_seconds,
     )
-    refresh_token = issue_refresh_token(
-        principal,
-        secret=settings.api_jwt_secret or "",
-        issuer=settings.api_jwt_issuer,
-        audience=settings.api_jwt_audience,
-        ttl_seconds=settings.api_refresh_token_ttl_seconds,
-        store=_refresh_store(),
-    )
-    return {
+    body: dict[str, object] = {
         "access_token": access_token,
-        "refresh_token": refresh_token,
         "token_type": "Bearer",
         "expires_in": settings.api_jwt_ttl_seconds,
         "scope": " ".join(sorted(principal.scopes)),
     }
+    if with_refresh:
+        body["refresh_token"] = issue_refresh_token(
+            principal,
+            secret=settings.api_jwt_secret or "",
+            issuer=settings.api_jwt_issuer,
+            audience=resource,
+            ttl_seconds=settings.api_refresh_token_ttl_seconds,
+            store=_refresh_store(),
+        )
+    return body
 
 
 def oauth_token() -> Response:
-    """Exchange an authorization code or refresh token for access + refresh tokens."""
+    """Exchange an authorization code, refresh token, or client credentials for tokens."""
     settings = _settings()
     if not settings.api_jwt_secret:
         return _json(
@@ -316,20 +336,28 @@ def oauth_token() -> Response:
     try:
         if grant_type == "authorization_code":
             grant = _service().exchange_authorization_code(request.form.to_dict())
-            _validate_resource(request.form.get("resource"))
+            resource = _resolve_resource(grant.resource or request.form.get("resource"))
             principal = Principal(
                 subject=grant.subject, principal_id=grant.principal_id, scopes=grant.scopes
             )
-            return _json(_issue_tokens(principal, settings))
+            return _json(_issue_tokens(principal, settings, resource))
+        if grant_type == "client_credentials":
+            grant = _service().exchange_client_credentials(request.form.to_dict())
+            resource = _resolve_resource(grant.resource or request.form.get("resource"))
+            principal = Principal(
+                subject=grant.subject, principal_id=grant.principal_id, scopes=grant.scopes
+            )
+            return _json(_issue_tokens(principal, settings, resource, with_refresh=False))
         if grant_type == "refresh_token":
             supplied = request.form.get("refresh_token", "").strip()
             if not supplied:
                 return _json({"error": "invalid_request"}, status=400)
+            resource = _resolve_resource(request.form.get("resource"))
             access_token, next_refresh = rotate_refresh_token(
                 supplied,
                 secret=settings.api_jwt_secret,
                 issuer=settings.api_jwt_issuer,
-                audience=settings.api_jwt_audience,
+                audience=resource,
                 ttl_seconds=settings.api_refresh_token_ttl_seconds,
                 access_ttl_seconds=settings.api_jwt_ttl_seconds,
                 store=_refresh_store(),
@@ -338,7 +366,7 @@ def oauth_token() -> Response:
                 access_token,
                 secret=settings.api_jwt_secret,
                 issuer=settings.api_jwt_issuer,
-                audience=settings.api_jwt_audience,
+                audience=resource,
             )
             return _json(
                 {

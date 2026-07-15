@@ -52,7 +52,7 @@ class PostgresOAuthClientStore:
             row = conn.execute(
                 """
                 SELECT client_id, redirect_uris, client_name,
-                       token_endpoint_auth_method, grant_types, scope
+                       token_endpoint_auth_method, grant_types, scope, principal_id
                   FROM oauth_clients
                  WHERE client_id = %s
                 """,
@@ -67,6 +67,7 @@ class PostgresOAuthClientStore:
             token_endpoint_auth_method=str(row["token_endpoint_auth_method"]),
             grant_types=tuple(row["grant_types"]),
             scope=str(row["scope"]),
+            principal_id=(str(row["principal_id"]) if row["principal_id"] else None),
         )
 
     def verify_client_secret(self, client_id: str, secret: str) -> bool:

@@ -338,3 +338,67 @@ def test_exchange_confidential_client_requires_secret():
     # correct secret succeeds
     grant = svc.exchange_authorization_code({**base, "client_secret": client.client_secret})
     assert grant.principal_id == "p"
+
+
+# -- client_credentials grant ------------------------------------------------
+
+
+def _confidential(repo, svc):
+    return svc.register_client(
+        {
+            "redirect_uris": ["https://app.example.com/cb"],
+            "token_endpoint_auth_method": "client_secret_post",
+        }
+    )
+
+
+def test_client_credentials_rejects_public_client():
+    repo = _FakeClientStore()
+    svc = OAuthServerService(repo, _FakeCodeStore(), client_id_factory=lambda: "cid-pub")
+    pub = svc.register_client(
+        {"redirect_uris": ["https://x/cb"]}
+    )  # token_endpoint_auth_method=none
+    with pytest.raises(OAuthError) as ei:
+        svc.exchange_client_credentials({"client_id": pub.client_id})
+    assert ei.value.error == "invalid_client"
+
+
+def test_client_credentials_refused_without_provisioned_principal():
+    repo = _FakeClientStore()
+    svc = OAuthServerService(repo, _FakeCodeStore(), client_id_factory=lambda: "cid-conf")
+    c = _confidential(repo, svc)
+    with pytest.raises(OAuthError) as ei:
+        svc.exchange_client_credentials(
+            {"client_id": c.client_id, "client_secret": c.client_secret}
+        )
+    # Confidential but no service principal bound -> cannot escalate.
+    assert ei.value.error == "unauthorized_client"
+
+
+def test_client_credentials_wrong_secret_rejected():
+    repo = _FakeClientStore()
+    svc = OAuthServerService(repo, _FakeCodeStore(), client_id_factory=lambda: "cid-svc")
+    c = _confidential(repo, svc)
+    repo.clients[c.client_id] = replace(repo.clients[c.client_id], principal_id="svc-principal")
+    with pytest.raises(OAuthError) as ei:
+        svc.exchange_client_credentials({"client_id": c.client_id, "client_secret": "wrong"})
+    assert ei.value.error == "invalid_client"
+
+
+def test_client_credentials_success_for_provisioned_service_client():
+    repo = _FakeClientStore()
+    svc = OAuthServerService(repo, _FakeCodeStore(), client_id_factory=lambda: "cid-svc")
+    c = _confidential(repo, svc)
+    # Operator provisions a service principal on the client (out-of-band).
+    repo.clients[c.client_id] = replace(repo.clients[c.client_id], principal_id="svc-principal")
+    grant = svc.exchange_client_credentials(
+        {
+            "client_id": c.client_id,
+            "client_secret": c.client_secret,
+            "resource": "https://doc-ray.com/mcp",
+        }
+    )
+    assert grant.principal_id == "svc-principal"
+    assert grant.subject == f"oauth-client:{c.client_id}"
+    assert grant.scopes == frozenset({"read"})
+    assert grant.resource == "https://doc-ray.com/mcp"
