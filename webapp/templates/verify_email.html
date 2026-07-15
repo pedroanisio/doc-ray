@@ -9,7 +9,7 @@
 <section class="auth-panel">
   {% if error %}
     <div class="errbox">{{ error }}</div>
-  {% elif resent %}
+  {% elif resent and not send_failed %}
     <div class="notice">
       If that address has a pending registration, a new verification link has been sent.
     </div>

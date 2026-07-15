@@ -459,17 +459,22 @@ def resend_verification():
         return "webapp email verification is not configured", 404
     email = request.form.get("email", "").strip()
     token = _core.resend_local_verification(email) if email else None
-    if token is not None:
-        mailer = _core._verification_mailer()
-        if mailer is not None:
-            _send_verification_email(mailer, email.lower(), token)
-        elif env_bool("DOCRAY_AUTH_EXPOSE_VERIFICATION_TOKEN", False):
-            session["pending_verification_token"] = token
+    mailer = _core._verification_mailer() if token is not None else None
+    # Report delivery failures honestly, exactly as register_submit does. This
+    # reveals that a send was attempted (hence the address is pending) during an
+    # SMTP outage — an accepted trade: a resend that silently "succeeds" while
+    # nothing is delivered strands the very user this endpoint exists to help.
+    # The anti-enumeration guarantee still holds whenever the mailer is healthy.
+    send_failed = mailer is not None and not _send_verification_email(mailer, email.lower(), token)
+    expose = mailer is None and env_bool("DOCRAY_AUTH_EXPOSE_VERIFICATION_TOKEN", False)
+    if token is not None and expose:
+        session["pending_verification_token"] = token
     return _core.render_template(
         "verify_email.html",
         email=email or session.get("pending_verification_email"),
         verification_token=session.get("pending_verification_token"),
         resent=True,
+        send_failed=send_failed,
     )
 
 

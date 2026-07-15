@@ -217,6 +217,27 @@ def test_webapp_resend_verification_sends_a_fresh_token(monkeypatch) -> None:
     assert "/verify-email?token=fresh-token" in mailer.sent[0][2]
 
 
+def test_webapp_resend_verification_surfaces_a_send_failure(monkeypatch) -> None:
+    """A resend whose SMTP delivery fails must NOT claim success — the user
+    needs to know the mail did not go out, exactly as the register path does."""
+    client = _auth_client(monkeypatch)
+    monkeypatch.setattr(
+        webapp, "_verification_mailer", lambda: _RecordingMailer(fail=True), raising=False
+    )
+    monkeypatch.setattr(
+        webapp, "resend_local_verification", lambda email: "fresh-token", raising=False
+    )
+
+    resp = client.post(
+        "/resend-verification",
+        data={"csrf_token": "csrf-1", "email": "alice@example.com"},
+    )
+
+    body = resp.get_data(as_text=True).lower()
+    assert "could not be sent" in body
+    assert "verification link has been sent" not in body
+
+
 def test_webapp_resend_verification_is_indistinguishable_for_unknown_email(monkeypatch) -> None:
     """Anti-enumeration: unknown/verified addresses get the identical page."""
     client = _auth_client(monkeypatch)
@@ -421,8 +442,8 @@ def test_webapp_hides_app_nav_for_anonymous_when_auth_required(monkeypatch) -> N
 
     # App destinations are dead-ends for an anonymous visitor on a gated
     # instance — the top bar must not advertise them.
-    assert 'nav-group nav-reading' not in body
-    assert 'nav-group nav-admin' not in body
+    assert "nav-group nav-reading" not in body
+    assert "nav-group nav-admin" not in body
     # The account entry point is still offered.
     assert 'href="/login"' in body
 

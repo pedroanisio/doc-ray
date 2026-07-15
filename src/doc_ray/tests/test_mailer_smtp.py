@@ -38,6 +38,10 @@ class _RecordingSMTP:
         self.message = message
 
 
+class _RecordingSMTPSSL(_RecordingSMTP):
+    """Stands in for smtplib.SMTP_SSL (implicit TLS); shares the instance log."""
+
+
 def test_from_env_returns_none_when_no_host_is_configured() -> None:
     assert mailer_smtp.SmtpMailer.from_env(env={}) is None
 
@@ -66,6 +70,53 @@ def test_from_env_builds_mailer_that_sends_over_starttls(monkeypatch) -> None:
     assert smtp.message["From"] == "doc-ray <noreply@example.com>"
     assert smtp.message["Subject"] == "Verify"
     assert "token=t" in smtp.message.get_content()
+
+
+def test_from_env_uses_implicit_tls_on_port_465(monkeypatch) -> None:
+    """Port 465 is SMTPS (implicit TLS): connect via SMTP_SSL, never STARTTLS."""
+    _RecordingSMTP.instances.clear()
+    monkeypatch.setattr(mailer_smtp.smtplib, "SMTP", _RecordingSMTP)
+    monkeypatch.setattr(mailer_smtp.smtplib, "SMTP_SSL", _RecordingSMTPSSL)
+    mailer = mailer_smtp.SmtpMailer.from_env(
+        env={
+            "DOCRAY_SMTP_HOST": "mail.example.com",
+            "DOCRAY_SMTP_PORT": "465",
+            "DOCRAY_SMTP_USERNAME": "mailer",
+            "DOCRAY_SMTP_PASSWORD": "s3cret",
+        }
+    )
+    assert mailer is not None
+
+    mailer.send(to="alice@example.com", subject="Verify", body="https://x/verify?token=t")
+
+    smtp = _RecordingSMTP.instances[-1]
+    assert isinstance(smtp, _RecordingSMTPSSL)
+    assert (smtp.host, smtp.port) == ("mail.example.com", 465)
+    assert ("starttls", ()) not in smtp.calls
+    assert ("login", ("mailer", "s3cret")) in smtp.calls
+    assert ("send_message", ()) in smtp.calls
+
+
+def test_explicit_ssl_flag_overrides_the_port_465_default(monkeypatch) -> None:
+    """DOCRAY_SMTP_SSL is authoritative when set: off on 465 falls back to
+    plaintext+STARTTLS; on for 587 forces implicit TLS."""
+    _RecordingSMTP.instances.clear()
+    monkeypatch.setattr(mailer_smtp.smtplib, "SMTP", _RecordingSMTP)
+    monkeypatch.setattr(mailer_smtp.smtplib, "SMTP_SSL", _RecordingSMTPSSL)
+
+    off = mailer_smtp.SmtpMailer.from_env(
+        env={"DOCRAY_SMTP_HOST": "h", "DOCRAY_SMTP_PORT": "465", "DOCRAY_SMTP_SSL": "false"}
+    )
+    assert off is not None
+    off.send(to="a@example.com", subject="s", body="b")
+    assert not isinstance(_RecordingSMTP.instances[-1], _RecordingSMTPSSL)
+
+    on = mailer_smtp.SmtpMailer.from_env(
+        env={"DOCRAY_SMTP_HOST": "h", "DOCRAY_SMTP_PORT": "587", "DOCRAY_SMTP_SSL": "true"}
+    )
+    assert on is not None
+    on.send(to="a@example.com", subject="s", body="b")
+    assert isinstance(_RecordingSMTP.instances[-1], _RecordingSMTPSSL)
 
 
 def test_send_wraps_smtp_failures_in_mailer_error(monkeypatch) -> None:

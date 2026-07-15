@@ -162,6 +162,13 @@ html[data-theme="dark"] {
 html { scroll-behavior: smooth; -webkit-text-size-adjust: 100%; }
 body {
   margin: 0;
+  /* Sticky footer: the page is a full-height column so a short page (e.g. the
+     sign-in card) still pushes the footer to the bottom instead of leaving it
+     stranded mid-viewport with page background below it. */
+  min-height: 100vh;
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
   background: var(--bg);
   color: var(--ink);
   font-family: var(--sans);
@@ -331,6 +338,10 @@ html[data-theme="dark"] .toggle .moon { background: var(--accent); color: var(--
 .nav-cb:focus-visible + .nav-burger { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 main {
+  /* Grow to absorb spare vertical space so the footer is pushed to the bottom
+     of short pages; width:100% + max-width keeps the centred content column. */
+  flex: 1 0 auto;
+  width: 100%;
   max-width: 1240px;
   margin: 0 auto;
   padding: var(--space-7) clamp(1rem, 4vw, 2.25rem) var(--space-8);

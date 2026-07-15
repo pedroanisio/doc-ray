@@ -8,7 +8,8 @@ from environment variables so the webapp and API share one setup:
     DOCRAY_SMTP_FROM        default noreply@<DOCRAY_SMTP_HOST>
     DOCRAY_SMTP_USERNAME    optional (with PASSWORD, enables AUTH)
     DOCRAY_SMTP_PASSWORD    optional
-    DOCRAY_SMTP_STARTTLS    default true
+    DOCRAY_SMTP_STARTTLS    default true (ignored when implicit TLS is used)
+    DOCRAY_SMTP_SSL         implicit TLS (SMTPS); default true on port 465, else false
     DOCRAY_SMTP_TIMEOUT_SECONDS  default 10
 """
 
@@ -76,6 +77,7 @@ class SmtpMailer:
         username: str | None = None,
         password: str | None = None,
         starttls: bool = True,
+        use_ssl: bool = False,
         timeout: float = 10.0,
     ) -> None:
         """Store the connection settings; no connection is made until send()."""
@@ -85,6 +87,7 @@ class SmtpMailer:
         self._username = username
         self._password = password
         self._starttls = starttls
+        self._use_ssl = use_ssl
         self._timeout = timeout
 
     @classmethod
@@ -94,14 +97,20 @@ class SmtpMailer:
         host = (source.get("DOCRAY_SMTP_HOST") or "").strip()
         if not host:
             return None
+        port = int(source.get("DOCRAY_SMTP_PORT", "587"))
+        # Implicit TLS (SMTPS) is the norm on port 465; an explicit DOCRAY_SMTP_SSL
+        # overrides that inference in either direction.
+        ssl_raw = (source.get("DOCRAY_SMTP_SSL") or "").strip().lower()
+        use_ssl = ssl_raw in {"1", "true", "yes", "on"} if ssl_raw else port == 465
         return cls(
             host=host,
-            port=int(source.get("DOCRAY_SMTP_PORT", "587")),
+            port=port,
             sender=(source.get("DOCRAY_SMTP_FROM") or f"noreply@{host}").strip(),
             username=(source.get("DOCRAY_SMTP_USERNAME") or "").strip() or None,
             password=source.get("DOCRAY_SMTP_PASSWORD") or None,
             starttls=(source.get("DOCRAY_SMTP_STARTTLS", "true").strip().lower())
             in {"1", "true", "yes", "on"},
+            use_ssl=use_ssl,
             timeout=float(source.get("DOCRAY_SMTP_TIMEOUT_SECONDS", "10")),
         )
 
@@ -112,9 +121,13 @@ class SmtpMailer:
         message["To"] = to
         message["Subject"] = subject
         message.set_content(body)
+        # Implicit TLS opens an already-encrypted socket (SMTP_SSL); STARTTLS
+        # upgrades a plaintext one. They are mutually exclusive — never STARTTLS
+        # over an SMTPS connection.
+        smtp_factory = smtplib.SMTP_SSL if self._use_ssl else smtplib.SMTP
         try:
-            with smtplib.SMTP(self._host, self._port, timeout=self._timeout) as smtp:
-                if self._starttls:
+            with smtp_factory(self._host, self._port, timeout=self._timeout) as smtp:
+                if self._starttls and not self._use_ssl:
                     smtp.starttls()
                 if self._username and self._password:
                     smtp.login(self._username, self._password)
