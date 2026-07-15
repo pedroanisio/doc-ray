@@ -43,6 +43,10 @@ KIND_RESTORE = "restore"
 KIND_UPDATE_METADATA = "update_metadata"
 KIND_REEXTRACT = "reextract"
 
+# Job kinds that are expected to take enough wall-clock time to need a reserved
+# slow lane. Compose worker filters must stay in sync with this set.
+LONG_RUNNING_JOB_KINDS = frozenset({KIND_ANNOTATE, KIND_REANNOTATE})
+
 
 @dataclass(frozen=True)
 class Job:
