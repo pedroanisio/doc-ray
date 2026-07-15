@@ -1,0 +1,60 @@
+# doc-ray — MCP overlay: expose the corpus to agentic AI over Streamable-HTTP MCP.
+#
+# Adds an `mcp` service (entrypoints/mcp.server:app) that front-ends the GraphQL
+# API. It authenticates each caller with the SAME tokens/JWT as the API, then
+# forwards that token to /graphql — so every tool result is exactly what the
+# caller's principal may read under Postgres RLS. The MCP service holds NO
+# database connection and is granted nothing the GraphQL API would not grant.
+#
+# Run (dev, layer on the base compose — API reached in-network at api:8000):
+#   docker compose -f docker-compose.yml -f docker-compose.mcp.yml up -d \
+#     postgres minio createbucket migrate api mcp
+#
+# Production: the API is already public at https://doc-ray.com (no :8000). Run
+# the mcp container on its own and forward to the public endpoint — do NOT layer
+# it on the base compose (there is no local `api` service to depend on):
+#   docker run -d --name docray-mcp -p 8080:8080 \
+#     -e DOCRAY_API_URL=https://doc-ray.com/graphql \
+#     -e DOCRAY_API_TOKENS="$DOCRAY_API_TOKENS" \
+#     -e DOCRAY_API_ALLOW_ANONYMOUS=false \
+#     <image> uvicorn doc_ray.entrypoints.mcp.server:app --host 0.0.0.0 --port 8080
+#
+# Point an MCP client at  https://<host>/mcp  (dev: http://localhost:${MCP_PORT:-8080}/mcp)
+# with an Authorization: Bearer <token> header (a DOCRAY_API_TOKENS entry or an
+# access JWT). Terminate TLS at a reverse proxy before exposing beyond localhost.
+
+services:
+  mcp:
+    build: .
+    container_name: docray-mcp
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+    environment:
+      PYTHONPATH: /app/src
+      # Front-ends the GraphQL API; no DB/S3 env — the MCP layer owns no pool and
+      # reaches the corpus only through /graphql. Default is the in-network dev
+      # address; in production set DOCRAY_MCP_API_URL=https://doc-ray.com/graphql.
+      DOCRAY_API_URL: ${DOCRAY_MCP_API_URL:-http://api:8000/graphql}
+      DOCRAY_MCP_TIMEOUT_SECONDS: ${DOCRAY_MCP_TIMEOUT_SECONDS:-30}
+      # Auth mirrors the API so a token minted for /graphql works here verbatim.
+      DOCRAY_API_TOKENS: ${DOCRAY_API_TOKENS:-}
+      DOCRAY_API_JWT_SECRET: ${DOCRAY_API_JWT_SECRET:-}
+      DOCRAY_API_JWT_ISSUER: ${DOCRAY_API_JWT_ISSUER:-doc-ray}
+      DOCRAY_API_JWT_AUDIENCE: ${DOCRAY_API_JWT_AUDIENCE:-}
+      # External agentic surface: require a token by default even if the API
+      # allows anonymous. Set DOCRAY_MCP_ALLOW_ANONYMOUS=true only for local dev.
+      DOCRAY_API_ALLOW_ANONYMOUS: ${DOCRAY_MCP_ALLOW_ANONYMOUS:-false}
+    command:
+      ["uvicorn", "doc_ray.entrypoints.mcp.server:app", "--host", "0.0.0.0", "--port", "8080"]
+    ports:
+      - "${MCP_PORT:-8080}:8080"
+    healthcheck:
+      # uvicorn is up once the port accepts TCP — no unauthenticated MCP route to probe.
+      test:
+        ["CMD-SHELL", "python -c \"import socket,sys; sys.exit(0 if socket.socket().connect_ex(('localhost',8080))==0 else 1)\""]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s

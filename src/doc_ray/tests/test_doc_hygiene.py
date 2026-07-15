@@ -151,13 +151,18 @@ _COMPOSE_ONLY_VARS = {
 #: configuration knobs that belong in `.env.example`.
 _CI_SENTINEL_VARS = {"CI", "GITHUB_ACTIONS"}
 
+#: OS-provided identity vars read as fallbacks (e.g. scripts/provision_host.py
+#: picks the operator user from SUDO_USER/USER). The shell/sudo sets these — they
+#: are not doc-ray configuration and have no place in `.env.example`.
+_SYSTEM_ENV_VARS = {"USER", "SUDO_USER"}
+
 
 def _env_vars_read_in_code() -> set[str]:
     found = set(_KNOWN_MULTILINE_VARS)
     for base in (_ROOT / "src" / "doc_ray", _ROOT / "webapp", _ROOT / "scripts"):
         for path in base.rglob("*.py"):
             found.update(_ENV_READ_RE.findall(path.read_text(encoding="utf-8")))
-    return found - _COMPOSE_ONLY_VARS - _CI_SENTINEL_VARS
+    return found - _COMPOSE_ONLY_VARS - _CI_SENTINEL_VARS - _SYSTEM_ENV_VARS
 
 
 def _env_vars_documented_in_example() -> set[str]:
