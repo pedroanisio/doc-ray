@@ -131,6 +131,20 @@ def _prod_example_webhook_events() -> list[str]:
     return event_names
 
 
+def _production_setup_webhook_events() -> list[str]:
+    text = (_MIGRATIONS.parents[1] / "docs" / "production-setup.md").read_text()
+    marker = "and select the event types the Billing panel lists as required:"
+    start = text.index(marker) + len(marker)
+    end = text.index("Put the endpoint signing secret", start)
+    block = text[start:end]
+    event_names: list[str] = []
+    for raw in block.replace("\n", " ").split(","):
+        event = raw.replace("`", "").replace("and ", "").strip().rstrip(".")
+        if event:
+            event_names.append(event)
+    return event_names
+
+
 def test_paid_saas_mutations_cannot_drift_outside_billing_entitlement_guard() -> None:
     schema = build_schema()
     mutation_fields = {
@@ -187,6 +201,10 @@ def test_paid_saas_mutations_cannot_drift_outside_billing_entitlement_guard() ->
 
 def test_prod_env_example_webhook_events_match_runtime_requirements():
     assert _prod_example_webhook_events() == list(billing.REQUIRED_WEBHOOK_EVENTS)
+
+
+def test_production_setup_webhook_events_match_runtime_requirements():
+    assert _production_setup_webhook_events() == list(billing.REQUIRED_WEBHOOK_EVENTS)
 
 
 def test_stripe_rest_transport_surfaces_sanitized_error_body(monkeypatch):
