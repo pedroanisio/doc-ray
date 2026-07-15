@@ -9,6 +9,7 @@ the event loop via ``anyio.to_thread``.
 
 from __future__ import annotations
 
+import io
 from typing import Any, cast
 from urllib.parse import urlparse
 
@@ -75,6 +76,54 @@ def _render_pdf_page_png(pdf_bytes: bytes, page_number: int) -> bytes:
         page = doc.load_page(page_number - 1)
         pixmap = page.get_pixmap(dpi=_PDF_PAGE_RENDER_DPI, alpha=False)
         return cast(bytes, pixmap.tobytes("png"))
+
+
+#: Allowed cover-thumbnail widths (CSS px). A small allowlist keeps the per-variant
+#: cache from being fanned out (and storage-amplified) by arbitrary ``w=`` values.
+_COVER_WIDTHS = (160, 320, 640)
+_DEFAULT_COVER_WIDTH = 320
+
+
+def _clamp_cover_width(width: int) -> int:
+    """Snap a requested cover width to the nearest allowed value (ties -> smaller)."""
+    return min(_COVER_WIDTHS, key=lambda allowed: (abs(allowed - width), allowed))
+
+
+def _cover_cache_key(document_id: str, row: dict[str, Any], width: int) -> str:
+    """Return the content-versioned object key for a first-page cover thumbnail.
+
+    Keyed by the document's content hash + width + format, so re-extraction (a new
+    hash) yields a fresh URL and each size is an independent, immutable object.
+    """
+    version = str(row.get("content_sha256") or document_id)
+    return f"rendered-pages/{version}/cover-p1-w{width}.webp"
+
+
+def _render_pdf_cover_webp(pdf_bytes: bytes, page_number: int, width: int) -> bytes:
+    """Render one 1-based PDF page to a small WebP at ``width`` CSS px.
+
+    Renders directly at the target scale (not a downscale of the 144-DPI page), so
+    a cover costs ~20x fewer pixels than the full render, then encodes WebP — the
+    list surface ships ~15 KB instead of ~2.3 MB. See
+    docs/cover-delivery-optimization.md. Goes PDF page -> PNG (PyMuPDF handles the
+    colorspace) -> WebP (Pillow) so odd source colorspaces render faithfully.
+    """
+    import fitz
+    from PIL import Image
+
+    if page_number < 1:
+        raise IndexError(page_number)
+    with fitz.open(stream=pdf_bytes, filetype="pdf") as doc:
+        if page_number > doc.page_count:
+            raise IndexError(page_number)
+        page = doc.load_page(page_number - 1)
+        zoom = width / page.rect.width
+        pixmap = page.get_pixmap(matrix=fitz.Matrix(zoom, zoom), alpha=False)
+        png = cast(bytes, pixmap.tobytes("png"))
+    image = Image.open(io.BytesIO(png)).convert("RGB")
+    buffer = io.BytesIO()
+    image.save(buffer, format="WEBP", quality=80, method=6)
+    return buffer.getvalue()
 
 
 async def _get_cached_object(store: ObjectStore, key: str) -> bytes | None:
@@ -222,6 +271,75 @@ async def _document_page_png_response(
     )
 
 
+#: Immutable because the cover key embeds the document's content version — a
+#: re-extract changes the version (new URL), so the old one can be cached forever
+#: (browser + Cloudflare edge). This is the win that offloads covers from the origin.
+_COVER_CACHE_CONTROL = "public, max-age=31536000, immutable"
+
+
+async def _document_cover_webp_response(document_id: str, width: int, request: Request) -> Response:
+    """Build a cached small-WebP first-page cover response (list surfaces).
+
+    Mirrors :func:`_document_page_png_response` — same principal-bound RLS lookup,
+    so a caller who cannot read the document gets 404, never a leaked thumbnail —
+    but serves a tiny WebP cover instead of the full 144-DPI page PNG.
+    """
+    authenticator: Authenticator = request.app.state.authenticator
+    principal = await authenticator.authenticate(request)
+    pool: AsyncConnectionPool = request.app.state.pool
+    store: ObjectStore = request.app.state.object_store
+    async with pool.connection() as raw_conn:
+        conn = cast(psycopg.AsyncConnection[dict[str, Any]], raw_conn)
+        await apply_principal(conn, principal)
+        try:
+            cur = await conn.execute(
+                "SELECT source_uri, mime_type, doc_type, status, content_sha256 "
+                "FROM documents WHERE id = %s",
+                (document_id,),
+            )
+            row = await cur.fetchone()
+        finally:
+            await reset_principal(conn, principal)
+
+    if row is None:
+        raise HTTPException(status_code=404, detail="document not found")
+    if row.get("status") != "extracted":
+        raise HTTPException(status_code=409, detail="document original is not available yet")
+    if not _is_pdf_document(row):
+        raise HTTPException(status_code=415, detail="document is not a PDF")
+
+    cache_key = _cover_cache_key(document_id, row, width)
+    cached = await _get_cached_object(store, cache_key)
+    if cached is not None:
+        return Response(
+            content=cached,
+            media_type="image/webp",
+            headers={"Cache-Control": _COVER_CACHE_CONTROL, "X-DocRay-Cache": "hit"},
+        )
+
+    key = _object_key_from_source_uri(str(row.get("source_uri") or ""), store.bucket)
+    if key is None:
+        raise HTTPException(status_code=404, detail="document original is missing")
+    pdf_bytes = await _get_required_object(
+        store,
+        key,
+        "document original is missing",
+        expected_sha256=row.get("content_sha256"),
+        context=f"document {document_id} original",
+    )
+
+    try:
+        webp = await anyio.to_thread.run_sync(_render_pdf_cover_webp, pdf_bytes, 1, width)
+    except (IndexError, ValueError) as exc:
+        raise HTTPException(status_code=404, detail="cover not available") from exc
+    await anyio.to_thread.run_sync(store.put, cache_key, webp, "image/webp")
+    return Response(
+        content=webp,
+        media_type="image/webp",
+        headers={"Cache-Control": _COVER_CACHE_CONTROL, "X-DocRay-Cache": "miss"},
+    )
+
+
 def register_download_routes(app: FastAPI) -> None:
     """Attach the document/backup streaming routes to *app*."""
 
@@ -288,3 +406,14 @@ def register_download_routes(app: FastAPI) -> None:
     ) -> Response:
         """Render a cached PNG image for one original-PDF page."""
         return await _document_page_png_response(document_id, page_number, request)
+
+    @app.get("/documents/{document_id}/cover.webp")
+    async def render_document_cover(
+        document_id: str, request: Request, w: int = _DEFAULT_COVER_WIDTH
+    ) -> Response:
+        """Render a cached small-WebP first-page cover for list/collection surfaces.
+
+        ``w`` is snapped to an allowlisted width. The full-resolution page render
+        (``/pages/{n}.png``) is unchanged for the document reader.
+        """
+        return await _document_cover_webp_response(document_id, _clamp_cover_width(w), request)

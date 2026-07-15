@@ -348,7 +348,11 @@ def test_home_renders_pdf_document_preview_thumbnail(client):
     html = client.get("/corpus").get_data(as_text=True)
 
     assert 'class="doc-preview doc-preview-image"' in html
-    assert f'src="/doc/{DOC_ID}/page/1.png"' in html
+    # The list cell ships the small WebP cover (with a retina srcset), not the
+    # ~2.3 MB full-page render. See docs/cover-delivery-optimization.md.
+    assert f'src="/doc/{DOC_ID}/cover.webp?w=160"' in html
+    assert f'srcset="/doc/{DOC_ID}/cover.webp?w=160 1x, /doc/{DOC_ID}/cover.webp?w=320 2x"' in html
+    assert f'src="/doc/{DOC_ID}/page/1.png"' not in html
     assert 'alt="First page preview of orwell1984"' in html
 
 

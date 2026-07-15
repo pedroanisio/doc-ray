@@ -138,8 +138,8 @@
 <div class="doc-head">
   <div class="doc-title-strip">
     {% if preview.kind == "image" %}
-      <a class="doc-preview doc-preview-image doc-preview-large" href="{{ preview.src }}" aria-label="{{ preview.label }}">
-        <img src="{{ preview.src }}" alt="{{ preview.alt }}" loading="lazy">
+      <a class="doc-preview doc-preview-image doc-preview-large" href="{{ preview.full_src }}" aria-label="{{ preview.label }}">
+        <img src="{{ preview.full_src }}" alt="{{ preview.alt }}" loading="lazy">
       </a>
     {% else %}
       <div class="doc-preview doc-preview-icon doc-preview-large doc-preview-{{ preview.state }}" aria-label="{{ preview.label }}">

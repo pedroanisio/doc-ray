@@ -59,7 +59,7 @@
           {% set preview = d.preview %}
           {% if preview.kind == "image" %}
             <a class="doc-preview doc-preview-image" href="{{ url_for('document', doc_id=d.id) }}" aria-label="{{ preview.label }}">
-              <img src="{{ preview.src }}" alt="{{ preview.alt }}" loading="lazy">
+              <img src="{{ preview.src }}"{% if preview.srcset %} srcset="{{ preview.srcset }}" sizes="4.8rem"{% endif %} alt="{{ preview.alt }}" width="77" height="102" loading="lazy" decoding="async">
             </a>
           {% else %}
             <a class="doc-preview doc-preview-icon doc-preview-{{ preview.state }}" href="{{ url_for('document', doc_id=d.id) }}" aria-label="{{ preview.label }}">

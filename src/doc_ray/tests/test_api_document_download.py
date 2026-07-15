@@ -9,14 +9,24 @@ from __future__ import annotations
 import asyncio
 import hashlib
 from dataclasses import replace
+from io import BytesIO
+from pathlib import Path
 from typing import Any
 
 import fitz
 import httpx
+from PIL import Image
 
 import doc_ray.entrypoints.api.app as api_app
 from doc_ray.config import Config
 from doc_ray.entrypoints.api.app import create_app
+from doc_ray.entrypoints.api.downloads import (
+    _COVER_WIDTHS,
+    _clamp_cover_width,
+    _cover_cache_key,
+    _render_pdf_cover_webp,
+    _render_pdf_page_png,
+)
 from doc_ray.entrypoints.api.security import NoopAuthenticator
 
 DOC_ID = "11111111-1111-1111-1111-111111111111"
@@ -265,3 +275,71 @@ def test_pdf_page_render_returns_clean_errors(monkeypatch) -> None:
     assert _get(out_of_range_app, f"/documents/{DOC_ID}/pages/2.png").status_code == 404
     assert _get(out_of_range_app, f"/documents/{DOC_ID}/pages/0.png").status_code == 404
     assert _get(pending_app, f"/documents/{DOC_ID}/pages/1.png").status_code == 409
+
+
+# --- Cover delivery: small WebP thumbnails (docs/cover-delivery-optimization.md) -----------
+
+_FIXTURE_PDF = Path(__file__).resolve().parents[3] / "static" / "fixtures" / "AirFrance447_BEA.pdf"
+
+
+def test_clamp_cover_width_snaps_to_the_allowlist() -> None:
+    assert set(_COVER_WIDTHS) == {160, 320, 640}
+    assert _clamp_cover_width(320) == 320
+    assert _clamp_cover_width(300) == 320  # nearest allowed
+    assert _clamp_cover_width(5) == 160  # clamp below the floor
+    assert _clamp_cover_width(100_000) == 640  # clamp above the ceiling
+
+
+def test_cover_cache_key_is_versioned_width_and_webp_scoped() -> None:
+    row = {"content_sha256": "deadbeefcafe"}
+    key = _cover_cache_key(DOC_ID, row, 320)
+    assert key == "rendered-pages/deadbeefcafe/cover-p1-w320.webp"
+    assert _cover_cache_key(DOC_ID, row, 160) != key  # no cross-size cache collision
+    assert f"rendered-pages/{DOC_ID}/" in _cover_cache_key(DOC_ID, {}, 320)  # falls back to doc id
+
+
+def test_render_pdf_cover_webp_is_a_small_webp_at_the_target_width() -> None:
+    pdf = _FIXTURE_PDF.read_bytes()
+    webp = _render_pdf_cover_webp(pdf, 1, 320)
+    assert webp[:4] == b"RIFF" and webp[8:12] == b"WEBP"  # WebP container magic
+    assert Image.open(BytesIO(webp)).width == 320
+    # The whole point: far smaller than the 144-DPI full-page PNG, and tiny.
+    assert len(webp) < len(_render_pdf_page_png(pdf, 1))
+    # Byte-budget guard: a regression that re-serves the full page blows this.
+    assert len(webp) < 60_000
+
+
+def test_cover_route_serves_small_webp_and_uses_the_object_store_cache(monkeypatch) -> None:
+    pdf = _make_pdf(page_count=2)
+    sha = hashlib.sha256(pdf).hexdigest()
+    store = _Store({"documents/ab/report.pdf": pdf})
+    app, _conn = _app(monkeypatch, _pdf_row(content_sha256=sha), store)
+    cover_key = f"rendered-pages/{sha}/cover-p1-w320.webp"
+
+    first = _get(app, f"/documents/{DOC_ID}/cover.webp?w=320")
+    assert first.status_code == 200
+    assert first.headers["content-type"] == "image/webp"
+    assert first.headers["x-docray-cache"] == "miss"
+    assert "immutable" in first.headers["cache-control"]
+    assert first.content[:4] == b"RIFF"
+    assert store.puts[0][0] == cover_key
+    assert store.puts[0][2] == "image/webp"
+
+    second = _get(app, f"/documents/{DOC_ID}/cover.webp?w=320")
+    assert second.headers["x-docray-cache"] == "hit"
+    assert second.content == first.content
+
+
+def test_cover_route_clamps_an_arbitrary_width_to_the_allowlist(monkeypatch) -> None:
+    pdf = _make_pdf(page_count=1)
+    store = _Store({"documents/ab/report.pdf": pdf})
+    row = _pdf_row(page_count=1, content_sha256=hashlib.sha256(pdf).hexdigest())
+    app, _conn = _app(monkeypatch, row, store)
+    _get(app, f"/documents/{DOC_ID}/cover.webp?w=999")  # 999 -> nearest allowed = 640
+    assert any(key.endswith("cover-p1-w640.webp") for key, *_ in store.puts)
+
+
+def test_cover_route_is_404_when_the_document_is_not_readable(monkeypatch) -> None:
+    # RLS filters the row to None for a caller without access -> 404, never a leak.
+    app, _conn = _app(monkeypatch, None, _Store({}))
+    assert _get(app, f"/documents/{DOC_ID}/cover.webp").status_code == 404

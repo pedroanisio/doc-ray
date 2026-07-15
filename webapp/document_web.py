@@ -443,6 +443,29 @@ def document_page_image(doc_id, page_number):
     )
 
 
+def document_cover(doc_id):
+    """Stream a small WebP first-page cover through the API boundary.
+
+    Lets list surfaces render a ~15 KB thumbnail instead of proxying the full
+    144-DPI page PNG. ``w`` is forwarded and the API clamps it to its allowlist.
+    """
+    base = API_URL.rsplit("/graphql", 1)[0]
+    width = request.args.get("w", type=int)
+    query = f"?w={width}" if width else ""
+    upstream, pump = _stream_api_response(
+        f"{base}/documents/{doc_id}/cover.webp{query}", (401, 403, 404, 409, 415)
+    )
+    headers = {}
+    for header in ("cache-control", "x-docray-cache"):
+        if upstream.headers.get(header):
+            headers[header.title()] = upstream.headers[header]
+    return Response(
+        stream_with_context(pump()),
+        mimetype=upstream.headers.get("content-type", "image/webp"),
+        headers=headers,
+    )
+
+
 def register(app, core: ModuleType) -> None:
     """Attach the single-document routes to *app*, late-binding *core* (D-015 split)."""
     global _core
@@ -469,3 +492,4 @@ def register(app, core: ModuleType) -> None:
         "document_page_image",
         document_page_image,
     )
+    app.add_url_rule("/doc/<uuid:doc_id>/cover.webp", "document_cover", document_cover)
