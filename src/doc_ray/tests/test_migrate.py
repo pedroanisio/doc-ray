@@ -188,6 +188,52 @@ def test_apply_migrations_skips_recorded_repair_when_catalog_is_converged(monkey
     assert executed_sql == []
 
 
+def test_apply_migrations_repairs_recorded_tenant_foundation_grant(monkeypatch, tmp_path):
+    """A DB that already recorded 061 still receives the forward tenant grant repair."""
+    tenant_foundation = "061_tenant_foundation.sql"
+    tenant_grant_repair = "085_tenant_catalog_client_select.sql"
+    version_bump = "086_schema_version_1_27_0.sql"
+    (tmp_path / tenant_foundation).write_text(
+        "INSERT INTO schema_migrations (filename) VALUES ('061_tenant_foundation.sql')"
+    )
+    (tmp_path / tenant_grant_repair).write_text(
+        "GRANT SELECT ON tenants TO docray_client;\n"
+        "INSERT INTO schema_migrations (filename) "
+        "VALUES ('085_tenant_catalog_client_select.sql')"
+    )
+    (tmp_path / version_bump).write_text(
+        "INSERT INTO schema_version (singleton, version) VALUES (true, '1.27.0');\n"
+        "INSERT INTO schema_migrations (filename) VALUES ('086_schema_version_1_27_0.sql')"
+    )
+    executed_sql: list[str] = []
+
+    class _FakeConnection:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc_info):
+            return False
+
+        def execute(self, sql, params=None):
+            if "to_regclass" in sql:
+                return _Rows([("schema_migrations",)])
+            if sql == "SELECT filename AS filename FROM schema_migrations":
+                return _Rows([(tenant_foundation,)])
+            if sql.startswith("SELECT pg_advisory_"):
+                return _Rows([])
+            executed_sql.append(sql)
+            return _Rows([])
+
+        def transaction(self):
+            return self
+
+    monkeypatch.setattr(migrate.psycopg, "connect", lambda *a, **kw: _FakeConnection())
+    cfg = dataclasses.replace(Config.from_env(), database_url="postgresql://example/test")
+
+    assert migrate.apply_migrations(cfg, tmp_path) == [tenant_grant_repair, version_bump]
+    assert "GRANT SELECT ON tenants TO docray_client" in executed_sql[0]
+
+
 def _connect_or_skip():
     import _itdb
 

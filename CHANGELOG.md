@@ -62,6 +62,17 @@ doc-ray carries **one global version** covering both the application package
   (Claude Fable 5 via Claude Code) — typography, layout, and navigation pass
   over the browser UI; no route or data-contract changes.
 
+## [1.27.0] - 2026-07-15
+
+Schema 1.27.0 (migrations 085-086).
+
+### Fixed
+- **Billing tenant identity is deploy-safe** (OpenAI GPT-5 via Codex) -
+  GraphQL billing status now returns the real tenant slug/display name in the
+  admin console, and a forward repair migration grants the client runtime role
+  tenant catalogue read access on deployments that had already recorded the
+  tenant-foundation migration.
+
 ## [1.26.0] - 2026-07-15
 
 Schema 1.26.0 (migrations 083-084).

@@ -86,8 +86,17 @@ export function BillingPage({ redirectToHostedUrl = (url) => window.location.ass
   }
 
   const state = status?.subscriptionStatus ?? "loading";
-  const isActive = Boolean(status?.entitled ?? ACTIVE_STATUSES.has(state));
   const hasLiveSubscription = ACTIVE_STATUSES.has(state);
+  const subscriptionStateLabel = status
+    ? hasLiveSubscription
+      ? `subscription ${state}`
+      : formatSubscriptionState(state)
+    : "loading";
+  const subscriptionStateDetail = status
+    ? hasLiveSubscription
+      ? status.entitlementReason
+      : subscriptionStateDetailFor(state)
+    : "Loading subscription state";
   const hasManagedSubscription = Boolean(
     status && (MANAGED_SUBSCRIPTION_STATUSES.has(state) || status.stripeSubscriptionId),
   );
@@ -132,9 +141,9 @@ export function BillingPage({ redirectToHostedUrl = (url) => window.location.ass
             billing identifiers and webhook-derived subscription state.
           </p>
         </div>
-        <div className={`billing-state ${isActive ? "good" : "attention"}`}>
-          <span>{status?.entitled ? "entitled" : state}</span>
-          <small>{status?.entitlementReason ?? "Loading entitlement policy"}</small>
+        <div className={`billing-state ${hasLiveSubscription ? "good" : "attention"}`}>
+          <span>{subscriptionStateLabel}</span>
+          <small>{subscriptionStateDetail}</small>
         </div>
       </section>
 
@@ -275,6 +284,20 @@ function ReadinessItem({ ready, label }: { ready: boolean; label: string }) {
       {label}
     </li>
   );
+}
+
+function formatSubscriptionState(state: string): string {
+  if (state === "none") {
+    return "no subscription";
+  }
+  return state.replace(/_/g, " ");
+}
+
+function subscriptionStateDetailFor(state: string): string {
+  if (state === "none") {
+    return "No Stripe subscription has been recorded";
+  }
+  return `Stripe subscription is ${formatSubscriptionState(state)}`;
 }
 
 function checkoutReturn(value: string | null): { kind: "success" | "cancel"; title: string; detail: string } | null {

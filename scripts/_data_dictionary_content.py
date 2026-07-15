@@ -223,10 +223,19 @@ MIGRATIONS = [
     ),
     ("081_schema_version_1_25_0", "advance the schema SemVer to 1.25.0"),
     (
+        "082_oauth_clients",
+        "OAuth 2.1 dynamic clients and authorization-code/PKCE state",
+    ),
+    (
         "083_billing_event_read",
         "tenant-admin read policy for Stripe webhook payment activity",
     ),
     ("084_schema_version_1_26_0", "advance the schema SemVer to 1.26.0"),
+    (
+        "085_tenant_catalog_client_select",
+        "repair client-role tenant catalogue read access for billing status",
+    ),
+    ("086_schema_version_1_27_0", "advance the schema SemVer to 1.27.0"),
 ]
 
 # ---------------------------------------------------------------------------
@@ -361,16 +370,32 @@ GROUPS: list[tuple[str, str, list[str]]] = [
     (
         "Authentication & identity provisioning",
         "Local self-service auth (argon2id credentials, e-mail verification, refresh "
-        "tokens — migration 074) plus enterprise identity: SCIM-provisioned groups "
-        "and tenant-scoped SAML identity providers. Admin stays operator-seeded; "
-        "self-registered principals get the reader role only.",
+        "tokens — migration 074), account preferences and email-change requests, "
+        "OAuth 2.1 authorization-code/PKCE client state, plus enterprise identity: "
+        "SCIM-provisioned groups and tenant-scoped SAML identity providers. Admin "
+        "stays operator-seeded; self-registered principals get the reader role only.",
         [
             "principal_credentials",
             "email_verification_tokens",
             "auth_refresh_tokens",
+            "principal_preferences",
+            "email_change_requests",
+            "oauth_clients",
+            "oauth_authorization_codes",
             "scim_groups",
             "scim_group_members",
             "tenant_saml_identity_providers",
+        ],
+    ),
+    (
+        "Billing & payment operations",
+        "Tenant-scoped Stripe customer accounts, current subscription snapshots, "
+        "and the signed webhook event ledger that backs Checkout, Portal, "
+        "entitlement decisions, and payment audit views.",
+        [
+            "tenant_billing_accounts",
+            "tenant_subscriptions",
+            "stripe_webhook_events",
         ],
     ),
     (

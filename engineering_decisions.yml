@@ -45,10 +45,12 @@ source_schema:         "db/migrations"
 # persistence (migration 069), then to 1.21.0 by migration 071 for the
 # release containing operator visibility, worker lifecycle logging, and
 # finer-grained annotation progress, then to 1.22.0 by migration 073 for
-# deploy-safe job drain release (jobs.drain_requested_at, migration 072).
+# deploy-safe job drain release (jobs.drain_requested_at, migration 072),
+# then to 1.27.0 by migration 086 for tenant-catalogue read access required
+# by tenant-scoped Stripe billing status (migration 085).
 # Kept in lockstep with doc_ray.__version__
 # by scripts/check_version_consistency.py.
-source_schema_version: "1.26.0"
+source_schema_version: "1.27.0"
 target_engine:         "PostgreSQL 16"
 total_decisions:       23
 

@@ -134,6 +134,7 @@ def test_tenant_foundation_migration_adds_tenant_partitioning_sql():
     assert "ALTER TABLE documents" in sql and "ADD COLUMN IF NOT EXISTS tenant_id" in sql
     assert "CREATE OR REPLACE FUNCTION docray_current_tenant()" in sql
     assert "d.tenant_id = docray_current_tenant()" in sql
+    assert "GRANT SELECT ON tenants TO docray_client" in sql
     assert "default tenant" in sql
 
 

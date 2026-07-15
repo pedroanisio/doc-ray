@@ -89,6 +89,8 @@ def _apply_billing_migration(conn) -> str:
     conn.execute((_MIGRATIONS / "081_schema_version_1_25_0.sql").read_text())
     conn.execute((_MIGRATIONS / "083_billing_event_read.sql").read_text())
     conn.execute((_MIGRATIONS / "084_schema_version_1_26_0.sql").read_text())
+    conn.execute((_MIGRATIONS / "085_tenant_catalog_client_select.sql").read_text())
+    conn.execute((_MIGRATIONS / "086_schema_version_1_27_0.sql").read_text())
     _itdb.ensure_admin_principal(conn, WRITE_PRINCIPAL.principal_id, "billing-test-admin")
     return str(conn.execute("SELECT docray_default_tenant_id() AS id").fetchone()["id"])
 
@@ -392,6 +394,7 @@ def test_checkout_session_creates_customer_and_graphql_status(pg):
                 query {
                   billingStatus {
                     tenantId
+                    tenantSlug
                     tenantName
                     stripeCustomerId
                     subscriptionStatus
@@ -415,7 +418,8 @@ def test_checkout_session_creates_customer_and_graphql_status(pg):
             assert result.errors is None, result.errors
             status = result.data["billingStatus"]
             assert status["tenantId"] == tenant_id
-            assert status["tenantName"] == "Current tenant"
+            assert status["tenantSlug"] == "default"
+            assert status["tenantName"] == "Default tenant"
             assert status["stripeCustomerId"] == "cus_test_123"
             assert status["subscriptionStatus"] == "checkout_pending"
             assert status["checkoutSessionId"] == "cs_test_123"

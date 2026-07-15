@@ -95,5 +95,7 @@ REVOKE ALL ON FUNCTION docray_default_tenant_id(), docray_current_tenant(),
 GRANT EXECUTE ON FUNCTION docray_readable_documents(), docray_writable_documents()
     TO docray_client;
 
+GRANT SELECT ON tenants TO docray_client;
+
 INSERT INTO schema_migrations (filename) VALUES ('061_tenant_foundation.sql')
     ON CONFLICT (filename) DO NOTHING;

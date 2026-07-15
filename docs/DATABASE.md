@@ -1,15 +1,14 @@
 # doc-ray — Database ERD & Data Dictionary
 
-**Schema version `1.24.0`** (SemVer) · 78 migrations applied
+**Schema version `1.27.0`** (SemVer) · 86 migrations applied
 
 > Generated from the live schema by `scripts/gen_data_dictionary.py`. Do not edit by hand — re-run the generator.
 
 ## 1. Overview
 
-**doc-ray** is a living library and knowledge base (see [PURPOSE.md](../PURPOSE.md));
-at the storage layer — the scope of this document — it is a document-ingestion and
-NLP-corpus store on **PostgreSQL 16** (with the **pgvector** and **pg_trgm**
-extensions) plus **MinIO/S3** for the original bytes. A document is ingested (any of pdf/txt/md/html/epub/docx),
+**doc-ray** is a document-ingestion and NLP-corpus store on **PostgreSQL 16**
+(with the **pgvector** and **pg_trgm** extensions) plus **MinIO/S3** for the
+original bytes. A document is ingested (any of pdf/txt/md/html/epub/docx),
 its text and metadata extracted, then annotated by real spaCy into the full
 20-layer NLP stack. Everything queryable lives in Postgres; blobs never do.
 
@@ -349,6 +348,8 @@ format metadata) are decomposed to their own relations (4NF); blobs live in obje
 | `document_id` | uuid |  | FK→documents, UQ |  |  |
 | `ordinal` | integer |  | UQ |  |  |
 | `page_number` | integer |  |  |  |  |
+| `page_width` | double precision | yes |  |  |  |
+| `page_height` | double precision | yes |  |  |  |
 | `char_start` | integer |  |  |  |  |
 | `char_end` | integer |  |  |  |  |
 | `bbox_x0` | double precision |  |  |  |  |
@@ -356,8 +357,6 @@ format metadata) are decomposed to their own relations (4NF); blobs live in obje
 | `bbox_x1` | double precision |  |  |  |  |
 | `bbox_y1` | double precision |  |  |  |  |
 | `text` | text |  |  | `''::text` |  |
-| `page_width` | double precision | yes |  |  |  |
-| `page_height` | double precision | yes |  |  |  |
 
 - **Primary key:** (id)
 - **Unique:** UNIQUE (document_id, ordinal)
@@ -1205,9 +1204,10 @@ Tenant partition catalogue; the default tenant preserves existing deployments.
 
 ### 5.13 Authentication & identity provisioning
 
-Local self-service auth (argon2id credentials, e-mail verification, refresh tokens — migration 074)
-plus enterprise identity: SCIM-provisioned groups and tenant-scoped SAML identity providers. Admin
-stays operator-seeded; self-registered principals get the reader role only.
+Local self-service auth (argon2id credentials, e-mail verification, refresh tokens — migration 074),
+account preferences and email-change requests, OAuth 2.1 authorization-code/PKCE client state, plus
+enterprise identity: SCIM-provisioned groups and tenant-scoped SAML identity providers. Admin stays
+operator-seeded; self-registered principals get the reader role only.
 
 #### `principal_credentials`
 
@@ -1272,6 +1272,81 @@ stays operator-seeded; self-registered principals get the reader role only.
 - **Index** `idx_auth_refresh_tokens_family`: public.auth_refresh_tokens USING btree (family_id)
 - **Index** `idx_auth_refresh_tokens_principal`: public.auth_refresh_tokens USING btree (principal_id)
 
+#### `principal_preferences`
+
+| Column | Type | Null | Key | Default | Notes |
+|---|---|---|---|---|---|
+| `principal_id` | uuid |  | PK, FK→principals |  |  |
+| `theme` | text |  |  | `'system'::text` |  |
+| `default_reader_view` | text |  |  | `'annotated'::text` |  |
+| `rows_per_page` | integer |  |  | `50` |  |
+| `updated_at` | timestamp with time zone |  |  | `now()` |  |
+
+- **Primary key:** (principal_id)
+- **FK:** FOREIGN KEY (principal_id) REFERENCES principals(id) ON DELETE CASCADE
+- **Check:** CHECK ((default_reader_view = ANY (ARRAY['annotated'::text, 'plain'::text])))
+- **Check:** CHECK (((rows_per_page >= 10) AND (rows_per_page <= 200)))
+- **Check:** CHECK ((theme = ANY (ARRAY['system'::text, 'light'::text, 'dark'::text])))
+
+#### `email_change_requests`
+
+| Column | Type | Null | Key | Default | Notes |
+|---|---|---|---|---|---|
+| `token_hash` | text |  | PK |  |  |
+| `principal_id` | uuid |  | FK→principals |  |  |
+| `new_email_normalized` | text |  |  |  |  |
+| `expires_at` | timestamp with time zone |  |  |  |  |
+| `consumed_at` | timestamp with time zone | yes |  |  |  |
+| `created_at` | timestamp with time zone |  |  | `now()` |  |
+
+- **Primary key:** (token_hash)
+- **FK:** FOREIGN KEY (principal_id) REFERENCES principals(id) ON DELETE CASCADE
+- **Check:** CHECK ((new_email_normalized = lower(new_email_normalized)))
+- **Check:** CHECK ((length(token_hash) = 64))
+- **Index** `idx_email_change_requests_principal`: public.email_change_requests USING btree (principal_id)
+
+#### `oauth_clients`
+
+| Column | Type | Null | Key | Default | Notes |
+|---|---|---|---|---|---|
+| `client_id` | text |  | PK |  |  |
+| `client_secret_hash` | text | yes |  |  |  |
+| `redirect_uris` | text[] |  |  |  |  |
+| `client_name` | text | yes |  |  |  |
+| `token_endpoint_auth_method` | text |  |  | `'none'::text` |  |
+| `grant_types` | text[] |  |  | `ARRAY['authorization_code'::text, 'refresh_token'::text]` |  |
+| `scope` | text |  |  | `'read'::text` |  |
+| `created_at` | timestamp with time zone |  |  | `now()` |  |
+
+- **Primary key:** (client_id)
+- **Check:** CHECK ((cardinality(redirect_uris) > 0))
+- **Check:** CHECK ((token_endpoint_auth_method = ANY (ARRAY['none'::text, 'client_secret_post'::text, 'client_secret_basic'::text])))
+
+#### `oauth_authorization_codes`
+
+| Column | Type | Null | Key | Default | Notes |
+|---|---|---|---|---|---|
+| `code_hash` | text |  | PK |  |  |
+| `client_id` | text |  | FK→oauth_clients |  |  |
+| `redirect_uri` | text |  |  |  |  |
+| `code_challenge` | text |  |  |  |  |
+| `code_challenge_method` | text |  |  | `'S256'::text` |  |
+| `principal_id` | uuid |  | FK→principals |  |  |
+| `subject` | text |  |  |  |  |
+| `scope` | text |  |  | `'read'::text` |  |
+| `resource` | text | yes |  |  |  |
+| `expires_at` | timestamp with time zone |  |  |  |  |
+| `consumed_at` | timestamp with time zone | yes |  |  |  |
+| `created_at` | timestamp with time zone |  |  | `now()` |  |
+
+- **Primary key:** (code_hash)
+- **FK:** FOREIGN KEY (client_id) REFERENCES oauth_clients(client_id) ON DELETE CASCADE
+- **FK:** FOREIGN KEY (principal_id) REFERENCES principals(id) ON DELETE CASCADE
+- **Check:** CHECK ((code_challenge_method = 'S256'::text))
+- **Check:** CHECK ((length(code_hash) = 64))
+- **Index** `idx_oauth_authorization_codes_client`: public.oauth_authorization_codes USING btree (client_id)
+- **Index** `idx_oauth_authorization_codes_expires`: public.oauth_authorization_codes USING btree (expires_at)
+
 #### `scim_groups`
 
 | Column | Type | Null | Key | Default | Notes |
@@ -1322,7 +1397,72 @@ stays operator-seeded; self-registered principals get the reader role only.
 - **Check:** CHECK (((metadata_url IS NOT NULL) OR (metadata_xml IS NOT NULL)))
 - **Index** `idx_tenant_saml_idp_entity`: public.tenant_saml_identity_providers USING btree (entity_id)
 
-### 5.14 Security audit trail
+### 5.14 Billing & payment operations
+
+Tenant-scoped Stripe customer accounts, current subscription snapshots, and the signed webhook event
+ledger that backs Checkout, Portal, entitlement decisions, and payment audit views.
+
+#### `tenant_billing_accounts`
+
+| Column | Type | Null | Key | Default | Notes |
+|---|---|---|---|---|---|
+| `tenant_id` | uuid |  | PK, FK→tenants |  |  |
+| `stripe_customer_id` | text | yes | UQ |  |  |
+| `billing_email` | text | yes |  |  |  |
+| `created_by_principal_id` | uuid | yes | FK→principals |  |  |
+| `created_at` | timestamp with time zone |  |  | `now()` |  |
+| `updated_at` | timestamp with time zone |  |  | `now()` |  |
+
+- **Primary key:** (tenant_id)
+- **Unique:** UNIQUE (stripe_customer_id)
+- **FK:** FOREIGN KEY (created_by_principal_id) REFERENCES principals(id) ON DELETE SET NULL
+- **FK:** FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE
+- **Index** `tenant_billing_accounts_stripe_customer_id_key`: public.tenant_billing_accounts USING btree (stripe_customer_id)
+- **RLS:** enabled — read/write policies via *tenant_id = docray_current_tenant() and docray_is_admin()*
+
+#### `tenant_subscriptions`
+
+| Column | Type | Null | Key | Default | Notes |
+|---|---|---|---|---|---|
+| `tenant_id` | uuid |  | PK, FK→tenants |  |  |
+| `stripe_customer_id` | text |  |  |  |  |
+| `stripe_subscription_id` | text | yes | UQ |  |  |
+| `stripe_price_id` | text | yes |  |  |  |
+| `status` | text |  |  | `'none'::text` |  |
+| `current_period_end` | timestamp with time zone | yes |  |  |  |
+| `cancel_at_period_end` | boolean |  |  | `false` |  |
+| `latest_invoice_id` | text | yes |  |  |  |
+| `checkout_session_id` | text | yes |  |  |  |
+| `last_stripe_event_id` | text | yes |  |  |  |
+| `updated_at` | timestamp with time zone |  |  | `now()` |  |
+
+- **Primary key:** (tenant_id)
+- **Unique:** UNIQUE (stripe_subscription_id)
+- **FK:** FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE
+- **Index** `idx_tenant_subscriptions_customer`: public.tenant_subscriptions USING btree (stripe_customer_id)
+- **Index** `idx_tenant_subscriptions_status`: public.tenant_subscriptions USING btree (status)
+- **Index** `tenant_subscriptions_stripe_subscription_id_key`: public.tenant_subscriptions USING btree (stripe_subscription_id)
+- **RLS:** enabled — read/write policies via *tenant_id = docray_current_tenant() and docray_is_admin()*
+
+#### `stripe_webhook_events`
+
+| Column | Type | Null | Key | Default | Notes |
+|---|---|---|---|---|---|
+| `stripe_event_id` | text |  | PK |  |  |
+| `event_type` | text |  |  |  |  |
+| `livemode` | boolean |  |  | `false` |  |
+| `payload` | jsonb |  |  |  |  |
+| `processed_at` | timestamp with time zone | yes |  |  |  |
+| `created_at` | timestamp with time zone |  |  | `now()` |  |
+
+- **Primary key:** (stripe_event_id)
+- **Index** `idx_stripe_webhook_events_client_ref_time`: public.stripe_webhook_events USING btree (((payload #>> '{data,object,client_reference_id}'::text[])), created_at DESC)
+- **Index** `idx_stripe_webhook_events_object_customer_time`: public.stripe_webhook_events USING btree (((payload #>> '{data,object,customer}'::text[])), created_at DESC)
+- **Index** `idx_stripe_webhook_events_object_tenant_time`: public.stripe_webhook_events USING btree (((payload #>> '{data,object,metadata,tenant_id}'::text[])), created_at DESC)
+- **Index** `idx_stripe_webhook_events_type_time`: public.stripe_webhook_events USING btree (event_type, created_at DESC)
+- **RLS:** enabled — read/write policies via *signed Stripe webhook ledger, app-owned*
+
+### 5.15 Security audit trail
 
 Append-only access and authentication events: who did what, against which target, from which source
 address, and whether it succeeded or was denied.
@@ -1356,7 +1496,7 @@ address, and whether it succeeded or was denied.
 - **Index** `idx_audit_events_time`: public.audit_events USING btree (occurred_at DESC)
 - **RLS:** enabled — read/write policies via *insert-only security audit log*
 
-### 5.15 Evaluation & drift artifacts
+### 5.16 Evaluation & drift artifacts
 
 Corpus snapshots, evaluation runs, metric rows, and gold samples make quality and drift measurements
 durable and citeable instead of one-off operator observations.
@@ -1437,7 +1577,7 @@ durable and citeable instead of one-off operator observations.
 - **FK:** FOREIGN KEY (span_id) REFERENCES spans(id) ON DELETE CASCADE
 - **Index** `idx_gold_sample_label`: public.gold_sample USING btree (label, created_at DESC)
 
-### 5.16 Jobs & operations
+### 5.17 Jobs & operations
 
 The background job queue (claimed FOR UPDATE SKIP LOCKED, heartbeat + drain-aware reaping, first-
 class progress), the applied-migration ledger, the schema's SemVer, and the corpus-backup catalogue.
@@ -1601,6 +1741,8 @@ SELECT a.document_id,
 - **documents** `trg_documents_language_fts`: CREATE TRIGGER trg_documents_language_fts AFTER UPDATE OF language …
 - **documents** `trg_documents_updated_at`: CREATE TRIGGER trg_documents_updated_at BEFORE UPDATE …
 - **principal_roles** `trg_reject_manual_scim_role_edit`: CREATE TRIGGER trg_reject_manual_scim_role_edit BEFORE INSERT OR DELETE OR UPDATE …
+- **tenant_billing_accounts** `trg_tenant_billing_accounts_updated_at`: CREATE TRIGGER trg_tenant_billing_accounts_updated_at BEFORE UPDATE …
+- **tenant_subscriptions** `trg_tenant_subscriptions_updated_at`: CREATE TRIGGER trg_tenant_subscriptions_updated_at BEFORE UPDATE …
 
 
 ## 8. Access control (RBAC + RLS)
@@ -1610,7 +1752,7 @@ document-scoped table. A principal may **read** a same-tenant document iff it is
 *admin* or holds any `document_acl` row on it, and may **write** iff *admin* or
 holds an `annotate`/`delete`/`admin` grant.
 
-**Enforcement.** RLS is `ENABLE`d (not `FORCE`) on 42 tables (incl. `jobs` and
+**Enforcement.** RLS is `ENABLE`d (not `FORCE`) on 45 tables (incl. `jobs` and
 `backups` since migration 043 — BL-064). The `docray`
 role is a **superuser and table owner**, so it **bypasses RLS** — the ingest
 pipeline and admin tooling use it as the trusted batch writer. End-user / API
@@ -1728,3 +1870,11 @@ owner's bypass.
 | 076 | `076_reader_corpus_read.sql` | docray_readable_documents() gains the role-permission read branch (reader role sees the tenant corpus) excluding sensitivity=sensitive documents |
 | 077 | `077_schema_version_1_24_0.sql` | advance the schema SemVer to 1.24.0 |
 | 078 | `078_drop_duplicate_spans_index.sql` | drop idx_spans_document, the redundant duplicate of the spans(document_id, char_start, char_end) unique index |
+| 079 | `079_account_settings.sql` | self-service account settings and email-change request storage |
+| 080 | `080_billing.sql` | tenant Stripe billing accounts, subscription snapshots, and webhook ledger |
+| 081 | `081_schema_version_1_25_0.sql` | advance the schema SemVer to 1.25.0 |
+| 082 | `082_oauth_clients.sql` | OAuth 2.1 dynamic clients and authorization-code/PKCE state |
+| 083 | `083_billing_event_read.sql` | tenant-admin read policy for Stripe webhook payment activity |
+| 084 | `084_schema_version_1_26_0.sql` | advance the schema SemVer to 1.26.0 |
+| 085 | `085_tenant_catalog_client_select.sql` | repair client-role tenant catalogue read access for billing status |
+| 086 | `086_schema_version_1_27_0.sql` | advance the schema SemVer to 1.27.0 |

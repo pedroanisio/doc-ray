@@ -27,9 +27,9 @@ async def get_billing_status(
     """Return the billing snapshot for *tenant_id*."""
     cur = await conn.execute(
         """
-        SELECT %s::uuid AS tenant_id,
-               NULL::text AS tenant_slug,
-               NULL::text AS tenant_name,
+        SELECT t.tenant_id,
+               t.slug AS tenant_slug,
+               t.display_name AS tenant_name,
                a.stripe_customer_id,
                a.billing_email,
                s.stripe_subscription_id,
@@ -40,11 +40,15 @@ async def get_billing_status(
                s.latest_invoice_id,
                s.checkout_session_id,
                s.updated_at AS subscription_updated_at
-        FROM (SELECT %s::uuid AS tenant_id) t
+        FROM (
+            SELECT id AS tenant_id, slug, display_name
+            FROM tenants
+            WHERE id = %s::uuid
+        ) t
         LEFT JOIN tenant_billing_accounts a ON a.tenant_id = t.tenant_id
         LEFT JOIN tenant_subscriptions s ON s.tenant_id = t.tenant_id
         """,
-        (tenant_id, tenant_id),
+        (tenant_id,),
     )
     row = await cur.fetchone()
     if row is None:

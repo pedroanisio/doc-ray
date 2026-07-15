@@ -228,7 +228,7 @@ describe("BillingPage", () => {
     );
 
     expect(await screen.findByText("Current tenant")).toBeInTheDocument();
-    expect(screen.getByText("entitled")).toBeInTheDocument();
+    expect(screen.getByText("subscription active")).toBeInTheDocument();
     expect(screen.getByText("ready")).toBeInTheDocument();
     expect(screen.getByText("https://app.example.com/stripe/webhook")).toBeInTheDocument();
     expect(screen.getByText(/checkout.session.completed/)).toBeInTheDocument();
@@ -238,6 +238,39 @@ describe("BillingPage", () => {
     expect(screen.getByRole("button", { name: /subscription active/i })).toBeDisabled();
     expect(screen.getByText(/Use the Customer Portal/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /manage payment method/i })).toBeEnabled();
+  });
+
+  it("does not present disabled enforcement as a paid Stripe subscription", async () => {
+    const fetchImpl = billingFetch({
+      stripeCustomerId: null,
+      stripeSubscriptionId: null,
+      stripePriceId: null,
+      subscriptionStatus: "none",
+      currentPeriodEnd: null,
+      latestInvoiceId: null,
+      checkoutSessionId: null,
+      liveModeReady: false,
+      missingConfiguration: ["DOCRAY_BILLING_ENFORCEMENT_ENABLED=true"],
+      enforcementEnabled: false,
+      entitled: true,
+      entitlementReason: "billing enforcement is disabled",
+    });
+    const services = servicesWithFetch(fetchImpl);
+
+    render(
+      <ServicesProvider services={services}>
+        <MemoryRouter>
+          <BillingPage />
+        </MemoryRouter>
+      </ServicesProvider>,
+    );
+
+    expect(await screen.findByText("Current tenant")).toBeInTheDocument();
+    expect(screen.getByText("no subscription")).toBeInTheDocument();
+    expect(screen.getByText("No Stripe subscription has been recorded")).toBeInTheDocument();
+    expect(screen.getByText("Paid access")).toBeInTheDocument();
+    expect(screen.getByText("allowed")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /start subscription/i })).toBeEnabled();
   });
 
   it("surfaces unsafe live Stripe configuration issues", async () => {
