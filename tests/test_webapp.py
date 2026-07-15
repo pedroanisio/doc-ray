@@ -1740,7 +1740,7 @@ def test_technical_screens_link_to_contextual_help(client):
     assert 'href="/help#backups"' in backups
 
 
-def test_seeding_screen_signposts_workflow_and_confirms_seed(client):
+def test_seeding_screen_signposts_workflow_without_scare_popup(client):
     html = client.get(f"/doc/{DOC_ID}/seeding").get_data(as_text=True)
     normalized = _norm(html)
 
@@ -1748,9 +1748,42 @@ def test_seeding_screen_signposts_workflow_and_confirms_seed(client):
         "Mine candidates -> audit identities -> approve exact matches -> seed approved rows"
         in normalized
     )
+    # The workflow consequence stays as calm prose, but the operator already
+    # approved each row — no native confirm() scare popup on the seed action.
     assert "Seeded rows enter the shared canonical registry" in normalized
-    assert "confirm(" in html
-    assert "Seed approved rows permanently?" in html
+    assert "confirm(" not in html
+    assert "Seed approved rows permanently?" not in html
+
+
+def test_backups_restore_uses_styled_dialog_not_native_confirm(client, monkeypatch):
+    def backup_q(sql, params=()):
+        if "FROM backups ORDER BY created_at DESC" in _norm(sql):
+            return [
+                {
+                    "id": "backup-1",
+                    "status": "available",
+                    "created_at": datetime(2026, 7, 4, 12, 0),
+                    "table_rows": 10,
+                    "blob_count": 1,
+                    "doc_count": 1,
+                    "archive_bytes": 1048576,
+                    "note": "smoke",
+                    "error": None,
+                }
+            ]
+        return fake_q(sql, params)
+
+    monkeypatch.setattr(webapp, "q", backup_q)
+    html = client.get("/backups").get_data(as_text=True)
+
+    # No jarring native popup; an on-brand <dialog> guards the destructive op.
+    assert "confirm(" not in html
+    assert "<dialog" in html
+    assert 'class="confirm"' in html
+    assert "Restore this backup?" in html
+    assert "Restore corpus" in html
+    # The shouty copy is gone.
+    assert "ENTIRE corpus" not in html
 
 
 def test_help_glossary_defines_core_terms(client):

@@ -40,8 +40,7 @@
 {% if notice %}<div class="notice">{{ notice }}</div>{% endif %}
 {% if error %}<div class="errbox">{{ error }}</div>{% endif %}
 
-<form method="post"
-      onsubmit="if (event.submitter && event.submitter.value === 'seed') return confirm('Seed approved rows permanently? Seeded rows enter the shared canonical registry and cannot be re-decided here.'); return true;">
+<form method="post">
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
   <div class="actions">
     <button name="action" value="mine">Mine candidates</button>

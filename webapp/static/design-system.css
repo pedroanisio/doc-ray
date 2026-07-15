@@ -880,6 +880,35 @@ table.jobs td, table.seed td, .compact td {
 .chip:hover { border-color: var(--c, var(--accent)); color: var(--ink); }
 .chip.muted { opacity: .4; text-decoration: line-through; }
 
+/* Confirmation dialog — on-brand replacement for native confirm() on
+   destructive actions. Uses the native <dialog> (showModal) for a free
+   backdrop, focus trap, and Escape-to-close. */
+dialog.confirm {
+  width: min(30rem, calc(100vw - 2rem));
+  padding: var(--space-5);
+  background: var(--panel);
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-lg);
+}
+dialog.confirm::backdrop { background: rgba(10, 12, 16, .55); backdrop-filter: blur(2px); }
+dialog.confirm h2 {
+  margin: 0 0 .5rem;
+  padding: 0;
+  border: 0;
+  font-family: var(--display);
+  font-size: 1.2rem;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  text-transform: none;
+  color: var(--ink);
+}
+dialog.confirm p { margin: 0 0 var(--space-5); color: var(--ink-soft); font-size: .92rem; line-height: 1.55; }
+.confirm-actions { display: flex; justify-content: flex-end; gap: .6rem; }
+.btn-ghost { background: transparent; border-color: var(--line); color: var(--ink); box-shadow: none; }
+.btn-ghost:hover { background: var(--bg2); border-color: var(--color-neutral-400); color: var(--ink); }
+
 @media (max-width: 920px) {
   header { flex-wrap: wrap; align-items: center; min-height: 56px; padding: 0 1rem; backdrop-filter: none; }
   .brand { margin-right: auto; padding-right: 0; border-right: 0; }

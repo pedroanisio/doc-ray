@@ -61,11 +61,23 @@ snapshot; it is <strong>destructive</strong>.</p>
         <td class="rowacts">
           {% if r.status == 'available' %}
             <a href="{{ url_for('backups_download', backup_id=r.id) }}">Download</a>
-            <form method="post" action="{{ url_for('backups_restore', backup_id=r.id) }}"
-                  onsubmit="return confirm('Restore the ENTIRE corpus to this snapshot? This overwrites all current data. Continue?');"
-                  style="margin:0">
+            <form method="post" action="{{ url_for('backups_restore', backup_id=r.id) }}" style="margin:0">
               <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-              <button class="danger" type="submit">Restore</button>
+              <button class="danger" type="button"
+                      onclick="document.getElementById('restore-{{ r.id }}').showModal()">Restore</button>
+              <dialog id="restore-{{ r.id }}" class="confirm">
+                <h2>Restore this backup?</h2>
+                <p>
+                  The current corpus is replaced with this snapshot from
+                  {{ r.created_at }}. Documents and annotations added after it was
+                  taken are removed. This can't be undone.
+                </p>
+                <div class="confirm-actions">
+                  <button type="button" class="btn-ghost"
+                          onclick="this.closest('dialog').close()">Cancel</button>
+                  <button type="submit" class="danger">Restore corpus</button>
+                </div>
+              </dialog>
             </form>
           {% endif %}
         </td>
