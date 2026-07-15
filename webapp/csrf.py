@@ -25,9 +25,16 @@ def csrf_token() -> str:
     return token
 
 
+#: Endpoints whose POSTs are machine-to-machine (no browser session / CSRF
+#: cookie): the SAML IdP callback and the OAuth client-driven token/registration
+#: endpoints. These carry their own credentials (SAML assertion, PKCE, client
+#: secret) and are validated by their own routes.
+_CSRF_EXEMPT_ENDPOINTS = {"saml_callback", "oauth_register", "oauth_token"}
+
+
 def require_csrf_token():
     """Reject any state-changing request without this session's CSRF token."""
-    if request.endpoint == "saml_callback":
+    if request.endpoint in _CSRF_EXEMPT_ENDPOINTS:
         return None
     if request.method in ("POST", "PUT", "PATCH", "DELETE"):
         sent = request.form.get("csrf_token", "")

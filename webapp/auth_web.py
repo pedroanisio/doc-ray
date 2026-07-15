@@ -47,6 +47,7 @@ try:
         saml_assertion_from_response,
         saml_login_redirect,
     )
+    from webapp.login_redirect import post_login_destination
 except ModuleNotFoundError:  # pragma: no cover - direct ``python webapp/app.py`` path.
     from api_jwt import mint_forwardable_api_jwt
     from auth_config import (
@@ -63,6 +64,7 @@ except ModuleNotFoundError:  # pragma: no cover - direct ``python webapp/app.py`
         saml_assertion_from_response,
         saml_login_redirect,
     )
+    from login_redirect import post_login_destination
 
 _core: ModuleType
 _LOCAL_AUTH_SERVICE: LocalAuthService | None = None
@@ -366,7 +368,7 @@ def login_submit():
             400,
         )
     _establish_auth_session(principal)
-    return redirect(url_for("documents"))
+    return redirect(post_login_destination())
 
 
 def register_form():
@@ -444,7 +446,7 @@ def verify_email_form():
     _establish_auth_session(principal)
     session.pop("pending_verification_email", None)
     session.pop("pending_verification_token", None)
-    return redirect(url_for("documents"))
+    return redirect(post_login_destination())
 
 
 def resend_verification():
@@ -487,7 +489,7 @@ def oidc_callback():
     except ValueError as exc:
         abort(401, str(exc))
     _establish_auth_session(principal)
-    return redirect(url_for("documents"))
+    return redirect(post_login_destination())
 
 
 def saml_callback():
@@ -501,7 +503,7 @@ def saml_callback():
     except ValueError as exc:
         abort(401, str(exc))
     _establish_auth_session(principal)
-    return redirect(url_for("documents"))
+    return redirect(post_login_destination())
 
 
 def logout():

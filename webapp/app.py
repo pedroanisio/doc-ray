@@ -42,6 +42,7 @@ try:
         collections_web,
         corpus_web,
         document_web,
+        oauth_web,
         overlay_web,
     )
     from webapp.auth_session import (
@@ -64,6 +65,7 @@ except ModuleNotFoundError:  # pragma: no cover - direct ``python webapp/app.py`
     import collections_web
     import corpus_web
     import document_web
+    import oauth_web
     import overlay_web
     from auth_session import (
         AuthenticatedWebPrincipal as AuthenticatedWebPrincipal,
@@ -413,6 +415,7 @@ document_web.register(app, _SELF)
 collections_web.register(app, _SELF)
 admin_web.register(app, _SELF)
 account_web.register(app, _SELF)
+oauth_web.register(app, _SELF)
 
 # Per-principal UI preferences, read by the corpus/reader routes and the theme
 # context processor; late-bound like the other cross-module helpers.

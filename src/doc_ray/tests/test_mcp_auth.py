@@ -87,7 +87,9 @@ async def test_no_token_is_401_when_anonymous_disabled():
 
     resp = await mw.dispatch(_req({}), call_next)
     assert resp.status_code == 401
-    assert resp.headers["www-authenticate"] == "Bearer"
+    # A Bearer challenge; it also carries RFC 9728 resource_metadata when the
+    # public base URL is configured (the OAuth discovery entry point).
+    assert resp.headers["www-authenticate"].startswith("Bearer")
 
 
 @pytest.mark.asyncio

@@ -10,6 +10,8 @@ path mirror ``HeaderTokenAuthenticator``.
 
 from __future__ import annotations
 
+import os
+
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
@@ -18,6 +20,21 @@ from starlette.types import ASGIApp
 from doc_ray.config import Config
 from doc_ray.entrypoints.api.security import verify_access_jwt
 from doc_ray.entrypoints.mcp.corpus import caller_token
+
+
+def _www_authenticate_challenge() -> str:
+    """Build the RFC 9728 ``WWW-Authenticate`` value pointing at RS metadata.
+
+    Directs an OAuth-capable client (e.g. Claude Desktop) to the Protected
+    Resource Metadata document, which names the authorization server — turning a
+    bare 401 into the start of the OAuth 2.1 sign-in flow.
+    """
+    url = os.environ.get("DOCRAY_MCP_RESOURCE_METADATA_URL", "").strip()
+    if not url:
+        base = os.environ.get("DOCRAY_PUBLIC_BASE_URL", "").strip().rstrip("/")
+        if base:
+            url = f"{base}/.well-known/oauth-protected-resource"
+    return f'Bearer resource_metadata="{url}"' if url else "Bearer"
 
 
 def _extract_bearer(request: Request) -> str | None:
@@ -63,10 +80,14 @@ class BearerAuthMiddleware(BaseHTTPMiddleware):
                 return JSONResponse(
                     {"error": "authentication required"},
                     status_code=401,
-                    headers={"WWW-Authenticate": "Bearer"},
+                    headers={"WWW-Authenticate": _www_authenticate_challenge()},
                 )
         elif not self._valid(token):
-            return JSONResponse({"error": "invalid token"}, status_code=401)
+            return JSONResponse(
+                {"error": "invalid token"},
+                status_code=401,
+                headers={"WWW-Authenticate": _www_authenticate_challenge()},
+            )
         reset = caller_token.set(token or "")
         try:
             return await call_next(request)

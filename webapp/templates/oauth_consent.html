@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block title %}Authorize access · doc·ray{% endblock %}
+{% block body %}
+<section class="page-head">
+  <p class="eyebrow">Connect</p>
+  <h1>Authorize access</h1>
+</section>
+
+<section class="auth-panel">
+  <p class="lede" style="margin-top:0">
+    <b>{{ req.client_name or "An application" }}</b> wants to connect to your doc·ray corpus.
+  </p>
+  <dl class="kv">
+    <dt>Signed in as</dt><dd>{{ subject }}</dd>
+    <dt>Access</dt>
+    <dd>{% for s in scopes %}<span class="pill">{{ s }}</span> {% endfor %}<span class="hint" style="margin:0">read-only</span></dd>
+    <dt>Returns to</dt><dd class="mono" style="overflow-wrap:anywhere; font-size:.78rem">{{ req.redirect_uri }}</dd>
+  </dl>
+  <p class="hint">
+    Approving lets this application read the documents, entities, and search results
+    you can already see — scoped by your permissions. It cannot write to your library,
+    and you can revoke access at any time.
+  </p>
+  <form method="post" action="{{ url_for('oauth_authorize_submit') }}" class="stack">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    {% for key, value in passthrough.items() %}
+      <input type="hidden" name="{{ key }}" value="{{ value }}">
+    {% endfor %}
+    <div style="display:flex; gap:.6rem; margin-top:.3rem">
+      <button type="submit" name="decision" value="approve">Approve</button>
+      <button type="submit" name="decision" value="deny" class="btn-ghost">Deny</button>
+    </div>
+  </form>
+</section>
+{% endblock %}
