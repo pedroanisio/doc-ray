@@ -19,13 +19,31 @@ Exposes the doc-ray corpus to agentic AI over the **Model Context Protocol
 (MCP)**, authenticating each caller to a doc-ray principal so Postgres RLS scopes
 what they can read.
 
-**Status:** the read-only v1 server is **implemented and tested** — Phases 1–2
-below, landed in commit `7cd2c4a` ([`entrypoints/mcp/`](../src/doc_ray/entrypoints/mcp/),
-`test_mcp_{corpus,auth,server}.py` green) and deployable via
-[`docker-compose.mcp.yml`](../docker-compose.mcp.yml). Sections marked **DONE**
-are as-built; unchecked items are roadmap. The only v1 step still open is the
-manual end-to-end smoke test with a live MCP client (Phase 2); Phases 3–4
-(TLS/ops, OAuth 2.1, write tools, gRPC) remain planned.
+**Status: live in production and verified end-to-end.** The read-only server
+(now **9 tools** — 6 corpus readers + 3 composition-grounding tools from
+`entrypoints/mcp/compose.py`) is deployed via `make mcp-up`, routed at
+`https://doc-ray.com/mcp` behind the Cloudflare tunnel, and confirmed with a real
+MCP client (initialize → tools/list → RLS-scoped tools/call). The **OAuth 2.1
+Authorization Server** (originally Phase 4) shipped in commit `93c0e99`
+(`application/oauth_server.py`, `webapp/oauth_web.py`, migration
+`082_oauth_clients.sql`), so a connector like Claude Desktop obtains a token via
+Dynamic Client Registration + PKCE with no pre-shared secret. Sections marked
+**DONE** are as-built; unchecked items are roadmap. Remaining: Phase-3 ops polish
+(`/health`/`/readyz`) and Phase-4 write tools / optional gRPC.
+
+**Deploying it (as-built).** `make mcp-up` layers `docker-compose.mcp.yml` on the
+managed stack; the `mcp` service front-ends `api:8000/graphql`, loopback-bound on
+`:8080`, auth-enforced. Two production gotchas that were load-bearing:
+1. **Cloudflare route ordering.** The tunnel matches published-application routes
+   top-to-bottom, first match wins. The `doc-ray.com /mcp → http://mcp:8080` rule
+   must sit **above** the `doc-ray.com * → webapp:5001` catch-all, or `/mcp` is
+   shadowed and 302-redirects to the webapp login.
+2. **DNS-rebind host allow-listing.** The MCP SDK rejects any `Host` other than
+   localhost with **HTTP 421 "Invalid Host header"**. Set `DOCRAY_PUBLIC_BASE_URL`
+   (or `DOCRAY_MCP_ALLOWED_HOSTS`) on the `mcp` service so `server.py` allow-lists
+   the public host; without it the connector authenticates but every call 421s.
+3. **Apply migrations first.** DCR 500s on a missing `oauth_clients` table if
+   `082` was not applied — see `production-setup.md`'s migration-verification note.
 
 ---
 
@@ -65,9 +83,13 @@ Splitting the substance (`corpus.py` + `auth.py`) away from the SDK glue
 (`server.py`) means the tools and auth are testable and committable **without** the
 new dependency; only `server.py` needs `mcp`.
 
-## 3. Tool inventory (v1, read-only)
+## 3. Tool inventory (read-only — 9 tools as-built)
 
-Each maps to one GraphQL read field ([query.py](../src/doc_ray/entrypoints/api/query.py)):
+The 6 corpus readers below each map to one GraphQL read field
+([query.py](../src/doc_ray/entrypoints/api/query.py)); a further **3
+composition-grounding tools** (`briefing_pack`, `document_evidence`,
+`entity_dossier`) shipped in [`entrypoints/mcp/compose.py`](../src/doc_ray/entrypoints/mcp/compose.py)
+for cited-briefing workflows — see that module for their signatures.
 
 | MCP tool | GraphQL field | Notes |
 |---|---|---|
@@ -128,9 +150,11 @@ deferred to Phase 4 behind the `write` scope.
 - **Acceptance:** MCP service reachable only via the TLS front; ops runbook section added.
 
 ### Phase 4 — v2 (post-first-version, optional)  ·  size: L
-- [ ] **MCP OAuth 2.1** — server as an OAuth *resource server* (metadata discovery +
-      dynamic client registration) via FastMCP `TokenVerifier`/`AuthSettings`, so
-      third-party clients do a standards login instead of pre-provisioned tokens.
+- [x] **MCP OAuth 2.1 — DONE** (commit `93c0e99`). Shipped as a full OAuth 2.1
+      **Authorization Server** (not just a resource server): RFC 7591 Dynamic Client
+      Registration → `/authorize` (browser login + consent, PKCE S256) → `/token`
+      (authorization_code + PKCE), reusing the existing RLS-bound access JWTs.
+      See `application/oauth_server.py`, `webapp/oauth_web.py`, migration `082`.
 - [ ] **Write tools** behind the `write` scope (ingest, tag, collections).
 - [ ] **gRPC gateway** (if required) — a separate service exposing the same
       `corpus.py` tool functions to gRPC clients; reuses the passthrough unchanged.
@@ -162,12 +186,13 @@ deferred to Phase 4 behind the `write` scope.
 ## 8. Decisions (resolved for v1)
 1. **Dependency** — `mcp==1.28.*` added (pinned to the stable v1 FastMCP line; v2.x is beta).
 2. **Transport** — Streamable HTTP MCP; a separate gRPC gateway remains a Phase-4 option, not built.
-3. **Scope** — read-only v1 (the 6 tools above); write tools deferred to Phase 4.
-4. **Auth model** — forward the caller's bearer token / access JWT (v1); OAuth 2.1 resource server deferred to Phase 4.
+3. **Scope** — read-only (6 corpus readers in v1; 3 composition-grounding tools added since — §3); write tools still deferred to Phase 4.
+4. **Auth model** — forward the caller's bearer token / access JWT (v1); **OAuth 2.1 now shipped** as a full Authorization Server (DCR + PKCE), not merely a resource server (see the Status header and Phase 4).
 5. **Placement** — dev co-locates with `api`; prod runs standalone against the public API. Both wired.
 
 ## 9. Sequencing
-Phase 0 (decide) → Phase 1 (core, no dep) → Phase 2 (dep + server + smoke test)
-→ Phase 3 (TLS/ops) → Phase 4 (OAuth/writes/gRPC, later). **Phases 0–2 are
-complete** (bar the manual smoke test); the next actionable work is Phase 3
-(TLS front door, per-agent token minting, `/health`+`/readyz`).
+Phase 0 (decide) → Phase 1 (core) → Phase 2 (dep + server + smoke test) → Phase 3
+(TLS/ops) → Phase 4 (OAuth/writes/gRPC). **Phases 0–2 are complete and the smoke
+test passed live**; **Phase-4 OAuth 2.1 shipped early** (it was the connector
+blocker). The next actionable work is Phase 3 ops polish (`/health`+`/readyz`,
+per-agent token minting) and the remaining Phase-4 write tools.

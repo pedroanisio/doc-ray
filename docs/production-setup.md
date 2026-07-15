@@ -239,9 +239,23 @@ Postgres/MinIO out** (parked on a never-enabled `local-infra` profile), so a bar
 `up` can never start a stray local database.
 
 ```bash
-make prod-migrate     # docker compose --env-file .env.prod ... run --rm migrate
-make prod-migrate     # re-run should report "0 applied"
+make prod-migrate         # via the migrate container
+make prod-migrate-host    # AUTHORITATIVE: applies from the repo working tree
 ```
+
+> ⚠ **Verify migrations actually applied — do not trust "0 applied" alone.**
+> `make prod-migrate` (the container path) has been observed to report
+> **`0 applied` while migrations were still pending**, so code ships without its
+> schema and features break at runtime (e.g. OAuth/DCR 500 on a missing
+> `oauth_clients` table). Always finish with **`make prod-migrate-host`** (runs the
+> migrator from the repo working tree) and confirm the contract version matches the
+> code before declaring the deploy done:
+> ```bash
+> # both must equal src/doc_ray/__init__.py __version__
+> psql "$DATABASE_URL" -c "SELECT docray_schema_version();"
+> ```
+> A schema version behind the code = migrations did **not** apply, regardless of
+> what the container path printed.
 
 Then load the corpus by whichever fits:
 - **Fresh ingest from Spaces** — idempotent, content-addressed

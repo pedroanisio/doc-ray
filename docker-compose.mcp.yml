@@ -46,7 +46,14 @@ services:
       # External agentic surface: require a token by default even if the API
       # allows anonymous. Set DOCRAY_MCP_ALLOW_ANONYMOUS=true only for local dev.
       DOCRAY_API_ALLOW_ANONYMOUS: ${DOCRAY_MCP_ALLOW_ANONYMOUS:-false}
-    command:
+      # Public host(s) to accept behind the tunnel — else the MCP SDK's
+      # localhost-only DNS-rebind guard 421s "Invalid Host header: doc-ray.com".
+      # Sourced from DOCRAY_PUBLIC_BASE_URL's host; add extras via DOCRAY_MCP_ALLOWED_HOSTS.
+      DOCRAY_PUBLIC_BASE_URL: ${DOCRAY_PUBLIC_BASE_URL:-}
+      DOCRAY_MCP_ALLOWED_HOSTS: ${DOCRAY_MCP_ALLOWED_HOSTS:-}
+    # Override the image ENTRYPOINT (the `ingest` CLI); `command:` alone would be
+    # passed as args to ingest ("unrecognized arguments") instead of running uvicorn.
+    entrypoint:
       ["uvicorn", "doc_ray.entrypoints.mcp.server:app", "--host", "0.0.0.0", "--port", "8080"]
     ports:
       - "${MCP_PORT:-8080}:8080"

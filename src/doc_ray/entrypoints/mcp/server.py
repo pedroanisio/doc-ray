@@ -14,17 +14,58 @@ Run it with any ASGI server, e.g.::
 
 from __future__ import annotations
 
+import os
+from urllib.parse import urlparse
+
 from mcp.server.fastmcp import FastMCP
+from mcp.server.transport_security import TransportSecuritySettings
 from starlette.applications import Starlette
 
 from doc_ray.config import Config
 from doc_ray.entrypoints.mcp import compose, corpus
 from doc_ray.entrypoints.mcp.auth import BearerAuthMiddleware
 
+#: Loopback patterns the SDK trusts by default — kept so local dev still works.
+_LOCAL_HOSTS = ["127.0.0.1:*", "localhost:*", "[::1]:*"]
+_LOCAL_ORIGINS = ["http://127.0.0.1:*", "http://localhost:*", "http://[::1]:*"]
+
+
+def _public_hosts() -> list[str]:
+    """Public ``Host`` values to accept (``DOCRAY_MCP_ALLOWED_HOSTS`` + ``DOCRAY_PUBLIC_BASE_URL``).
+
+    Behind the Cloudflare tunnel the request arrives with the public host (e.g.
+    ``doc-ray.com``), which the SDK's localhost-only DNS-rebind default rejects
+    with HTTP 421 ("Invalid Host header"). This surfaces the deployed host(s) so
+    they can be allow-listed without disabling the protection.
+    """
+    hosts = [
+        h.strip() for h in os.environ.get("DOCRAY_MCP_ALLOWED_HOSTS", "").split(",") if h.strip()
+    ]
+    base = os.environ.get("DOCRAY_PUBLIC_BASE_URL", "").strip()
+    if base and (netloc := urlparse(base).netloc):
+        hosts.append(netloc)
+    return hosts
+
+
+def _transport_security() -> TransportSecuritySettings | None:
+    """DNS-rebind settings allowing the public host(s); ``None`` keeps the SDK localhost default."""
+    hosts = _public_hosts()
+    if not hosts:
+        return None
+    allowed_hosts = list(_LOCAL_HOSTS)
+    allowed_origins = list(_LOCAL_ORIGINS)
+    for host in hosts:
+        allowed_hosts += [host, f"{host}:*"]
+        allowed_origins += [f"https://{host}", f"https://{host}:*"]
+    return TransportSecuritySettings(allowed_hosts=allowed_hosts, allowed_origins=allowed_origins)
+
 
 def build_server() -> FastMCP:
     """Create a FastMCP server with the corpus read + composition-grounding tools."""
     mcp = FastMCP("doc-ray")
+    if (security := _transport_security()) is not None:
+        # Accept the public Host behind the tunnel — the localhost-only default 421s.
+        mcp.settings.transport_security = security
     for tool in (*corpus.TOOLS, *compose.TOOLS):
         mcp.tool()(tool)
     return mcp

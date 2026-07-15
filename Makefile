@@ -26,9 +26,15 @@ COMPOSE_ADMIN := docker compose --env-file .env.prod -f admin-console/docker-com
 # without --remove-orphans).
 COMPOSE_PROD_OLLAMA := $(COMPOSE_PROD) -f docker-compose.ollama.yml -f docker-compose.ollama.gpu.yml
 
+# MCP connector server overlay on top of the managed+ollama stack. The `mcp`
+# service front-ends the in-network API (api:8000) and is loopback-bound on
+# :8080; a Cloudflare public-hostname rule routes doc-ray.com/mcp -> mcp:8080.
+COMPOSE_PROD_MCP := $(COMPOSE_PROD_OLLAMA) -f docker-compose.mcp.yml
+
 .PHONY: help check check-static db-dump truncate-db workers-up workers-status \
-        prod-migrate prod-up prod-web prod-admin-console-up prod-admin-console-down \
-        prod-tunnel prod-down gpu-up prod-ollama-up prod-refresh-ui prod-restart-ui pgadmin-up
+        prod-migrate prod-migrate-host prod-up prod-web prod-admin-console-up \
+        prod-admin-console-down prod-tunnel prod-down gpu-up prod-ollama-up \
+        prod-refresh-ui prod-restart-ui mcp-up pgadmin-up
 
 help: ## List available tasks
 	@grep -E '^[a-z][a-zA-Z_-]*:.*## ' $(MAKEFILE_LIST) | awk -F ':.*## ' '{printf "  %-17s %s\n", $$1, $$2}'
@@ -71,8 +77,11 @@ workers-up: ## Start/reconcile the worker pool (DOCRAY_WORKERS=3 by default)
 workers-status: ## Show worker replica status
 	docker compose ps worker
 
-prod-migrate: ## Apply migrations to the MANAGED cluster (needs managed .env)
+prod-migrate: ## Apply migrations to the MANAGED cluster via the migrate container (needs managed .env)
 	$(COMPOSE_PROD) run --rm migrate
+
+prod-migrate-host: ## Apply migrations to the MANAGED cluster from the REPO working tree (reliable; use when the container path reports "0 applied" against a schema that is actually behind)
+	DATABASE_URL="$$(grep -E '^DATABASE_URL=' .env.prod | cut -d= -f2-)" PYTHONPATH=src $(PYTHON) -m doc_ray.entrypoints.migrate
 
 prod-up: prod-migrate ## Migrate, then start the managed stack (api + webapp + workers + backups)
 	$(COMPOSE_PROD) up -d --build api webapp worker worker-fast backup-scheduler
@@ -110,6 +119,10 @@ prod-refresh-ui: ## Rebuild + recreate api + webapp to refresh the UI (templates
 
 prod-restart-ui: ## Restart api + webapp WITHOUT rebuilding (bounce the running images; use prod-refresh-ui to pick up code changes)
 	$(COMPOSE_PROD_OLLAMA) restart api webapp
+
+mcp-up: ## Start the MCP connector server (loopback :8080) on the managed stack — then route doc-ray.com/mcp -> http://mcp:8080 in the Cloudflare tunnel (token tunnel = dashboard step)
+	$(COMPOSE_PROD_MCP) up -d --build mcp
+	@echo "MCP server up on 127.0.0.1:$${MCP_PORT:-8080}. Public /mcp still needs a Cloudflare public-hostname rule: path /mcp -> http://mcp:8080 (or a dedicated subdomain)."
 
 pgadmin-up: ## Start the loopback-only pgAdmin GUI (tunnel to 127.0.0.1:5050)
 	docker compose -f docker-compose.pgadmin.yml up -d pgadmin
