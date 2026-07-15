@@ -187,9 +187,14 @@ DOCRAY_WEBAPP_SECRET_KEY=<openssl rand -hex 32>   # REQUIRED: signs session/CSRF
 DOCRAY_WEBAPP_SESSION_COOKIE_SECURE=true
 DOCRAY_PUBLIC_BASE_URL=https://doc-ray.com        # verification-email links
 
-# SMTP — required for registration (else /auth/register fail-closes 503)
-DOCRAY_SMTP_HOST=
-DOCRAY_SMTP_FROM=noreply@doc-ray.com
+# SMTP — required for registration (else /auth/register fail-closes 503).
+# The mailer speaks STARTTLS only (no implicit-TLS/465). Example below: SMTP2GO.
+DOCRAY_SMTP_HOST=mail.smtp2go.com     # region variants: mail-us / mail-eu / mail-au .smtp2go.com
+DOCRAY_SMTP_PORT=587                  # STARTTLS port; fallbacks 2525 / 8025. Never 465/8465.
+DOCRAY_SMTP_STARTTLS=true
+DOCRAY_SMTP_FROM=noreply@doc-ray.com  # must be a sender/domain the relay has verified
+DOCRAY_SMTP_USERNAME=<relay SMTP user>      # SMTP2GO: Sending → SMTP Users (not your account login)
+DOCRAY_SMTP_PASSWORD=<relay SMTP password>
 
 # Cloudflare Tunnel (Step 6)
 CLOUDFLARE_TUNNEL_TOKEN=
@@ -204,6 +209,27 @@ Notes:
   restart silently invalidates all logins.
 - `S3_ENDPOINT` is `https://`, so `S3_ALLOW_INSECURE_ENDPOINT=0` (that flag is
   only for local plaintext MinIO).
+- **Registration email (SMTP).** Self-service registration fail-closes **503**
+  until **both** `DOCRAY_SMTP_HOST` and `DOCRAY_PUBLIC_BASE_URL` are set — the raw
+  verification token is discarded after the request, so with no delivery path the
+  address would be stranded (the `/auth/register` handler in
+  [`auth_routes.py`](../src/doc_ray/entrypoints/api/auth_routes.py)).
+  The stdlib adapter
+  ([`mailer_smtp.py`](../src/doc_ray/adapters/mailer_smtp.py)) speaks **STARTTLS
+  only** — it has no implicit-TLS path, so use a STARTTLS port (587, or 2525/8025
+  if 587 egress is blocked), **never** 465/8465. `DOCRAY_SMTP_USERNAME` +
+  `DOCRAY_SMTP_PASSWORD` together enable AUTH; `DOCRAY_SMTP_FROM` must be a sender
+  the relay has verified, or the message is rejected and registration returns
+  **202** with `verification_email_sent:false` (logged as `verification email
+  delivery failed`). Confirm the relay from inside the container before trusting
+  the flow — this surfaces the real error instead of the swallowed `false`:
+  ```bash
+  docker compose --env-file .env.prod exec api python - <<'PY'
+  from doc_ray.adapters.mailer_smtp import SmtpMailer
+  m = SmtpMailer.from_env()            # None ⇒ DOCRAY_SMTP_HOST is unset/blank
+  m.send(to="you@example.com", subject="doc-ray smtp test", body="ok")
+  PY
+  ```
 
 ## Step 4 — Apply the schema
 
