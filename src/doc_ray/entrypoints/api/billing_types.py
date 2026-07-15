@@ -86,6 +86,8 @@ class BillingEvent:
     amount_due: int | None
     amount_total: int | None
     currency: str | None
+    hosted_invoice_url: str | None
+    invoice_pdf: str | None
 
     @classmethod
     def from_row(cls, row: dict[str, Any]) -> BillingEvent:
@@ -105,6 +107,8 @@ class BillingEvent:
             amount_due=row.get("amount_due"),
             amount_total=row.get("amount_total"),
             currency=row.get("currency"),
+            hosted_invoice_url=row.get("hosted_invoice_url"),
+            invoice_pdf=row.get("invoice_pdf"),
         )
 
 

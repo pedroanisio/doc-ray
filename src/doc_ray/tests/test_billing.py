@@ -571,6 +571,85 @@ def test_billing_graphql_mutations_create_checkout_and_portal_sessions(pg, monke
         conn.execute("DELETE FROM tenant_billing_accounts WHERE tenant_id = %s", (tenant_id,))
 
 
+def test_checkout_session_prefills_local_admin_billing_email(pg, monkeypatch):
+    conn, _created = pg
+    tenant_id = _apply_billing_migration(conn)
+    stripe_calls: list[tuple[str, dict[str, str], str | None]] = []
+
+    async def fake_stripe_post(
+        self: billing.StripeRestTransport,
+        path: str,
+        form: dict[str, str],
+        *,
+        idempotency_key: str | None = None,
+    ) -> dict[str, Any]:
+        stripe_calls.append((path, form, idempotency_key))
+        if path == "/customers":
+            return {"id": "cus_local_admin_1"}
+        if path == "/checkout/sessions":
+            return {"id": "cs_local_admin_1", "url": "https://checkout.stripe.test/local"}
+        raise AssertionError(f"unexpected Stripe path {path}")
+
+    monkeypatch.setattr(billing.StripeRestTransport, "_post", fake_stripe_post)
+    schema = build_schema()
+    local_principal = replace(
+        WRITE_PRINCIPAL,
+        subject="local:Billing.Admin@Example.COM",
+    )
+
+    async def check() -> None:
+        aconn = await _aconn_as(WRITE_PRINCIPAL.principal_id)
+        try:
+            ctx = RequestContext(
+                conn=aconn,
+                principal=local_principal,
+                loaders=Loaders(aconn),
+                settings=_cfg(),
+            )
+            result = await schema.execute(
+                """
+                mutation {
+                  createBillingCheckoutSession {
+                    url
+                  }
+                }
+                """,
+                context_value=ctx,
+            )
+            assert result.errors is None, result.errors
+            assert result.data["createBillingCheckoutSession"]["url"] == (
+                "https://checkout.stripe.test/local"
+            )
+        finally:
+            await aconn.close()
+
+    try:
+        asyncio.run(check())
+        assert stripe_calls[0] == (
+            "/customers",
+            {
+                "name": f"doc-ray tenant {tenant_id}",
+                "email": "billing.admin@example.com",
+                "metadata[tenant_id]": tenant_id,
+            },
+            f"docray.customer.{tenant_id}",
+        )
+        account = conn.execute(
+            """
+            SELECT stripe_customer_id, billing_email, created_by_principal_id
+            FROM tenant_billing_accounts
+            WHERE tenant_id = %s
+            """,
+            (tenant_id,),
+        ).fetchone()
+        assert account["stripe_customer_id"] == "cus_local_admin_1"
+        assert account["billing_email"] == "billing.admin@example.com"
+        assert str(account["created_by_principal_id"]) == WRITE_PRINCIPAL.principal_id
+    finally:
+        conn.execute("DELETE FROM tenant_subscriptions WHERE tenant_id = %s", (tenant_id,))
+        conn.execute("DELETE FROM tenant_billing_accounts WHERE tenant_id = %s", (tenant_id,))
+
+
 def test_billing_console_queries_allow_read_scoped_admin(pg):
     conn, _created = pg
     tenant_id = _apply_billing_migration(conn)
@@ -1841,6 +1920,98 @@ def test_paid_invoice_for_known_customer_retries_until_subscription_snapshot_exi
         )
 
 
+def test_failed_invoice_for_known_customer_retries_until_subscription_snapshot_exists(pg):
+    conn, _created = pg
+    tenant_id = _apply_billing_migration(conn)
+    conn.execute(
+        """
+        INSERT INTO tenant_billing_accounts
+            (tenant_id, stripe_customer_id, billing_email, created_by_principal_id)
+        VALUES (%s, 'cus_failed_before_subscription', 'known-failed@example.com', %s)
+        ON CONFLICT (tenant_id) DO UPDATE
+        SET stripe_customer_id = EXCLUDED.stripe_customer_id,
+            billing_email = EXCLUDED.billing_email
+        """,
+        (tenant_id, WRITE_PRINCIPAL.principal_id),
+    )
+    invoice_event = {
+        "id": "evt_invoice_failed_customer_before_subscription_1",
+        "type": "invoice.payment_failed",
+        "livemode": False,
+        "data": {
+            "object": {
+                "id": "in_failed_before_subscription",
+                "customer": "cus_failed_before_subscription",
+                "subscription": "sub_failed_before_subscription",
+                "status": "open",
+            }
+        },
+    }
+    subscription_event = {
+        "id": "evt_sub_failed_customer_after_invoice_1",
+        "type": "customer.subscription.created",
+        "livemode": False,
+        "data": {
+            "object": {
+                "id": "sub_failed_before_subscription",
+                "customer": "cus_failed_before_subscription",
+                "status": "active",
+                "current_period_end": int(time.time()),
+                "cancel_at_period_end": False,
+                "latest_invoice": "in_prior_active",
+                "items": {"data": [{"price": {"id": "price_test_monthly"}}]},
+                "metadata": {"tenant_id": tenant_id},
+            }
+        },
+    }
+
+    async def process() -> None:
+        aconn = await _aconn_as(None)
+        try:
+            await aconn.execute("RESET ROLE")
+            try:
+                await billing.process_webhook_event(aconn, invoice_event)
+            except billing.WebhookProcessingPending as exc:
+                assert "retry" in str(exc).lower()
+            else:  # pragma: no cover - defensive
+                raise AssertionError("failed invoice with no subscription snapshot was processed")
+            assert await billing.process_webhook_event(aconn, subscription_event) is True
+            assert await billing.process_webhook_event(aconn, invoice_event) is True
+            assert await billing.process_webhook_event(aconn, invoice_event) is False
+        finally:
+            await aconn.close()
+
+    try:
+        asyncio.run(process())
+        row = conn.execute(
+            """
+            SELECT status, latest_invoice_id, last_stripe_event_id
+            FROM tenant_subscriptions
+            WHERE tenant_id = %s
+            """,
+            (tenant_id,),
+        ).fetchone()
+        assert row["status"] == "past_due"
+        assert row["latest_invoice_id"] == "in_failed_before_subscription"
+        assert row["last_stripe_event_id"] == "evt_invoice_failed_customer_before_subscription_1"
+        invoice_row = conn.execute(
+            """
+            SELECT processed_at IS NOT NULL AS processed
+            FROM stripe_webhook_events
+            WHERE stripe_event_id = 'evt_invoice_failed_customer_before_subscription_1'
+            """
+        ).fetchone()
+        assert invoice_row["processed"] is True
+    finally:
+        conn.execute("DELETE FROM tenant_subscriptions WHERE tenant_id = %s", (tenant_id,))
+        conn.execute("DELETE FROM tenant_billing_accounts WHERE tenant_id = %s", (tenant_id,))
+        conn.execute(
+            "DELETE FROM stripe_webhook_events WHERE stripe_event_id IN "
+            "('evt_invoice_failed_customer_before_subscription_1', "
+            "'evt_sub_failed_customer_after_invoice_1')"
+        )
+
+
 def test_paid_invoice_restores_past_due_billing_entitlement(pg):
     conn, _created = pg
     tenant_id = _apply_billing_migration(conn)
@@ -2179,6 +2350,8 @@ def test_process_webhook_events_are_idempotent_and_update_subscription(pg):
                 "amount_paid": 4900,
                 "amount_due": 0,
                 "currency": "usd",
+                "hosted_invoice_url": "https://invoice.stripe.test/in_test_1",
+                "invoice_pdf": "https://invoice.stripe.test/in_test_1.pdf",
             }
         },
     }
@@ -2233,6 +2406,8 @@ def test_process_webhook_events_are_idempotent_and_update_subscription(pg):
                     amountDue
                     amountTotal
                     currency
+                    hostedInvoiceUrl
+                    invoicePdf
                     processedAt
                     livemode
                   }
@@ -2256,6 +2431,12 @@ def test_process_webhook_events_are_idempotent_and_update_subscription(pg):
             assert events["evt_invoice_1"]["amountDue"] == 0
             assert events["evt_invoice_1"]["amountTotal"] is None
             assert events["evt_invoice_1"]["currency"] == "usd"
+            assert events["evt_invoice_1"]["hostedInvoiceUrl"] == (
+                "https://invoice.stripe.test/in_test_1"
+            )
+            assert events["evt_invoice_1"]["invoicePdf"] == (
+                "https://invoice.stripe.test/in_test_1.pdf"
+            )
             assert events["evt_invoice_1"]["processedAt"] is not None
             assert events["evt_invoice_1"]["livemode"] is False
         finally:

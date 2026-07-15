@@ -83,6 +83,8 @@ class Mutation(CollectionMutations):
             settings,
             success_url=success_url,
             cancel_url=cancel_url,
+            billing_email=billing.billing_email_from_principal_subject(ctx.principal.subject),
+            created_by_principal_id=ctx.principal.principal_id,
         )
         await _audit_mutation_event(
             ctx,

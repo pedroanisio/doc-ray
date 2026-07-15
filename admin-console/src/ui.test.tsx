@@ -194,6 +194,8 @@ describe("BillingPage", () => {
                 amountDue: 0,
                 amountTotal: null,
                 currency: "usd",
+                hostedInvoiceUrl: "https://invoice.stripe.test/in_123",
+                invoicePdf: "https://invoice.stripe.test/in_123.pdf",
               },
               {
                 stripeEventId: "evt_invoice_failed_1",
@@ -210,13 +212,15 @@ describe("BillingPage", () => {
                 amountDue: 6500,
                 amountTotal: 6500,
                 currency: "usd",
+                hostedInvoiceUrl: "https://invoice.stripe.test/in_failed_123",
+                invoicePdf: null,
               },
               {
                 stripeEventId: "evt_invoice_pending_1",
                 eventType: "invoice.paid",
                 livemode: false,
                 processedAt: null,
-                createdAt: "2026-07-15T12:00:00Z",
+                createdAt: "2026-07-16T12:00:00Z",
                 objectId: "in_pending_123",
                 customerId: "cus_123",
                 subscriptionId: "sub_123",
@@ -226,6 +230,8 @@ describe("BillingPage", () => {
                 amountDue: 0,
                 amountTotal: null,
                 currency: "usd",
+                hostedInvoiceUrl: null,
+                invoicePdf: null,
               },
             ],
           },
@@ -298,12 +304,26 @@ describe("BillingPage", () => {
       "Event",
       "Status",
       "Amount",
+      "Invoice",
       "Object",
       "Subscription",
+      "Received",
       "Processed",
     ]);
     expect(screen.getByText("$49.00")).toBeInTheDocument();
     expect(screen.getByText("$65.00")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /open hosted invoice for in_123/i })).toHaveAttribute(
+      "href",
+      "https://invoice.stripe.test/in_123",
+    );
+    expect(screen.getByRole("link", { name: /open invoice pdf for in_123/i })).toHaveAttribute(
+      "href",
+      "https://invoice.stripe.test/in_123.pdf",
+    );
+    expect(
+      screen.getByRole("link", { name: /open hosted invoice for in_failed_123/i }),
+    ).toHaveAttribute("href", "https://invoice.stripe.test/in_failed_123");
+    expect(screen.getByText(/Jul 16, 2026/)).toBeInTheDocument();
     expect(screen.getByText("not processed")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /subscription active/i })).toBeDisabled();
     expect(screen.getByText(/Use the Customer Portal/)).toBeInTheDocument();

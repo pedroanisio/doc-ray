@@ -529,6 +529,8 @@ async def create_checkout_session(
     *,
     success_url: str | None = None,
     cancel_url: str | None = None,
+    billing_email: str | None = None,
+    created_by_principal_id: str | None = None,
     transport: StripeTransport | None = None,
 ) -> str:
     """Create a Stripe subscription Checkout Session for the current tenant."""
@@ -547,10 +549,11 @@ async def create_checkout_session(
         )
     account = await billing_store.get_billing_account(conn, tenant_id)
     customer_id = account.get("stripe_customer_id") if account else None
+    normalized_billing_email = _normalize_billing_email(billing_email)
     if not customer_id:
         customer = await stripe.create_customer(
             name=f"doc-ray tenant {tenant_id}",
-            email=None,
+            email=normalized_billing_email,
             metadata={"tenant_id": tenant_id},
             idempotency_key=f"docray.customer.{tenant_id}",
         )
@@ -559,8 +562,8 @@ async def create_checkout_session(
             conn,
             tenant_id=tenant_id,
             stripe_customer_id=customer_id,
-            billing_email=None,
-            created_by_principal_id=None,
+            billing_email=normalized_billing_email,
+            created_by_principal_id=created_by_principal_id,
         )
     session = await stripe.create_checkout_session(
         customer_id=str(customer_id),
@@ -591,6 +594,22 @@ async def create_checkout_session(
         stripe_price_id=cfg.stripe_price_id,
     )
     return url
+
+
+def billing_email_from_principal_subject(subject: str | None) -> str | None:
+    """Return a verified local-auth email from a principal subject, if present."""
+    if subject is None or not subject.startswith("local:"):
+        return None
+    return _normalize_billing_email(subject.removeprefix("local:"))
+
+
+def _normalize_billing_email(value: str | None) -> str | None:
+    if value is None:
+        return None
+    normalized = value.strip().lower()
+    if "@" not in normalized or normalized.startswith("@") or normalized.endswith("@"):
+        return None
+    return normalized
 
 
 async def create_portal_session(
@@ -830,15 +849,22 @@ async def _process_invoice_event(
     tenant_id = await billing_store.tenant_for_stripe_customer(conn, customer_id)
     if tenant_id is None:
         return event_type not in _PAID_INVOICE_EVENTS
+    invoice_subscription_id = _string(obj.get("subscription"))
     updated = await billing_store.update_invoice_snapshot(
         conn,
         stripe_customer_id=customer_id,
-        stripe_subscription_id=_string(obj.get("subscription")),
+        stripe_subscription_id=invoice_subscription_id,
         latest_invoice_id=_string(obj.get("id")),
         fallback_status=_invoice_fallback_status(event_type),
         stripe_event_id=event_id,
     )
-    return updated or event_type not in _PAID_INVOICE_EVENTS
+    if updated or event_type not in _ACTIONABLE_INVOICE_EVENTS:
+        return True
+    if not invoice_subscription_id:
+        return True
+    status = await billing_store.get_billing_status(conn, tenant_id)
+    known_subscription_id = _string(status.get("stripe_subscription_id"))
+    return bool(known_subscription_id and known_subscription_id != invoice_subscription_id)
 
 
 def _invoice_fallback_status(event_type: str) -> str | None:
@@ -851,6 +877,7 @@ def _invoice_fallback_status(event_type: str) -> str | None:
 
 _FAILED_INVOICE_EVENTS = frozenset({"invoice.payment_failed", "invoice.finalization_failed"})
 _PAID_INVOICE_EVENTS = frozenset({"invoice.paid", "invoice.payment_succeeded"})
+_ACTIONABLE_INVOICE_EVENTS = _FAILED_INVOICE_EVENTS | _PAID_INVOICE_EVENTS
 
 
 def _tenant_from_object(obj: dict[str, Any]) -> str | None:

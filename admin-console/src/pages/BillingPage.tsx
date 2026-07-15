@@ -287,8 +287,10 @@ export function BillingPage({ redirectToHostedUrl = (url) => window.location.ass
                   <th>Event</th>
                   <th>Status</th>
                   <th>Amount</th>
+                  <th>Invoice</th>
                   <th>Object</th>
                   <th>Subscription</th>
+                  <th>Received</th>
                   <th>Processed</th>
                 </tr>
               </thead>
@@ -301,8 +303,10 @@ export function BillingPage({ redirectToHostedUrl = (url) => window.location.ass
                     </td>
                     <td>{event.objectStatus ?? "received"}</td>
                     <td>{formatStripeAmount(event)}</td>
+                    <td>{renderInvoiceLinks(event)}</td>
                     <td>{event.objectId ?? event.customerId ?? "n/a"}</td>
                     <td>{event.subscriptionId ?? "n/a"}</td>
+                    <td>{formatDateTime(event.createdAt)}</td>
                     <td>{formatDateTime(event.processedAt)}</td>
                   </tr>
                 ))}
@@ -416,6 +420,37 @@ function stripeDisplayAmount(event: BillingEvent): number | null {
     return event.amountDue ?? event.amountTotal ?? event.amountPaid;
   }
   return event.amountPaid ?? event.amountTotal ?? event.amountDue;
+}
+
+function renderInvoiceLinks(event: BillingEvent) {
+  if (!event.hostedInvoiceUrl && !event.invoicePdf) return "n/a";
+  const objectLabel = event.objectId ?? event.stripeEventId;
+  return (
+    <>
+      {event.hostedInvoiceUrl && (
+        <a
+          href={event.hostedInvoiceUrl}
+          target="_blank"
+          rel="noreferrer"
+          aria-label={`Open hosted invoice for ${objectLabel}`}
+        >
+          Hosted
+        </a>
+      )}
+      {event.invoicePdf && (
+        <span>
+          <a
+            href={event.invoicePdf}
+            target="_blank"
+            rel="noreferrer"
+            aria-label={`Open invoice PDF for ${objectLabel}`}
+          >
+            PDF
+          </a>
+        </span>
+      )}
+    </>
+  );
 }
 
 function errorMessage(err: unknown): string {
