@@ -15,3 +15,8 @@ PyYAML==6.*
 
 # docs/backlog.yml schema-conformance regression test (test_backlog.py).
 jsonschema==4.*
+
+# Visual-check harness (scripts/visual_check.py): renders the webapp with the
+# test DB stubs and screenshots it. After install, fetch the browser once with:
+#   playwright install chromium
+playwright==1.*
