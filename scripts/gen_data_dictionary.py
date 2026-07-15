@@ -15,7 +15,8 @@ import os
 import textwrap
 
 import psycopg
-from _data_dictionary_content import ERDS, GROUPS, MIGRATIONS, RLS_PATH
+from _data_dictionary_content import GROUPS, MIGRATIONS, RLS_PATH
+from _data_dictionary_erds import ERDS
 from psycopg.rows import dict_row
 
 DB = os.environ.get("DATABASE_URL", "postgresql://docray:docray@localhost:5455/docray")
