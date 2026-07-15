@@ -332,6 +332,20 @@
       {% else %}<span class="lede">—</span>{% endfor %}
       </div>
     </div>
+    {% if visual %}
+    <div class="card">
+      {% set vtotal = visual|sum(attribute='n') %}
+      <h2 style="margin-top:0">Visual · {{ "{:,}".format(vtotal) }} image{{ "" if vtotal == 1 else "s" }}</h2>
+      {% set vmax = (visual|map(attribute='n')|max) if visual else 1 %}
+      {% for c in visual %}
+        <div class="posrow">
+          <span class="lab">{{ c.image_class }}</span>
+          <div class="bar" style="width:{{ (100*c.n/vmax)|round(0,'floor') }}%; background:var(--accent); opacity:.7"></div>
+          <span class="num">{{ "{:,}".format(c.n) }}</span>
+        </div>
+      {% endfor %}
+    </div>
+    {% endif %}
     {% if manual_collections %}
     <div class="card">
       <h2 style="margin-top:0">Add to collection</h2>

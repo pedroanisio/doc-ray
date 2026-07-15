@@ -20,6 +20,9 @@ def test_build_server_registers_the_read_and_composition_tools():
         "get_document",
         "entity_frequency",
         "lexeme_kwic",
+        # Prism visual tools
+        "document_images",
+        "image_class_summary",
         # composition-grounding tools
         "briefing_pack",
         "entity_dossier",

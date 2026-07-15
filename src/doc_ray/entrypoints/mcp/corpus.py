@@ -132,6 +132,34 @@ async def lexeme_kwic(
     return occ
 
 
+async def document_images(
+    document_id: str, limit: int = 100, after: str | None = None
+) -> list[dict[str, Any]]:
+    """Detected images/regions in a document with deterministic Tier-1 visual features.
+
+    Each row: page, source (embedded-raster / full-page), size, image class,
+    saturation/value/contrast/edge-density, and the dominant colour palette.
+    """
+    data = await gql(
+        "query($d:ID!,$l:Int!,$a:String){documentImages(documentId:$d,limit:$l,after:$a)"
+        "{id pageNumber source widthPx heightPx imageClass meanSaturation meanValue "
+        "contrast edgeDensity aspectRatio dominantColors{hex proportion} cursor}}",
+        {"d": document_id, "l": limit, "a": after},
+    )
+    rows: list[dict[str, Any]] = data["documentImages"]
+    return rows
+
+
+async def image_class_summary(document_id: str) -> list[dict[str, Any]]:
+    """The ``(imageClass, count)`` distribution of a document's detected images."""
+    data = await gql(
+        "query($d:ID!){imageClassSummary(documentId:$d){imageClass count}}",
+        {"d": document_id},
+    )
+    rows: list[dict[str, Any]] = data["imageClassSummary"]
+    return rows
+
+
 #: The read tools registered on the MCP server (see server.py).
 TOOLS: tuple[Callable[..., Any], ...] = (
     search_sentences,
@@ -140,4 +168,6 @@ TOOLS: tuple[Callable[..., Any], ...] = (
     get_document,
     entity_frequency,
     lexeme_kwic,
+    document_images,
+    image_class_summary,
 )

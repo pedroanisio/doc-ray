@@ -205,6 +205,16 @@ def document(doc_id):
         """,
         (str(doc_id),),
     )
+    # Prism Tier-1: image-class distribution (RLS-scoped via the docray_api role).
+    visual = _core.q(
+        """
+        SELECT f.image_class, count(*) n
+        FROM image_tier1_features f
+        WHERE f.document_id = %s
+        GROUP BY f.image_class ORDER BY n DESC, f.image_class
+        """,
+        (str(doc_id),),
+    )
     per_page = 40
     page = max(1, request.args.get("page", 1, type=int))
     view = request.args.get("view")
@@ -302,6 +312,7 @@ def document(doc_id):
         tags=[t["tag"] for t in tags],
         pos=pos,
         top_verbs=top_verbs,
+        visual=visual,
         preview=document_preview(doc),
         manual_collections=available_manual_collections(doc_id),
         sentences=sentences,
