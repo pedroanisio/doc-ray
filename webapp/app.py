@@ -21,12 +21,15 @@ test suite's monkeypatching of these attributes reaches every route.
 
 from __future__ import annotations
 
+import functools
+import hashlib
 import os
 import secrets
 import sys
+from pathlib import Path
 
 import psycopg
-from flask import Flask, g, make_response, render_template, request
+from flask import Flask, g, make_response, render_template, request, url_for
 from psycopg import sql
 from psycopg.rows import dict_row
 
@@ -129,6 +132,37 @@ app.config["SESSION_COOKIE_HTTPONLY"] = True
 app.config["SESSION_COOKIE_SECURE"] = session_cookie_secure()
 app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 app.jinja_env.globals["csrf_token"] = csrf_token
+
+
+@functools.cache
+def _asset_version(filename: str) -> str:
+    """Return a short content hash of a static file, for cache-busting.
+
+    Static assets are baked into the image and immutable for the life of the
+    process, so hashing once and caching the result is safe. A *content* hash
+    (not mtime) means the token changes only when the bytes change, so a deploy
+    that ships new HTML + CSS/JS together invalidates the browser's cached copy
+    in lockstep. Missing files degrade to ``"0"`` rather than raising, so a
+    typo'd asset never 500s a page.
+    """
+    path = Path(app.static_folder or "") / filename
+    try:
+        return hashlib.sha256(path.read_bytes()).hexdigest()[:12]
+    except OSError:
+        return "0"
+
+
+def static_asset(filename: str) -> str:
+    """Content-versioned static URL (``?v=<hash>``) that survives cache TTLs.
+
+    Without this, a stylesheet/script change deployed alongside new markup is
+    masked by the browser's cached older asset — the root cause of the footer
+    rendering unstyled after a deploy.
+    """
+    return url_for("static", filename=filename, v=_asset_version(filename))
+
+
+app.jinja_env.globals["static_asset"] = static_asset
 
 _RATE_LIMITER = FixedWindowRateLimiter()
 
