@@ -101,6 +101,38 @@ stream only uses those payloads as invalidation hints. The nginx front door has
 a dedicated `/jobs/events` location to the API with `proxy_buffering off`, so
 EventSource delivery is not delayed by response buffering.
 
+## Stripe billing and payment control plane
+
+Stripe billing is a tenant-scoped control plane around hosted Stripe products,
+not an in-app card processor. The React admin console calls the GraphQL
+mutations `createBillingCheckoutSession` and `createBillingPortalSession`; the
+API creates hosted Stripe Checkout and Customer Portal sessions, then stores only
+Stripe identifiers and webhook-derived subscription state. The console reads
+`billingStatus` for readiness/entitlement and `billingEvents` for payment
+activity, invoice links, and retry state. Unprocessed tenant-visible ledger rows
+can be retried through `retryBillingEvent`.
+
+The public payment callback is the FastAPI route `POST /stripe/webhook`, routed
+by nginx to the API. It verifies the Stripe signature with
+`DOCRAY_STRIPE_WEBHOOK_SECRET`, rejects test/live mode mismatches against
+`DOCRAY_STRIPE_SECRET_KEY`, inserts each event into `stripe_webhook_events`, and
+updates `tenant_billing_accounts` plus `tenant_subscriptions`. The required
+Stripe webhook events are `checkout.session.completed`,
+`checkout.session.expired`, `customer.subscription.created`,
+`customer.subscription.updated`, `customer.subscription.deleted`,
+`invoice.paid`, `invoice.payment_succeeded`, `invoice.payment_failed`, and
+`invoice.finalization_failed`.
+
+Paid SaaS writes fail closed when `DOCRAY_BILLING_ENFORCEMENT_ENABLED=true` and
+the tenant does not have an `active` or `trialing` subscription for
+`DOCRAY_STRIPE_PRICE_ID`. Billing mutations are explicit exemptions so a blocked
+tenant can start Checkout, open the Customer Portal, or retry a pending webhook
+event. Hosted-session return URLs are same-origin checked against the configured
+admin-console origin, while `DOCRAY_PUBLIC_BASE_URL` remains the public webhook
+origin. In production the admin console is a loopback-bound sidecar reached via a
+protected HTTPS ingress such as `admin.doc-ray.com`; Stripe posts webhooks to the
+public app origin, not to the admin console.
+
 ## Entity canonicalization
 
 A shared **canonical registry** (`canonical` + the `form_index` remissive

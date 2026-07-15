@@ -145,6 +145,14 @@ def _production_setup_webhook_events() -> list[str]:
     return event_names
 
 
+def _architecture_stripe_section() -> str:
+    text = (_MIGRATIONS.parents[1] / "docs" / "architecture.md").read_text()
+    marker = "## Stripe billing and payment control plane"
+    start = text.index(marker)
+    end = text.index("\n## ", start + len(marker))
+    return text[start:end]
+
+
 def test_paid_saas_mutations_cannot_drift_outside_billing_entitlement_guard() -> None:
     schema = build_schema()
     mutation_fields = {
@@ -205,6 +213,30 @@ def test_prod_env_example_webhook_events_match_runtime_requirements():
 
 def test_production_setup_webhook_events_match_runtime_requirements():
     assert _production_setup_webhook_events() == list(billing.REQUIRED_WEBHOOK_EVENTS)
+
+
+def test_architecture_documents_stripe_payment_control_plane():
+    section = _architecture_stripe_section()
+    for event_name in billing.REQUIRED_WEBHOOK_EVENTS:
+        assert f"`{event_name}`" in section
+    for fragment in (
+        "createBillingCheckoutSession",
+        "createBillingPortalSession",
+        "retryBillingEvent",
+        "billingStatus",
+        "billingEvents",
+        "POST /stripe/webhook",
+        "DOCRAY_STRIPE_WEBHOOK_SECRET",
+        "DOCRAY_STRIPE_SECRET_KEY",
+        "DOCRAY_BILLING_ENFORCEMENT_ENABLED=true",
+        "DOCRAY_STRIPE_PRICE_ID",
+        "DOCRAY_PUBLIC_BASE_URL",
+        "tenant_billing_accounts",
+        "tenant_subscriptions",
+        "stripe_webhook_events",
+        "admin.doc-ray.com",
+    ):
+        assert fragment in section
 
 
 def test_stripe_rest_transport_surfaces_sanitized_error_body(monkeypatch):
