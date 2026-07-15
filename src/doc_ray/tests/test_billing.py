@@ -571,6 +571,125 @@ def test_billing_graphql_mutations_create_checkout_and_portal_sessions(pg, monke
         conn.execute("DELETE FROM tenant_billing_accounts WHERE tenant_id = %s", (tenant_id,))
 
 
+def test_billing_console_queries_allow_read_scoped_admin(pg):
+    conn, _created = pg
+    tenant_id = _apply_billing_migration(conn)
+    cfg = replace(
+        _cfg(enforcement_enabled=True),
+        api_tokens={"billing-read-token": (WRITE_PRINCIPAL.principal_id, frozenset({"read"}))},
+        api_allow_anonymous=False,
+    )
+    app = create_app(cfg)
+
+    try:
+        with TestClient(app) as client:
+            response = client.post(
+                "/graphql",
+                json={
+                    "query": """
+                    query {
+                      billingStatus {
+                        tenantId
+                        subscriptionStatus
+                        enforcementEnabled
+                        entitled
+                        entitlementReason
+                      }
+                      billingEvents(limit: 5) {
+                        stripeEventId
+                      }
+                    }
+                    """
+                },
+                headers={"authorization": "Bearer billing-read-token"},
+            )
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body.get("errors") is None
+        assert body["data"]["billingStatus"] == {
+            "tenantId": tenant_id,
+            "subscriptionStatus": "none",
+            "enforcementEnabled": True,
+            "entitled": False,
+            "entitlementReason": "subscription is none",
+        }
+        assert body["data"]["billingEvents"] == []
+    finally:
+        conn.execute("DELETE FROM tenant_subscriptions WHERE tenant_id = %s", (tenant_id,))
+        conn.execute("DELETE FROM tenant_billing_accounts WHERE tenant_id = %s", (tenant_id,))
+
+
+def test_billing_hosted_payment_mutations_reject_read_scoped_admin(pg, monkeypatch):
+    conn, _created = pg
+    _apply_billing_migration(conn)
+    stripe_calls: list[str] = []
+
+    async def fake_stripe_post(
+        self: billing.StripeRestTransport,
+        path: str,
+        form: dict[str, str],
+        *,
+        idempotency_key: str | None = None,
+    ) -> dict[str, Any]:
+        stripe_calls.append(path)
+        raise AssertionError("read-scoped billing mutation reached Stripe")
+
+    monkeypatch.setattr(billing.StripeRestTransport, "_post", fake_stripe_post)
+    cfg = replace(
+        _cfg(),
+        api_tokens={"billing-read-token": (WRITE_PRINCIPAL.principal_id, frozenset({"read"}))},
+        api_allow_anonymous=False,
+    )
+    app = create_app(cfg)
+
+    try:
+        with TestClient(app) as client:
+            checkout = client.post(
+                "/graphql",
+                json={
+                    "query": """
+                    mutation {
+                      createBillingCheckoutSession {
+                        url
+                      }
+                    }
+                    """
+                },
+                headers={"authorization": "Bearer billing-read-token"},
+            )
+            portal = client.post(
+                "/graphql",
+                json={
+                    "query": """
+                    mutation {
+                      createBillingPortalSession {
+                        url
+                      }
+                    }
+                    """
+                },
+                headers={"authorization": "Bearer billing-read-token"},
+            )
+
+        assert checkout.status_code == 200
+        assert portal.status_code == 200
+        checkout_body = checkout.json()
+        portal_body = portal.json()
+        assert "write scope" in checkout_body["errors"][0]["message"]
+        assert "write scope" in portal_body["errors"][0]["message"]
+        assert stripe_calls == []
+    finally:
+        conn.execute(
+            "DELETE FROM tenant_subscriptions WHERE tenant_id = "
+            "(SELECT tenant_id FROM tenants WHERE slug = 'billing-test')"
+        )
+        conn.execute(
+            "DELETE FROM tenant_billing_accounts WHERE tenant_id = "
+            "(SELECT tenant_id FROM tenants WHERE slug = 'billing-test')"
+        )
+
+
 def test_checkout_session_creates_customer_and_graphql_status(pg):
     conn, _created = pg
     tenant_id = _apply_billing_migration(conn)

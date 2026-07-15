@@ -10,7 +10,7 @@ import {
 } from "../api/billing";
 import { ApiError } from "../api/client";
 import { PageHeader } from "../components/common";
-import { useApiClient } from "../services";
+import { useApiClient, useServices } from "../services";
 
 const ACTIVE_STATUSES = new Set(["active", "trialing"]);
 const MANAGED_SUBSCRIPTION_STATUSES = new Set([
@@ -28,6 +28,7 @@ type BillingPageProps = {
 };
 
 export function BillingPage({ redirectToHostedUrl = (url) => window.location.assign(url) }: BillingPageProps = {}) {
+  const { auth } = useServices();
   const client = useApiClient();
   const [searchParams] = useSearchParams();
   const [status, setStatus] = useState<BillingStatus | null>(null);
@@ -102,14 +103,25 @@ export function BillingPage({ redirectToHostedUrl = (url) => window.location.ass
   const hasManagedSubscription = Boolean(
     status && (MANAGED_SUBSCRIPTION_STATUSES.has(state) || status.stripeSubscriptionId),
   );
+  const canManagePayments = auth.hasScope("write");
   const needsCheckoutSetup = Boolean(status && (!status.checkoutReady || !status.liveModeReady));
   const canStartCheckout = Boolean(
-    status?.checkoutReady && status.liveModeReady && !hasManagedSubscription && busy === null,
+    canManagePayments
+      && status?.checkoutReady
+      && status.liveModeReady
+      && !hasManagedSubscription
+      && busy === null,
   );
   const canOpenPortal = Boolean(
-    status?.portalReady && status.stripeCustomerId && status.liveModeReady && busy === null,
+    canManagePayments
+      && status?.portalReady
+      && status.stripeCustomerId
+      && status.liveModeReady
+      && busy === null,
   );
-  const checkoutButtonLabel = hasLiveSubscription
+  const checkoutButtonLabel = !canManagePayments
+    ? "Read-only access"
+    : hasLiveSubscription
     ? "Subscription active"
     : state === "checkout_pending"
       ? "Checkout pending"
@@ -231,6 +243,11 @@ export function BillingPage({ redirectToHostedUrl = (url) => window.location.ass
               Complete live readiness before opening Stripe Checkout.
             </p>
           )}
+          {!canManagePayments && (
+            <p className="muted compact-note">
+              Starting or changing a Stripe subscription requires write access.
+            </p>
+          )}
         </section>
 
         <section className="card billing-panel">
@@ -246,6 +263,11 @@ export function BillingPage({ redirectToHostedUrl = (url) => window.location.ass
           {status?.stripeCustomerId && !status.liveModeReady && (
             <p className="muted compact-note">
               Complete live readiness before opening the Customer Portal.
+            </p>
+          )}
+          {!canManagePayments && (
+            <p className="muted compact-note">
+              Managing payment methods requires write access.
             </p>
           )}
         </section>

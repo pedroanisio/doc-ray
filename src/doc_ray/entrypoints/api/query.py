@@ -25,7 +25,7 @@ from doc_ray.entrypoints.api.canonical_types import (
     ResolutionReview,
     UnresolvedMention,
 )
-from doc_ray.entrypoints.api.mutation_guards import _require_admin
+from doc_ray.entrypoints.api.mutation_guards import _require_admin_read
 from doc_ray.entrypoints.api.security_audit import record_audit_event
 from doc_ray.entrypoints.api.security_audit_types import SecurityAuditEvent
 from doc_ray.entrypoints.api.types import (
@@ -173,7 +173,7 @@ class Query:
     async def billing_status(self, info: Info) -> BillingStatus:
         """Return the current tenant's billing state; tenant-admin only."""
         ctx = info.context
-        await _require_admin(ctx, action="query.billing_status")
+        await _require_admin_read(ctx, action="query.billing_status")
         settings = ctx.settings
         if settings is None and ctx.request is not None:
             settings = ctx.request.app.state.settings
@@ -186,7 +186,7 @@ class Query:
     async def billing_events(self, info: Info, limit: int = 25) -> list[BillingEvent]:
         """Return recent Stripe webhook payment activity; tenant-admin only."""
         ctx = info.context
-        await _require_admin(ctx, action="query.billing_events")
+        await _require_admin_read(ctx, action="query.billing_events")
         rows = await billing.billing_events(ctx.conn, limit=ctx.page_size(limit))
         return [BillingEvent.from_row(row) for row in rows]
 

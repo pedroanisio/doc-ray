@@ -144,6 +144,24 @@ describe("LoginPage", () => {
 });
 
 describe("BillingPage", () => {
+  function fakeAccessToken(scopes: string[]) {
+    const encode = (value: unknown) =>
+      btoa(JSON.stringify(value)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/u, "");
+    return `${encode({ alg: "none", typ: "JWT" })}.${encode({ scopes })}.sig`;
+  }
+
+  function billingServices(fetchImpl: typeof fetch, scopes = ["read", "write"]) {
+    const services = servicesWithFetch(fetchImpl);
+    services.auth.store.save({
+      accessToken: fakeAccessToken(scopes),
+      refreshToken: "refresh",
+      tokenType: "Bearer",
+      expiresAt: Date.now() + 900_000,
+      refreshExpiresAt: Date.now() + 86_400_000,
+    });
+    return services;
+  }
+
   function billingFetch(statusOverrides: Record<string, unknown> = {}) {
     return vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
       const body = JSON.parse(String(init?.body ?? "{}"));
@@ -218,7 +236,7 @@ describe("BillingPage", () => {
 
   it("renders the live billing status and payment actions", async () => {
     const fetchImpl = billingFetch();
-    const services = servicesWithFetch(fetchImpl);
+    const services = billingServices(fetchImpl);
 
     render(
       <ServicesProvider services={services}>
@@ -264,7 +282,7 @@ describe("BillingPage", () => {
       entitled: true,
       entitlementReason: "billing enforcement is disabled",
     });
-    const services = servicesWithFetch(fetchImpl);
+    const services = billingServices(fetchImpl);
 
     render(
       <ServicesProvider services={services}>
@@ -299,7 +317,7 @@ describe("BillingPage", () => {
         "DOCRAY_PUBLIC_BASE_URL must use https for live billing",
       ],
     });
-    const services = servicesWithFetch(fetchImpl);
+    const services = billingServices(fetchImpl);
 
     render(
       <ServicesProvider services={services}>
@@ -328,7 +346,7 @@ describe("BillingPage", () => {
       entitled: false,
       entitlementReason: "subscription is none",
     });
-    const services = servicesWithFetch(fetchImpl);
+    const services = billingServices(fetchImpl);
 
     render(
       <ServicesProvider services={services}>
@@ -343,13 +361,45 @@ describe("BillingPage", () => {
     expect(screen.getByRole("button", { name: /manage payment method/i })).toBeDisabled();
   });
 
+  it("lets read-scoped admins monitor Billing without payment mutation actions", async () => {
+    const fetchImpl = billingFetch({
+      stripeCustomerId: null,
+      stripeSubscriptionId: null,
+      subscriptionStatus: "none",
+      currentPeriodEnd: null,
+      latestInvoiceId: null,
+      checkoutSessionId: null,
+      entitled: false,
+      entitlementReason: "subscription is none",
+    });
+    const services = billingServices(fetchImpl, ["read"]);
+
+    render(
+      <ServicesProvider services={services}>
+        <MemoryRouter>
+          <BillingPage />
+        </MemoryRouter>
+      </ServicesProvider>,
+    );
+
+    expect(await screen.findByText("Current tenant")).toBeInTheDocument();
+    expect(screen.getByText("no subscription")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /read-only access/i })).toBeDisabled();
+    expect(screen.getAllByText(/requires write access/i)).toHaveLength(2);
+    expect(
+      (fetchImpl as unknown as ReturnType<typeof vi.fn>).mock.calls.some(([, init]) =>
+        String(init?.body ?? "").includes("createBillingCheckoutSession"),
+      ),
+    ).toBe(false);
+  });
+
   it("routes checkout-completed tenants to Customer Portal instead of duplicate Checkout", async () => {
     const fetchImpl = billingFetch({
       subscriptionStatus: "checkout_completed",
       entitled: false,
       entitlementReason: "subscription is checkout_completed",
     });
-    const services = servicesWithFetch(fetchImpl);
+    const services = billingServices(fetchImpl);
 
     render(
       <ServicesProvider services={services}>
@@ -373,7 +423,7 @@ describe("BillingPage", () => {
       entitled: false,
       entitlementReason: "subscription is checkout_pending",
     });
-    const services = servicesWithFetch(fetchImpl);
+    const services = billingServices(fetchImpl);
 
     render(
       <ServicesProvider services={services}>
@@ -399,7 +449,7 @@ describe("BillingPage", () => {
       entitled: false,
       entitlementReason: "subscription is none",
     });
-    const services = servicesWithFetch(fetchImpl);
+    const services = billingServices(fetchImpl);
     const redirectToHostedUrl = vi.fn();
 
     render(
@@ -428,7 +478,7 @@ describe("BillingPage", () => {
 
   it("opens hosted Customer Portal from the Billing page action", async () => {
     const fetchImpl = billingFetch();
-    const services = servicesWithFetch(fetchImpl);
+    const services = billingServices(fetchImpl);
     const redirectToHostedUrl = vi.fn();
 
     render(
@@ -456,7 +506,7 @@ describe("BillingPage", () => {
 
   it("refreshes billing status from the page action", async () => {
     const fetchImpl = billingFetch();
-    const services = servicesWithFetch(fetchImpl);
+    const services = billingServices(fetchImpl);
 
     render(
       <ServicesProvider services={services}>
@@ -480,7 +530,7 @@ describe("BillingPage", () => {
 
   it("surfaces a Checkout success return and refreshes billing state", async () => {
     const fetchImpl = billingFetch();
-    const services = servicesWithFetch(fetchImpl);
+    const services = billingServices(fetchImpl);
 
     render(
       <ServicesProvider services={services}>
@@ -501,7 +551,7 @@ describe("BillingPage", () => {
 
   it("surfaces a Checkout cancellation return without implying payment changes", async () => {
     const fetchImpl = billingFetch();
-    const services = servicesWithFetch(fetchImpl);
+    const services = billingServices(fetchImpl);
 
     render(
       <ServicesProvider services={services}>

@@ -55,6 +55,32 @@ export class TokenStore {
     return this.read()?.accessToken ?? null;
   }
 
+  accessScopes(): string[] {
+    const token = this.accessToken();
+    if (!token) return [];
+    const parts = token.split(".");
+    if (parts.length !== 3 || !parts[1]) return [];
+    try {
+      const payload = JSON.parse(decodeBase64Url(parts[1])) as {
+        scopes?: unknown;
+        scope?: unknown;
+      };
+      if (Array.isArray(payload.scopes)) {
+        return payload.scopes.filter((scope): scope is string => typeof scope === "string");
+      }
+      if (typeof payload.scope === "string") {
+        return payload.scope.split(/\s+/u).filter(Boolean);
+      }
+      return [];
+    } catch {
+      return [];
+    }
+  }
+
+  hasScope(scope: string): boolean {
+    return this.accessScopes().includes(scope);
+  }
+
   save(bundle: TokenBundle): void {
     this.storage.setItem(STORAGE_KEY, JSON.stringify(bundle));
     this.emit(bundle);
@@ -87,4 +113,12 @@ export class TokenStore {
   private emit(bundle: TokenBundle | null): void {
     for (const listener of this.listeners) listener(bundle);
   }
+}
+
+function decodeBase64Url(value: string): string {
+  const padded = value.replace(/-/gu, "+").replace(/_/gu, "/").padEnd(
+    Math.ceil(value.length / 4) * 4,
+    "=",
+  );
+  return atob(padded);
 }

@@ -24,8 +24,6 @@ from doc_ray.entrypoints.api.types import Job
 _BILLING_ENTITLEMENT_EXEMPT_ACTIONS = {
     "mutation.create_billing_checkout_session",
     "mutation.create_billing_portal_session",
-    "query.billing_events",
-    "query.billing_status",
 }
 
 
@@ -166,6 +164,31 @@ async def _require_admin(ctx: RequestContext, *, action: str = "mutation.admin")
             details={"reason": "admin_required"},
         )
         raise PermissionError("this mutation requires an admin principal")
+
+
+async def _require_admin_read(ctx: RequestContext, *, action: str = "query.admin") -> None:
+    """Require an authenticated read-scoped admin principal for admin query fields."""
+    if ctx.principal.principal_id is None or "read" not in ctx.principal.scopes:
+        await _audit_mutation_event(
+            ctx,
+            action=action,
+            target_type="query",
+            target_id=None,
+            outcome="denied",
+        )
+        raise PermissionError("API query requires an authenticated principal with read scope")
+    cur = await ctx.conn.execute("SELECT docray_is_admin() AS ok")
+    row = await cur.fetchone()
+    if not row or not row["ok"]:
+        await _audit_mutation_event(
+            ctx,
+            action=action,
+            target_type="query",
+            target_id=None,
+            outcome="denied",
+            details={"reason": "admin_required"},
+        )
+        raise PermissionError("this query requires an admin principal")
 
 
 _UPLOAD_CHUNK_BYTES = 1024 * 1024
