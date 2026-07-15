@@ -27,3 +27,4 @@ node_modules/
 visual-essay/
 concept-cinema/
 .claude/settings.json
+pgadmin/servers.json

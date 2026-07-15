@@ -1,0 +1,14 @@
+{
+  "Servers": {
+    "1": {
+      "Name": "doc-ray (managed)",
+      "Group": "doc-ray",
+      "Host": "REPLACE_WITH_CLUSTER_HOST.db.ondigitalocean.com",
+      "Port": 25060,
+      "MaintenanceDB": "docray",
+      "Username": "docray",
+      "SSLMode": "require",
+      "Comment": "DO Managed Postgres. Set Host from docs/production-setup.md. Prefer the least-privilege 'docray' role over doadmin. The password is entered on first connect (not stored here) — copy this file to pgadmin/servers.json and edit the host before mounting it."
+    }
+  }
+}
