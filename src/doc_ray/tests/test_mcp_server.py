@@ -9,16 +9,21 @@ from doc_ray.entrypoints.mcp import server
 from doc_ray.entrypoints.mcp.auth import BearerAuthMiddleware
 
 
-def test_build_server_registers_the_six_read_tools():
+def test_build_server_registers_the_read_and_composition_tools():
     mcp = server.build_server()
     names = {tool.name for tool in anyio.run(mcp.list_tools)}
     assert names == {
+        # corpus read tools
         "search_sentences",
         "full_text_search",
         "list_documents",
         "get_document",
         "entity_frequency",
         "lexeme_kwic",
+        # composition-grounding tools
+        "briefing_pack",
+        "entity_dossier",
+        "document_evidence",
     }
 
 

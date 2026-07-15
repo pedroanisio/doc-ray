@@ -18,14 +18,14 @@ from mcp.server.fastmcp import FastMCP
 from starlette.applications import Starlette
 
 from doc_ray.config import Config
-from doc_ray.entrypoints.mcp import corpus
+from doc_ray.entrypoints.mcp import compose, corpus
 from doc_ray.entrypoints.mcp.auth import BearerAuthMiddleware
 
 
 def build_server() -> FastMCP:
-    """Create a FastMCP server with the corpus read tools registered."""
+    """Create a FastMCP server with the corpus read + composition-grounding tools."""
     mcp = FastMCP("doc-ray")
-    for tool in corpus.TOOLS:
+    for tool in (*corpus.TOOLS, *compose.TOOLS):
         mcp.tool()(tool)
     return mcp
 
