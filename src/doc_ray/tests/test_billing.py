@@ -2176,6 +2176,9 @@ def test_process_webhook_events_are_idempotent_and_update_subscription(pg):
                 "customer": "cus_test_webhook",
                 "subscription": "sub_test_1",
                 "status": "paid",
+                "amount_paid": 4900,
+                "amount_due": 0,
+                "currency": "usd",
             }
         },
     }
@@ -2226,6 +2229,10 @@ def test_process_webhook_events_are_idempotent_and_update_subscription(pg):
                     subscriptionId
                     objectStatus
                     latestInvoiceId
+                    amountPaid
+                    amountDue
+                    amountTotal
+                    currency
                     processedAt
                     livemode
                   }
@@ -2245,6 +2252,10 @@ def test_process_webhook_events_are_idempotent_and_update_subscription(pg):
             assert events["evt_invoice_1"]["objectId"] == "in_test_1"
             assert events["evt_invoice_1"]["subscriptionId"] == "sub_test_1"
             assert events["evt_invoice_1"]["objectStatus"] == "paid"
+            assert events["evt_invoice_1"]["amountPaid"] == 4900
+            assert events["evt_invoice_1"]["amountDue"] == 0
+            assert events["evt_invoice_1"]["amountTotal"] is None
+            assert events["evt_invoice_1"]["currency"] == "usd"
             assert events["evt_invoice_1"]["processedAt"] is not None
             assert events["evt_invoice_1"]["livemode"] is False
         finally:

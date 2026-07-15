@@ -38,6 +38,10 @@ export interface BillingEvent {
   subscriptionId: string | null;
   objectStatus: string | null;
   latestInvoiceId: string | null;
+  amountPaid: number | null;
+  amountDue: number | null;
+  amountTotal: number | null;
+  currency: string | null;
 }
 
 export async function fetchBillingStatus(client: ApiClient): Promise<BillingStatus> {
@@ -89,6 +93,10 @@ export async function fetchBillingEvents(client: ApiClient, limit = 25): Promise
           subscriptionId
           objectStatus
           latestInvoiceId
+          amountPaid
+          amountDue
+          amountTotal
+          currency
         }
       }
     `,

@@ -82,6 +82,10 @@ class BillingEvent:
     subscription_id: str | None
     object_status: str | None
     latest_invoice_id: str | None
+    amount_paid: int | None
+    amount_due: int | None
+    amount_total: int | None
+    currency: str | None
 
     @classmethod
     def from_row(cls, row: dict[str, Any]) -> BillingEvent:
@@ -97,6 +101,10 @@ class BillingEvent:
             subscription_id=row.get("subscription_id"),
             object_status=row.get("object_status"),
             latest_invoice_id=row.get("latest_invoice_id"),
+            amount_paid=row.get("amount_paid"),
+            amount_due=row.get("amount_due"),
+            amount_total=row.get("amount_total"),
+            currency=row.get("currency"),
         )
 
 

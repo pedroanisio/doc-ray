@@ -169,6 +169,10 @@ describe("billing module", () => {
             subscriptionId: "sub_1",
             objectStatus: "paid",
             latestInvoiceId: null,
+            amountPaid: 4900,
+            amountDue: 0,
+            amountTotal: null,
+            currency: "usd",
           },
         ],
       },
@@ -176,8 +180,12 @@ describe("billing module", () => {
     const events = await fetchBillingEvents(client, 10);
     expect(events[0].eventType).toBe("invoice.paid");
     expect(events[0].subscriptionId).toBe("sub_1");
+    expect(events[0].amountPaid).toBe(4900);
+    expect(events[0].currency).toBe("usd");
     const body = JSON.parse(fetchImpl.mock.calls[0][1].body!);
     expect(body.query).toContain("billingEvents");
+    expect(body.query).toContain("amountPaid");
+    expect(body.query).toContain("currency");
     expect(body.variables).toEqual({ limit: 10 });
   });
 

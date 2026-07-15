@@ -309,6 +309,15 @@ origin, for example `https://admin.doc-ray.com/billing`, while keeping
 `DOCRAY_PUBLIC_BASE_URL` on the public `doc-ray.com` origin for
 `/stripe/webhook`.
 
+Create the Stripe webhook endpoint for `https://doc-ray.com/stripe/webhook`
+and select the event types the Billing panel lists as required:
+`checkout.session.completed`, `checkout.session.expired`,
+`customer.subscription.created`, `customer.subscription.updated`,
+`customer.subscription.deleted`, `invoice.paid`,
+`invoice.payment_succeeded`, `invoice.payment_failed`, and
+`invoice.finalization_failed`. Put the endpoint signing secret in
+`.env.prod` as `DOCRAY_STRIPE_WEBHOOK_SECRET`.
+
 ## Step 6 — Cloudflare Tunnel ingress (public access)
 
 The tunnel dials **outbound** to Cloudflare, so `doc-ray.com` is served with

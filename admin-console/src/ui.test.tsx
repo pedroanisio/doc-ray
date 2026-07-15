@@ -190,6 +190,42 @@ describe("BillingPage", () => {
                 subscriptionId: "sub_123",
                 objectStatus: "paid",
                 latestInvoiceId: null,
+                amountPaid: 4900,
+                amountDue: 0,
+                amountTotal: null,
+                currency: "usd",
+              },
+              {
+                stripeEventId: "evt_invoice_failed_1",
+                eventType: "invoice.payment_failed",
+                livemode: false,
+                processedAt: "2026-07-15T11:00:00Z",
+                createdAt: "2026-07-15T10:59:59Z",
+                objectId: "in_failed_123",
+                customerId: "cus_123",
+                subscriptionId: "sub_123",
+                objectStatus: "open",
+                latestInvoiceId: null,
+                amountPaid: 0,
+                amountDue: 6500,
+                amountTotal: 6500,
+                currency: "usd",
+              },
+              {
+                stripeEventId: "evt_invoice_pending_1",
+                eventType: "invoice.paid",
+                livemode: false,
+                processedAt: null,
+                createdAt: "2026-07-15T12:00:00Z",
+                objectId: "in_pending_123",
+                customerId: "cus_123",
+                subscriptionId: "sub_123",
+                objectStatus: "paid",
+                latestInvoiceId: null,
+                amountPaid: 7200,
+                amountDue: 0,
+                amountTotal: null,
+                currency: "usd",
               },
             ],
           },
@@ -249,19 +285,26 @@ describe("BillingPage", () => {
     expect(await screen.findByText("Current tenant")).toBeInTheDocument();
     expect(screen.getByText("subscription active")).toBeInTheDocument();
     expect(screen.getByText("ready")).toBeInTheDocument();
+    expect(screen.getByText("ops@example.com")).toBeInTheDocument();
     expect(screen.getByText("https://app.example.com/stripe/webhook")).toBeInTheDocument();
     expect(screen.getByText(/checkout.session.completed/)).toBeInTheDocument();
     expect(screen.getByText(/invoice.payment_succeeded/)).toBeInTheDocument();
     expect(screen.getAllByText("subscription is active")).toHaveLength(2);
-    expect(await screen.findByText("invoice.paid")).toBeInTheDocument();
+    expect(await screen.findAllByText("invoice.paid")).toHaveLength(2);
     expect(screen.getByText(/evt_invoice_1/)).toBeInTheDocument();
+    expect(screen.getByText(/evt_invoice_failed_1/)).toBeInTheDocument();
+    expect(screen.getByText(/evt_invoice_pending_1/)).toBeInTheDocument();
     expect(screen.getAllByRole("columnheader").map((header) => header.textContent)).toEqual([
       "Event",
       "Status",
+      "Amount",
       "Object",
       "Subscription",
       "Processed",
     ]);
+    expect(screen.getByText("$49.00")).toBeInTheDocument();
+    expect(screen.getByText("$65.00")).toBeInTheDocument();
+    expect(screen.getByText("not processed")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /subscription active/i })).toBeDisabled();
     expect(screen.getByText(/Use the Customer Portal/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /manage payment method/i })).toBeEnabled();

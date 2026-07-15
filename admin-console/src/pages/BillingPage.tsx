@@ -254,6 +254,7 @@ export function BillingPage({ redirectToHostedUrl = (url) => window.location.ass
           <h2>Payment management</h2>
           <dl className="detail-list">
             <div><dt>Customer</dt><dd>{status?.stripeCustomerId ?? "not created"}</dd></div>
+            <div><dt>Billing email</dt><dd>{status?.billingEmail ?? "not collected"}</dd></div>
             <div><dt>Subscription</dt><dd>{status?.stripeSubscriptionId ?? "none"}</dd></div>
             <div><dt>Latest invoice</dt><dd>{status?.latestInvoiceId ?? "none"}</dd></div>
           </dl>
@@ -285,6 +286,7 @@ export function BillingPage({ redirectToHostedUrl = (url) => window.location.ass
                 <tr>
                   <th>Event</th>
                   <th>Status</th>
+                  <th>Amount</th>
                   <th>Object</th>
                   <th>Subscription</th>
                   <th>Processed</th>
@@ -298,9 +300,10 @@ export function BillingPage({ redirectToHostedUrl = (url) => window.location.ass
                       <span>{event.livemode ? "live" : "test"} · {event.stripeEventId}</span>
                     </td>
                     <td>{event.objectStatus ?? "received"}</td>
+                    <td>{formatStripeAmount(event)}</td>
                     <td>{event.objectId ?? event.customerId ?? "n/a"}</td>
                     <td>{event.subscriptionId ?? "n/a"}</td>
-                    <td>{formatDateTime(event.processedAt ?? event.createdAt)}</td>
+                    <td>{formatDateTime(event.processedAt)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -390,6 +393,29 @@ function formatDateTime(value: string | null | undefined): string {
     dateStyle: "medium",
     timeStyle: "short",
   }).format(new Date(value));
+}
+
+function formatStripeAmount(event: BillingEvent): string {
+  const amount = stripeDisplayAmount(event);
+  if (amount === null || amount === undefined || !event.currency) return "n/a";
+  const currency = event.currency.toUpperCase();
+  const formatter = new Intl.NumberFormat(undefined, {
+    style: "currency",
+    currency,
+  });
+  const digits = formatter.resolvedOptions().maximumFractionDigits ?? 2;
+  return formatter.format(amount / 10 ** digits);
+}
+
+function stripeDisplayAmount(event: BillingEvent): number | null {
+  if (
+    event.eventType === "invoice.payment_failed"
+    || event.eventType === "invoice.finalization_failed"
+    || event.objectStatus === "open"
+  ) {
+    return event.amountDue ?? event.amountTotal ?? event.amountPaid;
+  }
+  return event.amountPaid ?? event.amountTotal ?? event.amountDue;
 }
 
 function errorMessage(err: unknown): string {

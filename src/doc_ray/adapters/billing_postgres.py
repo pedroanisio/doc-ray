@@ -81,7 +81,11 @@ async def list_billing_events(
                    ELSE e.payload #>> '{data,object,subscription}'
                END AS subscription_id,
                e.payload #>> '{data,object,status}' AS object_status,
-               e.payload #>> '{data,object,latest_invoice}' AS latest_invoice_id
+               e.payload #>> '{data,object,latest_invoice}' AS latest_invoice_id,
+               NULLIF(e.payload #>> '{data,object,amount_paid}', '')::bigint AS amount_paid,
+               NULLIF(e.payload #>> '{data,object,amount_due}', '')::bigint AS amount_due,
+               NULLIF(e.payload #>> '{data,object,amount_total}', '')::bigint AS amount_total,
+               e.payload #>> '{data,object,currency}' AS currency
         FROM stripe_webhook_events e
         LEFT JOIN tenant_customer tc ON true
         WHERE e.payload #>> '{data,object,client_reference_id}' = %s
