@@ -85,6 +85,14 @@ docker compose -f admin-console/docker-compose.yml up -d --build
 open http://127.0.0.1:8080
 ```
 
+For the managed production stack, configure the admin-console values in
+`.env.prod` and use the root operator targets:
+
+```bash
+make prod-admin-console-up
+make prod-admin-console-down
+```
+
 If your main compose project name is not `doc-ray`, set `DOCRAY_NETWORK` to its
 `<project>_default` network. See [.env.example](.env.example) for all overrides.
 

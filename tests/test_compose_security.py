@@ -487,6 +487,35 @@ def test_prod_env_example_defaults_to_fail_closed_auth():
     assert "DOCRAY_API_ALLOW_ANONYMOUS=true" not in text
 
 
+def test_root_makefile_exposes_prod_admin_console_deploy_path():
+    """The React admin console is the Stripe Billing operator panel.
+
+    It runs as a separate compose project, but production operators need a root
+    target and root env template knobs; otherwise the SaaS billing panel stays a
+    sidecar recipe instead of a deployable part of the managed stack.
+    """
+    makefile = (_ROOT / "Makefile").read_text(encoding="utf-8")
+    env_text = (_ROOT / ".env.prod.example").read_text(encoding="utf-8")
+    prod_doc = (_ROOT / "docs" / "production-setup.md").read_text(encoding="utf-8")
+    admin_readme = (_ROOT / "admin-console" / "README.md").read_text(encoding="utf-8")
+
+    assert "COMPOSE_ADMIN := docker compose --env-file .env.prod -f admin-console/docker-compose.yml" in makefile
+    assert "prod-admin-console-up:" in makefile
+    assert "$(COMPOSE_ADMIN) up -d --build admin-console" in makefile
+    assert "prod-admin-console-down:" in makefile
+    assert "$(COMPOSE_ADMIN) down" in makefile
+
+    assert "ADMIN_CONSOLE_PORT=8080" in env_text
+    assert "DOCRAY_NETWORK=doc-ray_default" in env_text
+    assert "ADMIN_API_UPSTREAM=http://api:8000" in env_text
+    assert "ADMIN_WEBAPP_UPSTREAM=http://webapp:5001" in env_text
+
+    assert "`make prod-admin-console-up`" in prod_doc
+    assert "`make prod-admin-console-down`" in prod_doc
+    assert "Stripe Billing panel" in prod_doc
+    assert "make prod-admin-console-up" in admin_readme
+
+
 def test_cloudflared_tunnel_publishes_no_host_ports():
     """The Cloudflare Tunnel ingress must be outbound-only — publishing a host
     port would defeat the point (the droplet's sole public surface is SSH).

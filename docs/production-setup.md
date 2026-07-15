@@ -272,6 +272,18 @@ overlay):
   (webapp → `api:8000`) and externally only through the tunnel (Step 6). Raw
   GraphQL is never published on a public port.
 
+The React admin console, including the Stripe Billing panel, runs as a separate
+compose project so it can be rebuilt or stopped without touching workers/API:
+
+```bash
+make prod-admin-console-up
+```
+
+It attaches to `DOCRAY_NETWORK` (default `doc-ray_default`) and binds
+`127.0.0.1:${ADMIN_CONSOLE_PORT:-8080}:80`. Keep it behind an SSH/VPN tunnel or
+trusted private ingress unless you add an external TLS/auth boundary. Stop it
+with `make prod-admin-console-down`.
+
 ## Step 6 — Cloudflare Tunnel ingress (public access)
 
 The tunnel dials **outbound** to Cloudflare, so `doc-ray.com` is served with
@@ -342,6 +354,8 @@ the landing page renders, not that auth is enforced.)
 | --- | --- |
 | `make prod-migrate` | Apply migrations to the managed cluster |
 | `make prod-up` | Migrate, then start api + webapp + workers + backups |
+| `make prod-admin-console-up` | Build/start the loopback-only React admin console and Stripe Billing panel |
+| `make prod-admin-console-down` | Stop the separate admin console stack |
 | `make prod-tunnel` | Start the Cloudflare Tunnel ingress (no public ports) |
 | `make prod-web` | Start the nginx TLS front door instead (public 80/443) |
 | `make prod-down` | Stop the managed stack (managed data is off-box; nothing wiped) |

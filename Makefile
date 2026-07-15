@@ -15,6 +15,7 @@ PYTHON ?= $(shell [ -x .venv/bin/python ] && echo .venv/bin/python || echo pytho
 # replaces .env for interpolation. The prod overlay repoints every app service at
 # the managed cluster and gates the local postgres/minio out.
 COMPOSE_PROD := docker compose --env-file .env.prod -f docker-compose.yml -f docker-compose.prod.yml
+COMPOSE_ADMIN := docker compose --env-file .env.prod -f admin-console/docker-compose.yml
 
 # Full managed overlay set (prod + LOCAL Ollama resolver on the H200 GPU) — the
 # SAME layering as `prod-ollama-up`. Naming every overlay keeps the ollama/worker
@@ -26,8 +27,8 @@ COMPOSE_PROD := docker compose --env-file .env.prod -f docker-compose.yml -f doc
 COMPOSE_PROD_OLLAMA := $(COMPOSE_PROD) -f docker-compose.ollama.yml -f docker-compose.ollama.gpu.yml
 
 .PHONY: help check check-static db-dump truncate-db workers-up workers-status \
-        prod-migrate prod-up prod-web prod-tunnel prod-down gpu-up prod-ollama-up \
-        prod-refresh-ui prod-restart-ui pgadmin-up
+        prod-migrate prod-up prod-web prod-admin-console-up prod-admin-console-down \
+        prod-tunnel prod-down gpu-up prod-ollama-up prod-refresh-ui prod-restart-ui pgadmin-up
 
 help: ## List available tasks
 	@grep -E '^[a-z][a-zA-Z_-]*:.*## ' $(MAKEFILE_LIST) | awk -F ':.*## ' '{printf "  %-17s %s\n", $$1, $$2}'
@@ -78,6 +79,12 @@ prod-up: prod-migrate ## Migrate, then start the managed stack (api + webapp + w
 
 prod-web: ## Add the public TLS front door (nginx + self-signed certgen) to a running prod stack
 	$(COMPOSE_PROD) up -d --build nginx-certgen nginx
+
+prod-admin-console-up: ## Start the loopback-only React admin console against the prod stack
+	$(COMPOSE_ADMIN) up -d --build admin-console
+
+prod-admin-console-down: ## Stop the separate React admin console stack
+	$(COMPOSE_ADMIN) down
 
 prod-tunnel: ## Start the Cloudflare Tunnel ingress (no public ports; needs CLOUDFLARE_TUNNEL_TOKEN)
 	$(COMPOSE_PROD) -f docker-compose.cloudflared.yml up -d cloudflared

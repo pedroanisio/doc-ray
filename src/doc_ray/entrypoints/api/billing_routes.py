@@ -35,6 +35,8 @@ async def _stripe_webhook_endpoint(request: Request) -> dict[str, Any]:
         if isinstance(conn, psycopg.AsyncConnection):
             try:
                 processed = await billing.process_webhook_event(conn, event, settings)
+            except billing.WebhookProcessingPending as exc:
+                raise HTTPException(status_code=503, detail=str(exc)) from exc
             except billing.BillingConfigurationError as exc:
                 raise HTTPException(status_code=400, detail=str(exc)) from exc
         else:  # pragma: no cover - pool always yields psycopg connections

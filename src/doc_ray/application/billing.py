@@ -30,6 +30,10 @@ class StripeSignatureError(ValueError):
     """Raised when a Stripe webhook signature cannot be verified."""
 
 
+class WebhookProcessingPending(RuntimeError):
+    """Raised when a Stripe webhook should be retried later."""
+
+
 ENTITLED_SUBSCRIPTION_STATUSES = frozenset({"active", "trialing"})
 CHECKOUT_BLOCKING_SUBSCRIPTION_STATUSES = ENTITLED_SUBSCRIPTION_STATUSES | frozenset(
     {"checkout_pending", "checkout_completed", "incomplete", "past_due", "unpaid"}
@@ -520,7 +524,12 @@ async def process_webhook_event(
     event: dict[str, Any],
     cfg: Config | None = None,
 ) -> bool:
-    """Process one verified Stripe event; return false when already seen."""
+    """Process one verified Stripe event; return false when already seen.
+
+    Raises:
+        WebhookProcessingPending: The event depends on Stripe state that has not
+            reached doc-ray yet and should be delivered again later.
+    """
     event_id = str(event.get("id") or "")
     event_type = str(event.get("type") or "")
     if not event_id or not event_type:
@@ -540,21 +549,30 @@ async def process_webhook_event(
         obj = {}
     if event_type == "checkout.session.completed":
         await _process_checkout_completed(conn, event_id, obj)
+        handled = True
     elif event_type == "checkout.session.expired":
         await _process_checkout_expired(conn, obj)
+        handled = True
     elif event_type in {
         "customer.subscription.created",
         "customer.subscription.updated",
         "customer.subscription.deleted",
     }:
         await _process_subscription_event(conn, event_id, obj)
+        handled = True
     elif event_type in {
         "invoice.paid",
         "invoice.payment_succeeded",
         "invoice.payment_failed",
         "invoice.finalization_failed",
     }:
-        await _process_invoice_event(conn, event_id, event_type, obj)
+        handled = await _process_invoice_event(conn, event_id, event_type, obj)
+    else:
+        handled = True
+    if not handled:
+        raise WebhookProcessingPending(
+            "Stripe webhook is pending tenant mapping; retry delivery later"
+        )
     await billing_store.mark_webhook_processed(conn, event_id)
     return True
 
@@ -661,10 +679,13 @@ async def _process_invoice_event(
     event_id: str,
     event_type: str,
     obj: dict[str, Any],
-) -> None:
+) -> bool:
     customer_id = _string(obj.get("customer"))
     if not customer_id:
-        return
+        return True
+    tenant_id = await billing_store.tenant_for_stripe_customer(conn, customer_id)
+    if tenant_id is None:
+        return event_type not in _PAID_INVOICE_EVENTS
     await billing_store.update_invoice_snapshot(
         conn,
         stripe_customer_id=customer_id,
@@ -673,6 +694,7 @@ async def _process_invoice_event(
         fallback_status=_invoice_fallback_status(event_type),
         stripe_event_id=event_id,
     )
+    return True
 
 
 def _invoice_fallback_status(event_type: str) -> str | None:
