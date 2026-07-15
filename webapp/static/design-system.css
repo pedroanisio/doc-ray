@@ -580,6 +580,24 @@ input:focus, select:focus, textarea:focus {
   border-color: var(--accent);
   box-shadow: 0 0 0 3px var(--ring);
 }
+/* Chrome/WebKit paint autofilled inputs with their own opaque background that
+   ignores `background` — in dark mode it flashes light grey (most visible on the
+   autocomplete="name" field, which the browser fills from the saved profile).
+   Repaint the fill with the panel colour via the inset box-shadow trick, keep
+   text + caret on-token, and stall the transition so there is no flash. */
+input:-webkit-autofill,
+input:-webkit-autofill:hover,
+input:-webkit-autofill:focus,
+select:-webkit-autofill,
+textarea:-webkit-autofill {
+  -webkit-text-fill-color: var(--ink);
+  -webkit-box-shadow: 0 0 0 1000px var(--panel) inset, var(--shadow-sm);
+  caret-color: var(--ink);
+  transition: background-color 9999s ease-out 0s;
+}
+input:-webkit-autofill:focus {
+  -webkit-box-shadow: 0 0 0 1000px var(--panel) inset, 0 0 0 3px var(--ring);
+}
 
 button, .btn {
   display: inline-flex;
