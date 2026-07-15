@@ -42,6 +42,8 @@ export interface BillingEvent {
   amountDue: number | null;
   amountTotal: number | null;
   currency: string | null;
+  hostedInvoiceUrl: string | null;
+  invoicePdf: string | null;
 }
 
 export async function fetchBillingStatus(client: ApiClient): Promise<BillingStatus> {
@@ -97,6 +99,8 @@ export async function fetchBillingEvents(client: ApiClient, limit = 25): Promise
           amountDue
           amountTotal
           currency
+          hostedInvoiceUrl
+          invoicePdf
         }
       }
     `,
