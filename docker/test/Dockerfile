@@ -26,6 +26,7 @@ COPY src ./src
 COPY tests ./tests
 COPY scripts ./scripts
 COPY static/fixtures ./static/fixtures
+COPY admin-console ./admin-console
 COPY webapp ./webapp
 COPY db ./db
 COPY docs ./docs
