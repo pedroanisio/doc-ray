@@ -365,10 +365,10 @@ def handle_canonicalize(
     }
     if job.payload.get("resolve") and result.residue:
         report_progress(2, 3, "Resolving remaining mentions")
-        from doc_ray.adapters.resolver_claude import ClaudeResolver
+        from doc_ray.adapters.resolver_factory import make_resolver
         from doc_ray.application.resolution import resolve_residue
 
-        outcome = resolve_residue(conn, ClaudeResolver(), job.document_id, result.residue)
+        outcome = resolve_residue(conn, make_resolver(), job.document_id, result.residue)
         out.update(
             {
                 "resolved": outcome.linked + outcome.created,

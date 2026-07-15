@@ -1,0 +1,72 @@
+# doc-ray — Ollama overlay: run the frontier entity resolver on a LOCAL model
+# instead of the Anthropic API (no API key, no per-call cost).
+#
+# Adds an `ollama` service and points the worker's resolver at it
+# (DOCRAY_RESOLVER_BACKEND=ollama, resolved by adapters/resolver_factory). The
+# resolver's PALS verification is identical to the Anthropic backend, so a weaker
+# local model's hallucinations are still coerced to ABSTAIN and routed to review.
+#
+# Run (layer on the base compose):
+#   docker compose -f docker-compose.yml -f docker-compose.ollama.yml up -d \
+#     postgres minio createbucket ollama ollama-pull worker worker-fast api
+#
+# First start pulls the model (see ollama-pull) — give it a few minutes. Ollama is
+# CPU-only here; for GPU, uncomment the CDI reservation below (needs
+# nvidia-container-toolkit) or layer docker-compose.gpu.yml's device settings.
+
+services:
+  ollama:
+    image: ollama/ollama:latest
+    container_name: docray-ollama
+    restart: unless-stopped
+    ports:
+      # LOOPBACK ONLY — the model server is never exposed on the public interface.
+      - "127.0.0.1:${OLLAMA_PORT:-11434}:11434"
+    volumes:
+      - ollama-models:/root/.ollama
+    healthcheck:
+      test: ["CMD-SHELL", "ollama list >/dev/null 2>&1 || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    # --- GPU (optional): reserve the host NVIDIA GPU via CDI ---
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: cdi
+    #           capabilities: ["gpu"]
+    #           device_ids: ["nvidia.com/gpu=all"]
+
+  # One-shot: pull the resolver model so the first /api/chat call doesn't 404.
+  ollama-pull:
+    image: ollama/ollama:latest
+    depends_on:
+      ollama:
+        condition: service_healthy
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+    entrypoint: ["ollama", "pull", "${DOCRAY_OLLAMA_MODEL:-qwen2.5}"]
+    restart: "no"
+
+  worker:
+    depends_on:
+      ollama:
+        condition: service_healthy
+    environment:
+      DOCRAY_RESOLVER_BACKEND: ${DOCRAY_RESOLVER_BACKEND:-ollama}
+      DOCRAY_OLLAMA_HOST: ${DOCRAY_OLLAMA_HOST:-http://ollama:11434}
+      DOCRAY_OLLAMA_MODEL: ${DOCRAY_OLLAMA_MODEL:-qwen2.5}
+
+  worker-fast:
+    depends_on:
+      ollama:
+        condition: service_healthy
+    environment:
+      DOCRAY_RESOLVER_BACKEND: ${DOCRAY_RESOLVER_BACKEND:-ollama}
+      DOCRAY_OLLAMA_HOST: ${DOCRAY_OLLAMA_HOST:-http://ollama:11434}
+      DOCRAY_OLLAMA_MODEL: ${DOCRAY_OLLAMA_MODEL:-qwen2.5}
+
+volumes:
+  ollama-models:
