@@ -33,6 +33,7 @@ from doc_ray.domain.jobs import (
     KIND_SEMANTIC_ENRICH,
     KIND_SUGGEST_DOCUMENT_METADATA,
     KIND_UPDATE_METADATA,
+    KIND_VISUAL_EXTRACT,
     Job,
 )
 from doc_ray.domain.progress import report_progress
@@ -245,6 +246,28 @@ def handle_semantic_enrich(
     return semantic_enrichment.annotate_document(conn, job.document_id)
 
 
+def handle_visual_extract(
+    conn: psycopg.Connection[Any], store: ObjectStore | None, job: Job
+) -> dict[str, Any]:
+    """Prism Tier-1: detect image regions and store deterministic visual features."""
+    from doc_ray.adapters.pdf_image_source_pymupdf import PyMuPDFImageSource
+    from doc_ray.adapters.pdf_renderer_pymupdf import PyMuPDFRenderer
+    from doc_ray.application import visual_extract
+
+    if job.document_id is None:
+        raise RuntimeError("visual_extract requires a document_id")
+    if store is None:
+        raise RuntimeError("visual_extract requires an object store")
+    report_progress(0, 1, "Extracting visual features")
+    return visual_extract.extract_document_visuals(
+        conn,
+        store,
+        job.document_id,
+        renderer=PyMuPDFRenderer(),
+        image_source=PyMuPDFImageSource(),
+    )
+
+
 def handle_seed_canonical(
     conn: psycopg.Connection[Any], store: ObjectStore | None, job: Job
 ) -> dict[str, Any]:
@@ -414,6 +437,7 @@ def handle_restore(
 HANDLERS: dict[str, Handler] = {
     KIND_ANNOTATE: handle_annotate,
     KIND_SEMANTIC_ENRICH: handle_semantic_enrich,
+    KIND_VISUAL_EXTRACT: handle_visual_extract,
     KIND_REANNOTATE: handle_reannotate,
     KIND_REEXTRACT: handle_reextract,
     KIND_DELETE: handle_delete,
