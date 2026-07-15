@@ -118,6 +118,76 @@ def test_prod_env_example_webhook_events_match_runtime_requirements():
     assert _prod_example_webhook_events() == list(billing.REQUIRED_WEBHOOK_EVENTS)
 
 
+def test_stripe_rest_transport_surfaces_sanitized_error_body(monkeypatch):
+    class FakeAsyncClient:
+        def __init__(self, *, timeout: float) -> None:
+            assert timeout == 15.0
+
+        async def __aenter__(self) -> FakeAsyncClient:
+            return self
+
+        async def __aexit__(self, *exc_info: object) -> None:
+            return None
+
+        async def post(
+            self,
+            url: str,
+            *,
+            data: dict[str, str],
+            headers: dict[str, str],
+        ) -> billing.httpx.Response:
+            assert url == "https://api.stripe.test/v1/checkout/sessions"
+            assert data["mode"] == "subscription"
+            assert headers["authorization"] == "Bearer sk_live_secret_value"
+            return billing.httpx.Response(
+                402,
+                json={
+                    "error": {
+                        "type": "card_error",
+                        "code": "card_declined",
+                        "decline_code": "insufficient_funds",
+                        "message": "Your card was declined.",
+                    }
+                },
+                headers={"request-id": "req_test_123"},
+            )
+
+    monkeypatch.setattr(billing.httpx, "AsyncClient", FakeAsyncClient)
+    transport = billing.StripeRestTransport(
+        secret_key="sk_live_secret_value",
+        api_base="https://api.stripe.test/v1",
+    )
+
+    async def check() -> None:
+        try:
+            await transport.create_checkout_session(
+                customer_id="cus_test",
+                price_id="price_test",
+                success_url="https://admin.example.com/billing?checkout=success",
+                cancel_url="https://admin.example.com/billing?checkout=cancel",
+                client_reference_id="tenant-1",
+                metadata={"tenant_id": "tenant-1"},
+                subscription_metadata={"tenant_id": "tenant-1"},
+            )
+        except billing.StripeAPIError as exc:
+            message = str(exc)
+            assert exc.status_code == 402
+            assert exc.stripe_type == "card_error"
+            assert exc.stripe_code == "card_declined"
+            assert exc.decline_code == "insufficient_funds"
+            assert exc.request_id == "req_test_123"
+            assert "HTTP 402" in message
+            assert "card_declined" in message
+            assert "insufficient_funds" in message
+            assert "req_test_123" in message
+            assert "Your card was declined." in message
+            assert "sk_live_secret_value" not in message
+        else:  # pragma: no cover - defensive
+            raise AssertionError("Stripe API error body was not surfaced")
+
+    asyncio.run(check())
+
+
 def test_verify_stripe_signature_rejects_tampered_payload():
     payload = b'{"id":"evt_1","type":"checkout.session.completed"}'
     header = _signed_header(payload, "whsec_test", 1_700_000_000)

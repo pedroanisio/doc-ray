@@ -30,6 +30,28 @@ class StripeSignatureError(ValueError):
     """Raised when a Stripe webhook signature cannot be verified."""
 
 
+class StripeAPIError(RuntimeError):
+    """Raised when Stripe rejects or cannot complete an API request."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        status_code: int | None = None,
+        stripe_type: str | None = None,
+        stripe_code: str | None = None,
+        decline_code: str | None = None,
+        request_id: str | None = None,
+    ) -> None:
+        """Initialize a sanitized Stripe API error."""
+        super().__init__(message)
+        self.status_code = status_code
+        self.stripe_type = stripe_type
+        self.stripe_code = stripe_code
+        self.decline_code = decline_code
+        self.request_id = request_id
+
+
 class WebhookProcessingPending(RuntimeError):
     """Raised when a Stripe webhook should be retried later."""
 
@@ -101,14 +123,18 @@ class StripeRestTransport:
         self._api_base = api_base.rstrip("/")
 
     async def _post(self, path: str, form: dict[str, str]) -> dict[str, Any]:
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            response = await client.post(
-                f"{self._api_base}{path}",
-                data=form,
-                headers={"authorization": f"Bearer {self._secret_key}"},
-            )
+        try:
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                response = await client.post(
+                    f"{self._api_base}{path}",
+                    data=form,
+                    headers={"authorization": f"Bearer {self._secret_key}"},
+                )
+        except httpx.HTTPError as exc:
+            message = f"Stripe request failed before receiving a response: {exc}"
+            raise StripeAPIError(message) from exc
         if response.status_code >= 400:
-            raise RuntimeError(f"Stripe request failed with HTTP {response.status_code}")
+            raise _stripe_api_error(response)
         payload = response.json()
         if not isinstance(payload, dict):
             raise RuntimeError("Stripe response was not an object")
@@ -161,6 +187,44 @@ class StripeRestTransport:
 
 def _metadata_form(metadata: dict[str, str], *, prefix: str = "metadata") -> dict[str, str]:
     return {f"{prefix}[{key}]": value for key, value in metadata.items()}
+
+
+def _stripe_api_error(response: httpx.Response) -> StripeAPIError:
+    error_obj: dict[str, Any] = {}
+    try:
+        payload = response.json()
+    except ValueError:
+        payload = None
+    if isinstance(payload, dict) and isinstance(payload.get("error"), dict):
+        error_obj = payload["error"]
+
+    stripe_type = _string(error_obj.get("type"))
+    stripe_code = _string(error_obj.get("code"))
+    decline_code = _string(error_obj.get("decline_code"))
+    request_id = _string(response.headers.get("request-id")) or _string(
+        response.headers.get("stripe-request-id")
+    )
+    detail = _string(error_obj.get("message"))
+    parts = [f"Stripe request failed with HTTP {response.status_code}"]
+    for label, value in (
+        ("type", stripe_type),
+        ("code", stripe_code),
+        ("decline_code", decline_code),
+        ("request_id", request_id),
+    ):
+        if value:
+            parts.append(f"{label}={value}")
+    message = ", ".join(parts)
+    if detail:
+        message = f"{message}: {detail}"
+    return StripeAPIError(
+        message,
+        status_code=response.status_code,
+        stripe_type=stripe_type,
+        stripe_code=stripe_code,
+        decline_code=decline_code,
+        request_id=request_id,
+    )
 
 
 def configured_checkout_urls(
