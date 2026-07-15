@@ -442,6 +442,17 @@ def test_base_compose_passes_stripe_billing_configuration_to_api():
     )
 
 
+def test_nginx_routes_public_stripe_webhook_to_api():
+    """Stripe posts to the public origin; nginx must forward that path to the API."""
+    text = (_ROOT / "nginx" / "templates" / "default.conf.template").read_text(
+        encoding="utf-8"
+    )
+
+    assert "location = /stripe/webhook" in text
+    stripe_block = text.split("location = /stripe/webhook", 1)[1].split("location", 1)[0]
+    assert "proxy_pass http://api:8000" in stripe_block
+
+
 def test_prod_overlay_binds_the_api_to_loopback_not_the_public_interface():
     """In managed prod the GraphQL API must not publish on 0.0.0.0: it is reached
     intra-network (webapp -> api:8000) or via nginx/TLS, never as raw plaintext
