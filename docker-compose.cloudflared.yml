@@ -1,0 +1,47 @@
+# doc-ray — Cloudflare Tunnel ingress overlay (production).
+#
+# Exposes the app through Cloudflare with NO public web ports on the droplet:
+# cloudflared dials OUTBOUND to Cloudflare's edge and proxies inbound requests
+# to the internal services over the compose network. TLS terminates at
+# Cloudflare; the origin publishes only SSH. This replaces the nginx front door
+# (docker-compose.prod.yml's app services already bind loopback-only), so you do
+# NOT run `make prod-web` when using the tunnel.
+#
+# One-time setup in the Cloudflare Zero Trust dashboard (zero-trust -> Networks
+# -> Tunnels):
+#   1. Create a tunnel, e.g. `doc-ray-prod`; copy its TOKEN.
+#   2. Put it in .env:  CLOUDFLARE_TUNNEL_TOKEN=<token>
+#   3. Add Public Hostnames on the tunnel (routing is dashboard-side, so this
+#      overlay stays hostname-agnostic):
+#        doc-ray.com          -> Service  http://webapp:5001
+#        (optional) api.doc-ray.com -> Service  http://api:8000
+#      For UAT, point doc-ray.dev at the UAT deployment's webapp the same way.
+#
+# Run (layer after the prod overlay):
+#   make prod-tunnel
+#   # = docker compose -f docker-compose.yml -f docker-compose.prod.yml \
+#   #     -f docker-compose.cloudflared.yml up -d cloudflared
+#
+# Kept in its own overlay (not folded into prod) because the token is a hard
+# requirement: Compose interpolates ${CLOUDFLARE_TUNNEL_TOKEN:?...} for the whole
+# file at load, so folding it in would break token-less `make prod-up`.
+
+services:
+  cloudflared:
+    image: cloudflare/cloudflared:latest # pin a digest for reproducibility if desired
+    container_name: docray-cloudflared
+    restart: unless-stopped
+    # Outbound-only: no `ports:`. Reaches webapp:5001 / api:8000 over the shared
+    # compose network (same project as the base + prod services).
+    command:
+      - tunnel
+      - --no-autoupdate
+      - run
+      - --token
+      - ${CLOUDFLARE_TUNNEL_TOKEN:?Set CLOUDFLARE_TUNNEL_TOKEN (Cloudflare Zero Trust -> Tunnels) in .env}
+    healthcheck:
+      test: ["CMD", "cloudflared", "--version"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s

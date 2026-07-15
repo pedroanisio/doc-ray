@@ -436,6 +436,34 @@ def test_prod_overlay_binds_the_api_to_loopback_not_the_public_interface():
         assert str(mapping).startswith("127.0.0.1:"), mapping
 
 
+def test_production_uses_a_dedicated_env_file_not_the_dev_env():
+    """Production config must be separate from development: the prod make targets
+    load .env.prod (gitignored), documented by a committed .env.prod.example.
+    Mixing prod secrets/hardening into the dev .env is the bug this guards.
+    """
+    makefile = (_ROOT / "Makefile").read_text(encoding="utf-8")
+    assert "--env-file .env.prod" in makefile, "prod targets must load .env.prod, not .env"
+    assert (_ROOT / ".env.prod.example").exists(), "commit a .env.prod.example template"
+    assert ".env.prod" in (_ROOT / ".gitignore").read_text(encoding="utf-8"), ".env.prod must be gitignored"
+
+
+def test_prod_env_example_defaults_to_fail_closed_auth():
+    """The committed production template must not ship dev's open defaults."""
+    text = (_ROOT / ".env.prod.example").read_text(encoding="utf-8")
+    assert "DOCRAY_API_ALLOW_ANONYMOUS=false" in text
+    assert "DOCRAY_WEBAPP_REQUIRE_AUTH=true" in text
+    assert "DOCRAY_API_ALLOW_ANONYMOUS=true" not in text
+
+
+def test_cloudflared_tunnel_publishes_no_host_ports():
+    """The Cloudflare Tunnel ingress must be outbound-only — publishing a host
+    port would defeat the point (the droplet's sole public surface is SSH).
+    """
+    svc = _compose_tolerant("docker-compose.cloudflared.yml")["services"]["cloudflared"]
+    assert "ports" not in svc, "cloudflared must not publish host ports (outbound tunnel only)"
+    assert svc["restart"] == "unless-stopped"
+
+
 def test_pgadmin_admin_gui_binds_to_loopback_only():
     """pgAdmin exposes an admin surface; it must never publish beyond 127.0.0.1
     (access is via an SSH/VS Code tunnel).

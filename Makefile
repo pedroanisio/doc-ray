@@ -10,13 +10,14 @@ DOCRAY_WORKERS ?= 3
 # truncate-db); override with e.g. `make check PYTHON=python3`.
 PYTHON ?= $(shell [ -x .venv/bin/python ] && echo .venv/bin/python || echo python3)
 
-# Managed-services (DO Managed Postgres + Spaces) compose invocation. The prod
-# overlay repoints every app service at the managed cluster and gates the local
-# postgres/minio out, so these never touch a local database.
-COMPOSE_PROD := docker compose -f docker-compose.yml -f docker-compose.prod.yml
+# Managed-services (DO Managed Postgres + Spaces) compose invocation. Production
+# has its OWN env file (.env.prod) — never the development .env; --env-file
+# replaces .env for interpolation. The prod overlay repoints every app service at
+# the managed cluster and gates the local postgres/minio out.
+COMPOSE_PROD := docker compose --env-file .env.prod -f docker-compose.yml -f docker-compose.prod.yml
 
 .PHONY: help check check-static db-dump truncate-db workers-up workers-status \
-        prod-migrate prod-up prod-web prod-down gpu-up pgadmin-up
+        prod-migrate prod-up prod-web prod-tunnel prod-down gpu-up pgadmin-up
 
 help: ## List available tasks
 	@grep -E '^[a-z][a-zA-Z_-]*:.*## ' $(MAKEFILE_LIST) | awk -F ':.*## ' '{printf "  %-14s %s\n", $$1, $$2}'
@@ -67,6 +68,9 @@ prod-up: prod-migrate ## Migrate, then start the managed stack (api + webapp + w
 
 prod-web: ## Add the public TLS front door (nginx + self-signed certgen) to a running prod stack
 	$(COMPOSE_PROD) up -d --build nginx-certgen nginx
+
+prod-tunnel: ## Start the Cloudflare Tunnel ingress (no public ports; needs CLOUDFLARE_TUNNEL_TOKEN)
+	$(COMPOSE_PROD) -f docker-compose.cloudflared.yml up -d cloudflared
 
 prod-down: ## Stop the managed stateless stack (managed data is off-box; nothing is wiped)
 	$(COMPOSE_PROD) down

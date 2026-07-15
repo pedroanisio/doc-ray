@@ -9,6 +9,7 @@ docs/reports/
 .env
 .env.test
 .env.uat
+.env.prod
 *egg-info*
 books/
 static/fixtures/

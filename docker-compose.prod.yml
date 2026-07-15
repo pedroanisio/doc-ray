@@ -58,6 +58,12 @@ services:
     # leave the 0.0.0.0 bind in place alongside it.
     ports: !override
       - "127.0.0.1:${API_PORT:-8000}:8000"
+    # uvicorn is production-grade; run a small worker pool for concurrency. Each
+    # worker holds its own pool (≤ DOCRAY_API_POOL_MAX_SIZE); 2×10 stays well
+    # under the managed cluster's ~97 backends.
+    entrypoint:
+      ["uvicorn", "doc_ray.entrypoints.api.app:app",
+       "--host", "0.0.0.0", "--port", "8000", "--workers", "${DOCRAY_API_WORKERS:-2}"]
 
   worker:
     depends_on: !reset {}
@@ -74,6 +80,17 @@ services:
   webapp:
     depends_on: !reset {}
     environment: *managed-env
+    # Production WSGI server. Base runs `flask run` (Werkzeug dev server,
+    # "do not use in production"); gunicorn with gthread workers suits the
+    # webapp's blocking I/O (DB reads + HTTP to the api). --timeout 120 so large
+    # uploads (DOCRAY_MAX_UPLOAD_MB) are not cut off. Requires
+    # DOCRAY_WEBAPP_SECRET_KEY to be set — otherwise each worker signs session/
+    # CSRF cookies with its own random key and requests fail across workers.
+    entrypoint:
+      ["gunicorn", "webapp.app:app", "--bind", "0.0.0.0:5001",
+       "--workers", "${DOCRAY_WEBAPP_WORKERS:-2}", "--threads", "4",
+       "--worker-class", "gthread", "--timeout", "120",
+       "--access-logfile", "-", "--error-logfile", "-"]
 
   # Opt-in ops monitor (base keeps it on the `ops` profile). Repoint it and drop
   # its local-postgres dependency, so `--profile ops` works against managed too —

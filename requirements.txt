@@ -22,6 +22,9 @@ Unidecode==1.4.*
 httpx==0.28.*
 # Flask browser (webapp/) — local corpus reader and operator UI.
 Flask==3.1.*
+# Production WSGI server for the Flask webapp. `flask run` (Werkzeug) is a
+# development server only; docker-compose.prod.yml runs the webapp under gunicorn.
+gunicorn==23.0.*
 # Local self-service auth password hashing. Argon2id is the accepted password
 # hashing scheme for first-party credentials.
 argon2-cffi==23.*
