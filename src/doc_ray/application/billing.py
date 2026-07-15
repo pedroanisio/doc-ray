@@ -91,7 +91,12 @@ class StripeTransport(Protocol):
     """Minimal Stripe API surface required by doc-ray billing."""
 
     async def create_customer(
-        self, *, name: str, email: str | None, metadata: dict[str, str]
+        self,
+        *,
+        name: str,
+        email: str | None,
+        metadata: dict[str, str],
+        idempotency_key: str,
     ) -> dict[str, Any]:
         """Create a Stripe customer."""
 
@@ -105,6 +110,7 @@ class StripeTransport(Protocol):
         client_reference_id: str,
         metadata: dict[str, str],
         subscription_metadata: dict[str, str],
+        idempotency_key: str,
     ) -> dict[str, Any]:
         """Create a hosted subscription Checkout Session."""
 
@@ -122,13 +128,18 @@ class StripeRestTransport:
         self._secret_key = secret_key
         self._api_base = api_base.rstrip("/")
 
-    async def _post(self, path: str, form: dict[str, str]) -> dict[str, Any]:
+    async def _post(
+        self, path: str, form: dict[str, str], *, idempotency_key: str | None = None
+    ) -> dict[str, Any]:
+        headers = {"authorization": f"Bearer {self._secret_key}"}
+        if idempotency_key:
+            headers["idempotency-key"] = idempotency_key
         try:
             async with httpx.AsyncClient(timeout=15.0) as client:
                 response = await client.post(
                     f"{self._api_base}{path}",
                     data=form,
-                    headers={"authorization": f"Bearer {self._secret_key}"},
+                    headers=headers,
                 )
         except httpx.HTTPError as exc:
             message = f"Stripe request failed before receiving a response: {exc}"
@@ -141,14 +152,19 @@ class StripeRestTransport:
         return payload
 
     async def create_customer(
-        self, *, name: str, email: str | None, metadata: dict[str, str]
+        self,
+        *,
+        name: str,
+        email: str | None,
+        metadata: dict[str, str],
+        idempotency_key: str,
     ) -> dict[str, Any]:
         """Create a Stripe customer for a tenant."""
         form = {"name": name}
         if email:
             form["email"] = email
         form.update(_metadata_form(metadata))
-        return await self._post("/customers", form)
+        return await self._post("/customers", form, idempotency_key=idempotency_key)
 
     async def create_checkout_session(
         self,
@@ -160,6 +176,7 @@ class StripeRestTransport:
         client_reference_id: str,
         metadata: dict[str, str],
         subscription_metadata: dict[str, str],
+        idempotency_key: str,
     ) -> dict[str, Any]:
         """Create a Stripe-hosted subscription Checkout Session."""
         form = {
@@ -173,7 +190,9 @@ class StripeRestTransport:
         }
         form.update(_metadata_form(metadata))
         form.update(_metadata_form(subscription_metadata, prefix="subscription_data[metadata]"))
-        return await self._post("/checkout/sessions", form)
+        return await self._post(
+            "/checkout/sessions", form, idempotency_key=idempotency_key
+        )
 
     async def create_portal_session(
         self, *, customer_id: str, return_url: str
@@ -510,6 +529,7 @@ async def create_checkout_session(
             name=f"doc-ray tenant {tenant_id}",
             email=None,
             metadata={"tenant_id": tenant_id},
+            idempotency_key=f"docray.customer.{tenant_id}",
         )
         customer_id = str(customer["id"])
         await billing_store.upsert_billing_account(
@@ -527,6 +547,7 @@ async def create_checkout_session(
         client_reference_id=tenant_id,
         metadata={"tenant_id": tenant_id, "price_id": cfg.stripe_price_id},
         subscription_metadata={"tenant_id": tenant_id, "price_id": cfg.stripe_price_id},
+        idempotency_key=f"docray.checkout.{tenant_id}.{cfg.stripe_price_id}",
     )
     session_id = session.get("id")
     if not isinstance(session_id, str) or not session_id:

@@ -34,9 +34,21 @@ class FakeStripe:
         self.portal_calls: list[dict[str, Any]] = []
 
     async def create_customer(
-        self, *, name: str, email: str | None, metadata: dict[str, str]
+        self,
+        *,
+        name: str,
+        email: str | None,
+        metadata: dict[str, str],
+        idempotency_key: str,
     ) -> dict[str, Any]:
-        self.created_customers.append({"name": name, "email": email, "metadata": metadata})
+        self.created_customers.append(
+            {
+                "name": name,
+                "email": email,
+                "metadata": metadata,
+                "idempotency_key": idempotency_key,
+            }
+        )
         return {"id": "cus_test_123"}
 
     async def create_checkout_session(
@@ -49,6 +61,7 @@ class FakeStripe:
         client_reference_id: str,
         metadata: dict[str, str],
         subscription_metadata: dict[str, str],
+        idempotency_key: str,
     ) -> dict[str, Any]:
         self.checkout_calls.append(
             {
@@ -59,6 +72,7 @@ class FakeStripe:
                 "client_reference_id": client_reference_id,
                 "metadata": metadata,
                 "subscription_metadata": subscription_metadata,
+                "idempotency_key": idempotency_key,
             }
         )
         return {"id": "cs_test_123", "url": "https://checkout.stripe.test/session"}
@@ -139,6 +153,7 @@ def test_stripe_rest_transport_surfaces_sanitized_error_body(monkeypatch):
             assert url == "https://api.stripe.test/v1/checkout/sessions"
             assert data["mode"] == "subscription"
             assert headers["authorization"] == "Bearer sk_live_secret_value"
+            assert headers["idempotency-key"] == "docray.checkout.tenant-1.price_test"
             return billing.httpx.Response(
                 402,
                 json={
@@ -168,6 +183,7 @@ def test_stripe_rest_transport_surfaces_sanitized_error_body(monkeypatch):
                 client_reference_id="tenant-1",
                 metadata={"tenant_id": "tenant-1"},
                 subscription_metadata={"tenant_id": "tenant-1"},
+                idempotency_key="docray.checkout.tenant-1.price_test",
             )
         except billing.StripeAPIError as exc:
             message = str(exc)
@@ -441,12 +457,16 @@ def test_stripe_webhook_route_rejects_livemode_mismatch_before_processing(pg):
 def test_billing_graphql_mutations_create_checkout_and_portal_sessions(pg, monkeypatch):
     conn, _created = pg
     tenant_id = _apply_billing_migration(conn)
-    stripe_calls: list[tuple[str, dict[str, str]]] = []
+    stripe_calls: list[tuple[str, dict[str, str], str | None]] = []
 
     async def fake_stripe_post(
-        self: billing.StripeRestTransport, path: str, form: dict[str, str]
+        self: billing.StripeRestTransport,
+        path: str,
+        form: dict[str, str],
+        *,
+        idempotency_key: str | None = None,
     ) -> dict[str, Any]:
-        stripe_calls.append((path, form))
+        stripe_calls.append((path, form, idempotency_key))
         if path == "/customers":
             return {"id": "cus_graphql_1"}
         if path == "/checkout/sessions":
@@ -511,19 +531,25 @@ def test_billing_graphql_mutations_create_checkout_and_portal_sessions(pg, monke
         customer_call = stripe_calls[0]
         checkout_call = stripe_calls[1]
         portal_call = stripe_calls[2]
-        assert customer_call == ("/customers", {
-            "name": f"doc-ray tenant {tenant_id}",
-            "metadata[tenant_id]": tenant_id,
-        })
+        assert customer_call == (
+            "/customers",
+            {
+                "name": f"doc-ray tenant {tenant_id}",
+                "metadata[tenant_id]": tenant_id,
+            },
+            f"docray.customer.{tenant_id}",
+        )
         assert checkout_call[0] == "/checkout/sessions"
         assert checkout_call[1]["mode"] == "subscription"
         assert checkout_call[1]["customer"] == "cus_graphql_1"
         assert checkout_call[1]["client_reference_id"] == tenant_id
         assert checkout_call[1]["subscription_data[metadata][tenant_id]"] == tenant_id
         assert checkout_call[1]["subscription_data[metadata][price_id]"] == "price_test_monthly"
+        assert checkout_call[2] == f"docray.checkout.{tenant_id}.price_test_monthly"
         assert portal_call == (
             "/billing_portal/sessions",
             {"customer": "cus_graphql_1", "return_url": "https://app.example.com/billing"},
+            None,
         )
     finally:
         conn.execute("DELETE FROM tenant_subscriptions WHERE tenant_id = %s", (tenant_id,))
@@ -541,7 +567,13 @@ def test_checkout_session_creates_customer_and_graphql_status(pg):
             url = await billing.create_checkout_session(aconn, _cfg(), transport=fake)
             assert url == "https://checkout.stripe.test/session"
             assert fake.created_customers[0]["metadata"] == {"tenant_id": tenant_id}
+            assert fake.created_customers[0]["idempotency_key"] == (
+                f"docray.customer.{tenant_id}"
+            )
             assert fake.checkout_calls[0]["price_id"] == "price_test_monthly"
+            assert fake.checkout_calls[0]["idempotency_key"] == (
+                f"docray.checkout.{tenant_id}.price_test_monthly"
+            )
             assert fake.checkout_calls[0]["subscription_metadata"] == {
                 "tenant_id": tenant_id,
                 "price_id": "price_test_monthly",
