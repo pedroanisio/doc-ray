@@ -42,10 +42,14 @@ KIND_BACKUP = "backup"
 KIND_RESTORE = "restore"
 KIND_UPDATE_METADATA = "update_metadata"
 KIND_REEXTRACT = "reextract"
+# Prism Tier-1: detect image/regions in a document and compute deterministic
+# visual features (CPU-only; no model). Appended to the post-ingest chain tail.
+KIND_VISUAL_EXTRACT = "visual_extract"
 
 # Job kinds that are expected to take enough wall-clock time to need a reserved
-# slow lane. Compose worker filters must stay in sync with this set.
-LONG_RUNNING_JOB_KINDS = frozenset({KIND_ANNOTATE, KIND_REANNOTATE})
+# slow lane. Compose worker filters must stay in sync with this set. Visual
+# extract renders pages (CPU) so it can be heavy on visual-dominant documents.
+LONG_RUNNING_JOB_KINDS = frozenset({KIND_ANNOTATE, KIND_REANNOTATE, KIND_VISUAL_EXTRACT})
 
 
 @dataclass(frozen=True)
