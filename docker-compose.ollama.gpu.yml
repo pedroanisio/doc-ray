@@ -1,0 +1,36 @@
+# GPU overlay for the LOCAL Ollama resolver — runs the frontier entity resolver's
+# model on the host NVIDIA GPU instead of CPU.
+#
+# Layer this ON TOP OF docker-compose.ollama.yml (which defines the `ollama`
+# service); on its own it has nothing to attach the reservation to. Mirrors
+# docker-compose.gpu.yml's CDI reservation, but targets `ollama`, not `worker` —
+# the two are independent GPU tenants and can share one card (on a 140 GB H200
+# both the trf annotate worker and a resolver model fit with room to spare).
+#
+# Prod (managed Postgres + Spaces, resolver on GPU): use `make prod-ollama-up`.
+# Manual:
+#   docker compose -f docker-compose.yml -f docker-compose.ollama.yml \
+#     -f docker-compose.ollama.gpu.yml up -d ollama ollama-pull worker worker-fast
+#
+# Requirements: nvidia-container-toolkit CDI specs in /etc/cdi and an NVIDIA
+# driver matching the runtime's CUDA build. Verify with
+#   docker run --rm --device nvidia.com/gpu=all nvidia/cuda:12.4.0-base-ubuntu22.04 nvidia-smi -L
+#
+# CPU-only hosts must NOT apply this overlay — the base ollama overlay already
+# runs the server on CPU.
+services:
+  ollama:
+    # Keep the resolved model pinned in VRAM. Ollama's default unloads a model
+    # after 5 min idle; the resolver fires sporadically (once per novel surface
+    # form), so the default would reload the weights — a multi-second latency
+    # spike — on nearly every call. -1 never unloads (the H200 has the VRAM).
+    environment:
+      OLLAMA_KEEP_ALIVE: ${OLLAMA_KEEP_ALIVE:--1}
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: cdi
+              capabilities: ["gpu"]
+              device_ids:
+                - nvidia.com/gpu=all
