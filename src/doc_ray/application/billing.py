@@ -244,7 +244,7 @@ def _validate_hosted_redirect_url(
 
 
 def _configured_redirect_origin(cfg: Config, configured_url: str | None) -> str | None:
-    for value in (cfg.public_base_url, configured_url):
+    for value in (configured_url, cfg.public_base_url):
         parsed = urlparse((value or "").strip())
         if parsed.scheme in {"http", "https"} and parsed.netloc:
             return _url_origin(parsed)

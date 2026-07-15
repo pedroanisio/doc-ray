@@ -57,7 +57,7 @@ export function BillingPage({ redirectToHostedUrl = (url) => window.location.ass
   async function openCheckout() {
     setBusy("checkout");
     try {
-      const url = await createBillingCheckoutSession(client);
+      const url = await createBillingCheckoutSession(client, checkoutRedirectUrls());
       redirectToHostedUrl(url);
     } catch (err) {
       setError(errorMessage(err));
@@ -68,7 +68,9 @@ export function BillingPage({ redirectToHostedUrl = (url) => window.location.ass
   async function openPortal() {
     setBusy("portal");
     try {
-      const url = await createBillingPortalSession(client);
+      const url = await createBillingPortalSession(client, {
+        returnUrl: billingRouteUrl(),
+      });
       redirectToHostedUrl(url);
     } catch (err) {
       setError(errorMessage(err));
@@ -298,6 +300,21 @@ function subscriptionStateDetailFor(state: string): string {
     return "No Stripe subscription has been recorded";
   }
   return `Stripe subscription is ${formatSubscriptionState(state)}`;
+}
+
+function checkoutRedirectUrls() {
+  return {
+    successUrl: billingRouteUrl("checkout=success"),
+    cancelUrl: billingRouteUrl("checkout=cancel"),
+  };
+}
+
+function billingRouteUrl(search?: string) {
+  const url = new URL("/billing", window.location.origin);
+  if (search) {
+    url.search = search;
+  }
+  return url.toString();
 }
 
 function checkoutReturn(value: string | null): { kind: "success" | "cancel"; title: string; detail: string } | null {

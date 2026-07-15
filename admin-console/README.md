@@ -96,6 +96,12 @@ make prod-admin-console-down
 If your main compose project name is not `doc-ray`, set `DOCRAY_NETWORK` to its
 `<project>_default` network. See [.env.example](.env.example) for all overrides.
 
+For live Stripe billing, open the console through the same trusted HTTPS origin
+configured in `DOCRAY_STRIPE_SUCCESS_URL`, `DOCRAY_STRIPE_CANCEL_URL`, and
+`DOCRAY_STRIPE_PORTAL_RETURN_URL`. The Billing page sends its current `/billing`
+URL as the hosted Checkout/Portal return target; the API rejects cross-origin
+overrides when billing enforcement is enabled.
+
 ### Local dev
 
 ```bash

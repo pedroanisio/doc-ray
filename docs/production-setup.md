@@ -284,6 +284,13 @@ It attaches to `DOCRAY_NETWORK` (default `doc-ray_default`) and binds
 trusted private ingress unless you add an external TLS/auth boundary. Stop it
 with `make prod-admin-console-down`.
 
+For live Stripe Checkout and Customer Portal flows, the Billing panel passes its
+current `/billing` URL as the hosted-session success/cancel/return target. Set
+`DOCRAY_STRIPE_SUCCESS_URL`, `DOCRAY_STRIPE_CANCEL_URL`, and
+`DOCRAY_STRIPE_PORTAL_RETURN_URL` to that same trusted HTTPS admin-console
+origin, while keeping `DOCRAY_PUBLIC_BASE_URL` on the public `doc-ray.com`
+origin for `/stripe/webhook`.
+
 ## Step 6 — Cloudflare Tunnel ingress (public access)
 
 The tunnel dials **outbound** to Cloudflare, so `doc-ray.com` is served with

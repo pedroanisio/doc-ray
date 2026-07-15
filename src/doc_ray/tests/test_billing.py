@@ -678,6 +678,42 @@ def test_portal_return_override_must_use_configured_https_origin():
         raise AssertionError("insecure Portal return URL override was accepted")
 
 
+def test_hosted_redirect_origin_can_differ_from_public_webhook_origin():
+    cfg = replace(
+        _cfg(enforcement_enabled=True),
+        public_base_url="https://doc-ray.com",
+        stripe_success_url="https://admin.doc-ray.com/billing?checkout=success",
+        stripe_cancel_url="https://admin.doc-ray.com/billing?checkout=cancel",
+        stripe_portal_return_url="https://admin.doc-ray.com/billing",
+    )
+
+    checkout = billing.configured_checkout_urls(
+        cfg,
+        success_url="https://admin.doc-ray.com/billing?checkout=success",
+        cancel_url="https://admin.doc-ray.com/billing?checkout=cancel",
+    )
+    portal = billing.configured_portal_url(
+        cfg,
+        return_url="https://admin.doc-ray.com/billing",
+    )
+
+    assert billing.webhook_endpoint_url(cfg) == "https://doc-ray.com/stripe/webhook"
+    assert checkout.success_url == "https://admin.doc-ray.com/billing?checkout=success"
+    assert checkout.cancel_url == "https://admin.doc-ray.com/billing?checkout=cancel"
+    assert portal.return_url == "https://admin.doc-ray.com/billing"
+
+    try:
+        billing.configured_checkout_urls(
+            cfg,
+            success_url="https://evil.example.com/billing?checkout=success",
+            cancel_url="https://admin.doc-ray.com/billing?checkout=cancel",
+        )
+    except billing.BillingConfigurationError as exc:
+        assert "success_url must use the configured application origin" in str(exc)
+    else:  # pragma: no cover - defensive
+        raise AssertionError("cross-origin admin-console Checkout URL was accepted")
+
+
 def test_checkout_session_rejects_duplicate_active_subscription(pg):
     conn, _created = pg
     tenant_id = _apply_billing_migration(conn)

@@ -406,6 +406,11 @@ describe("BillingPage", () => {
       ([, init]) => String(init?.body ?? "").includes("createBillingCheckoutSession"),
     );
     expect(mutationCall).toBeDefined();
+    const body = JSON.parse(String(mutationCall?.[1]?.body ?? "{}"));
+    expect(body.variables).toEqual({
+      successUrl: `${window.location.origin}/billing?checkout=success`,
+      cancelUrl: `${window.location.origin}/billing?checkout=cancel`,
+    });
   });
 
   it("opens hosted Customer Portal from the Billing page action", async () => {
@@ -430,6 +435,10 @@ describe("BillingPage", () => {
       ([, init]) => String(init?.body ?? "").includes("createBillingPortalSession"),
     );
     expect(mutationCall).toBeDefined();
+    const body = JSON.parse(String(mutationCall?.[1]?.body ?? "{}"));
+    expect(body.variables).toEqual({
+      returnUrl: `${window.location.origin}/billing`,
+    });
   });
 
   it("surfaces a Checkout success return and refreshes billing state", async () => {
