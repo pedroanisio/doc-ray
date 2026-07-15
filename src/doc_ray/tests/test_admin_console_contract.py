@@ -11,16 +11,23 @@ from doc_ray.entrypoints.api.schema import build_schema
 
 _ROOT = Path(__file__).resolve().parents[3]
 _ADMIN_API_FILES = (
+    "admin-console/src/api/billing.ts",
     "admin-console/src/api/audit.ts",
     "admin-console/src/api/backups.ts",
     "admin-console/src/api/documents.ts",
     "admin-console/src/api/jobs.ts",
+)
+_ADMIN_INTERFACE_FILES = (
+    "admin-console/src/api/types.ts",
+    "admin-console/src/api/billing.ts",
 )
 _TEMPLATE_CONST_RE = re.compile(r"const\s+([A-Z_]+)\s*=\s*`([\s\S]*?)`;", re.MULTILINE)
 _GRAPHQL_CALL_RE = re.compile(r"client\.graphql<[\s\S]*?>\(\s*`([\s\S]*?)`", re.MULTILINE)
 _INTERFACE_RE = re.compile(r"export interface (\w+) \{([\s\S]*?)\n\}", re.MULTILINE)
 _FIELD_RE = re.compile(r"^\s*([A-Za-z][A-Za-z0-9_]*)\??:", re.MULTILINE)
 _GRAPHQL_INTERFACES = {
+    "BillingEvent": "BillingEvent",
+    "BillingStatus": "BillingStatus",
     "Document": "Document",
     "Job": "Job",
     "SecurityAuditEvent": "SecurityAuditEvent",
@@ -41,6 +48,14 @@ def _admin_console_graphql_documents() -> dict[str, str]:
     return documents
 
 
+def _admin_console_interfaces() -> dict[str, str]:
+    interfaces: dict[str, str] = {}
+    for rel_path in _ADMIN_INTERFACE_FILES:
+        source = (_ROOT / rel_path).read_text(encoding="utf-8")
+        interfaces.update(dict(_INTERFACE_RE.findall(source)))
+    return interfaces
+
+
 def test_admin_console_graphql_documents_validate_against_live_schema():
     """Admin-console operation strings must stay valid against Strawberry SDL."""
     schema = build_schema()._schema
@@ -58,8 +73,7 @@ def test_admin_console_graphql_documents_validate_against_live_schema():
 
 def test_admin_console_graphql_interfaces_reference_live_fields():
     """Hand-written GraphQL TypeScript interfaces must not invent fields."""
-    source = (_ROOT / "admin-console" / "src" / "api" / "types.ts").read_text(encoding="utf-8")
-    interfaces = dict(_INTERFACE_RE.findall(source))
+    interfaces = _admin_console_interfaces()
     schema = build_schema()._schema
 
     for interface_name, graphql_type_name in _GRAPHQL_INTERFACES.items():
