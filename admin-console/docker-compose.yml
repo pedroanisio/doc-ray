@@ -1,0 +1,48 @@
+# doc-ray Admin Console — its own compose project (namespace: docray-admin).
+#
+# Runs as a SEPARATE stack from the main doc-ray compose so it can be deployed,
+# scaled, and torn down independently. It attaches to the main stack's network
+# to reach the `api` and `webapp` services by name (same-origin proxying — see
+# nginx/default.conf.template).
+#
+# Usage:
+#   1. Bring up the main doc-ray stack first (creates the shared network).
+#   2. docker compose -f admin-console/docker-compose.yml up -d --build
+#   3. Open http://127.0.0.1:8080  (sign in requires DOCRAY_AUTH_LOCAL_ENABLED
+#      on the API, plus an admin principal — see README).
+#
+# Bound to 127.0.0.1 on purpose, mirroring the webapp/postgres pattern: front it
+# with TLS + network controls before exposing it beyond a trusted host.
+
+name: docray-admin
+
+services:
+  admin-console:
+    build:
+      context: .
+    image: docray-admin-console:latest
+    container_name: docray-admin-console
+    restart: unless-stopped
+    environment:
+      # Where the nginx front door proxies API + operator traffic. Defaults hit
+      # the main stack's in-network service names.
+      API_UPSTREAM: ${ADMIN_API_UPSTREAM:-http://api:8000}
+      WEBAPP_UPSTREAM: ${ADMIN_WEBAPP_UPSTREAM:-http://webapp:5001}
+    ports:
+      - "127.0.0.1:${ADMIN_CONSOLE_PORT:-8080}:80"
+    networks:
+      - docray
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+
+networks:
+  # The network created by the main doc-ray compose project. Override the name
+  # via DOCRAY_NETWORK if your main project name differs (compose names it
+  # "<project>_default", and the main project is "doc-ray").
+  docray:
+    external: true
+    name: ${DOCRAY_NETWORK:-doc-ray_default}

@@ -1,0 +1,79 @@
+# doc-ray Admin Console — nginx front door.
+#
+# Serves the built React SPA as static files AND reverse-proxies the doc-ray
+# backend on the SAME ORIGIN. This is deliberate: the doc-ray API ships no CORS
+# middleware, so a cross-origin SPA would be blocked. Same-origin proxying makes
+# the browser see one host and sidesteps CORS entirely.
+#
+# ${API_UPSTREAM}     -> the GraphQL/REST API service   (default http://api:8000)
+# ${WEBAPP_UPSTREAM}  -> the Flask webapp (operator/*)  (default http://webapp:5001)
+# Both are substituted at container start by nginx's envsubst template step.
+#
+# proxy_pass targets are held in variables on purpose: with a variable, nginx
+# resolves the upstream PER REQUEST via the resolver below instead of at
+# config-load time. That means this console — an independently deployed stack —
+# starts cleanly even if the API/webapp are momentarily down, and recovers when
+# they return, rather than crash-looping with "host not found in upstream".
+
+server {
+    listen 80;
+    server_name _;
+
+    root /usr/share/nginx/html;
+    index index.html;
+
+    # Docker's embedded DNS. Required for run-time resolution of the variable
+    # upstreams below.
+    resolver 127.0.0.11 ipv6=off valid=10s;
+
+    # Shared proxy headers for every proxied location below.
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+
+    # Hardening: this is an admin surface. Do not let it be framed or sniffed.
+    add_header X-Frame-Options DENY always;
+    add_header X-Content-Type-Options nosniff always;
+    add_header Referrer-Policy no-referrer always;
+
+    # Container liveness (used by the compose healthcheck) — never proxied.
+    location = /healthz {
+        add_header Content-Type text/plain;
+        return 200 "ok\n";
+    }
+
+    # --- doc-ray API (GraphQL + auth + probes + metrics) ---
+    location /graphql {
+        set $api ${API_UPSTREAM};
+        proxy_pass $api;
+    }
+    location /auth/ {
+        set $api ${API_UPSTREAM};
+        proxy_pass $api;
+    }
+    location = /health {
+        set $api ${API_UPSTREAM};
+        proxy_pass $api;
+    }
+    location = /readyz {
+        set $api ${API_UPSTREAM};
+        proxy_pass $api;
+    }
+    location /metrics {
+        set $api ${API_UPSTREAM};
+        proxy_pass $api;
+    }
+
+    # --- Flask webapp operator snapshot (token-gated upstream) ---
+    location /operator/ {
+        set $webapp ${WEBAPP_UPSTREAM};
+        proxy_pass $webapp;
+    }
+
+    # --- SPA: everything else falls back to the app shell for client routing ---
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+}
