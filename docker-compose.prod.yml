@@ -7,14 +7,23 @@
 # containers. Each app service also `depends_on: postgres/minio`, so naming only
 # the app services still drags the local database + object store up.
 #
-# This overlay repoints the app services at the managed cluster + Spaces (values
-# flow from .env) and severs those dependencies, so the local Postgres/MinIO
-# never start.
+# This overlay:
+#   1. repoints every app service at the managed cluster + Spaces (values flow
+#      from .env via the x-managed-env anchor), and
+#   2. severs their depends_on, and
+#   3. gates the local infra (postgres, minio, createbucket) behind the
+#      `local-infra` profile — never enabled in prod — so even a bare `up`
+#      cannot start them. Overlays can override a service but not delete it;
+#      a never-enabled profile is how you keep one out of the default set.
 #
-# Run only the stateless services (see docs/production-setup.md):
-#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d \
-#     migrate api worker worker-fast backup-scheduler
-#   # add `webapp` and `nginx` if you serve the browser UI / TLS from here.
+# Because (2) removes every remaining dependency on the gated services, the
+# project stays valid with them absent. A bare
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+# is therefore safe, but prefer the ergonomic Makefile targets:
+#   make prod-migrate   # apply the schema to the managed cluster (one-shot)
+#   make prod-up        # migrate, then start api + workers + backup-scheduler
+#   make gpu-up         # GPU annotate workers on an H200 box (adds the gpu overlay)
+# Add `webapp` / `nginx` to the up list only if you serve the browser UI / TLS here.
 #
 # Requires in .env: DATABASE_URL (managed cluster, ?sslmode=require) and the
 # S3_* Spaces settings. Keep a POSTGRES_PASSWORD=<any-value> line in .env too:
@@ -23,15 +32,17 @@
 # so the var must resolve even though the local postgres container never starts
 # here. The value is otherwise unused in managed prod.
 #
-# Local login/register also needs the SMTP + rate-limit pass-throughs; layer the
-# auth overlay after this one:
-#   ... -f docker-compose.yml -f docker-compose.prod.yml -f docker-compose.uat.yml ...
+# Local login/register works here without any extra overlay: the auth / SMTP /
+# public-base-URL / lockout / rate-limit pass-throughs live in the base compose
+# (api + webapp), so they flow from .env in prod too. Set the real values there
+# (DOCRAY_AUTH_*, DOCRAY_SMTP_*, DOCRAY_PUBLIC_BASE_URL, DOCRAY_API_JWT_SECRET).
 
 x-managed-env: &managed-env
   DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL to the managed Postgres cluster (append ?sslmode=require)}
   S3_ENDPOINT: ${S3_ENDPOINT:?Set S3_ENDPOINT to your Spaces endpoint (https://<region>.digitaloceanspaces.com)}
 
 services:
+  # --- App services: repoint at managed, drop the local-infra dependencies. ---
   migrate:
     depends_on: !reset {}
     environment: *managed-env
@@ -39,6 +50,14 @@ services:
   api:
     depends_on: !reset {}
     environment: *managed-env
+    # Base binds 0.0.0.0:8000 for local-dev convenience; in prod that publishes
+    # raw, TLS-less GraphQL on the public IP. Reachable intra-network as
+    # http://api:8000 (webapp) and externally only via nginx, so drop the public
+    # bind to loopback (host curl/ops still works over the SSH tunnel).
+    # !override REPLACES the base ports list — a plain merge would APPEND and
+    # leave the 0.0.0.0 bind in place alongside it.
+    ports: !override
+      - "127.0.0.1:${API_PORT:-8000}:8000"
 
   worker:
     depends_on: !reset {}
@@ -55,3 +74,22 @@ services:
   webapp:
     depends_on: !reset {}
     environment: *managed-env
+
+  # Opt-in ops monitor (base keeps it on the `ops` profile). Repoint it and drop
+  # its local-postgres dependency, so `--profile ops` works against managed too —
+  # otherwise enabling that profile in prod fails with "depends on undefined
+  # service postgres" once postgres is gated out below.
+  db-health-monitor:
+    depends_on: !reset {}
+    environment: *managed-env
+
+  # --- Local infra: replaced by the managed cluster + Spaces. Parked on the
+  #     `local-infra` profile (never enabled in prod) so a bare `up` skips them. ---
+  postgres:
+    profiles: ["local-infra"]
+
+  minio:
+    profiles: ["local-infra"]
+
+  createbucket:
+    profiles: ["local-infra"]

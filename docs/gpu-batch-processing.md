@@ -155,9 +155,13 @@ workers:
 GPU_IP=$(doctl compute droplet get docray-gpu-batch --format PublicIPv4 --no-header)
 ssh root@"$GPU_IP" '
   cd /opt/doc-ray &&
-  docker compose build worker &&
-  docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d --scale worker=8 worker
+  DOCRAY_WORKERS=8 make gpu-up
 '
+# make gpu-up expands to (the prod overlay is REQUIRED — without it the worker
+# uses the base compose'\''s local @postgres:5432 and never reaches the managed
+# cluster; the gpu overlay adds the CDI GPU reservation):
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml \
+#     -f docker-compose.gpu.yml up -d --build --scale worker=8 worker
 ```
 
 ### Phase 3 — Drain, then destroy

@@ -24,6 +24,46 @@ def _compose(path: str) -> dict[str, Any]:
     return yaml.safe_load((_ROOT / path).read_text(encoding="utf-8"))
 
 
+class _TolerantLoader(yaml.SafeLoader):
+    """SafeLoader that tolerates Compose merge tags (`!reset`, `!override`).
+
+    The prod overlay uses `depends_on: !reset {}` to sever a base dependency;
+    yaml.safe_load raises on the unknown tag, so parse the tagged node as its
+    plain value (here `!reset {}` -> `{}`) instead.
+    """
+
+
+def _ignore_compose_tag(loader: yaml.Loader, tag_suffix: str, node: yaml.Node) -> Any:
+    if isinstance(node, yaml.MappingNode):
+        return loader.construct_mapping(node)
+    if isinstance(node, yaml.SequenceNode):
+        return loader.construct_sequence(node)
+    return loader.construct_scalar(node)
+
+
+_TolerantLoader.add_multi_constructor("!", _ignore_compose_tag)
+
+
+def _compose_tolerant(path: str) -> dict[str, Any]:
+    return yaml.load((_ROOT / path).read_text(encoding="utf-8"), Loader=_TolerantLoader)
+
+
+_PROD_OVERLAY = "docker-compose.prod.yml"
+_PGADMIN_OVERLAY = "docker-compose.pgadmin.yml"
+#: App services the prod overlay must repoint at the managed cluster + Spaces.
+_PROD_APP_SERVICES = (
+    "migrate",
+    "api",
+    "worker",
+    "worker-fast",
+    "backup-scheduler",
+    "webapp",
+    "db-health-monitor",
+)
+#: Local infra the prod overlay must gate out of a bare managed `up`.
+_PROD_LOCAL_INFRA = ("postgres", "minio", "createbucket")
+
+
 def test_postgres_image_is_pinned_to_an_immutable_digest():
     for path in _COMPOSE_FILES:
         postgres = _compose(path)["services"]["postgres"]
@@ -344,3 +384,62 @@ def test_worker_drain_window_guard_detects_a_missing_or_short_grace():
     # A service block without the key, or with a short window, must fail the guard.
     assert {"image": "x"}.get("stop_grace_period") is None
     assert _grace_seconds("10s") < 60
+
+
+def test_prod_overlay_repoints_app_services_at_managed_env():
+    """Every app service in the managed overlay must read DATABASE_URL/S3_ENDPOINT
+    from .env (not the base's hardcoded @postgres / minio:9000) and drop its
+    local-infra depends_on — otherwise managed prod silently talks to a local DB.
+    """
+    services = _compose_tolerant(_PROD_OVERLAY)["services"]
+    for name in _PROD_APP_SERVICES:
+        env = services[name]["environment"]
+        assert env["DATABASE_URL"].startswith("${DATABASE_URL:?"), name
+        assert env["S3_ENDPOINT"].startswith("${S3_ENDPOINT:?"), name
+        # depends_on: !reset {} parses to an empty mapping — no local-infra edges.
+        assert services[name].get("depends_on") in (None, {}), name
+
+
+def test_prod_overlay_gates_local_infra_so_a_bare_up_excludes_it():
+    """postgres/minio/createbucket must be parked on the never-enabled
+    `local-infra` profile, so a bare managed `up` cannot start a stray local
+    database or object store alongside the managed cluster.
+    """
+    services = _compose_tolerant(_PROD_OVERLAY)["services"]
+    for name in _PROD_LOCAL_INFRA:
+        assert services[name]["profiles"] == ["local-infra"], name
+
+
+def test_base_compose_passes_verification_email_delivery_to_api_and_webapp():
+    """Registration fail-closes 503 without SMTP + a public base URL reaching the
+    container (auth_routes.py, auth_web.py). These pass-throughs must live in the
+    BASE compose — not a UAT-only overlay — so managed prod (base + prod overlay,
+    no UAT) can actually register/verify users instead of silently 503-ing.
+    """
+    base = _compose("docker-compose.yml")["services"]
+    for name in ("api", "webapp"):
+        env = base[name]["environment"]
+        assert env["DOCRAY_SMTP_HOST"] == "${DOCRAY_SMTP_HOST:-}", name
+        assert env["DOCRAY_PUBLIC_BASE_URL"] == "${DOCRAY_PUBLIC_BASE_URL:-}", name
+        assert env["DOCRAY_AUTH_MAX_FAILED_LOGINS"] == "${DOCRAY_AUTH_MAX_FAILED_LOGINS:-10}", name
+
+
+def test_prod_overlay_binds_the_api_to_loopback_not_the_public_interface():
+    """In managed prod the GraphQL API must not publish on 0.0.0.0: it is reached
+    intra-network (webapp -> api:8000) or via nginx/TLS, never as raw plaintext
+    GraphQL on the public IP. The base binds 0.0.0.0:8000 for local convenience;
+    the overlay must override that to loopback.
+    """
+    api = _compose_tolerant(_PROD_OVERLAY)["services"]["api"]
+    assert api["ports"], "prod overlay must override the api ports to loopback"
+    for mapping in api["ports"]:
+        assert str(mapping).startswith("127.0.0.1:"), mapping
+
+
+def test_pgadmin_admin_gui_binds_to_loopback_only():
+    """pgAdmin exposes an admin surface; it must never publish beyond 127.0.0.1
+    (access is via an SSH/VS Code tunnel).
+    """
+    pgadmin = _compose_tolerant(_PGADMIN_OVERLAY)["services"]["pgadmin"]
+    for mapping in pgadmin["ports"]:
+        assert str(mapping).startswith("127.0.0.1:"), mapping

@@ -10,7 +10,13 @@ DOCRAY_WORKERS ?= 3
 # truncate-db); override with e.g. `make check PYTHON=python3`.
 PYTHON ?= $(shell [ -x .venv/bin/python ] && echo .venv/bin/python || echo python3)
 
-.PHONY: help check check-static db-dump truncate-db workers-up workers-status
+# Managed-services (DO Managed Postgres + Spaces) compose invocation. The prod
+# overlay repoints every app service at the managed cluster and gates the local
+# postgres/minio out, so these never touch a local database.
+COMPOSE_PROD := docker compose -f docker-compose.yml -f docker-compose.prod.yml
+
+.PHONY: help check check-static db-dump truncate-db workers-up workers-status \
+        prod-migrate prod-up prod-web prod-down gpu-up pgadmin-up
 
 help: ## List available tasks
 	@grep -E '^[a-z][a-zA-Z_-]*:.*## ' $(MAKEFILE_LIST) | awk -F ':.*## ' '{printf "  %-14s %s\n", $$1, $$2}'
@@ -52,6 +58,24 @@ workers-up: ## Start/reconcile the worker pool (DOCRAY_WORKERS=3 by default)
 
 workers-status: ## Show worker replica status
 	docker compose ps worker
+
+prod-migrate: ## Apply migrations to the MANAGED cluster (needs managed .env)
+	$(COMPOSE_PROD) run --rm migrate
+
+prod-up: prod-migrate ## Migrate, then start the managed stack (api + webapp + workers + backups)
+	$(COMPOSE_PROD) up -d --build api webapp worker worker-fast backup-scheduler
+
+prod-web: ## Add the public TLS front door (nginx + self-signed certgen) to a running prod stack
+	$(COMPOSE_PROD) up -d --build nginx-certgen nginx
+
+prod-down: ## Stop the managed stateless stack (managed data is off-box; nothing is wiped)
+	$(COMPOSE_PROD) down
+
+gpu-up: ## Start DOCRAY_WORKERS GPU annotate workers on an H200 box (managed + CDI)
+	$(COMPOSE_PROD) -f docker-compose.gpu.yml up -d --build --scale worker=$(DOCRAY_WORKERS) worker
+
+pgadmin-up: ## Start the loopback-only pgAdmin GUI (tunnel to 127.0.0.1:5050)
+	docker compose -f docker-compose.pgadmin.yml up -d pgadmin
 
 db-dump: ## Safety-dump the full database to backups/ (pg_dump -Fc)
 	docker exec docray-postgres pg_dump -U docray -d docray -Fc -f /tmp/docray-$(STAMP).dump
