@@ -235,6 +235,13 @@ describe("BillingPage", () => {
     expect(screen.getAllByText("subscription is active")).toHaveLength(2);
     expect(await screen.findByText("invoice.paid")).toBeInTheDocument();
     expect(screen.getByText(/evt_invoice_1/)).toBeInTheDocument();
+    expect(screen.getAllByRole("columnheader").map((header) => header.textContent)).toEqual([
+      "Event",
+      "Status",
+      "Object",
+      "Subscription",
+      "Processed",
+    ]);
     expect(screen.getByRole("button", { name: /subscription active/i })).toBeDisabled();
     expect(screen.getByText(/Use the Customer Portal/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /manage payment method/i })).toBeEnabled();
