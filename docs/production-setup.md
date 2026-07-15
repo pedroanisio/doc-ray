@@ -238,3 +238,9 @@ watch the disk-headroom concern from Step 0.
   read (GraphQL) load grows — point a read replica at `ReadRepository` traffic.
 - **Secrets.** The app password and Spaces secret live only in `.env` (mode
   `600`); rotate the Spaces key after any exposure.
+- **Batch GPU tier.** For heavy NLP annotation (transformer `en_core_web_trf`),
+  spin up an **ephemeral H200 GPU Droplet** that drains a batch of the shared job
+  queue and is then destroyed — see
+  [`gpu-batch-processing.md`](gpu-batch-processing.md). It connects to this same
+  managed Postgres + Spaces; the always-on `worker` handles the low-volume
+  remainder.
