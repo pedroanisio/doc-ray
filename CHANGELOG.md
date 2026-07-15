@@ -62,6 +62,19 @@ doc-ray carries **one global version** covering both the application package
   (Claude Fable 5 via Claude Code) — typography, layout, and navigation pass
   over the browser UI; no route or data-contract changes.
 
+## [1.25.0] - 2026-07-15
+
+Schema 1.25.0 (migrations 080–081).
+
+### Added
+- **Stripe subscription billing foundation** (OpenAI GPT-5 via Codex) —
+  tenant-scoped billing account/subscription tables, signed Stripe webhook
+  event processing, hosted Checkout and Customer Portal GraphQL mutations,
+  and an admin-console Billing panel wired to the live billing status/actions.
+  Regression coverage exercises webhook signature rejection, idempotent
+  subscription event processing, Checkout customer/session creation, and the
+  console GraphQL/page contract.
+
 ## [1.24.0] - 2026-07-13
 
 Schema 1.24.0 (migrations 076–077).

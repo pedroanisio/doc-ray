@@ -59,6 +59,7 @@ from doc_ray.entrypoints.api.auth_routes import (
     register_auth_token_route,
     register_local_auth_routes,
 )
+from doc_ray.entrypoints.api.billing_routes import register_billing_routes
 from doc_ray.entrypoints.api.context import RequestContext
 from doc_ray.entrypoints.api.downloads import register_download_routes
 from doc_ray.entrypoints.api.job_events import register_job_events_route
@@ -136,6 +137,7 @@ async def _get_context(request: Request) -> AsyncIterator[RequestContext]:
                     principal=principal,
                     loaders=Loaders(conn),
                     request_id=request_id,
+                    settings=request.app.state.settings,
                 )
             finally:
                 await reset_principal(conn, principal)
@@ -180,6 +182,7 @@ def create_app(cfg: Config | None = None, authenticator: Authenticator | None = 
             await pool.close()
 
     app = FastAPI(title="doc-ray API", lifespan=lifespan)
+    app.state.settings = settings
     app.state.pool = pool
     app.state.authenticator = auth
     app.state.object_store = store
@@ -245,6 +248,7 @@ def create_app(cfg: Config | None = None, authenticator: Authenticator | None = 
     register_auth_token_route(app, settings)
     register_local_auth_routes(app, settings)
     register_job_events_route(app)
+    register_billing_routes(app)
     register_saml_routes(app)
     register_scim_routes(app, settings)
 

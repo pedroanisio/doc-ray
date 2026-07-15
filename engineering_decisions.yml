@@ -48,7 +48,7 @@ source_schema:         "db/migrations"
 # deploy-safe job drain release (jobs.drain_requested_at, migration 072).
 # Kept in lockstep with doc_ray.__version__
 # by scripts/check_version_consistency.py.
-source_schema_version: "1.24.0"
+source_schema_version: "1.25.0"
 target_engine:         "PostgreSQL 16"
 total_decisions:       23
 

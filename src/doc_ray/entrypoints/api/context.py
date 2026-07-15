@@ -8,6 +8,7 @@ from typing import Any
 import psycopg
 from strawberry.fastapi import BaseContext
 
+from doc_ray.config import Config
 from doc_ray.correlation import new_request_id
 from doc_ray.entrypoints.api.loaders import Loaders
 from doc_ray.entrypoints.api.security import Principal
@@ -38,12 +39,15 @@ class RequestContext(BaseContext):
         principal: The authenticated identity for the request.
         loaders: Fresh per-request by-document DataLoaders sharing ``conn``.
         request_id: Correlation id for logs and queued job metadata.
+        settings: Runtime configuration for resolvers that need deployment
+            settings rather than only database access.
     """
 
     conn: psycopg.AsyncConnection[dict[str, Any]]
     principal: Principal
     loaders: Loaders
     request_id: str = field(default_factory=new_request_id)
+    settings: Config | None = None
 
     def page_size(self, requested: int) -> int:
         """Clamp a requested page size to ``[1, MAX_PAGE_SIZE]``."""

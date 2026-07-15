@@ -8,6 +8,7 @@ const NAV = [
   { to: "/audit", label: "Audit log" },
   { to: "/backups", label: "Backups" },
   { to: "/identity", label: "Tenants & users" },
+  { to: "/billing", label: "Billing" },
 ];
 
 export function Layout() {

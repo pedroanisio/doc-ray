@@ -6,6 +6,11 @@ import { listJobs, cancelJob, reextractAllDocuments } from "./jobs";
 import { listDocuments } from "./documents";
 import { listAuditEvents } from "./audit";
 import { createBackup, restoreBackup } from "./backups";
+import {
+  createBillingCheckoutSession,
+  createBillingPortalSession,
+  fetchBillingStatus,
+} from "./billing";
 
 function clientReturning(body: unknown, status = 200) {
   const fetchImpl = makeFetchMock(async () => jsonResponse(body, { status }));
@@ -106,5 +111,59 @@ describe("backups module", () => {
     expect(job.id).toBe("job-r");
     const body = JSON.parse(fetchImpl.mock.calls[0][1].body!);
     expect(body.variables).toEqual({ backupId: "backup-123" });
+  });
+});
+
+describe("billing module", () => {
+  it("fetchBillingStatus unwraps the tenant billing snapshot", async () => {
+    const { client, fetchImpl } = clientReturning({
+      data: {
+        billingStatus: {
+          tenantId: "t1",
+          tenantSlug: "default",
+          tenantName: "Default",
+          subscriptionStatus: "active",
+          checkoutReady: true,
+          portalReady: true,
+          enforcementEnabled: true,
+          entitled: true,
+          entitlementReason: "subscription is active",
+        },
+      },
+    });
+    const status = await fetchBillingStatus(client);
+    expect(status.subscriptionStatus).toBe("active");
+    expect(status.entitled).toBe(true);
+    const body = JSON.parse(fetchImpl.mock.calls[0][1].body!);
+    expect(body.query).toContain("billingStatus");
+    expect(body.query).toContain("entitlementReason");
+  });
+
+  it("createBillingCheckoutSession sends redirect overrides", async () => {
+    const { client, fetchImpl } = clientReturning({
+      data: { createBillingCheckoutSession: { url: "https://checkout.stripe.test/s" } },
+    });
+    await expect(
+      createBillingCheckoutSession(client, {
+        successUrl: "https://app.example.com/s",
+        cancelUrl: "https://app.example.com/c",
+      }),
+    ).resolves.toBe("https://checkout.stripe.test/s");
+    const body = JSON.parse(fetchImpl.mock.calls[0][1].body!);
+    expect(body.query).toContain("createBillingCheckoutSession");
+    expect(body.variables).toEqual({
+      successUrl: "https://app.example.com/s",
+      cancelUrl: "https://app.example.com/c",
+    });
+  });
+
+  it("createBillingPortalSession returns the hosted portal URL", async () => {
+    const { client, fetchImpl } = clientReturning({
+      data: { createBillingPortalSession: { url: "https://billing.stripe.test/s" } },
+    });
+    await expect(createBillingPortalSession(client, { returnUrl: "https://app.example.com/billing" }))
+      .resolves.toBe("https://billing.stripe.test/s");
+    const body = JSON.parse(fetchImpl.mock.calls[0][1].body!);
+    expect(body.variables).toEqual({ returnUrl: "https://app.example.com/billing" });
   });
 });

@@ -19,6 +19,7 @@ from strawberry.file_uploads import Upload
 from doc_ray.adapters import document_metadata_suggestion_store as metadata_suggestions
 from doc_ray.adapters import queue_postgres as queue
 from doc_ray.adapters import seed_suggestion_store as seeds
+from doc_ray.application import billing
 from doc_ray.domain.jobs import (
     KIND_ADD_DOCUMENT_TAGS,
     KIND_ANNOTATE,
@@ -37,6 +38,7 @@ from doc_ray.domain.jobs import (
     KIND_SUGGEST_DOCUMENT_METADATA,
     KIND_UPDATE_METADATA,
 )
+from doc_ray.entrypoints.api.billing_types import BillingSession
 from doc_ray.entrypoints.api.context import MAX_BATCH_IDS
 from doc_ray.entrypoints.api.mutation_collections import CollectionMutations
 from doc_ray.entrypoints.api.mutation_guards import (
@@ -60,6 +62,60 @@ _PIPELINE_CHAIN = [KIND_ANNOTATE, KIND_SEMANTIC_ENRICH, KIND_CANONICALIZE]
 @strawberry.type
 class Mutation(CollectionMutations):
     """Write operations, all of which enqueue background work."""
+
+    @strawberry.mutation
+    async def create_billing_checkout_session(
+        self,
+        info: Info,
+        success_url: str | None = None,
+        cancel_url: str | None = None,
+    ) -> BillingSession:
+        """Create a Stripe hosted subscription Checkout Session for this tenant."""
+        ctx = info.context
+        await _require_admin(ctx, action="mutation.create_billing_checkout_session")
+        settings = ctx.settings
+        if settings is None and ctx.request is not None:
+            settings = ctx.request.app.state.settings
+        if settings is None:
+            raise RuntimeError("billing settings are unavailable")
+        url = await billing.create_checkout_session(
+            ctx.conn,
+            settings,
+            success_url=success_url,
+            cancel_url=cancel_url,
+        )
+        await _audit_mutation_event(
+            ctx,
+            action="mutation.create_billing_checkout_session",
+            target_type="tenant_billing",
+            target_id=None,
+            outcome="success",
+        )
+        return BillingSession(url=url)
+
+    @strawberry.mutation
+    async def create_billing_portal_session(
+        self,
+        info: Info,
+        return_url: str | None = None,
+    ) -> BillingSession:
+        """Create a Stripe hosted Customer Portal Session for this tenant."""
+        ctx = info.context
+        await _require_admin(ctx, action="mutation.create_billing_portal_session")
+        settings = ctx.settings
+        if settings is None and ctx.request is not None:
+            settings = ctx.request.app.state.settings
+        if settings is None:
+            raise RuntimeError("billing settings are unavailable")
+        url = await billing.create_portal_session(ctx.conn, settings, return_url=return_url)
+        await _audit_mutation_event(
+            ctx,
+            action="mutation.create_billing_portal_session",
+            target_type="tenant_billing",
+            target_id=None,
+            outcome="success",
+        )
+        return BillingSession(url=url)
 
     @strawberry.mutation
     async def reannotate(self, info: Info, document_id: strawberry.ID, lang: str = "en") -> Job:

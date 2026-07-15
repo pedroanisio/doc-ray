@@ -15,10 +15,17 @@ from starlette.datastructures import UploadFile
 
 from doc_ray.adapters import abac
 from doc_ray.adapters import queue_postgres as queue
+from doc_ray.application import billing
 from doc_ray.correlation import payload_with_request_metadata
 from doc_ray.entrypoints.api.context import MAX_BATCH_IDS, RequestContext
 from doc_ray.entrypoints.api.security_audit import record_audit_event
 from doc_ray.entrypoints.api.types import Job
+
+_BILLING_ENTITLEMENT_EXEMPT_ACTIONS = {
+    "mutation.create_billing_checkout_session",
+    "mutation.create_billing_portal_session",
+    "query.billing_status",
+}
 
 
 async def _audit_mutation_event(
@@ -64,6 +71,19 @@ async def _require_write_audited(ctx: RequestContext, *, action: str) -> None:
             outcome="denied",
         )
         raise PermissionError("API mutation requires an authenticated principal with write scope")
+    if action not in _BILLING_ENTITLEMENT_EXEMPT_ACTIONS:
+        try:
+            await billing.require_entitlement(ctx.conn, ctx.settings)
+        except billing.BillingEntitlementError as exc:
+            await _audit_mutation_event(
+                ctx,
+                action=action,
+                target_type="tenant_billing",
+                target_id=None,
+                outcome="denied",
+                details={"reason": "billing_entitlement_required"},
+            )
+            raise PermissionError(str(exc)) from exc
 
 
 async def _require_document_write(

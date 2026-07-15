@@ -17,12 +17,15 @@ from doc_ray.adapters import persistence_read as read
 from doc_ray.adapters import queue_postgres as queue
 from doc_ray.adapters import security_audit_read
 from doc_ray.adapters import seed_suggestion_store as seeds
+from doc_ray.application import billing
 from doc_ray.entrypoints.api.audit_types import DocumentMetadataChange, DocumentMetadataSuggestion
+from doc_ray.entrypoints.api.billing_types import BillingStatus
 from doc_ray.entrypoints.api.canonical_types import (
     CanonicalEntity,
     ResolutionReview,
     UnresolvedMention,
 )
+from doc_ray.entrypoints.api.mutation_guards import _require_admin
 from doc_ray.entrypoints.api.security_audit import record_audit_event
 from doc_ray.entrypoints.api.security_audit_types import SecurityAuditEvent
 from doc_ray.entrypoints.api.types import (
@@ -165,6 +168,19 @@ class Query:
             after=after,
         )
         return [SecurityAuditEvent.from_row(r) for r in rows]
+
+    @strawberry.field
+    async def billing_status(self, info: Info) -> BillingStatus:
+        """Return the current tenant's billing state; tenant-admin only."""
+        ctx = info.context
+        await _require_admin(ctx, action="query.billing_status")
+        settings = ctx.settings
+        if settings is None and ctx.request is not None:
+            settings = ctx.request.app.state.settings
+        if settings is None:
+            raise RuntimeError("billing settings are unavailable")
+        row = await billing.billing_status(ctx.conn, settings)
+        return BillingStatus.from_row(row)
 
     @strawberry.field
     async def document_metadata_history(

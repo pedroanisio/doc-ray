@@ -10,6 +10,7 @@ import { AuthService } from "./auth/authService";
 import { TokenStore } from "./auth/tokenStore";
 import { ApiClient } from "./api/client";
 import { UnavailableIdentityProvider } from "./api/identity";
+import { BillingPage } from "./pages/BillingPage";
 
 function servicesWithFetch(fetchImpl: typeof fetch): Services {
   const store = new TokenStore(localStorage);
@@ -139,5 +140,51 @@ describe("LoginPage", () => {
 
     expect(await screen.findByRole("alert")).toBeInTheDocument();
     expect(services.auth.isAuthenticated()).toBe(false);
+  });
+});
+
+describe("BillingPage", () => {
+  it("renders the live billing status and payment actions", async () => {
+    const fetchImpl = vi.fn(async () =>
+      jsonResponse({
+        data: {
+          billingStatus: {
+            tenantId: "t1",
+            tenantSlug: "default",
+            tenantName: "Current tenant",
+            stripeCustomerId: "cus_123",
+            billingEmail: "ops@example.com",
+            stripeSubscriptionId: "sub_123",
+            stripePriceId: "price_123",
+            subscriptionStatus: "active",
+            currentPeriodEnd: "2026-08-01T00:00:00Z",
+            cancelAtPeriodEnd: false,
+            latestInvoiceId: "in_123",
+            checkoutSessionId: "cs_123",
+            subscriptionUpdatedAt: "2026-07-15T00:00:00Z",
+            checkoutReady: true,
+            portalReady: true,
+            enforcementEnabled: true,
+            entitled: true,
+            entitlementReason: "subscription is active",
+          },
+        },
+      }),
+    ) as unknown as typeof fetch;
+    const services = servicesWithFetch(fetchImpl);
+
+    render(
+      <ServicesProvider services={services}>
+        <MemoryRouter>
+          <BillingPage />
+        </MemoryRouter>
+      </ServicesProvider>,
+    );
+
+    expect(await screen.findByText("Current tenant")).toBeInTheDocument();
+    expect(screen.getByText("entitled")).toBeInTheDocument();
+    expect(screen.getAllByText("subscription is active")).toHaveLength(2);
+    expect(screen.getByRole("button", { name: /start subscription/i })).toBeEnabled();
+    expect(screen.getByRole("button", { name: /manage payment method/i })).toBeEnabled();
   });
 });

@@ -50,6 +50,9 @@ RLS_PATH = {
     "seed_suggestion": "document_id",
     "backups": "docray_is_admin()",
     "audit_events": "insert-only security audit log",
+    "tenant_billing_accounts": "tenant_id = docray_current_tenant() and docray_is_admin()",
+    "tenant_subscriptions": "tenant_id = docray_current_tenant() and docray_is_admin()",
+    "stripe_webhook_events": "signed Stripe webhook ledger, app-owned",
 }
 
 MIGRATIONS = [
@@ -210,6 +213,15 @@ MIGRATIONS = [
         "drop idx_spans_document, the redundant duplicate of the "
         "spans(document_id, char_start, char_end) unique index",
     ),
+    (
+        "079_account_settings",
+        "self-service account settings and email-change request storage",
+    ),
+    (
+        "080_billing",
+        "tenant Stripe billing accounts, subscription snapshots, and webhook ledger",
+    ),
+    ("081_schema_version_1_25_0", "advance the schema SemVer to 1.25.0"),
 ]
 
 # ---------------------------------------------------------------------------

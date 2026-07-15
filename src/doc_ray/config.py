@@ -164,6 +164,19 @@ class Config:
         backup_retention_count: Number of newest backup archives always retained.
         backup_retention_days: Age threshold for pruning archives outside the
             retained newest set.
+        stripe_secret_key: Stripe secret API key. When absent, Checkout and
+            Customer Portal mutations fail closed while billing status stays
+            readable.
+        stripe_webhook_secret: Stripe webhook endpoint signing secret. Required
+            for ``/stripe/webhook`` to accept events.
+        stripe_price_id: Default recurring Stripe Price id used by subscription
+            Checkout sessions.
+        stripe_success_url: Default Checkout success redirect URL.
+        stripe_cancel_url: Default Checkout cancellation redirect URL.
+        stripe_portal_return_url: Default Customer Portal return URL.
+        stripe_api_base: Stripe API base URL, overridable for tests.
+        billing_enforcement_enabled: Whether tenant write/admin mutations require
+            an active or trialing Stripe subscription.
     """
 
     database_url: str
@@ -201,6 +214,14 @@ class Config:
     backup_schedule_seconds: int = 86_400
     backup_retention_count: int = 7
     backup_retention_days: int = 30
+    stripe_secret_key: str | None = None
+    stripe_webhook_secret: str | None = None
+    stripe_price_id: str | None = None
+    stripe_success_url: str | None = None
+    stripe_cancel_url: str | None = None
+    stripe_portal_return_url: str | None = None
+    stripe_api_base: str = "https://api.stripe.com/v1"
+    billing_enforcement_enabled: bool = False
 
     @classmethod
     def from_env(cls) -> Config:
@@ -254,4 +275,15 @@ class Config:
             backup_schedule_seconds=_env_int("DOCRAY_BACKUP_SCHEDULE_SECONDS", 86_400),
             backup_retention_count=_env_int("DOCRAY_BACKUP_RETENTION_COUNT", 7),
             backup_retention_days=_env_int("DOCRAY_BACKUP_RETENTION_DAYS", 30),
+            stripe_secret_key=_env_optional_str("DOCRAY_STRIPE_SECRET_KEY"),
+            stripe_webhook_secret=_env_optional_str("DOCRAY_STRIPE_WEBHOOK_SECRET"),
+            stripe_price_id=_env_optional_str("DOCRAY_STRIPE_PRICE_ID"),
+            stripe_success_url=_env_optional_str("DOCRAY_STRIPE_SUCCESS_URL"),
+            stripe_cancel_url=_env_optional_str("DOCRAY_STRIPE_CANCEL_URL"),
+            stripe_portal_return_url=_env_optional_str("DOCRAY_STRIPE_PORTAL_RETURN_URL"),
+            stripe_api_base=os.environ.get("DOCRAY_STRIPE_API_BASE", "https://api.stripe.com/v1").strip()
+            or "https://api.stripe.com/v1",
+            billing_enforcement_enabled=_env_bool(
+                "DOCRAY_BILLING_ENFORCEMENT_ENABLED", False
+            ),
         )
