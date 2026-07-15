@@ -6,7 +6,11 @@ import secrets
 from dataclasses import dataclass
 from pathlib import Path
 
-_VALID_SCOPES = frozenset({"read", "write"})
+# ``impersonate`` lets a trusted service token (the webapp) act on behalf of the
+# logged-in browser user via ``X-DocRay-Act-As`` (see api/security._apply_act_as),
+# so the API binds RLS to that USER, not the service principal. The runtime token
+# parser (config.py) already honours it; the CLI must be able to mint it.
+_VALID_SCOPES = frozenset({"read", "write", "impersonate"})
 
 
 @dataclass(frozen=True)

@@ -56,6 +56,54 @@ def test_direct_client_role_cannot_impersonate_principal_with_guc(pg):
         conn.execute(sql.SQL("DROP ROLE IF EXISTS {}").format(sql.Identifier(role_a)))
 
 
+def test_docray_api_role_resolves_principal_from_guc(pg):
+    """The webapp's per-user RLS depends on docray_api honouring app.principal_id.
+
+    ``docray_current_principal()`` resolves ``app.principal_id`` ONLY for the
+    trusted ``docray_api`` role. The webapp must therefore run
+    ``DOCRAY_DB_ROLE=docray_api`` so a logged-in user's stamped principal is
+    resolved and RLS grants that user their own documents. ``docray_client``
+    deliberately ignores the GUC (see
+    ``test_direct_client_role_cannot_impersonate_principal_with_guc``), so
+    running the webapp as ``docray_client`` silently yields an empty corpus —
+    this test locks the contrast that makes ``docray_api`` the required role.
+    """
+    import _itdb
+
+    conn, created = pg
+    doc = _itdb.make_doc(conn, "Readable only by the granted principal.")
+    created.append(doc)
+    principal = conn.execute(
+        "INSERT INTO principals (kind, display_name) VALUES ('human', %s) RETURNING id",
+        (f"api-princ-{new_ulid_str()[-10:].lower()}",),
+    ).fetchone()["id"]
+    conn.execute(
+        "INSERT INTO document_acl (document_id, principal_id, permission) VALUES (%s,%s,'read')",
+        (doc, principal),
+    )
+    try:
+        conn.execute("SET ROLE docray_api")
+        conn.execute("SELECT set_config('app.principal_id', %s, false)", (str(principal),))
+        api_visible = conn.execute(
+            "SELECT count(*) AS n FROM documents WHERE id = %s", (doc,)
+        ).fetchone()["n"]
+        conn.execute("SELECT set_config('app.principal_id', '', false)")
+        conn.execute("RESET ROLE")
+
+        conn.execute("SET ROLE docray_client")
+        conn.execute("SELECT set_config('app.principal_id', %s, false)", (str(principal),))
+        client_visible = conn.execute(
+            "SELECT count(*) AS n FROM documents WHERE id = %s", (doc,)
+        ).fetchone()["n"]
+    finally:
+        conn.execute("SELECT set_config('app.principal_id', '', false)")
+        conn.execute("RESET ROLE")
+        conn.execute("DELETE FROM principals WHERE id = %s", (principal,))
+
+    assert api_visible == 1, "docray_api must resolve app.principal_id (webapp per-user RLS)"
+    assert client_visible == 0, "docray_client must NOT resolve app.principal_id"
+
+
 def test_tenant_partition_blocks_cross_tenant_acl_misconfiguration(pg):
     """A tenant-A principal cannot read tenant-B docs even with an erroneous ACL."""
     import _itdb

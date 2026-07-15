@@ -62,6 +62,17 @@ def main(argv: list[str] | None = None) -> int:
             title = title_row["t"]
             try:
                 r = ann.annotate(conn, doc_id)
+                # Record the detected language, mirroring the worker's
+                # handle_annotate: migration-016's trigger then rebuilds the FTS
+                # tsvector with the language-aware config, so stemmed search is not
+                # left degraded (corpus_health 'fts-degraded') on the CLI path.
+                lang = r.get("lang")
+                if lang:
+                    conn.execute(
+                        "UPDATE documents SET language = %s "
+                        "WHERE id = %s AND language IS DISTINCT FROM %s",
+                        (lang, doc_id, lang),
+                    )
                 print(
                     f"  {title:36}  {r.get('tokens', 0):>6} tok  "
                     f"{r.get('entities', 0):>4} ent  {r.get('chunks', 0):>4} chunk  "

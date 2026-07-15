@@ -317,11 +317,13 @@ def test_test_dockerfile_copies_sources_tests_and_migrations_into_the_image():
     assert "apt-get install -y --no-install-recommends" in text
     assert "tesseract-ocr" in text
     assert "tesseract-ocr-eng" in text
+    # Glob so every compose overlay (prod, cloudflared, ollama, pgadmin, ...) is
+    # in the test image — the compose-security guards read them, and a bare list
+    # silently dropped new overlays (FileNotFound in the isolated run).
+    assert "COPY Dockerfile docker-compose*.yml ./" in text
     assert (
-        "COPY Dockerfile docker-compose.yml docker-compose.api.yml docker-compose.test.yml ./"
-        in text
+        "COPY .dockerignore .env.example .env.prod.example .env.test.example .gitignore ./" in text
     )
-    assert "COPY .dockerignore .env.example .env.test.example .gitignore ./" in text
     assert "COPY .pre-commit-config.yaml CLAUDE.md ./" in text
     assert "COPY .github ./.github" in text
     assert "COPY README.md CHANGELOG.md engineering_decisions.yml uv.lock Makefile ./" in text
@@ -444,7 +446,9 @@ def test_production_uses_a_dedicated_env_file_not_the_dev_env():
     makefile = (_ROOT / "Makefile").read_text(encoding="utf-8")
     assert "--env-file .env.prod" in makefile, "prod targets must load .env.prod, not .env"
     assert (_ROOT / ".env.prod.example").exists(), "commit a .env.prod.example template"
-    assert ".env.prod" in (_ROOT / ".gitignore").read_text(encoding="utf-8"), ".env.prod must be gitignored"
+    assert ".env.prod" in (_ROOT / ".gitignore").read_text(encoding="utf-8"), (
+        ".env.prod must be gitignored"
+    )
 
 
 def test_prod_env_example_defaults_to_fail_closed_auth():
@@ -483,3 +487,23 @@ def test_pgadmin_admin_gui_binds_to_loopback_only():
     pgadmin = _compose_tolerant(_PGADMIN_OVERLAY)["services"]["pgadmin"]
     for mapping in pgadmin["ports"]:
         assert str(mapping).startswith("127.0.0.1:"), mapping
+
+
+def test_webapp_defaults_to_single_gunicorn_worker():
+    """Guard the in-memory web auth session store against multi-worker deploys.
+
+    webapp.auth_session.InMemoryAuthSessionStore is process-local: a login
+    handled by one gunicorn worker is invisible to the others, so with >1 worker
+    a large fraction of authenticated requests fail with "webapp authentication
+    required" (and job/upload pages 404). Concurrency must come from --threads,
+    not --workers, until a shared (DB-backed) session store lands. This asserts
+    the prod overlay's default worker count is 1.
+    """
+    webapp = _compose_tolerant(_PROD_OVERLAY)["services"]["webapp"]
+    entrypoint = webapp["entrypoint"]
+    assert "--workers" in entrypoint, "webapp entrypoint must set --workers explicitly"
+    workers_value = entrypoint[entrypoint.index("--workers") + 1]
+    # Default (the ${VAR:-default} fallback) must be 1 while sessions are in-memory.
+    assert workers_value == "${DOCRAY_WEBAPP_WORKERS:-1}", (
+        f"webapp worker default must be 1 (in-memory session store); got {workers_value!r}"
+    )

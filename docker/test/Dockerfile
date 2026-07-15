@@ -17,8 +17,8 @@ COPY requirements.txt requirements-dev.txt ./
 RUN uv pip install --system -r requirements.txt -r requirements-dev.txt
 
 COPY pyproject.toml ./
-COPY Dockerfile docker-compose.yml docker-compose.api.yml docker-compose.test.yml ./
-COPY .dockerignore .env.example .env.test.example .gitignore ./
+COPY Dockerfile docker-compose*.yml ./
+COPY .dockerignore .env.example .env.prod.example .env.test.example .gitignore ./
 COPY .pre-commit-config.yaml CLAUDE.md ./
 COPY .github ./.github
 COPY README.md CHANGELOG.md engineering_decisions.yml uv.lock Makefile ./

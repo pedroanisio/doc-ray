@@ -7,8 +7,21 @@ from urllib.parse import urlparse
 
 import boto3
 from botocore.client import Config as BotoConfig
+from botocore.exceptions import ClientError
 
 from doc_ray.config import Config
+
+
+def _is_missing_bucket(exc: ClientError) -> bool:
+    """Return whether *exc* is a 404 ``NoSuchBucket`` (vs. any other S3 error).
+
+    ``head_bucket`` answers 404 for a bucket that does not exist and 403 for one
+    that exists but is not readable by these credentials; only the former should
+    trigger a ``create_bucket``.
+    """
+    error = exc.response.get("Error", {})
+    status = exc.response.get("ResponseMetadata", {}).get("HTTPStatusCode")
+    return status == 404 or error.get("Code") in {"404", "NoSuchBucket"}
 
 
 def _warn_if_plaintext_endpoint(cfg: Config) -> None:
@@ -46,19 +59,33 @@ class ObjectStore:
         )
 
     def ensure_bucket(self) -> None:
-        """Create the bucket if it does not already exist (idempotent)."""
-        existing = {b["Name"] for b in self._client.list_buckets().get("Buckets", [])}
-        if self._bucket not in existing:
+        """Create the configured bucket if it does not already exist (idempotent).
+
+        Probes with ``head_bucket``, a bucket-scoped operation, rather than
+        ``list_buckets``, which is account-wide and denied to the least-privilege,
+        bucket-scoped keys production uses (see docs/production-setup.md). Only a
+        genuine 404 triggers creation; any other error (403, endpoint down, bad
+        credentials) propagates so it surfaces instead of being masked.
+        """
+        try:
+            self._client.head_bucket(Bucket=self._bucket)
+        except ClientError as exc:
+            if not _is_missing_bucket(exc):
+                raise
             self._client.create_bucket(Bucket=self._bucket)
 
     def ping(self) -> None:
         """Cheap read-only reachability probe for readiness checks.
 
-        Lists buckets (a no-side-effect call) purely to confirm the endpoint answers.
-        Raises the underlying boto/botocore error when the store is unreachable or the
-        credentials are rejected, so callers can turn that into a readiness signal.
+        Heads the configured bucket (a no-side-effect, bucket-scoped call) purely to
+        confirm the endpoint answers and the credentials are accepted. Uses
+        ``head_bucket`` rather than the account-wide ``list_buckets`` so a
+        least-privilege, bucket-scoped key does not make a healthy store read as
+        down. Raises the underlying boto/botocore error when the store is
+        unreachable or the credentials are rejected, so callers can turn that into a
+        readiness signal.
         """
-        self._client.list_buckets()
+        self._client.head_bucket(Bucket=self._bucket)
 
     def put(self, key: str, data: bytes, content_type: str) -> str:
         """Upload bytes and return the canonical ``s3://`` URI.
