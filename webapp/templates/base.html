@@ -26,6 +26,7 @@
   <link rel="stylesheet" href="{{ url_for('static', filename='design-system.css') }}">
 </head>
 <body>
+  <div id="nav-progress" aria-hidden="true"></div>
   <header>
     {# App nav is only meaningful to someone who can use it: a signed-in user,
        or an open (no-auth) deployment. An anonymous visitor on a login-gated
@@ -118,6 +119,7 @@
       localStorage.setItem('docray-theme', next);
     }
   </script>
+  <script src="{{ url_for('static', filename='nav-progress.js') }}"></script>
   {% block script %}{% endblock %}
 </body>
 </html>
