@@ -400,6 +400,36 @@ async def billing_events(
     return await billing_store.list_billing_events(conn, tenant_id, limit=limit)
 
 
+async def retry_billing_event(
+    conn: psycopg.AsyncConnection[Any], cfg: Config, stripe_event_id: str
+) -> dict[str, Any]:
+    """Retry one unprocessed tenant-visible Stripe webhook event."""
+    tenant_id = await billing_store.current_tenant_id(conn)
+    row = await billing_store.get_billing_event(conn, tenant_id, stripe_event_id)
+    if row is None:
+        raise ValueError(f"unknown billing event {stripe_event_id}")
+    if row.get("processed_at") is not None:
+        return row
+    payload = row.get("payload")
+    if not isinstance(payload, dict):
+        raise ValueError(f"billing event {stripe_event_id} does not have an object payload")
+    event_id = str(payload.get("id") or "")
+    event_type = str(payload.get("type") or "")
+    if event_id != stripe_event_id or not event_type:
+        raise ValueError(f"billing event {stripe_event_id} payload does not match its ledger row")
+    validate_webhook_event_mode(payload, cfg)
+    handled = await _handle_webhook_event(conn, event_id, event_type, payload)
+    if not handled:
+        raise WebhookProcessingPending(
+            "Stripe webhook is pending tenant mapping; retry delivery later"
+        )
+    await billing_store.mark_webhook_processed(conn, event_id)
+    updated = await billing_store.get_billing_event(conn, tenant_id, stripe_event_id)
+    if updated is None:  # pragma: no cover - row was just loaded and retried
+        raise RuntimeError(f"billing event {stripe_event_id} disappeared after retry")
+    return updated
+
+
 def webhook_endpoint_url(cfg: Config) -> str | None:
     """Return the public Stripe webhook endpoint URL when configured."""
     base = (cfg.public_base_url or "").strip().rstrip("/")
@@ -707,6 +737,22 @@ async def process_webhook_event(
     )
     if not inserted:
         return False
+    handled = await _handle_webhook_event(conn, event_id, event_type, event)
+    if not handled:
+        raise WebhookProcessingPending(
+            "Stripe webhook is pending tenant mapping; retry delivery later"
+        )
+    await billing_store.mark_webhook_processed(conn, event_id)
+    return True
+
+
+async def _handle_webhook_event(
+    conn: psycopg.AsyncConnection[Any],
+    event_id: str,
+    event_type: str,
+    event: dict[str, Any],
+) -> bool:
+    """Apply an already accepted Stripe event payload to billing snapshots."""
     obj = event.get("data", {}).get("object", {})
     if not isinstance(obj, dict):
         obj = {}
@@ -732,12 +778,7 @@ async def process_webhook_event(
         handled = await _process_invoice_event(conn, event_id, event_type, obj)
     else:
         handled = True
-    if not handled:
-        raise WebhookProcessingPending(
-            "Stripe webhook is pending tenant mapping; retry delivery later"
-        )
-    await billing_store.mark_webhook_processed(conn, event_id)
-    return True
+    return handled
 
 
 def validate_webhook_event_mode(event: dict[str, Any], cfg: Config | None) -> None:

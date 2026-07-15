@@ -1,6 +1,6 @@
 # doc-ray — Database ERD & Data Dictionary
 
-**Schema version `1.27.0`** (SemVer) · 86 migrations applied
+**Schema version `1.27.0`** (SemVer) · 88 migrations applied
 
 > Generated from the live schema by `scripts/gen_data_dictionary.py`. Do not edit by hand — re-run the generator.
 
@@ -1878,3 +1878,5 @@ owner's bypass.
 | 084 | `084_schema_version_1_26_0.sql` | advance the schema SemVer to 1.26.0 |
 | 085 | `085_tenant_catalog_client_select.sql` | repair client-role tenant catalogue read access for billing status |
 | 086 | `086_schema_version_1_27_0.sql` | advance the schema SemVer to 1.27.0 |
+| 087 | `087_oauth_client_service_principal.sql` | bind confidential OAuth clients to explicit service principals for client_credentials |
+| 088 | `088_billing_event_retry.sql` | tenant-admin retry policy for unprocessed Stripe billing webhook events |

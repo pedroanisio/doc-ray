@@ -24,6 +24,7 @@ from doc_ray.entrypoints.api.types import Job
 _BILLING_ENTITLEMENT_EXEMPT_ACTIONS = {
     "mutation.create_billing_checkout_session",
     "mutation.create_billing_portal_session",
+    "mutation.retry_billing_event",
 }
 
 

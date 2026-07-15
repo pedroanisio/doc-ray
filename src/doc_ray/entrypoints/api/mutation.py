@@ -38,7 +38,7 @@ from doc_ray.domain.jobs import (
     KIND_SUGGEST_DOCUMENT_METADATA,
     KIND_UPDATE_METADATA,
 )
-from doc_ray.entrypoints.api.billing_types import BillingSession
+from doc_ray.entrypoints.api.billing_types import BillingEvent, BillingSession
 from doc_ray.entrypoints.api.context import MAX_BATCH_IDS
 from doc_ray.entrypoints.api.mutation_collections import CollectionMutations
 from doc_ray.entrypoints.api.mutation_guards import (
@@ -118,6 +118,30 @@ class Mutation(CollectionMutations):
             outcome="success",
         )
         return BillingSession(url=url)
+
+    @strawberry.mutation
+    async def retry_billing_event(
+        self,
+        info: Info,
+        stripe_event_id: strawberry.ID,
+    ) -> BillingEvent:
+        """Retry a tenant-visible Stripe webhook event that has not processed yet."""
+        ctx = info.context
+        await _require_admin(ctx, action="mutation.retry_billing_event")
+        settings = ctx.settings
+        if settings is None and ctx.request is not None:
+            settings = ctx.request.app.state.settings
+        if settings is None:
+            raise RuntimeError("billing settings are unavailable")
+        row = await billing.retry_billing_event(ctx.conn, settings, str(stripe_event_id))
+        await _audit_mutation_event(
+            ctx,
+            action="mutation.retry_billing_event",
+            target_type="stripe_webhook_event",
+            target_id=str(stripe_event_id),
+            outcome="success",
+        )
+        return BillingEvent.from_row(row)
 
     @strawberry.mutation
     async def reannotate(self, info: Info, document_id: strawberry.ID, lang: str = "en") -> Job:

@@ -236,6 +236,14 @@ MIGRATIONS = [
         "repair client-role tenant catalogue read access for billing status",
     ),
     ("086_schema_version_1_27_0", "advance the schema SemVer to 1.27.0"),
+    (
+        "087_oauth_client_service_principal",
+        "bind confidential OAuth clients to explicit service principals for client_credentials",
+    ),
+    (
+        "088_billing_event_retry",
+        "tenant-admin retry policy for unprocessed Stripe billing webhook events",
+    ),
 ]
 
 # ---------------------------------------------------------------------------

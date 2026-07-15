@@ -67,6 +67,29 @@ def test_graphql_exposes_document_collections_surface():
     assert "collections(" in sdl[sdl.index("type Document ") :]
 
 
+def test_graphql_exposes_billing_surface():
+    sdl = build_schema().as_str()
+
+    for field in (
+        "billingStatus: BillingStatus!",
+        "billingEvents(",
+        "createBillingCheckoutSession(",
+        "createBillingPortalSession(",
+        "retryBillingEvent(",
+        "type BillingStatus",
+        "type BillingEvent",
+        "hostedInvoiceUrl",
+        "invoicePdf",
+        "amountPaid",
+        "processedAt",
+        "webhookEndpointUrl",
+        "requiredWebhookEvents",
+        "entitled",
+        "entitlementReason",
+    ):
+        assert field in sdl
+
+
 def test_graphql_job_type_exposes_queue_timing_and_attempts():
     sdl = build_schema().as_str()
 

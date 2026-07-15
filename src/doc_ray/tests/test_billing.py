@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import hmac
+import inspect
 import json
 import time
 from dataclasses import replace
@@ -20,6 +21,7 @@ from doc_ray.config import Config
 from doc_ray.entrypoints.api.app import create_app
 from doc_ray.entrypoints.api.context import RequestContext
 from doc_ray.entrypoints.api.loaders import Loaders
+from doc_ray.entrypoints.api.mutation_guards import _BILLING_ENTITLEMENT_EXEMPT_ACTIONS
 from doc_ray.entrypoints.api.schema import build_schema
 
 _MIGRATIONS = Path(__file__).resolve().parents[3] / "db" / "migrations"
@@ -105,6 +107,7 @@ def _apply_billing_migration(conn) -> str:
     conn.execute((_MIGRATIONS / "084_schema_version_1_26_0.sql").read_text())
     conn.execute((_MIGRATIONS / "085_tenant_catalog_client_select.sql").read_text())
     conn.execute((_MIGRATIONS / "086_schema_version_1_27_0.sql").read_text())
+    conn.execute((_MIGRATIONS / "088_billing_event_retry.sql").read_text())
     _itdb.ensure_admin_principal(conn, WRITE_PRINCIPAL.principal_id, "billing-test-admin")
     return str(conn.execute("SELECT docray_default_tenant_id() AS id").fetchone()["id"])
 
@@ -126,6 +129,60 @@ def _prod_example_webhook_events() -> list[str]:
         if event:
             event_names.append(event)
     return event_names
+
+
+def test_paid_saas_mutations_cannot_drift_outside_billing_entitlement_guard() -> None:
+    schema = build_schema()
+    mutation_fields = {
+        field.python_name: field.base_resolver.wrapped_func
+        for field in schema.mutation.__strawberry_definition__.fields
+    }
+    exempt_mutations = {
+        "create_billing_checkout_session": "mutation.create_billing_checkout_session",
+        "create_billing_portal_session": "mutation.create_billing_portal_session",
+        "retry_billing_event": "mutation.retry_billing_event",
+    }
+    guarded_mutations = {
+        "add_document_to_collection": "mutation.add_document_to_collection",
+        "annotate_document": "mutation.annotate",
+        "archive_document": "mutation.archive_document",
+        "bulk_archive_documents": "mutation.bulk_archive_documents",
+        "bulk_tag_documents": "mutation.bulk_tag_documents",
+        "cancel_job": "mutation.cancel_job",
+        "canonicalize_document": "mutation.canonicalize",
+        "create_backup": "mutation.backup",
+        "create_collection": "mutation.create_collection",
+        "decide_document_metadata_suggestions": (
+            "mutation.decide_document_metadata_suggestions"
+        ),
+        "decide_seeds": "mutation.decide_seeds",
+        "delete_document": "mutation.delete",
+        "ingest_document": "mutation.ingest",
+        "reannotate": "mutation.reannotate",
+        "reextract_document": "mutation.reextract",
+        "reextract_documents": "mutation.reextract_documents",
+        "remove_document_from_collection": "mutation.remove_document_from_collection",
+        "restore_backup": "mutation.restore",
+        "restore_document": "mutation.restore_document",
+        "seed_approved": "mutation.seed_approved",
+        "semantic_enrich_document": "mutation.semantic_enrich",
+        "suggest_document_metadata": "mutation.suggest_document_metadata",
+        "suggest_seeds": "mutation.seed_suggest",
+        "update_document_metadata": "mutation.update_metadata",
+    }
+    assert set(mutation_fields) == set(guarded_mutations) | set(exempt_mutations)
+    assert set(exempt_mutations.values()) == _BILLING_ENTITLEMENT_EXEMPT_ACTIONS
+    for mutation_name, action in guarded_mutations.items():
+        source = inspect.getsource(mutation_fields[mutation_name])
+        assert action in source
+        assert any(
+            guard in source
+            for guard in (
+                "_require_admin",
+                "_require_document_write",
+                "_require_write_audited",
+            )
+        ), mutation_name
 
 
 def test_prod_env_example_webhook_events_match_runtime_requirements():
@@ -697,6 +754,146 @@ def test_billing_console_queries_allow_read_scoped_admin(pg):
     finally:
         conn.execute("DELETE FROM tenant_subscriptions WHERE tenant_id = %s", (tenant_id,))
         conn.execute("DELETE FROM tenant_billing_accounts WHERE tenant_id = %s", (tenant_id,))
+
+
+def test_billing_admin_retries_pending_invoice_event_while_entitlement_blocked(pg):
+    conn, _created = pg
+    tenant_id = _apply_billing_migration(conn)
+    schema = build_schema()
+    conn.execute(
+        """
+        INSERT INTO tenant_billing_accounts
+            (tenant_id, stripe_customer_id, billing_email, created_by_principal_id)
+        VALUES (%s, 'cus_admin_retry_pending', 'retry@example.com', %s)
+        ON CONFLICT (tenant_id) DO UPDATE
+        SET stripe_customer_id = EXCLUDED.stripe_customer_id,
+            billing_email = EXCLUDED.billing_email
+        """,
+        (tenant_id, WRITE_PRINCIPAL.principal_id),
+    )
+    invoice_event = {
+        "id": "evt_admin_retry_paid_invoice_1",
+        "type": "invoice.paid",
+        "livemode": False,
+        "data": {
+            "object": {
+                "id": "in_admin_retry_paid",
+                "customer": "cus_admin_retry_pending",
+                "subscription": "sub_admin_retry_pending",
+                "status": "paid",
+                "amount_paid": 4900,
+                "currency": "usd",
+            }
+        },
+    }
+    subscription_event = {
+        "id": "evt_admin_retry_subscription_1",
+        "type": "customer.subscription.created",
+        "livemode": False,
+        "data": {
+            "object": {
+                "id": "sub_admin_retry_pending",
+                "customer": "cus_admin_retry_pending",
+                "status": "past_due",
+                "current_period_end": int(time.time()),
+                "cancel_at_period_end": False,
+                "latest_invoice": "in_prior_failed",
+                "items": {"data": [{"price": {"id": "price_test_monthly"}}]},
+                "metadata": {"tenant_id": tenant_id},
+            }
+        },
+    }
+
+    async def create_pending_event() -> None:
+        aconn = await _aconn_as(None)
+        try:
+            await aconn.execute("RESET ROLE")
+            try:
+                await billing.process_webhook_event(aconn, invoice_event, _cfg())
+            except billing.WebhookProcessingPending as exc:
+                assert "retry" in str(exc).lower()
+            else:  # pragma: no cover - defensive
+                raise AssertionError("invoice with no subscription snapshot was processed")
+            assert await billing.process_webhook_event(aconn, subscription_event, _cfg()) is True
+        finally:
+            await aconn.close()
+
+    async def retry_from_graphql() -> None:
+        aconn = await _aconn_as(WRITE_PRINCIPAL.principal_id)
+        try:
+            ctx = RequestContext(
+                conn=aconn,
+                principal=WRITE_PRINCIPAL,
+                loaders=Loaders(aconn),
+                settings=_cfg(enforcement_enabled=True),
+            )
+            result = await schema.execute(
+                """
+                mutation RetryBillingEvent($stripeEventId: ID!) {
+                  retryBillingEvent(stripeEventId: $stripeEventId) {
+                    stripeEventId
+                    eventType
+                    objectStatus
+                    amountPaid
+                    currency
+                    processedAt
+                  }
+                }
+                """,
+                variable_values={"stripeEventId": "evt_admin_retry_paid_invoice_1"},
+                context_value=ctx,
+            )
+            assert result.errors is None, result.errors
+            retried = result.data["retryBillingEvent"]
+            assert retried["stripeEventId"] == "evt_admin_retry_paid_invoice_1"
+            assert retried["eventType"] == "invoice.paid"
+            assert retried["objectStatus"] == "paid"
+            assert retried["amountPaid"] == 4900
+            assert retried["currency"] == "usd"
+            assert retried["processedAt"] is not None
+        finally:
+            await aconn.close()
+
+    try:
+        asyncio.run(create_pending_event())
+        blocked_state = conn.execute(
+            """
+            SELECT status, latest_invoice_id
+            FROM tenant_subscriptions
+            WHERE tenant_id = %s
+            """,
+            (tenant_id,),
+        ).fetchone()
+        assert blocked_state["status"] == "past_due"
+        assert blocked_state["latest_invoice_id"] == "in_prior_failed"
+        pending_row = conn.execute(
+            """
+            SELECT processed_at IS NULL AS pending
+            FROM stripe_webhook_events
+            WHERE stripe_event_id = 'evt_admin_retry_paid_invoice_1'
+            """
+        ).fetchone()
+        assert pending_row["pending"] is True
+
+        asyncio.run(retry_from_graphql())
+        row = conn.execute(
+            """
+            SELECT status, latest_invoice_id, last_stripe_event_id
+            FROM tenant_subscriptions
+            WHERE tenant_id = %s
+            """,
+            (tenant_id,),
+        ).fetchone()
+        assert row["status"] == "active"
+        assert row["latest_invoice_id"] == "in_admin_retry_paid"
+        assert row["last_stripe_event_id"] == "evt_admin_retry_paid_invoice_1"
+    finally:
+        conn.execute("DELETE FROM tenant_subscriptions WHERE tenant_id = %s", (tenant_id,))
+        conn.execute("DELETE FROM tenant_billing_accounts WHERE tenant_id = %s", (tenant_id,))
+        conn.execute(
+            "DELETE FROM stripe_webhook_events WHERE stripe_event_id IN "
+            "('evt_admin_retry_paid_invoice_1', 'evt_admin_retry_subscription_1')"
+        )
 
 
 def test_billing_hosted_payment_mutations_reject_read_scoped_admin(pg, monkeypatch):

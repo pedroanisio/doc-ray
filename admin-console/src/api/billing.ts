@@ -142,3 +142,35 @@ export async function createBillingPortalSession(
   );
   return data.createBillingPortalSession.url;
 }
+
+export async function retryBillingEvent(
+  client: ApiClient,
+  stripeEventId: string,
+): Promise<BillingEvent> {
+  const data = await client.graphql<{ retryBillingEvent: BillingEvent }>(
+    `
+      mutation RetryBillingEvent($stripeEventId: ID!) {
+        retryBillingEvent(stripeEventId: $stripeEventId) {
+          stripeEventId
+          eventType
+          livemode
+          processedAt
+          createdAt
+          objectId
+          customerId
+          subscriptionId
+          objectStatus
+          latestInvoiceId
+          amountPaid
+          amountDue
+          amountTotal
+          currency
+          hostedInvoiceUrl
+          invoicePdf
+        }
+      }
+    `,
+    { stripeEventId },
+  );
+  return data.retryBillingEvent;
+}

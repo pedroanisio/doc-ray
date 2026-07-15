@@ -175,6 +175,30 @@ describe("BillingPage", () => {
           data: { createBillingPortalSession: { url: "https://billing.stripe.test/hosted" } },
         });
       }
+      if (String(body.query).includes("retryBillingEvent")) {
+        return jsonResponse({
+          data: {
+            retryBillingEvent: {
+              stripeEventId: body.variables.stripeEventId,
+              eventType: "invoice.paid",
+              livemode: false,
+              processedAt: "2026-07-16T12:05:00Z",
+              createdAt: "2026-07-16T12:00:00Z",
+              objectId: "in_pending_123",
+              customerId: "cus_123",
+              subscriptionId: "sub_123",
+              objectStatus: "paid",
+              latestInvoiceId: null,
+              amountPaid: 7200,
+              amountDue: 0,
+              amountTotal: null,
+              currency: "usd",
+              hostedInvoiceUrl: null,
+              invoicePdf: null,
+            },
+          },
+        });
+      }
       if (String(body.query).includes("billingEvents")) {
         return jsonResponse({
           data: {
@@ -309,6 +333,7 @@ describe("BillingPage", () => {
       "Subscription",
       "Received",
       "Processed",
+      "Action",
     ]);
     expect(screen.getByText("$49.00")).toBeInTheDocument();
     expect(screen.getByText("$65.00")).toBeInTheDocument();
@@ -325,6 +350,7 @@ describe("BillingPage", () => {
     ).toHaveAttribute("href", "https://invoice.stripe.test/in_failed_123");
     expect(screen.getByText(/Jul 16, 2026/)).toBeInTheDocument();
     expect(screen.getByText("not processed")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /retry event/i })).toBeEnabled();
     expect(screen.getByRole("button", { name: /subscription active/i })).toBeDisabled();
     expect(screen.getByText(/Use the Customer Portal/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /manage payment method/i })).toBeEnabled();
@@ -565,6 +591,37 @@ describe("BillingPage", () => {
     expect(body.variables).toEqual({
       returnUrl: `${window.location.origin}/billing`,
     });
+  });
+
+  it("retries an unprocessed Stripe billing event from the activity table", async () => {
+    const fetchImpl = billingFetch();
+    const services = billingServices(fetchImpl);
+
+    render(
+      <ServicesProvider services={services}>
+        <MemoryRouter>
+          <BillingPage />
+        </MemoryRouter>
+      </ServicesProvider>,
+    );
+
+    await userEvent.click(await screen.findByRole("button", { name: /retry event/i }));
+
+    await waitFor(() =>
+      expect(
+        (fetchImpl as unknown as ReturnType<typeof vi.fn>).mock.calls.some(([, init]) =>
+          String(init?.body ?? "").includes("retryBillingEvent"),
+        ),
+      ).toBe(true),
+    );
+    const mutationCall = (fetchImpl as unknown as ReturnType<typeof vi.fn>).mock.calls.find(
+      ([, init]) => String(init?.body ?? "").includes("retryBillingEvent"),
+    );
+    const body = JSON.parse(String(mutationCall?.[1]?.body ?? "{}"));
+    expect(body.variables).toEqual({ stripeEventId: "evt_invoice_pending_1" });
+    await waitFor(() =>
+      expect((fetchImpl as unknown as ReturnType<typeof vi.fn>).mock.calls.length).toBeGreaterThanOrEqual(5),
+    );
   });
 
   it("refreshes billing status from the page action", async () => {

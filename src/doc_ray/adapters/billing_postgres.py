@@ -105,6 +105,56 @@ async def list_billing_events(
     return [dict(row) for row in rows]
 
 
+async def get_billing_event(
+    conn: psycopg.AsyncConnection[Any], tenant_id: str, stripe_event_id: str
+) -> BillingRow | None:
+    """Return one tenant-visible Stripe webhook event, including its payload."""
+    cur = await conn.execute(
+        """
+        WITH tenant_customer AS (
+            SELECT stripe_customer_id
+            FROM tenant_billing_accounts
+            WHERE tenant_id = %s::uuid
+        )
+        SELECT e.stripe_event_id,
+               e.event_type,
+               e.livemode,
+               e.processed_at,
+               e.created_at,
+               e.payload,
+               e.payload #>> '{data,object,id}' AS object_id,
+               e.payload #>> '{data,object,customer}' AS customer_id,
+               CASE
+                   WHEN e.event_type LIKE 'customer.subscription.%%'
+                       THEN e.payload #>> '{data,object,id}'
+                   ELSE e.payload #>> '{data,object,subscription}'
+               END AS subscription_id,
+               e.payload #>> '{data,object,status}' AS object_status,
+               e.payload #>> '{data,object,latest_invoice}' AS latest_invoice_id,
+               NULLIF(e.payload #>> '{data,object,amount_paid}', '')::bigint AS amount_paid,
+               NULLIF(e.payload #>> '{data,object,amount_due}', '')::bigint AS amount_due,
+               NULLIF(e.payload #>> '{data,object,amount_total}', '')::bigint AS amount_total,
+               e.payload #>> '{data,object,currency}' AS currency,
+               e.payload #>> '{data,object,hosted_invoice_url}' AS hosted_invoice_url,
+               e.payload #>> '{data,object,invoice_pdf}' AS invoice_pdf
+        FROM stripe_webhook_events e
+        LEFT JOIN tenant_customer tc ON true
+        WHERE e.stripe_event_id = %s
+          AND (
+              e.payload #>> '{data,object,client_reference_id}' = %s
+              OR e.payload #>> '{data,object,metadata,tenant_id}' = %s
+              OR (
+                  tc.stripe_customer_id IS NOT NULL
+                  AND e.payload #>> '{data,object,customer}' = tc.stripe_customer_id
+              )
+          )
+        """,
+        (tenant_id, stripe_event_id, tenant_id, tenant_id),
+    )
+    row = await cur.fetchone()
+    return dict(row) if row else None
+
+
 async def get_billing_account(
     conn: psycopg.AsyncConnection[Any], tenant_id: str
 ) -> BillingRow | None:

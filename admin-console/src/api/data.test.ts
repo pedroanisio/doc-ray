@@ -11,6 +11,7 @@ import {
   createBillingPortalSession,
   fetchBillingEvents,
   fetchBillingStatus,
+  retryBillingEvent,
 } from "./billing";
 
 function clientReturning(body: unknown, status = 200) {
@@ -221,5 +222,38 @@ describe("billing module", () => {
       .resolves.toBe("https://billing.stripe.test/s");
     const body = JSON.parse(fetchImpl.mock.calls[0][1].body!);
     expect(body.variables).toEqual({ returnUrl: "https://app.example.com/billing" });
+  });
+
+  it("retryBillingEvent returns the retried Stripe webhook event", async () => {
+    const { client, fetchImpl } = clientReturning({
+      data: {
+        retryBillingEvent: {
+          stripeEventId: "evt_retry_1",
+          eventType: "invoice.paid",
+          livemode: false,
+          processedAt: "2026-07-15T12:00:00Z",
+          createdAt: "2026-07-15T11:59:00Z",
+          objectId: "in_retry_1",
+          customerId: "cus_1",
+          subscriptionId: "sub_1",
+          objectStatus: "paid",
+          latestInvoiceId: null,
+          amountPaid: 4900,
+          amountDue: 0,
+          amountTotal: null,
+          currency: "usd",
+          hostedInvoiceUrl: null,
+          invoicePdf: null,
+        },
+      },
+    });
+    await expect(retryBillingEvent(client, "evt_retry_1")).resolves.toMatchObject({
+      stripeEventId: "evt_retry_1",
+      processedAt: "2026-07-15T12:00:00Z",
+    });
+    const body = JSON.parse(fetchImpl.mock.calls[0][1].body!);
+    expect(body.query).toContain("retryBillingEvent");
+    expect(body.query).toContain("processedAt");
+    expect(body.variables).toEqual({ stripeEventId: "evt_retry_1" });
   });
 });

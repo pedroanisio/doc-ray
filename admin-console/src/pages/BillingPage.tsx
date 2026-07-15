@@ -5,6 +5,7 @@ import {
   createBillingPortalSession,
   fetchBillingEvents,
   fetchBillingStatus,
+  retryBillingEvent,
   type BillingEvent,
   type BillingStatus,
 } from "../api/billing";
@@ -34,7 +35,7 @@ export function BillingPage({ redirectToHostedUrl = (url) => window.location.ass
   const [status, setStatus] = useState<BillingStatus | null>(null);
   const [events, setEvents] = useState<BillingEvent[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState<"checkout" | "portal" | "refresh" | null>(null);
+  const [busy, setBusy] = useState<"checkout" | "portal" | "refresh" | `retry:${string}` | null>(null);
   const checkoutResult = checkoutReturn(searchParams.get("checkout"));
 
   async function load() {
@@ -83,6 +84,18 @@ export function BillingPage({ redirectToHostedUrl = (url) => window.location.ass
     setBusy("refresh");
     try {
       await load();
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function retryEvent(stripeEventId: string) {
+    setBusy(`retry:${stripeEventId}`);
+    try {
+      await retryBillingEvent(client, stripeEventId);
+      await load();
+    } catch (err) {
+      setError(errorMessage(err));
     } finally {
       setBusy(null);
     }
@@ -292,6 +305,7 @@ export function BillingPage({ redirectToHostedUrl = (url) => window.location.ass
                   <th>Subscription</th>
                   <th>Received</th>
                   <th>Processed</th>
+                  <th>Action</th>
                 </tr>
               </thead>
               <tbody>
@@ -308,6 +322,7 @@ export function BillingPage({ redirectToHostedUrl = (url) => window.location.ass
                     <td>{event.subscriptionId ?? "n/a"}</td>
                     <td>{formatDateTime(event.createdAt)}</td>
                     <td>{formatDateTime(event.processedAt)}</td>
+                    <td>{renderRetryAction(event, canManagePayments, busy, retryEvent)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -450,6 +465,25 @@ function renderInvoiceLinks(event: BillingEvent) {
         </span>
       )}
     </>
+  );
+}
+
+function renderRetryAction(
+  event: BillingEvent,
+  canManagePayments: boolean,
+  busy: string | null,
+  retryEvent: (stripeEventId: string) => void,
+) {
+  if (event.processedAt) return "processed";
+  const busyKey = `retry:${event.stripeEventId}`;
+  return (
+    <button
+      type="button"
+      onClick={() => retryEvent(event.stripeEventId)}
+      disabled={!canManagePayments || (busy !== null && busy !== busyKey)}
+    >
+      {busy === busyKey ? "Retrying..." : "Retry event"}
+    </button>
   );
 }
 

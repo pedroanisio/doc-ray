@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import dataclasses
+from collections import Counter
 
 import pytest
 
@@ -17,6 +18,9 @@ def test_migration_files_sorted_and_prefixed():
     assert names == sorted(names)
     assert names[0] == "001_init.sql"
     assert all(migrate._MIGRATION_RE.match(n) for n in names)
+    prefixes = [name.split("_", 1)[0] for name in names]
+    duplicates = {prefix: count for prefix, count in Counter(prefixes).items() if count > 1}
+    assert duplicates == {}
 
 
 def test_default_migrations_dir_points_at_db_migrations():
