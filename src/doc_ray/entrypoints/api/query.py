@@ -14,6 +14,7 @@ import strawberry
 from doc_ray.adapters import document_metadata_suggestion_store as metadata_suggestions
 from doc_ray.adapters import persistence_canonical_read as canonical_read
 from doc_ray.adapters import persistence_read as read
+from doc_ray.adapters import persistence_visual_read as visual_read
 from doc_ray.adapters import queue_postgres as queue
 from doc_ray.adapters import security_audit_read
 from doc_ray.adapters import seed_suggestion_store as seeds
@@ -40,6 +41,7 @@ from doc_ray.entrypoints.api.types import (
     SeedSuggestion,
     SentenceHit,
 )
+from doc_ray.entrypoints.api.visual_types import DocumentImage, ImageClassCount
 
 
 def _clean_uuid(value: str) -> str | None:
@@ -249,6 +251,35 @@ class Query:
         ctx = info.context
         rows = await read.fulltext_search(ctx.conn, query, limit=ctx.page_size(limit))
         return [DocumentHit.from_row(r) for r in rows]
+
+    @strawberry.field
+    async def document_images(
+        self,
+        info: Info,
+        document_id: strawberry.ID,
+        limit: int = 100,
+        after: str | None = None,
+    ) -> list[DocumentImage]:
+        """Return a document's detected images + Tier-1 visual features (RLS-scoped)."""
+        doc_id = _clean_uuid(str(document_id))
+        if doc_id is None:
+            return []
+        ctx = info.context
+        rows = await visual_read.list_document_images(
+            ctx.conn, doc_id, limit=ctx.page_size(limit), after=after
+        )
+        return [DocumentImage.from_row(r) for r in rows]
+
+    @strawberry.field
+    async def image_class_summary(
+        self, info: Info, document_id: strawberry.ID
+    ) -> list[ImageClassCount]:
+        """Return the ``(image_class, count)`` distribution for a document's images."""
+        doc_id = _clean_uuid(str(document_id))
+        if doc_id is None:
+            return []
+        rows = await visual_read.image_class_summary(info.context.conn, doc_id)
+        return [ImageClassCount.from_row(r) for r in rows]
 
     @strawberry.field
     async def lexeme(self, info: Info, uid: strawberry.ID) -> Lexeme | None:

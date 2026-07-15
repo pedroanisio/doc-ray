@@ -36,6 +36,7 @@ from doc_ray.domain.jobs import (
     KIND_SEMANTIC_ENRICH,
     KIND_SUGGEST_DOCUMENT_METADATA,
     KIND_UPDATE_METADATA,
+    KIND_VISUAL_EXTRACT,
 )
 from doc_ray.entrypoints.api.context import MAX_BATCH_IDS
 from doc_ray.entrypoints.api.mutation_billing import BillingMutations
@@ -53,9 +54,12 @@ from doc_ray.entrypoints.api.mutation_guards import (
 from doc_ray.entrypoints.api.types import Info, Job
 
 #: The default post-ingest pipeline: Stage-1 annotation, deterministic semantic
-#: enrichment, then deterministic canonicalization. The frontier resolver is never
-#: chained — LLM cost stays an explicit request (D-018).
-_PIPELINE_CHAIN = [KIND_ANNOTATE, KIND_SEMANTIC_ENRICH, KIND_CANONICALIZE]
+#: enrichment, then deterministic canonicalization, then Prism Tier-1 visual
+#: feature extraction. The deterministic visual tier is appended at the tail so
+#: entity-linking is never delayed (proposal §5.1); it is CPU-only (no model).
+#: The frontier resolver and the GPU visual tiers are never chained — model cost
+#: stays an explicit request (D-018).
+_PIPELINE_CHAIN = [KIND_ANNOTATE, KIND_SEMANTIC_ENRICH, KIND_CANONICALIZE, KIND_VISUAL_EXTRACT]
 
 
 @strawberry.type
