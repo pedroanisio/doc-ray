@@ -1,0 +1,57 @@
+# doc-ray — PRODUCTION overlay for MANAGED services (DO Managed Postgres + Spaces).
+#
+# WHY THIS EXISTS: the base docker-compose.yml runs Postgres + MinIO as
+# containers AND hardcodes, in every app service's `environment:`,
+#   DATABASE_URL=...@postgres:5432   S3_ENDPOINT=http://minio:9000
+# which OVERRIDE .env — so just setting DATABASE_URL in .env does not reach the
+# containers. Each app service also `depends_on: postgres/minio`, so naming only
+# the app services still drags the local database + object store up.
+#
+# This overlay repoints the app services at the managed cluster + Spaces (values
+# flow from .env) and severs those dependencies, so the local Postgres/MinIO
+# never start.
+#
+# Run only the stateless services (see docs/production-setup.md):
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d \
+#     migrate api worker worker-fast backup-scheduler
+#   # add `webapp` and `nginx` if you serve the browser UI / TLS from here.
+#
+# Requires in .env: DATABASE_URL (managed cluster, ?sslmode=require) and the
+# S3_* Spaces settings. Keep a POSTGRES_PASSWORD=<any-value> line in .env too:
+# the base compose hardcodes ${POSTGRES_PASSWORD} in every service's connection
+# string, and Compose interpolates the WHOLE base file at load (before merge) —
+# so the var must resolve even though the local postgres container never starts
+# here. The value is otherwise unused in managed prod.
+#
+# Local login/register also needs the SMTP + rate-limit pass-throughs; layer the
+# auth overlay after this one:
+#   ... -f docker-compose.yml -f docker-compose.prod.yml -f docker-compose.uat.yml ...
+
+x-managed-env: &managed-env
+  DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL to the managed Postgres cluster (append ?sslmode=require)}
+  S3_ENDPOINT: ${S3_ENDPOINT:?Set S3_ENDPOINT to your Spaces endpoint (https://<region>.digitaloceanspaces.com)}
+
+services:
+  migrate:
+    depends_on: !reset {}
+    environment: *managed-env
+
+  api:
+    depends_on: !reset {}
+    environment: *managed-env
+
+  worker:
+    depends_on: !reset {}
+    environment: *managed-env
+
+  worker-fast:
+    depends_on: !reset {}
+    environment: *managed-env
+
+  backup-scheduler:
+    depends_on: !reset {}
+    environment: *managed-env
+
+  webapp:
+    depends_on: !reset {}
+    environment: *managed-env

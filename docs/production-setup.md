@@ -168,13 +168,24 @@ Notes:
 
 ## Step 4 — Apply the schema and load data
 
+All **container** commands use the production overlay
+[`docker-compose.prod.yml`](../docker-compose.prod.yml): the base compose runs a
+local Postgres + MinIO and hardcodes their URLs over `.env`, so the overlay
+repoints every app service at the managed cluster + Spaces and severs the
+dependency on those local containers (which then never start). Keep a dummy
+`POSTGRES_PASSWORD=<any>` line in `.env` — Compose interpolates the base file at
+load even though that container is unused.
+
 Run the migration runner against the managed cluster (creates all tables,
 indexes, triggers), then load the corpus.
 
 ```bash
-set -a; source .env; set +a
-python -m doc_ray.entrypoints.migrate           # or: docker compose run --rm migrate
-python -m doc_ray.entrypoints.migrate           # re-run: should report "0 applied"
+set -a; source .env; set +a          # DATABASE_URL, S3_*, dummy POSTGRES_PASSWORD
+
+# Host CLI reads DATABASE_URL from .env directly (no compose needed):
+python -m doc_ray.entrypoints.migrate            # re-run should report "0 applied"
+#   containerised equivalent:
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml run --rm migrate
 ```
 
 Load the corpus by whichever fits:
@@ -187,10 +198,12 @@ Load the corpus by whichever fits:
 
 ## Step 5 — Start services, enable auth
 
-Start only the stateless services (no `postgres`/`minio` containers):
+Start only the stateless services via the overlay — the local `postgres`/`minio`
+never start because the overlay severed their dependencies:
 
 ```bash
-docker compose up -d api worker backup-scheduler
+docker compose -f docker-compose.yml -f docker-compose.prod.yml \
+  up -d api worker worker-fast backup-scheduler
 ```
 
 Create the admin token from the seeded `bootstrap-admin` principal and fail
@@ -201,7 +214,7 @@ ADMIN_PRINCIPAL_ID="$(psql "$DATABASE_URL" -Atc \
   "SELECT id FROM principals WHERE display_name='bootstrap-admin';")"
 API_TOKEN="$(openssl rand -hex 32)"
 sed -i "s|^DOCRAY_API_TOKENS=.*|DOCRAY_API_TOKENS=$API_TOKEN=$ADMIN_PRINCIPAL_ID:read+write|" .env
-docker compose up -d api worker backup-scheduler
+docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d api worker worker-fast backup-scheduler
 printf 'Store this API token in your password manager: %s\n' "$API_TOKEN"
 ```
 
