@@ -1,0 +1,157 @@
+{% extends "base.html" %}
+{% block title %}Settings · doc·ray{% endblock %}
+{% block body %}
+<style>
+  /* Settings-only layout. Inputs/selects/buttons inherit the global control
+     styles; this block only arranges the section cards and stacks fields. */
+  main { max-width: 980px; }
+  .set-head { margin: 0 0 var(--space-5); }
+  .set-head h1 { margin: .1rem 0 .3rem; }
+  .set-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+    gap: var(--space-4);
+    align-items: start;
+  }
+  .set-card { padding: var(--space-5); }
+  .set-card h2 { margin: 0 0 .25rem; padding: 0; border: 0; font-size: 1.05rem;
+    font-family: var(--display); font-weight: 650; letter-spacing: -0.01em;
+    text-transform: none; color: var(--ink); }
+  .set-card .sub { margin: 0 0 var(--space-4); color: var(--ink-soft); font-size: .88rem; }
+  .set-card form { display: grid; gap: var(--space-4); }
+  .set-card label { display: grid; gap: .35rem; font-size: .88rem; color: var(--ink-soft); }
+  .set-card label input, .set-card label select { width: 100%; }
+  .set-card button { justify-self: start; }
+  .set-card .field-hint { color: var(--ink-faint); font-size: .78rem; }
+  .set-card .current-email { margin: 0 0 var(--space-3); font-size: .9rem; }
+  .set-card .current-email b { color: var(--ink); }
+  .kv { display: grid; grid-template-columns: auto 1fr; gap: .4rem 1rem; margin: 0; font-size: .88rem; }
+  .kv dt { color: var(--ink-faint); }
+  .kv dd { margin: 0; overflow-wrap: anywhere; }
+</style>
+
+<section class="set-head">
+  <p class="eyebrow">Account</p>
+  <h1>Settings</h1>
+  <p class="lede">Manage your profile, sign-in, and reading preferences.</p>
+</section>
+
+{% if notice %}<div class="notice">{{ notice }}</div>{% endif %}
+{% if error %}<div class="errbox">{{ error }}</div>{% endif %}
+
+<div class="set-grid">
+  <section class="card set-card">
+    <h2>Profile</h2>
+    <p class="sub">The name shown against your edits and activity.</p>
+    <form method="post" action="{{ url_for('settings_profile') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <label>Display name
+        <input type="text" name="display_name" value="{{ account.display_name }}"
+               maxlength="200" required>
+      </label>
+      <button type="submit">Save profile</button>
+    </form>
+  </section>
+
+  {% if account.is_local %}
+  <section class="card set-card">
+    <h2>Password</h2>
+    <p class="sub">Re-enter your current password to set a new one.</p>
+    <form method="post" action="{{ url_for('settings_password') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <label>Current password
+        <input type="password" name="current_password" autocomplete="current-password" required>
+      </label>
+      <label>New password
+        <input type="password" name="new_password" autocomplete="new-password"
+               minlength="12" required>
+        <span class="field-hint">At least 12 characters, different from the current one.</span>
+      </label>
+      <label>Confirm new password
+        <input type="password" name="confirm_password" autocomplete="new-password"
+               minlength="12" required>
+      </label>
+      <button type="submit">Change password</button>
+    </form>
+  </section>
+
+  <section class="card set-card">
+    <h2>Email</h2>
+    <p class="current-email">
+      Current: <b>{{ account.email or "—" }}</b>
+      {% if account.email_verified %}<span class="pill">verified</span>
+      {% else %}<span class="pill">unverified</span>{% endif %}
+    </p>
+    {% if account.pending_email %}
+      <div class="notice">Change to <b>{{ account.pending_email }}</b> is pending — open the
+        confirmation link we emailed to finish.</div>
+    {% endif %}
+    {% if email_token %}
+      <p class="field-hint">Development confirmation token:</p>
+      <code>{{ email_token }}</code>
+      <p class="field-hint">
+        <a href="{{ url_for('settings_email_confirm', token=email_token) }}">Confirm with this token</a>
+      </p>
+    {% endif %}
+    <form method="post" action="{{ url_for('settings_email') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <label>New email
+        <input type="email" name="new_email" autocomplete="email" required>
+      </label>
+      <button type="submit">Send confirmation link</button>
+    </form>
+    <p class="field-hint">Your address changes only after you open the confirmation link sent to
+      the new inbox — so a typo can never lock you out.</p>
+  </section>
+  {% else %}
+  <section class="card set-card">
+    <h2>Sign-in</h2>
+    <p class="sub">Your identity is managed by your organization's single sign-on. Change your
+      password and email with your identity provider — not here.</p>
+    <dl class="kv">
+      <dt>Provider subject</dt><dd><code>{{ account.external_subject or account.subject }}</code></dd>
+    </dl>
+  </section>
+  {% endif %}
+
+  <section class="card set-card">
+    <h2>Preferences</h2>
+    <p class="sub">Reading defaults that follow you across devices.</p>
+    <form method="post" action="{{ url_for('settings_preferences') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <label>Theme
+        <select name="theme">
+          <option value="system" {{ 'selected' if prefs.theme == 'system' }}>Match system</option>
+          <option value="light" {{ 'selected' if prefs.theme == 'light' }}>Light</option>
+          <option value="dark" {{ 'selected' if prefs.theme == 'dark' }}>Dark</option>
+        </select>
+      </label>
+      <label>Default reader view
+        <select name="default_reader_view">
+          <option value="annotated" {{ 'selected' if prefs.default_reader_view == 'annotated' }}>Annotated</option>
+          <option value="plain" {{ 'selected' if prefs.default_reader_view == 'plain' }}>Plain</option>
+        </select>
+      </label>
+      <label>Rows per page
+        <input type="number" name="rows_per_page" min="10" max="200" step="5"
+               value="{{ prefs.rows_per_page }}">
+      </label>
+      <button type="submit">Save preferences</button>
+    </form>
+    <p class="field-hint">The header ☀/☾ toggle still overrides the theme on this device.</p>
+  </section>
+
+  <section class="card set-card">
+    <h2>Account</h2>
+    <p class="sub">Read-only identity details.</p>
+    <dl class="kv">
+      <dt>Display name</dt><dd>{{ account.display_name }}</dd>
+      {% if account.email %}<dt>Email</dt><dd>{{ account.email }}</dd>{% endif %}
+      <dt>Roles</dt>
+      <dd>{% for r in account.roles %}<span class="pill">{{ r }}</span> {% else %}—{% endfor %}</dd>
+      <dt>Identity</dt><dd>{{ "Local account" if account.is_local else "Single sign-on" }}</dd>
+      <dt>Principal</dt><dd><code>{{ account.principal_id }}</code></dd>
+    </dl>
+  </section>
+</div>
+{% endblock %}

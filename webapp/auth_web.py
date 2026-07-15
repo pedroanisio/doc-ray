@@ -66,6 +66,10 @@ _AUTH_PUBLIC_ENDPOINTS = {
     "oidc_callback",
     "saml_callback",
     "logout",
+    # Email-change confirmation is proven by the token mailed to the new
+    # address, exactly like registration verification — reachable without a
+    # live session so the link works from any browser.
+    "settings_email_confirm",
 }
 
 
@@ -482,13 +486,8 @@ def resend_verification():
 
 
 def profile():
-    """Show the current server-side browser auth session."""
-    record = _current_auth_session()
-    if record is None:
-        if _web_auth_required():
-            return redirect(url_for("login"))
-        return "webapp login is not configured", 404
-    return _core.render_template("profile.html", auth_session=record)
+    """Back-compat redirect: the profile page is now the account settings page."""
+    return redirect(url_for("settings"))
 
 
 def oidc_callback():

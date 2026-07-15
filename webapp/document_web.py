@@ -213,7 +213,10 @@ def document(doc_id):
     overlay_mode = request.args.get("overlay", "grammar")
     if overlay_mode not in {"grammar", "entities"}:
         overlay_mode = "grammar"
-    annotate = request.args.get("annotate", "1") != "0"
+    # Default annotated/plain from the reader's saved preference; the explicit
+    # ?annotate= query param always wins when present.
+    default_annotate = "1" if _core.current_preferences().annotated_by_default else "0"
+    annotate = request.args.get("annotate", default_annotate) != "0"
     n_sent = _core.q1("SELECT count(*) n FROM sentences WHERE document_id = %s", (str(doc_id),))[
         "n"
     ]

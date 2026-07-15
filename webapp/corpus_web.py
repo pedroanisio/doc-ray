@@ -29,7 +29,7 @@ _core: ModuleType
 
 def documents():
     """Render the corpus landing page: a paginated document list plus corpus-wide totals."""
-    per_page = 50
+    per_page = _core.current_preferences().rows_per_page
     page = max(1, request.args.get("page", 1, type=int))
     rows = _core.q(
         """
@@ -307,7 +307,7 @@ def lexemes():
     term = request.args.get("q", "", type=str).strip()
     pos = request.args.get("pos", "", type=str)
     lang = request.args.get("lang", "", type=str)
-    per_page = 100
+    per_page = _core.current_preferences().rows_per_page
     page = max(1, request.args.get("page", 1, type=int))
 
     params = {

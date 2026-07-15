@@ -6,10 +6,16 @@
   <title>{% block title %}doc·ray — document intelligence{% endblock %}</title>
   {% block head %}{% endblock %}
   <script>
-    /* Set theme before paint — no flash of wrong theme. */
+    /* Set theme before paint — no flash of wrong theme.
+       Priority: this-device toggle (localStorage) > account default > OS. */
     (function () {
       var t = localStorage.getItem('docray-theme');
-      if (!t) t = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+      if (!t) {
+        var pref = {{ user_theme | default('system') | tojson }};
+        t = (pref === 'light' || pref === 'dark')
+          ? pref
+          : (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+      }
       document.documentElement.setAttribute('data-theme', t);
     })();
   </script>
@@ -44,7 +50,7 @@
       {% endif %}
       {% if current_auth_session %}
       <span class="nav-group nav-account">
-        <a href="{{ url_for('profile') }}" class="{{ 'on' if request.endpoint == 'profile' }}">Profile</a>
+        <a href="{{ url_for('settings') }}" class="{{ 'on' if request.endpoint in ['settings','settings_profile','settings_password','settings_email','settings_preferences','settings_email_confirm','profile'] }}">Settings</a>
         <form method="post" action="{{ url_for('logout') }}" class="nav-inline-form">
           <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
           <button type="submit" class="nav-link-button">Sign out</button>

@@ -35,7 +35,15 @@ from doc_ray.application.local_auth import InvalidCredentials as InvalidCredenti
 from doc_ray.config import DEFAULT_DATABASE_URL
 
 try:
-    from webapp import admin_web, auth_web, collections_web, corpus_web, document_web, overlay_web
+    from webapp import (
+        account_web,
+        admin_web,
+        auth_web,
+        collections_web,
+        corpus_web,
+        document_web,
+        overlay_web,
+    )
     from webapp.auth_session import (
         AuthenticatedWebPrincipal as AuthenticatedWebPrincipal,
     )
@@ -50,6 +58,7 @@ try:
     from webapp.rate_limit import FixedWindowRateLimiter, rate_limit_rule_from_env
     from webapp.security_headers import apply_security_headers
 except ModuleNotFoundError:  # pragma: no cover - direct ``python webapp/app.py`` path.
+    import account_web
     import admin_web
     import auth_web
     import collections_web
@@ -403,6 +412,11 @@ corpus_web.register(app, _SELF)
 document_web.register(app, _SELF)
 collections_web.register(app, _SELF)
 admin_web.register(app, _SELF)
+account_web.register(app, _SELF)
+
+# Per-principal UI preferences, read by the corpus/reader routes and the theme
+# context processor; late-bound like the other cross-module helpers.
+current_preferences = account_web.current_preferences
 
 # Names the test suite (and templates) reach as webapp.app attributes; the
 # canonical definitions moved to the sibling route modules.
