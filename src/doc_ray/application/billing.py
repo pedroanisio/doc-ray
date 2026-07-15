@@ -345,6 +345,28 @@ def stripe_transport_from_config(cfg: Config) -> StripeRestTransport:
     return StripeRestTransport(secret_key=cfg.stripe_secret_key, api_base=cfg.stripe_api_base)
 
 
+def _checkout_idempotency_key(
+    *, tenant_id: str, price_id: str, status: dict[str, Any], urls: BillingUrls
+) -> str:
+    attempt_state = {
+        "tenant_id": tenant_id,
+        "price_id": price_id,
+        "checkout_session_id": status.get("checkout_session_id"),
+        "subscription_updated_at": _idempotency_value(status.get("subscription_updated_at")),
+        "success_url": urls.success_url,
+        "cancel_url": urls.cancel_url,
+    }
+    raw = json.dumps(attempt_state, sort_keys=True, separators=(",", ":"))
+    digest = hashlib.sha256(raw.encode("utf-8")).hexdigest()[:32]
+    return f"docray.checkout.{tenant_id}.{digest}"
+
+
+def _idempotency_value(value: object) -> str | None:
+    if isinstance(value, datetime):
+        return value.astimezone(timezone.utc).isoformat()
+    return _string(value)
+
+
 async def billing_status(conn: psycopg.AsyncConnection[Any], cfg: Config) -> dict[str, Any]:
     """Return current tenant billing state plus configuration readiness flags."""
     tenant_id = await billing_store.current_tenant_id(conn)
@@ -547,7 +569,12 @@ async def create_checkout_session(
         client_reference_id=tenant_id,
         metadata={"tenant_id": tenant_id, "price_id": cfg.stripe_price_id},
         subscription_metadata={"tenant_id": tenant_id, "price_id": cfg.stripe_price_id},
-        idempotency_key=f"docray.checkout.{tenant_id}.{cfg.stripe_price_id}",
+        idempotency_key=_checkout_idempotency_key(
+            tenant_id=tenant_id,
+            price_id=cfg.stripe_price_id,
+            status=status,
+            urls=urls,
+        ),
     )
     session_id = session.get("id")
     if not isinstance(session_id, str) or not session_id:

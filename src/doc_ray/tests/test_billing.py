@@ -545,7 +545,7 @@ def test_billing_graphql_mutations_create_checkout_and_portal_sessions(pg, monke
         assert checkout_call[1]["client_reference_id"] == tenant_id
         assert checkout_call[1]["subscription_data[metadata][tenant_id]"] == tenant_id
         assert checkout_call[1]["subscription_data[metadata][price_id]"] == "price_test_monthly"
-        assert checkout_call[2] == f"docray.checkout.{tenant_id}.price_test_monthly"
+        assert checkout_call[2].startswith(f"docray.checkout.{tenant_id}.")
         assert portal_call == (
             "/billing_portal/sessions",
             {"customer": "cus_graphql_1", "return_url": "https://app.example.com/billing"},
@@ -571,8 +571,8 @@ def test_checkout_session_creates_customer_and_graphql_status(pg):
                 f"docray.customer.{tenant_id}"
             )
             assert fake.checkout_calls[0]["price_id"] == "price_test_monthly"
-            assert fake.checkout_calls[0]["idempotency_key"] == (
-                f"docray.checkout.{tenant_id}.price_test_monthly"
+            assert fake.checkout_calls[0]["idempotency_key"].startswith(
+                f"docray.checkout.{tenant_id}."
             )
             assert fake.checkout_calls[0]["subscription_metadata"] == {
                 "tenant_id": tenant_id,
@@ -1001,6 +1001,60 @@ def test_checkout_session_expired_clears_pending_checkout_state(pg):
         conn.execute("DELETE FROM tenant_subscriptions WHERE tenant_id = %s", (tenant_id,))
         conn.execute("DELETE FROM tenant_billing_accounts WHERE tenant_id = %s", (tenant_id,))
         conn.execute("DELETE FROM stripe_webhook_events WHERE stripe_event_id = 'evt_checkout_expired_1'")
+
+
+def test_checkout_session_after_expiration_uses_fresh_idempotency_key(pg):
+    conn, _created = pg
+    tenant_id = _apply_billing_migration(conn)
+    fake = FakeStripe()
+
+    async def check() -> None:
+        aconn = await _aconn_as(WRITE_PRINCIPAL.principal_id)
+        webhook_conn = await _aconn_as(None)
+        try:
+            first_url = await billing.create_checkout_session(aconn, _cfg(), transport=fake)
+            assert first_url == "https://checkout.stripe.test/session"
+            first_key = fake.checkout_calls[0]["idempotency_key"]
+
+            await webhook_conn.execute("RESET ROLE")
+            assert await billing.process_webhook_event(
+                webhook_conn,
+                {
+                    "id": "evt_checkout_expired_fresh_key_1",
+                    "type": "checkout.session.expired",
+                    "livemode": False,
+                    "data": {
+                        "object": {
+                            "id": "cs_test_123",
+                            "customer": "cus_test_123",
+                            "client_reference_id": tenant_id,
+                            "metadata": {"tenant_id": tenant_id},
+                        }
+                    },
+                },
+            ) is True
+
+            second_url = await billing.create_checkout_session(aconn, _cfg(), transport=fake)
+            assert second_url == "https://checkout.stripe.test/session"
+            second_key = fake.checkout_calls[1]["idempotency_key"]
+
+            assert first_key.startswith(f"docray.checkout.{tenant_id}.")
+            assert second_key.startswith(f"docray.checkout.{tenant_id}.")
+            assert second_key != first_key
+            assert len(fake.created_customers) == 1
+        finally:
+            await webhook_conn.close()
+            await aconn.close()
+
+    try:
+        asyncio.run(check())
+    finally:
+        conn.execute("DELETE FROM tenant_subscriptions WHERE tenant_id = %s", (tenant_id,))
+        conn.execute("DELETE FROM tenant_billing_accounts WHERE tenant_id = %s", (tenant_id,))
+        conn.execute(
+            "DELETE FROM stripe_webhook_events WHERE stripe_event_id = "
+            "'evt_checkout_expired_fresh_key_1'"
+        )
 
 
 def test_subscription_webhook_before_checkout_creates_customer_mapping(pg):
