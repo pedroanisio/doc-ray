@@ -368,7 +368,9 @@ def test_handle_canonicalize_resolve_true_invokes_frontier_resolver(qconn, monke
         (new_ulid_str(), ann, span, text[0:10]),
     )
     seen = {}
-    monkeypatch.delenv("DOCRAY_RESOLVER_BACKEND", raising=False)  # default backend -> ClaudeResolver
+    monkeypatch.delenv(
+        "DOCRAY_RESOLVER_BACKEND", raising=False
+    )  # default backend -> ClaudeResolver
     monkeypatch.setattr("doc_ray.adapters.resolver_claude.ClaudeResolver", lambda: "stub-resolver")
     monkeypatch.setattr(
         "doc_ray.application.resolution.resolve_residue",
@@ -405,7 +407,9 @@ def test_handle_canonicalize_resolve_true_with_no_residue_skips_resolver(qconn, 
     def _boom():
         raise AssertionError("ClaudeResolver must not be constructed with empty residue")
 
-    monkeypatch.delenv("DOCRAY_RESOLVER_BACKEND", raising=False)  # default backend -> ClaudeResolver
+    monkeypatch.delenv(
+        "DOCRAY_RESOLVER_BACKEND", raising=False
+    )  # default backend -> ClaudeResolver
     monkeypatch.setattr("doc_ray.adapters.resolver_claude.ClaudeResolver", _boom)
     job_id = q.enqueue(conn, "canonicalize", {"resolve": True}, priority=0, document_id=doc_id)
     created.append(job_id)
