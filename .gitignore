@@ -30,3 +30,4 @@ concept-cinema/
 .claude/settings.json
 pgadmin/servers.json
 .ingest-state/doc-ray-dev.json
+.mypy_cache/

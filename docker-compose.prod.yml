@@ -79,16 +79,32 @@ services:
 
   webapp:
     depends_on: !reset {}
-    environment: *managed-env
+    # Per-user RLS on the webapp's direct DB reads needs the docray_api role:
+    # docray_current_principal() honours the per-session app.principal_id ONLY for
+    # docray_api, so the base default (docray_client) silently yields an empty
+    # corpus once browser auth is on. Default it to docray_api here (overridable)
+    # rather than depend on an .env line surviving every recreate; the webapp also
+    # refuses to boot on a mismatch (see webapp/app.py _assert_db_role_...).
+    environment:
+      <<: *managed-env
+      DOCRAY_DB_ROLE: ${DOCRAY_DB_ROLE:-docray_api}
     # Production WSGI server. Base runs `flask run` (Werkzeug dev server,
     # "do not use in production"); gunicorn with gthread workers suits the
     # webapp's blocking I/O (DB reads + HTTP to the api). --timeout 120 so large
     # uploads (DOCRAY_MAX_UPLOAD_MB) are not cut off. Requires
     # DOCRAY_WEBAPP_SECRET_KEY to be set — otherwise each worker signs session/
     # CSRF cookies with its own random key and requests fail across workers.
+    #
+    # WORKERS DEFAULT TO 1: the browser auth session store
+    # (webapp.auth_session.InMemoryAuthSessionStore) is PROCESS-LOCAL, so a login
+    # handled by one worker is invisible to the others — every request has a
+    # ~(n-1)/n chance of "webapp authentication required". Concurrency comes from
+    # --threads, which share the process (and the store). Raising
+    # DOCRAY_WEBAPP_WORKERS>1 REQUIRES first swapping in a shared (DB-backed)
+    # session store; see the store's class docstring.
     entrypoint:
       ["gunicorn", "webapp.app:app", "--bind", "0.0.0.0:5001",
-       "--workers", "${DOCRAY_WEBAPP_WORKERS:-2}", "--threads", "4",
+       "--workers", "${DOCRAY_WEBAPP_WORKERS:-1}", "--threads", "8",
        "--worker-class", "gthread", "--timeout", "120",
        "--access-logfile", "-", "--error-logfile", "-"]
 

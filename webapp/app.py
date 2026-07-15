@@ -80,6 +80,28 @@ DATABASE_URL = os.environ.get("DATABASE_URL", DEFAULT_DATABASE_URL)
 DB_ROLE = os.environ.get("DOCRAY_DB_ROLE", "docray_client")
 PRINCIPAL_ID = os.environ.get("DOCRAY_PRINCIPAL_ID") or None
 
+
+def _assert_db_role_resolves_principals(db_role: str, *, browser_auth_required: bool) -> None:
+    """Refuse to boot when per-user browser auth cannot resolve request principals.
+
+    Browser auth stamps each request with the logged-in principal via
+    ``app.principal_id``, which ``docray_current_principal()`` honours ONLY for
+    the ``docray_api`` role. With any other role (e.g. the ``docray_client``
+    default) every authenticated session resolves to a NULL principal, so RLS
+    hides all documents and jobs — a silently-empty corpus and 404 job pages.
+    Failing loudly here turns that silent misconfiguration into an obvious
+    boot failure (an unhealthy container) instead.
+    """
+    if browser_auth_required and db_role != "docray_api":
+        raise RuntimeError(
+            f"DOCRAY_DB_ROLE={db_role!r} cannot resolve per-session principals while "
+            "browser auth is enabled: only 'docray_api' honours app.principal_id for "
+            "RLS, so any other role serves an empty corpus. Set DOCRAY_DB_ROLE=docray_api."
+        )
+
+
+_assert_db_role_resolves_principals(DB_ROLE, browser_auth_required=auth_web._web_auth_required())
+
 app = Flask(__name__)
 # Uploads are forwarded to the API, which buffers the file for hashing — cap
 # the request size here so an oversized POST is rejected at the front door.

@@ -191,6 +191,50 @@ def test_spacy_annotation_cli_reports_each_selected_document(monkeypatch, capsys
     assert "[fake]" in out
 
 
+def test_spacy_annotation_cli_records_detected_language(monkeypatch, capsys):
+    """The CLI must persist the annotator's detected language like the worker does.
+
+    Without this the ``documents.language`` column stays NULL, so migration-016's
+    trigger rebuilds the FTS tsvector with the language-agnostic ``simple`` config
+    and stemmed search degrades (corpus_health flags ``fts-degraded``).
+    """
+    from doc_ray.adapters import annotation_spacy_cli as spacy_cli
+
+    updates: list[tuple[str, tuple]] = []
+
+    class Conn:
+        def execute(self, query, params=()):
+            text = " ".join(query.split())
+            if "WHERE original_filename=%s" in text:
+                return type("Rows", (), {"fetchall": lambda self: [{"id": "doc-1"}]})()
+            if "left(coalesce(original_filename,title),36)" in text:
+                return type("Row", (), {"fetchone": lambda self: {"t": "sample.pdf"}})()
+            if "UPDATE documents SET language" in text:
+                updates.append((text, params))
+                return type("R", (), {"fetchone": lambda self: None})()
+            raise AssertionError(text)
+
+    class Annotator:
+        def annotate(self, conn, doc_id):
+            return {
+                "tokens": 7,
+                "entities": 2,
+                "chunks": 1,
+                "coref_chains": 0,
+                "tool": "fake",
+                "lang": "en",
+            }
+
+    monkeypatch.setattr(spacy_cli.db, "connect", lambda _cfg: _ConnContext(Conn()))
+    monkeypatch.setattr(spacy_cli, "SpacyAnnotator", Annotator)
+
+    assert spacy_cli.main(["--filename", "sample.pdf"]) == 0
+
+    assert len(updates) == 1, "CLI must persist the detected language"
+    _text, params = updates[0]
+    assert "en" in params and "doc-1" in params
+
+
 def test_spacy_annotation_cli_reports_no_documents(monkeypatch, capsys):
     from doc_ray.adapters import annotation_spacy_cli as spacy_cli
 

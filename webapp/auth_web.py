@@ -101,19 +101,31 @@ def _resolve_web_principal(external_subject: str) -> str:
 
 
 def complete_oidc_login(code: str, redirect_uri: str) -> AuthenticatedWebPrincipal:
-    """Exchange an OIDC authorization code and resolve the authenticated principal."""
-    claims = oidc_claims_from_code(code=code, redirect_uri=redirect_uri)
+    """Exchange an OIDC authorization code and resolve the authenticated principal.
+
+    The verified ``id_token`` is retained as ``bearer_token`` so proxied API
+    calls (page images, downloads) carry the user's own credential and RLS
+    resolves to their principal — see ``graphql_client.api_auth_headers``.
+    """
+    claims, id_token = oidc_claims_from_code(code=code, redirect_uri=redirect_uri)
     subject = claims.get("sub")
     if not isinstance(subject, str) or not subject:
         raise ValueError("OIDC sub is required")
     return AuthenticatedWebPrincipal(
         principal_id=_resolve_web_principal(subject),
         subject=f"oidc:{subject}",
+        bearer_token=id_token,
     )
 
 
 def complete_saml_login(saml_response: str) -> AuthenticatedWebPrincipal:
-    """Validate a SAML response and resolve the authenticated principal."""
+    """Validate a SAML response and resolve the authenticated principal.
+
+    SAML yields a validated assertion, not an API-acceptable bearer JWT, so
+    ``bearer_token`` stays ``None`` and SAML-origin sessions cannot forward a
+    user credential to the API. Deployments serving originals/images to SAML
+    users need a webapp-minted API JWT (``DOCRAY_API_JWT_SECRET``) instead.
+    """
     assertion = saml_assertion_from_response(saml_response)
     return AuthenticatedWebPrincipal(
         principal_id=_resolve_web_principal(assertion.external_subject),
@@ -123,7 +135,11 @@ def complete_saml_login(saml_response: str) -> AuthenticatedWebPrincipal:
 
 def _establish_auth_session(principal: AuthenticatedWebPrincipal) -> None:
     """Create the server-side auth session and remember its id in the cookie."""
-    sid = auth_sessions.create(principal_id=principal.principal_id, subject=principal.subject)
+    sid = auth_sessions.create(
+        principal_id=principal.principal_id,
+        subject=principal.subject,
+        bearer_token=principal.bearer_token,
+    )
     session["_auth_sid"] = sid
 
 

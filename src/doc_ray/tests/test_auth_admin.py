@@ -27,6 +27,17 @@ def test_parse_scope_text_sorts_and_rejects_empty_scopes():
         parse_scope_text("+")
 
 
+def test_parse_scope_text_allows_impersonate_scope():
+    # The webapp's service token needs `impersonate` to act on behalf of the
+    # logged-in user; the runtime parser honours it, so the CLI must mint it.
+    assert parse_scope_text("read+write+impersonate") == frozenset({"read", "write", "impersonate"})
+
+
+def test_parse_scope_text_still_rejects_unknown_scopes():
+    with pytest.raises(ValueError, match="unknown scope"):
+        parse_scope_text("read+bogus")
+
+
 def test_format_env_assignment_matches_runtime_parser_format():
     entry = ApiTokenEntry(
         token="secret-token",

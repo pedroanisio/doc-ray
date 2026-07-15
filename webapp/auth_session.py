@@ -24,10 +24,18 @@ from doc_ray.entrypoints.api.saml import SAMLAssertion, validate_saml_response
 
 @dataclass(frozen=True)
 class AuthenticatedWebPrincipal:
-    """Principal identity established by an external web login flow."""
+    """Principal identity established by an external web login flow.
+
+    ``bearer_token`` is the verified upstream credential (the OIDC ``id_token``)
+    when the flow produced one. It is forwarded to the API so the API resolves
+    RLS against the USER's own principal instead of a static service token —
+    required in production, where static-token fallback is disabled. SAML logins
+    yield no forwardable bearer, so it stays ``None`` there.
+    """
 
     principal_id: str
     subject: str
+    bearer_token: str | None = None
 
 
 @dataclass(frozen=True)
@@ -39,6 +47,8 @@ class WebAuthSession:
     subject: str
     issued_at: datetime
     expires_at: datetime
+    #: Upstream bearer credential (OIDC id_token) forwarded to the API, if any.
+    bearer_token: str | None = None
 
 
 class InMemoryAuthSessionStore:
@@ -53,7 +63,14 @@ class InMemoryAuthSessionStore:
         self._sessions: dict[str, WebAuthSession] = {}
         self._lock = Lock()
 
-    def create(self, *, principal_id: str, subject: str, ttl_seconds: int | None = None) -> str:
+    def create(
+        self,
+        *,
+        principal_id: str,
+        subject: str,
+        ttl_seconds: int | None = None,
+        bearer_token: str | None = None,
+    ) -> str:
         """Create a session and return its opaque id."""
         now = _utcnow()
         sid = secrets.token_urlsafe(32)
@@ -64,6 +81,7 @@ class InMemoryAuthSessionStore:
             subject=subject,
             issued_at=now,
             expires_at=now + timedelta(seconds=ttl),
+            bearer_token=bearer_token,
         )
         with self._lock:
             self._sessions[sid] = record
@@ -151,8 +169,14 @@ def oidc_claims_from_code(
     code: str,
     redirect_uri: str,
     environ: Mapping[str, str] | None = None,
-) -> dict[str, Any]:
-    """Exchange an OIDC authorization code and verify the returned id_token."""
+) -> tuple[dict[str, Any], str]:
+    """Exchange an OIDC authorization code; return ``(verified_claims, id_token)``.
+
+    The raw ``id_token`` is returned alongside the verified claims so the caller
+    can persist it and forward it to the API as the user's own bearer credential
+    (the API validates it with the same OIDC issuer/JWKS). It is verified before
+    return, so it is a trusted token, not an opaque passthrough.
+    """
     source = environ or os.environ
     token_url = source.get("DOCRAY_WEBAPP_OIDC_TOKEN_URL", "").strip()
     client_id = source.get("DOCRAY_WEBAPP_OIDC_CLIENT_ID", "").strip()
@@ -194,7 +218,8 @@ def oidc_claims_from_code(
     jwks = json.loads(jwks_raw)
     if not isinstance(jwks, Mapping):
         raise ValueError("OIDC JWKS must be a JSON object")
-    return verify_oidc_jwt(id_token, issuer=issuer, audience=audience, jwks=jwks)
+    claims = verify_oidc_jwt(id_token, issuer=issuer, audience=audience, jwks=jwks)
+    return claims, id_token
 
 
 def saml_assertion_from_response(
