@@ -45,6 +45,7 @@ class FakeStripe:
         cancel_url: str,
         client_reference_id: str,
         metadata: dict[str, str],
+        subscription_metadata: dict[str, str],
     ) -> dict[str, Any]:
         self.checkout_calls.append(
             {
@@ -54,6 +55,7 @@ class FakeStripe:
                 "cancel_url": cancel_url,
                 "client_reference_id": client_reference_id,
                 "metadata": metadata,
+                "subscription_metadata": subscription_metadata,
             }
         )
         return {"id": "cs_test_123", "url": "https://checkout.stripe.test/session"}
@@ -74,6 +76,7 @@ def _cfg(*, enforcement_enabled: bool = False) -> Config:
         stripe_success_url="https://app.example.com/billing/success",
         stripe_cancel_url="https://app.example.com/billing/cancel",
         stripe_portal_return_url="https://app.example.com/billing",
+        public_base_url="https://app.example.com",
         billing_enforcement_enabled=enforcement_enabled,
     )
 
@@ -81,6 +84,8 @@ def _cfg(*, enforcement_enabled: bool = False) -> Config:
 def _apply_billing_migration(conn) -> str:
     conn.execute((_MIGRATIONS / "080_billing.sql").read_text())
     conn.execute((_MIGRATIONS / "081_schema_version_1_25_0.sql").read_text())
+    conn.execute((_MIGRATIONS / "083_billing_event_read.sql").read_text())
+    conn.execute((_MIGRATIONS / "084_schema_version_1_26_0.sql").read_text())
     _itdb.ensure_admin_principal(conn, WRITE_PRINCIPAL.principal_id, "billing-test-admin")
     return str(conn.execute("SELECT docray_default_tenant_id() AS id").fetchone()["id"])
 
@@ -123,6 +128,10 @@ def test_checkout_session_creates_customer_and_graphql_status(pg):
             assert url == "https://checkout.stripe.test/session"
             assert fake.created_customers[0]["metadata"] == {"tenant_id": tenant_id}
             assert fake.checkout_calls[0]["price_id"] == "price_test_monthly"
+            assert fake.checkout_calls[0]["subscription_metadata"] == {
+                "tenant_id": tenant_id,
+                "price_id": "price_test_monthly",
+            }
 
             schema = build_schema()
             ctx = RequestContext(
@@ -141,6 +150,11 @@ def test_checkout_session_creates_customer_and_graphql_status(pg):
                     subscriptionStatus
                     checkoutReady
                     portalReady
+                    webhookReady
+                    webhookEndpointUrl
+                    liveModeReady
+                    missingConfiguration
+                    requiredWebhookEvents
                     enforcementEnabled
                     entitled
                     entitlementReason
@@ -157,6 +171,15 @@ def test_checkout_session_creates_customer_and_graphql_status(pg):
             assert status["subscriptionStatus"] == "none"
             assert status["checkoutReady"] is True
             assert status["portalReady"] is True
+            assert status["webhookReady"] is True
+            assert status["webhookEndpointUrl"] == "https://app.example.com/stripe/webhook"
+            assert status["liveModeReady"] is False
+            assert status["missingConfiguration"] == [
+                "DOCRAY_BILLING_ENFORCEMENT_ENABLED=true"
+            ]
+            assert "checkout.session.completed" in status["requiredWebhookEvents"]
+            assert "invoice.paid" in status["requiredWebhookEvents"]
+            assert "invoice.finalization_failed" in status["requiredWebhookEvents"]
             assert status["enforcementEnabled"] is False
             assert status["entitled"] is True
             assert status["entitlementReason"] == "billing enforcement is disabled"
@@ -168,6 +191,60 @@ def test_checkout_session_creates_customer_and_graphql_status(pg):
     finally:
         conn.execute("DELETE FROM tenant_subscriptions WHERE tenant_id = %s", (tenant_id,))
         conn.execute("DELETE FROM tenant_billing_accounts WHERE tenant_id = %s", (tenant_id,))
+
+
+def test_subscription_webhook_before_checkout_creates_customer_mapping(pg):
+    conn, _created = pg
+    tenant_id = _apply_billing_migration(conn)
+    now = int(time.time())
+    subscription_event = {
+        "id": "evt_sub_out_of_order_1",
+        "type": "customer.subscription.created",
+        "livemode": False,
+        "data": {
+            "object": {
+                "id": "sub_out_of_order",
+                "customer": "cus_out_of_order",
+                "status": "active",
+                "current_period_end": now,
+                "cancel_at_period_end": False,
+                "latest_invoice": "in_out_of_order",
+                "items": {"data": [{"price": {"id": "price_test_monthly"}}]},
+                "metadata": {"tenant_id": tenant_id},
+            }
+        },
+    }
+
+    async def check() -> None:
+        aconn = await _aconn_as(None)
+        try:
+            await aconn.execute("RESET ROLE")
+            assert await billing.process_webhook_event(aconn, subscription_event) is True
+        finally:
+            await aconn.close()
+
+    try:
+        asyncio.run(check())
+        row = conn.execute(
+            """
+            SELECT s.status, s.stripe_subscription_id, s.stripe_price_id,
+                   a.stripe_customer_id
+            FROM tenant_subscriptions s
+            JOIN tenant_billing_accounts a ON a.tenant_id = s.tenant_id
+            WHERE s.tenant_id = %s
+            """,
+            (tenant_id,),
+        ).fetchone()
+        assert row["status"] == "active"
+        assert row["stripe_subscription_id"] == "sub_out_of_order"
+        assert row["stripe_price_id"] == "price_test_monthly"
+        assert row["stripe_customer_id"] == "cus_out_of_order"
+    finally:
+        conn.execute("DELETE FROM tenant_subscriptions WHERE tenant_id = %s", (tenant_id,))
+        conn.execute("DELETE FROM tenant_billing_accounts WHERE tenant_id = %s", (tenant_id,))
+        conn.execute(
+            "DELETE FROM stripe_webhook_events WHERE stripe_event_id = 'evt_sub_out_of_order_1'"
+        )
 
 
 def test_paid_mutations_require_entitled_subscription_when_enforced(pg):
@@ -270,6 +347,32 @@ def test_process_webhook_events_are_idempotent_and_update_subscription(pg):
             }
         },
     }
+    invoice_event = {
+        "id": "evt_invoice_1",
+        "type": "invoice.paid",
+        "livemode": False,
+        "data": {
+            "object": {
+                "id": "in_test_1",
+                "customer": "cus_test_webhook",
+                "subscription": "sub_test_1",
+                "status": "paid",
+            }
+        },
+    }
+    unrelated_event = {
+        "id": "evt_unrelated_1",
+        "type": "invoice.payment_failed",
+        "livemode": False,
+        "data": {
+            "object": {
+                "id": "in_other_1",
+                "customer": "cus_other_tenant",
+                "subscription": "sub_other_1",
+                "status": "open",
+            }
+        },
+    }
 
     async def check() -> None:
         aconn = await _aconn_as(None)
@@ -278,6 +381,53 @@ def test_process_webhook_events_are_idempotent_and_update_subscription(pg):
             assert await billing.process_webhook_event(aconn, checkout_event) is True
             assert await billing.process_webhook_event(aconn, checkout_event) is False
             assert await billing.process_webhook_event(aconn, subscription_event) is True
+            assert await billing.process_webhook_event(aconn, invoice_event) is True
+            assert await billing.process_webhook_event(aconn, unrelated_event) is True
+        finally:
+            await aconn.close()
+
+    async def check_graphql_events() -> None:
+        aconn = await _aconn_as(WRITE_PRINCIPAL.principal_id)
+        try:
+            schema = build_schema()
+            ctx = RequestContext(
+                conn=aconn,
+                principal=WRITE_PRINCIPAL,
+                loaders=Loaders(aconn),
+                settings=_cfg(),
+            )
+            result = await schema.execute(
+                """
+                query {
+                  billingEvents(limit: 10) {
+                    stripeEventId
+                    eventType
+                    objectId
+                    customerId
+                    subscriptionId
+                    objectStatus
+                    latestInvoiceId
+                    processedAt
+                    livemode
+                  }
+                }
+                """,
+                context_value=ctx,
+            )
+            assert result.errors is None, result.errors
+            events = {event["stripeEventId"]: event for event in result.data["billingEvents"]}
+            assert set(events) == {"evt_checkout_1", "evt_sub_1", "evt_invoice_1"}
+            assert events["evt_checkout_1"]["eventType"] == "checkout.session.completed"
+            assert events["evt_checkout_1"]["objectId"] == "cs_test_1"
+            assert events["evt_checkout_1"]["customerId"] == "cus_test_webhook"
+            assert events["evt_sub_1"]["subscriptionId"] == "sub_test_1"
+            assert events["evt_sub_1"]["objectStatus"] == "active"
+            assert events["evt_invoice_1"]["eventType"] == "invoice.paid"
+            assert events["evt_invoice_1"]["objectId"] == "in_test_1"
+            assert events["evt_invoice_1"]["subscriptionId"] == "sub_test_1"
+            assert events["evt_invoice_1"]["objectStatus"] == "paid"
+            assert events["evt_invoice_1"]["processedAt"] is not None
+            assert events["evt_invoice_1"]["livemode"] is False
         finally:
             await aconn.close()
 
@@ -300,7 +450,8 @@ def test_process_webhook_events_are_idempotent_and_update_subscription(pg):
         assert row["stripe_customer_id"] == "cus_test_webhook"
         assert row["billing_email"] == "ops@example.com"
         events = conn.execute("SELECT count(*) AS n FROM stripe_webhook_events").fetchone()["n"]
-        assert events >= 2
+        assert events >= 4
+        asyncio.run(check_graphql_events())
     finally:
         conn.execute("DELETE FROM tenant_subscriptions WHERE tenant_id = %s", (tenant_id,))
         conn.execute("DELETE FROM tenant_billing_accounts WHERE tenant_id = %s", (tenant_id,))

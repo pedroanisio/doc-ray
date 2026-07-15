@@ -143,7 +143,63 @@ table.grid th { color: var(--muted); font-weight: 500; font-size: 0.78rem; text-
   grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
 }
 .billing-panel h2 { margin-top: 0; }
+.billing-readiness {
+  border-color: rgba(155, 211, 255, 0.35);
+}
+.billing-activity { margin-top: 1rem; }
+.section-title-row {
+  align-items: baseline;
+  display: flex;
+  gap: 1rem;
+  justify-content: space-between;
+}
+.status-pill {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-size: 0.74rem;
+  font-weight: 800;
+  padding: 0.2rem 0.55rem;
+  text-transform: uppercase;
+}
+.status-pill.good { color: var(--good); }
+.status-pill.attention { color: var(--warn); }
+.readiness-list {
+  display: grid;
+  gap: 0.45rem;
+  list-style: none;
+  margin: 0 0 1rem;
+  padding: 0;
+}
+.readiness-list li {
+  align-items: center;
+  display: flex;
+  gap: 0.5rem;
+}
+.readiness-list span {
+  align-items: center;
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  display: inline-flex;
+  font-size: 0.72rem;
+  font-weight: 800;
+  height: 1.1rem;
+  justify-content: center;
+  min-width: 1.45rem;
+}
+.readiness-list .ready { color: var(--good); }
+.readiness-list .missing { color: var(--warn); }
+.billing-events td strong,
+.billing-events td span {
+  display: block;
+}
+.billing-events td span {
+  color: var(--muted);
+  font-size: 0.78rem;
+  margin-top: 0.2rem;
+  overflow-wrap: anywhere;
+}
 .detail-list { margin: 0 0 1rem; }
+.detail-list.compact { font-size: 0.9rem; }
 .detail-list div {
   border-bottom: 1px solid var(--border);
   display: grid;

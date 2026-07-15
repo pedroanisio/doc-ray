@@ -174,6 +174,8 @@ class Config:
         stripe_success_url: Default Checkout success redirect URL.
         stripe_cancel_url: Default Checkout cancellation redirect URL.
         stripe_portal_return_url: Default Customer Portal return URL.
+        public_base_url: Public HTTPS base URL used to derive callback endpoints
+            such as Stripe webhooks.
         stripe_api_base: Stripe API base URL, overridable for tests.
         billing_enforcement_enabled: Whether tenant write/admin mutations require
             an active or trialing Stripe subscription.
@@ -220,6 +222,7 @@ class Config:
     stripe_success_url: str | None = None
     stripe_cancel_url: str | None = None
     stripe_portal_return_url: str | None = None
+    public_base_url: str | None = None
     stripe_api_base: str = "https://api.stripe.com/v1"
     billing_enforcement_enabled: bool = False
 
@@ -281,6 +284,7 @@ class Config:
             stripe_success_url=_env_optional_str("DOCRAY_STRIPE_SUCCESS_URL"),
             stripe_cancel_url=_env_optional_str("DOCRAY_STRIPE_CANCEL_URL"),
             stripe_portal_return_url=_env_optional_str("DOCRAY_STRIPE_PORTAL_RETURN_URL"),
+            public_base_url=_env_optional_str("DOCRAY_PUBLIC_BASE_URL"),
             stripe_api_base=os.environ.get("DOCRAY_STRIPE_API_BASE", "https://api.stripe.com/v1").strip()
             or "https://api.stripe.com/v1",
             billing_enforcement_enabled=_env_bool(

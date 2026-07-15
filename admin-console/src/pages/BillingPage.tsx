@@ -2,7 +2,9 @@ import { useEffect, useState } from "react";
 import {
   createBillingCheckoutSession,
   createBillingPortalSession,
+  fetchBillingEvents,
   fetchBillingStatus,
+  type BillingEvent,
   type BillingStatus,
 } from "../api/billing";
 import { ApiError } from "../api/client";
@@ -14,13 +16,19 @@ const ACTIVE_STATUSES = new Set(["active", "trialing"]);
 export function BillingPage() {
   const client = useApiClient();
   const [status, setStatus] = useState<BillingStatus | null>(null);
+  const [events, setEvents] = useState<BillingEvent[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<"checkout" | "portal" | null>(null);
 
   async function load() {
     try {
       setError(null);
-      setStatus(await fetchBillingStatus(client));
+      const [billingStatus, billingEvents] = await Promise.all([
+        fetchBillingStatus(client),
+        fetchBillingEvents(client, 25),
+      ]);
+      setStatus(billingStatus);
+      setEvents(billingEvents);
     } catch (err) {
       setError(errorMessage(err));
     }
@@ -76,6 +84,30 @@ export function BillingPage() {
       </section>
 
       <div className="billing-grid">
+        <section className="card billing-panel billing-readiness">
+          <div className="section-title-row">
+            <h2>Live readiness</h2>
+            <span className={`status-pill ${status?.liveModeReady ? "good" : "attention"}`}>
+              {status?.liveModeReady ? "ready" : "needs setup"}
+            </span>
+          </div>
+          <ul className="readiness-list">
+            <ReadinessItem ready={Boolean(status?.checkoutReady)} label="Checkout sessions" />
+            <ReadinessItem ready={Boolean(status?.portalReady)} label="Customer portal" />
+            <ReadinessItem ready={Boolean(status?.webhookReady)} label="Signed Stripe webhook" />
+            <ReadinessItem ready={Boolean(status?.enforcementEnabled)} label="Paid-action enforcement" />
+          </ul>
+          <dl className="detail-list compact">
+            <div><dt>Webhook URL</dt><dd>{status?.webhookEndpointUrl ?? "set DOCRAY_PUBLIC_BASE_URL"}</dd></div>
+            <div><dt>Events</dt><dd>{status?.requiredWebhookEvents.join(", ") || "loading"}</dd></div>
+          </dl>
+          {status && status.missingConfiguration.length > 0 && (
+            <p className="alert warn">
+              Missing: {status.missingConfiguration.join(", ")}
+            </p>
+          )}
+        </section>
+
         <section className="card billing-panel">
           <h2>Entitlement</h2>
           <dl className="detail-list">
@@ -116,19 +148,76 @@ export function BillingPage() {
         </section>
       </div>
 
-      {status && (!status.checkoutReady || !status.portalReady) && (
+      <section className="card billing-panel billing-activity">
+        <div className="section-title-row">
+          <h2>Payment activity</h2>
+          <span className="muted">{events.length} recent events</span>
+        </div>
+        {events.length > 0 ? (
+          <div className="table-wrap">
+            <table className="grid billing-events">
+              <thead>
+                <tr>
+                  <th>Event</th>
+                  <th>Status</th>
+                  <th>Object</th>
+                  <th>Subscription</th>
+                  <th>Processed</th>
+                </tr>
+              </thead>
+              <tbody>
+                {events.map((event) => (
+                  <tr key={event.stripeEventId}>
+                    <td>
+                      <strong>{event.eventType}</strong>
+                      <span>{event.livemode ? "live" : "test"} · {event.stripeEventId}</span>
+                    </td>
+                    <td>{event.objectStatus ?? "received"}</td>
+                    <td>{event.objectId ?? event.customerId ?? "n/a"}</td>
+                    <td>{event.subscriptionId ?? "n/a"}</td>
+                    <td>{formatDateTime(event.processedAt ?? event.createdAt)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <p className="muted">
+            No Stripe webhook events have been recorded for this tenant yet.
+          </p>
+        )}
+      </section>
+
+      {status && !status.liveModeReady && (
         <p role="note" className="alert warn">
-          Stripe billing is partially configured. Set the Stripe secret, recurring price, webhook
-          secret, and redirect URLs before taking live payments.
+          Stripe billing is partially configured. Complete the live-readiness checklist before
+          taking live payments.
         </p>
       )}
     </div>
   );
 }
 
+function ReadinessItem({ ready, label }: { ready: boolean; label: string }) {
+  return (
+    <li className={ready ? "ready" : "missing"}>
+      <span aria-hidden="true">{ready ? "OK" : "!"}</span>
+      {label}
+    </li>
+  );
+}
+
 function formatDate(value: string | null | undefined): string {
   if (!value) return "not scheduled";
   return new Intl.DateTimeFormat(undefined, { dateStyle: "medium" }).format(new Date(value));
+}
+
+function formatDateTime(value: string | null | undefined): string {
+  if (!value) return "not processed";
+  return new Intl.DateTimeFormat(undefined, {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(new Date(value));
 }
 
 function errorMessage(err: unknown): string {

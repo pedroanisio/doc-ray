@@ -9,6 +9,7 @@ import { createBackup, restoreBackup } from "./backups";
 import {
   createBillingCheckoutSession,
   createBillingPortalSession,
+  fetchBillingEvents,
   fetchBillingStatus,
 } from "./billing";
 
@@ -125,6 +126,11 @@ describe("billing module", () => {
           subscriptionStatus: "active",
           checkoutReady: true,
           portalReady: true,
+          webhookReady: true,
+          webhookEndpointUrl: "https://app.example.com/stripe/webhook",
+          liveModeReady: true,
+          missingConfiguration: [],
+          requiredWebhookEvents: ["checkout.session.completed", "invoice.paid"],
           enforcementEnabled: true,
           entitled: true,
           entitlementReason: "subscription is active",
@@ -136,7 +142,36 @@ describe("billing module", () => {
     expect(status.entitled).toBe(true);
     const body = JSON.parse(fetchImpl.mock.calls[0][1].body!);
     expect(body.query).toContain("billingStatus");
+    expect(body.query).toContain("webhookEndpointUrl");
+    expect(body.query).toContain("requiredWebhookEvents");
     expect(body.query).toContain("entitlementReason");
+  });
+
+  it("fetchBillingEvents unwraps recent Stripe payment activity", async () => {
+    const { client, fetchImpl } = clientReturning({
+      data: {
+        billingEvents: [
+          {
+            stripeEventId: "evt_1",
+            eventType: "invoice.paid",
+            livemode: false,
+            processedAt: "2026-07-15T10:00:00Z",
+            createdAt: "2026-07-15T09:59:59Z",
+            objectId: "in_1",
+            customerId: "cus_1",
+            subscriptionId: "sub_1",
+            objectStatus: "paid",
+            latestInvoiceId: null,
+          },
+        ],
+      },
+    });
+    const events = await fetchBillingEvents(client, 10);
+    expect(events[0].eventType).toBe("invoice.paid");
+    expect(events[0].subscriptionId).toBe("sub_1");
+    const body = JSON.parse(fetchImpl.mock.calls[0][1].body!);
+    expect(body.query).toContain("billingEvents");
+    expect(body.variables).toEqual({ limit: 10 });
   });
 
   it("createBillingCheckoutSession sends redirect overrides", async () => {

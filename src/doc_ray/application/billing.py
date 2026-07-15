@@ -9,6 +9,7 @@ import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Protocol
+from urllib.parse import urlparse
 
 import httpx
 import psycopg
@@ -30,6 +31,15 @@ class StripeSignatureError(ValueError):
 
 
 ENTITLED_SUBSCRIPTION_STATUSES = frozenset({"active", "trialing"})
+REQUIRED_WEBHOOK_EVENTS = (
+    "checkout.session.completed",
+    "customer.subscription.created",
+    "customer.subscription.updated",
+    "customer.subscription.deleted",
+    "invoice.paid",
+    "invoice.payment_failed",
+    "invoice.finalization_failed",
+)
 
 
 @dataclass(frozen=True)
@@ -64,6 +74,7 @@ class StripeTransport(Protocol):
         cancel_url: str,
         client_reference_id: str,
         metadata: dict[str, str],
+        subscription_metadata: dict[str, str],
     ) -> dict[str, Any]:
         """Create a hosted subscription Checkout Session."""
 
@@ -114,6 +125,7 @@ class StripeRestTransport:
         cancel_url: str,
         client_reference_id: str,
         metadata: dict[str, str],
+        subscription_metadata: dict[str, str],
     ) -> dict[str, Any]:
         """Create a Stripe-hosted subscription Checkout Session."""
         form = {
@@ -126,6 +138,7 @@ class StripeRestTransport:
             "line_items[0][quantity]": "1",
         }
         form.update(_metadata_form(metadata))
+        form.update(_metadata_form(subscription_metadata, prefix="subscription_data[metadata]"))
         return await self._post("/checkout/sessions", form)
 
     async def create_portal_session(
@@ -138,8 +151,8 @@ class StripeRestTransport:
         )
 
 
-def _metadata_form(metadata: dict[str, str]) -> dict[str, str]:
-    return {f"metadata[{key}]": value for key, value in metadata.items()}
+def _metadata_form(metadata: dict[str, str], *, prefix: str = "metadata") -> dict[str, str]:
+    return {f"{prefix}[{key}]": value for key, value in metadata.items()}
 
 
 def configured_checkout_urls(
@@ -195,9 +208,53 @@ async def billing_status(conn: psycopg.AsyncConnection[Any], cfg: Config) -> dic
         and cfg.stripe_cancel_url
     )
     status["portal_ready"] = bool(cfg.stripe_secret_key and cfg.stripe_portal_return_url)
+    status["webhook_endpoint_url"] = webhook_endpoint_url(cfg)
+    status["webhook_ready"] = bool(cfg.stripe_webhook_secret and status["webhook_endpoint_url"])
+    status["required_webhook_events"] = list(REQUIRED_WEBHOOK_EVENTS)
+    status["missing_configuration"] = missing_billing_configuration(cfg)
+    status["live_mode_ready"] = not status["missing_configuration"]
     entitlement = entitlement_from_status(status, cfg)
     status.update(entitlement)
     return status
+
+
+async def billing_events(
+    conn: psycopg.AsyncConnection[Any], *, limit: int = 25
+) -> list[dict[str, Any]]:
+    """Return recent tenant-visible Stripe webhook events."""
+    tenant_id = await billing_store.current_tenant_id(conn)
+    return await billing_store.list_billing_events(conn, tenant_id, limit=limit)
+
+
+def webhook_endpoint_url(cfg: Config) -> str | None:
+    """Return the public Stripe webhook endpoint URL when configured."""
+    base = (cfg.public_base_url or "").strip().rstrip("/")
+    if not base:
+        return None
+    parsed = urlparse(base)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        return None
+    return f"{base}/stripe/webhook"
+
+
+def missing_billing_configuration(cfg: Config) -> list[str]:
+    """Return non-secret configuration names still required for live billing."""
+    missing: list[str] = []
+    required_values = (
+        ("DOCRAY_STRIPE_SECRET_KEY", cfg.stripe_secret_key),
+        ("DOCRAY_STRIPE_WEBHOOK_SECRET", cfg.stripe_webhook_secret),
+        ("DOCRAY_STRIPE_PRICE_ID", cfg.stripe_price_id),
+        ("DOCRAY_STRIPE_SUCCESS_URL", cfg.stripe_success_url),
+        ("DOCRAY_STRIPE_CANCEL_URL", cfg.stripe_cancel_url),
+        ("DOCRAY_STRIPE_PORTAL_RETURN_URL", cfg.stripe_portal_return_url),
+        ("DOCRAY_PUBLIC_BASE_URL", cfg.public_base_url),
+    )
+    for name, value in required_values:
+        if not value:
+            missing.append(name)
+    if not cfg.billing_enforcement_enabled:
+        missing.append("DOCRAY_BILLING_ENFORCEMENT_ENABLED=true")
+    return missing
 
 
 def entitlement_from_status(status: dict[str, Any], cfg: Config) -> dict[str, Any]:
@@ -274,6 +331,7 @@ async def create_checkout_session(
         cancel_url=urls.cancel_url,
         client_reference_id=tenant_id,
         metadata={"tenant_id": tenant_id, "price_id": cfg.stripe_price_id},
+        subscription_metadata={"tenant_id": tenant_id, "price_id": cfg.stripe_price_id},
     )
     url = session.get("url")
     if not isinstance(url, str) or not url:
@@ -366,7 +424,12 @@ async def process_webhook_event(
         "customer.subscription.deleted",
     }:
         await _process_subscription_event(conn, event_id, obj)
-    elif event_type in {"invoice.payment_succeeded", "invoice.payment_failed"}:
+    elif event_type in {
+        "invoice.paid",
+        "invoice.payment_succeeded",
+        "invoice.payment_failed",
+        "invoice.finalization_failed",
+    }:
         await _process_invoice_event(conn, event_id, event_type, obj)
     await billing_store.mark_webhook_processed(conn, event_id)
     return True
@@ -411,6 +474,13 @@ async def _process_subscription_event(
         tenant_id = _tenant_from_object(obj)
     if tenant_id is None:
         return
+    await billing_store.upsert_billing_account(
+        conn,
+        tenant_id=tenant_id,
+        stripe_customer_id=customer_id,
+        billing_email=None,
+        created_by_principal_id=None,
+    )
     await billing_store.upsert_subscription_snapshot(
         conn,
         tenant_id=tenant_id,

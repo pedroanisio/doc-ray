@@ -222,6 +222,11 @@ MIGRATIONS = [
         "tenant Stripe billing accounts, subscription snapshots, and webhook ledger",
     ),
     ("081_schema_version_1_25_0", "advance the schema SemVer to 1.25.0"),
+    (
+        "083_billing_event_read",
+        "tenant-admin read policy for Stripe webhook payment activity",
+    ),
+    ("084_schema_version_1_26_0", "advance the schema SemVer to 1.26.0"),
 ]
 
 # ---------------------------------------------------------------------------

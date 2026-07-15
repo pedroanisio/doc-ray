@@ -16,9 +16,27 @@ export interface BillingStatus {
   subscriptionUpdatedAt: string | null;
   checkoutReady: boolean;
   portalReady: boolean;
+  webhookReady: boolean;
+  webhookEndpointUrl: string | null;
+  liveModeReady: boolean;
+  missingConfiguration: string[];
+  requiredWebhookEvents: string[];
   enforcementEnabled: boolean;
   entitled: boolean;
   entitlementReason: string;
+}
+
+export interface BillingEvent {
+  stripeEventId: string;
+  eventType: string;
+  livemode: boolean;
+  processedAt: string | null;
+  createdAt: string;
+  objectId: string | null;
+  customerId: string | null;
+  subscriptionId: string | null;
+  objectStatus: string | null;
+  latestInvoiceId: string | null;
 }
 
 export async function fetchBillingStatus(client: ApiClient): Promise<BillingStatus> {
@@ -40,6 +58,11 @@ export async function fetchBillingStatus(client: ApiClient): Promise<BillingStat
         subscriptionUpdatedAt
         checkoutReady
         portalReady
+        webhookReady
+        webhookEndpointUrl
+        liveModeReady
+        missingConfiguration
+        requiredWebhookEvents
         enforcementEnabled
         entitled
         entitlementReason
@@ -47,6 +70,29 @@ export async function fetchBillingStatus(client: ApiClient): Promise<BillingStat
     }
   `);
   return data.billingStatus;
+}
+
+export async function fetchBillingEvents(client: ApiClient, limit = 25): Promise<BillingEvent[]> {
+  const data = await client.graphql<{ billingEvents: BillingEvent[] }>(
+    `
+      query BillingEvents($limit: Int!) {
+        billingEvents(limit: $limit) {
+          stripeEventId
+          eventType
+          livemode
+          processedAt
+          createdAt
+          objectId
+          customerId
+          subscriptionId
+          objectStatus
+          latestInvoiceId
+        }
+      }
+    `,
+    { limit },
+  );
+  return data.billingEvents;
 }
 
 export async function createBillingCheckoutSession(

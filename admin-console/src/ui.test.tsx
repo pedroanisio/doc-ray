@@ -145,8 +145,29 @@ describe("LoginPage", () => {
 
 describe("BillingPage", () => {
   it("renders the live billing status and payment actions", async () => {
-    const fetchImpl = vi.fn(async () =>
-      jsonResponse({
+    const fetchImpl = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body ?? "{}"));
+      if (String(body.query).includes("billingEvents")) {
+        return jsonResponse({
+          data: {
+            billingEvents: [
+              {
+                stripeEventId: "evt_invoice_1",
+                eventType: "invoice.paid",
+                livemode: false,
+                processedAt: "2026-07-15T10:00:00Z",
+                createdAt: "2026-07-15T09:59:59Z",
+                objectId: "in_123",
+                customerId: "cus_123",
+                subscriptionId: "sub_123",
+                objectStatus: "paid",
+                latestInvoiceId: null,
+              },
+            ],
+          },
+        });
+      }
+      return jsonResponse({
         data: {
           billingStatus: {
             tenantId: "t1",
@@ -164,13 +185,22 @@ describe("BillingPage", () => {
             subscriptionUpdatedAt: "2026-07-15T00:00:00Z",
             checkoutReady: true,
             portalReady: true,
+            webhookReady: true,
+            webhookEndpointUrl: "https://app.example.com/stripe/webhook",
+            liveModeReady: true,
+            missingConfiguration: [],
+            requiredWebhookEvents: [
+              "checkout.session.completed",
+              "customer.subscription.updated",
+              "invoice.paid",
+            ],
             enforcementEnabled: true,
             entitled: true,
             entitlementReason: "subscription is active",
           },
         },
-      }),
-    ) as unknown as typeof fetch;
+      });
+    }) as unknown as typeof fetch;
     const services = servicesWithFetch(fetchImpl);
 
     render(
@@ -183,7 +213,12 @@ describe("BillingPage", () => {
 
     expect(await screen.findByText("Current tenant")).toBeInTheDocument();
     expect(screen.getByText("entitled")).toBeInTheDocument();
+    expect(screen.getByText("ready")).toBeInTheDocument();
+    expect(screen.getByText("https://app.example.com/stripe/webhook")).toBeInTheDocument();
+    expect(screen.getByText(/checkout.session.completed/)).toBeInTheDocument();
     expect(screen.getAllByText("subscription is active")).toHaveLength(2);
+    expect(await screen.findByText("invoice.paid")).toBeInTheDocument();
+    expect(screen.getByText(/evt_invoice_1/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /start subscription/i })).toBeEnabled();
     expect(screen.getByRole("button", { name: /manage payment method/i })).toBeEnabled();
   });

@@ -151,6 +151,17 @@ services:
       DOCRAY_SMTP_STARTTLS: ${DOCRAY_SMTP_STARTTLS:-true}
       DOCRAY_SMTP_TIMEOUT_SECONDS: ${DOCRAY_SMTP_TIMEOUT_SECONDS:-10}
       DOCRAY_PUBLIC_BASE_URL: ${DOCRAY_PUBLIC_BASE_URL:-}
+      # Stripe billing: Checkout/Portal creation and signed webhook verification
+      # happen in the API container, so these must be passed through in base
+      # compose as well as managed overlays.
+      DOCRAY_STRIPE_SECRET_KEY: ${DOCRAY_STRIPE_SECRET_KEY:-}
+      DOCRAY_STRIPE_WEBHOOK_SECRET: ${DOCRAY_STRIPE_WEBHOOK_SECRET:-}
+      DOCRAY_STRIPE_PRICE_ID: ${DOCRAY_STRIPE_PRICE_ID:-}
+      DOCRAY_STRIPE_SUCCESS_URL: ${DOCRAY_STRIPE_SUCCESS_URL:-}
+      DOCRAY_STRIPE_CANCEL_URL: ${DOCRAY_STRIPE_CANCEL_URL:-}
+      DOCRAY_STRIPE_PORTAL_RETURN_URL: ${DOCRAY_STRIPE_PORTAL_RETURN_URL:-}
+      DOCRAY_STRIPE_API_BASE: ${DOCRAY_STRIPE_API_BASE:-https://api.stripe.com/v1}
+      DOCRAY_BILLING_ENFORCEMENT_ENABLED: ${DOCRAY_BILLING_ENFORCEMENT_ENABLED:-false}
     ports:
       - "${API_PORT:-8000}:8000"
     # /readyz is 503 unless BOTH Postgres and the object store answer, so a

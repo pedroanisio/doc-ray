@@ -52,6 +52,49 @@ async def get_billing_status(
     return dict(row)
 
 
+async def list_billing_events(
+    conn: psycopg.AsyncConnection[Any], tenant_id: str, *, limit: int = 25
+) -> list[BillingRow]:
+    """Return recent Stripe webhook events visible for *tenant_id*."""
+    bounded_limit = max(1, min(int(limit), 100))
+    cur = await conn.execute(
+        """
+        WITH tenant_customer AS (
+            SELECT stripe_customer_id
+            FROM tenant_billing_accounts
+            WHERE tenant_id = %s::uuid
+        )
+        SELECT e.stripe_event_id,
+               e.event_type,
+               e.livemode,
+               e.processed_at,
+               e.created_at,
+               e.payload #>> '{data,object,id}' AS object_id,
+               e.payload #>> '{data,object,customer}' AS customer_id,
+               CASE
+                   WHEN e.event_type LIKE 'customer.subscription.%%'
+                       THEN e.payload #>> '{data,object,id}'
+                   ELSE e.payload #>> '{data,object,subscription}'
+               END AS subscription_id,
+               e.payload #>> '{data,object,status}' AS object_status,
+               e.payload #>> '{data,object,latest_invoice}' AS latest_invoice_id
+        FROM stripe_webhook_events e
+        LEFT JOIN tenant_customer tc ON true
+        WHERE e.payload #>> '{data,object,client_reference_id}' = %s
+           OR e.payload #>> '{data,object,metadata,tenant_id}' = %s
+           OR (
+                tc.stripe_customer_id IS NOT NULL
+                AND e.payload #>> '{data,object,customer}' = tc.stripe_customer_id
+           )
+        ORDER BY e.created_at DESC, e.stripe_event_id DESC
+        LIMIT %s
+        """,
+        (tenant_id, tenant_id, tenant_id, bounded_limit),
+    )
+    rows = await cur.fetchall()
+    return [dict(row) for row in rows]
+
+
 async def get_billing_account(
     conn: psycopg.AsyncConnection[Any], tenant_id: str
 ) -> BillingRow | None:

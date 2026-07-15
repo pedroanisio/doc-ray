@@ -19,7 +19,7 @@ from doc_ray.adapters import security_audit_read
 from doc_ray.adapters import seed_suggestion_store as seeds
 from doc_ray.application import billing
 from doc_ray.entrypoints.api.audit_types import DocumentMetadataChange, DocumentMetadataSuggestion
-from doc_ray.entrypoints.api.billing_types import BillingStatus
+from doc_ray.entrypoints.api.billing_types import BillingEvent, BillingStatus
 from doc_ray.entrypoints.api.canonical_types import (
     CanonicalEntity,
     ResolutionReview,
@@ -181,6 +181,14 @@ class Query:
             raise RuntimeError("billing settings are unavailable")
         row = await billing.billing_status(ctx.conn, settings)
         return BillingStatus.from_row(row)
+
+    @strawberry.field
+    async def billing_events(self, info: Info, limit: int = 25) -> list[BillingEvent]:
+        """Return recent Stripe webhook payment activity; tenant-admin only."""
+        ctx = info.context
+        await _require_admin(ctx, action="query.billing_events")
+        rows = await billing.billing_events(ctx.conn, limit=ctx.page_size(limit))
+        return [BillingEvent.from_row(row) for row in rows]
 
     @strawberry.field
     async def document_metadata_history(

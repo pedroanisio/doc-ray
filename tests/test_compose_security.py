@@ -426,6 +426,22 @@ def test_base_compose_passes_verification_email_delivery_to_api_and_webapp():
         assert env["DOCRAY_AUTH_MAX_FAILED_LOGINS"] == "${DOCRAY_AUTH_MAX_FAILED_LOGINS:-10}", name
 
 
+def test_base_compose_passes_stripe_billing_configuration_to_api():
+    """The API owns Stripe Checkout/Portal calls and webhook verification."""
+    env = _compose("docker-compose.yml")["services"]["api"]["environment"]
+    assert env["DOCRAY_STRIPE_SECRET_KEY"] == "${DOCRAY_STRIPE_SECRET_KEY:-}"
+    assert env["DOCRAY_STRIPE_WEBHOOK_SECRET"] == "${DOCRAY_STRIPE_WEBHOOK_SECRET:-}"
+    assert env["DOCRAY_STRIPE_PRICE_ID"] == "${DOCRAY_STRIPE_PRICE_ID:-}"
+    assert env["DOCRAY_STRIPE_SUCCESS_URL"] == "${DOCRAY_STRIPE_SUCCESS_URL:-}"
+    assert env["DOCRAY_STRIPE_CANCEL_URL"] == "${DOCRAY_STRIPE_CANCEL_URL:-}"
+    assert env["DOCRAY_STRIPE_PORTAL_RETURN_URL"] == "${DOCRAY_STRIPE_PORTAL_RETURN_URL:-}"
+    assert env["DOCRAY_STRIPE_API_BASE"] == "${DOCRAY_STRIPE_API_BASE:-https://api.stripe.com/v1}"
+    assert (
+        env["DOCRAY_BILLING_ENFORCEMENT_ENABLED"]
+        == "${DOCRAY_BILLING_ENFORCEMENT_ENABLED:-false}"
+    )
+
+
 def test_prod_overlay_binds_the_api_to_loopback_not_the_public_interface():
     """In managed prod the GraphQL API must not publish on 0.0.0.0: it is reached
     intra-network (webapp -> api:8000) or via nginx/TLS, never as raw plaintext
