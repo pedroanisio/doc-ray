@@ -632,7 +632,12 @@ def verify_stripe_signature(
     for part in signature_header.split(","):
         key, _, value = part.partition("=")
         if key == "t":
-            timestamp = int(value)
+            try:
+                timestamp = int(value)
+            except ValueError as exc:
+                raise StripeSignatureError(
+                    "Stripe signature timestamp is malformed"
+                ) from exc
         elif key == "v1":
             signatures.append(value)
     if timestamp is None or not signatures:
@@ -640,11 +645,18 @@ def verify_stripe_signature(
     current = int(time.time()) if now is None else now
     if abs(current - timestamp) > tolerance_seconds:
         raise StripeSignatureError("Stripe signature timestamp is outside tolerance")
-    signed_payload = f"{timestamp}.{payload.decode('utf-8')}".encode()
+    try:
+        payload_text = payload.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise StripeSignatureError("Stripe event payload is not valid UTF-8") from exc
+    signed_payload = f"{timestamp}.{payload_text}".encode()
     expected = hmac.new(webhook_secret.encode(), signed_payload, hashlib.sha256).hexdigest()
     if not any(hmac.compare_digest(expected, candidate) for candidate in signatures):
         raise StripeSignatureError("Stripe signature mismatch")
-    event = json.loads(payload.decode("utf-8"))
+    try:
+        event = json.loads(payload_text)
+    except json.JSONDecodeError as exc:
+        raise StripeSignatureError("Stripe event payload is not valid JSON") from exc
     if not isinstance(event, dict):
         raise StripeSignatureError("Stripe event payload is not an object")
     return event

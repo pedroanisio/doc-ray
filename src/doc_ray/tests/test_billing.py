@@ -225,6 +225,21 @@ def test_verify_stripe_signature_rejects_tampered_payload():
         raise AssertionError("tampered payload was accepted")
 
 
+def test_verify_stripe_signature_rejects_malformed_timestamp():
+    payload = b'{"id":"evt_1","type":"checkout.session.completed"}'
+    try:
+        billing.verify_stripe_signature(
+            payload,
+            "t=not-a-timestamp,v1=abc123",
+            "whsec_test",
+            now=1_700_000_000,
+        )
+    except billing.StripeSignatureError as exc:
+        assert "timestamp" in str(exc)
+    else:  # pragma: no cover - defensive
+        raise AssertionError("malformed Stripe signature timestamp was accepted")
+
+
 def test_stripe_webhook_route_verifies_signature_and_persists_event(pg):
     conn, _created = pg
     tenant_id = _apply_billing_migration(conn)
