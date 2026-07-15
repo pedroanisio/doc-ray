@@ -16,11 +16,21 @@ PYTHON ?= $(shell [ -x .venv/bin/python ] && echo .venv/bin/python || echo pytho
 # the managed cluster and gates the local postgres/minio out.
 COMPOSE_PROD := docker compose --env-file .env.prod -f docker-compose.yml -f docker-compose.prod.yml
 
+# Full managed overlay set (prod + LOCAL Ollama resolver on the H200 GPU) — the
+# SAME layering as `prod-ollama-up`. Naming every overlay keeps the ollama/worker
+# service definitions present so a targeted `up <svc>` never treats siblings as
+# orphans (the cloudflared-drop / Error-1033 lesson). The cloudflared overlay is
+# deliberately excluded: its token is a hard `${...:?}` requirement interpolated
+# file-wide, and the tunnel keeps running untouched (orphan warning, never removed
+# without --remove-orphans).
+COMPOSE_PROD_OLLAMA := $(COMPOSE_PROD) -f docker-compose.ollama.yml -f docker-compose.ollama.gpu.yml
+
 .PHONY: help check check-static db-dump truncate-db workers-up workers-status \
-        prod-migrate prod-up prod-web prod-tunnel prod-down gpu-up prod-ollama-up pgadmin-up
+        prod-migrate prod-up prod-web prod-tunnel prod-down gpu-up prod-ollama-up \
+        prod-refresh-ui prod-restart-ui pgadmin-up
 
 help: ## List available tasks
-	@grep -E '^[a-z][a-zA-Z_-]*:.*## ' $(MAKEFILE_LIST) | awk -F ':.*## ' '{printf "  %-14s %s\n", $$1, $$2}'
+	@grep -E '^[a-z][a-zA-Z_-]*:.*## ' $(MAKEFILE_LIST) | awk -F ':.*## ' '{printf "  %-17s %s\n", $$1, $$2}'
 
 check-static: ## Run the static landing gates only (lint, types, size, version) — fast, no DB
 	@fail=0; \
@@ -86,6 +96,13 @@ prod-ollama-up: prod-migrate ## Migrate, then run the managed stack with the LOC
 	# annotate worker on the GPU (independent tenant; both fit the H200).
 	$(COMPOSE_PROD) -f docker-compose.ollama.yml -f docker-compose.ollama.gpu.yml \
 	  up -d --build ollama ollama-pull api webapp worker worker-fast backup-scheduler
+
+prod-refresh-ui: ## Rebuild + recreate api + webapp to refresh the UI (templates, static assets, cover route) — preserves cloudflared/ollama/worker routing
+	$(COMPOSE_PROD_OLLAMA) up -d --build api webapp
+	@echo "UI refreshed: api + webapp rebuilt and recreated (cloudflared/ollama/workers left running)."
+
+prod-restart-ui: ## Restart api + webapp WITHOUT rebuilding (bounce the running images; use prod-refresh-ui to pick up code changes)
+	$(COMPOSE_PROD_OLLAMA) restart api webapp
 
 pgadmin-up: ## Start the loopback-only pgAdmin GUI (tunnel to 127.0.0.1:5050)
 	docker compose -f docker-compose.pgadmin.yml up -d pgadmin
