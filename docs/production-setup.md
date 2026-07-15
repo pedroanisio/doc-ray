@@ -183,7 +183,7 @@ DOCRAY_API_JWT_SECRET=<openssl rand -hex 32>
 DOCRAY_AUTH_LOCAL_ENABLED=true
 DOCRAY_AUTH_REGISTRATION_ENABLED=true
 DOCRAY_WEBAPP_REQUIRE_AUTH=true
-DOCRAY_WEBAPP_SECRET_KEY=<openssl rand -hex 32>   # REQUIRED: shared across gunicorn workers
+DOCRAY_WEBAPP_SECRET_KEY=<openssl rand -hex 32>   # REQUIRED: signs session/CSRF cookies
 DOCRAY_WEBAPP_SESSION_COOKIE_SECURE=true
 DOCRAY_PUBLIC_BASE_URL=https://doc-ray.com        # verification-email links
 
@@ -199,9 +199,9 @@ DOCRAY_WORKERS=3
 ```
 
 Notes:
-- `DOCRAY_WEBAPP_SECRET_KEY` is **mandatory** in production: the webapp runs
-  under multiple gunicorn workers, and without a shared key each worker signs
-  session/CSRF cookies differently and requests fail across workers.
+- `DOCRAY_WEBAPP_SECRET_KEY` is **mandatory** in production: it signs the session
+  and CSRF cookies. Unset, gunicorn generates a random key at startup, so every
+  restart silently invalidates all logins.
 - `S3_ENDPOINT` is `https://`, so `S3_ALLOW_INSECURE_ENDPOINT=0` (that flag is
   only for local plaintext MinIO).
 
@@ -233,9 +233,15 @@ make prod-up          # migrate, then: api + webapp + worker + worker-fast + bac
 
 Production web tier (the base compose's dev servers are overridden in the prod
 overlay):
-- **webapp → gunicorn** (gthread workers) — `flask run`'s Werkzeug dev server is
-  never used in production.
-- **api → uvicorn** with a small worker pool.
+- **webapp → gunicorn** — `flask run`'s Werkzeug dev server is never used in
+  production. It runs a **single** gunicorn worker with 8 gthread threads:
+  concurrency comes from threads (which share the in-process login-session store),
+  not workers. Do **not** raise `DOCRAY_WEBAPP_WORKERS` above 1 without first
+  swapping in a shared (DB-backed) session store — a login handled by one worker
+  is invisible to the others, so requests intermittently fail as "authentication
+  required".
+- **api → uvicorn**, `DOCRAY_API_WORKERS` (default 2) — the API is stateless, so
+  multiple workers are safe.
 - Both bind **`127.0.0.1`** only — they are reached over the compose network
   (webapp → `api:8000`) and externally only through the tunnel (Step 6). Raw
   GraphQL is never published on a public port.
