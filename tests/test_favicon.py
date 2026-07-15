@@ -48,3 +48,20 @@ def test_generated_favicons_are_small_and_correctly_sized() -> None:
         assert img.size == (180, 180)
     # A tab icon must stay tiny — the 1.25k² master must never ship as the favicon.
     assert (_STATIC / "favicon-32.png").stat().st_size < 10_000
+
+
+def test_only_the_outer_background_is_transparent() -> None:
+    # The outer light margin is cleared to transparent on all four sides, while
+    # the red tile and the inner white d· mark stay opaque (the inner white is
+    # enclosed by red, so the flood fill never reaches it).
+    with Image.open(_STATIC / "icon-512.png").convert("RGBA") as img:
+        w, h = img.size
+        for probe in [(0, 0), (w // 2, 2), (2, h // 2), (w // 2, h - 3)]:
+            assert img.getpixel(probe)[3] == 0, f"outer margin not transparent at {probe}"
+        assert img.getpixel((w // 2, h // 2))[3] == 255  # inner mark stays opaque
+
+
+def test_apple_touch_icon_stays_opaque() -> None:
+    # iOS renders alpha as black; the apple-touch icon must remain opaque.
+    with Image.open(_STATIC / "apple-touch-icon.png") as img:
+        assert img.mode == "RGB"

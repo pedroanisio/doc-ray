@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PIL import Image
+from PIL import Image, ImageDraw
 
 _ROOT = Path(__file__).resolve().parents[1]
 _MASTER = _ROOT / "static" / "images" / "icon.png"
@@ -32,6 +32,14 @@ _PNG_VARIANTS: tuple[tuple[str, int], ...] = (
 )
 #: Sizes packed into the multi-resolution favicon.ico (legacy + default request).
 _ICO_SIZES: tuple[tuple[int, int], ...] = ((16, 16), (32, 32), (48, 48))
+#: Colour distance (0-255-ish) that still counts as "outer background" when
+#: clearing it. Wide enough to swallow the light margin's anti-aliasing, narrow
+#: enough to stop at the red tile edge.
+_BG_TOLERANCE = 70
+#: iOS composites apple-touch-icon transparency onto black, which would ruin the
+#: rounded corners; keep it opaque by flattening the cleared corners onto white
+#: (visually identical to the original light margin).
+_APPLE_TOUCH_BG = (255, 255, 255)
 
 
 def _load_master() -> Image.Image:
@@ -40,18 +48,37 @@ def _load_master() -> Image.Image:
     return Image.open(_MASTER).convert("RGBA")
 
 
+def _clear_outer_background(img: Image.Image) -> Image.Image:
+    """Make the outer light margin transparent, keeping the tile + inner mark.
+
+    Flood-fills the *border-connected* near-white region to transparent, seeded
+    from the four corners. The inner white ``·``/``d`` mark is fully enclosed by
+    the red tile, so it is never reached and stays opaque — only the outer white
+    is cleared. Done on the full-resolution master so the later LANCZOS downscale
+    anti-aliases the new transparent edge cleanly.
+    """
+    out = img.convert("RGBA")
+    w, h = out.size
+    for seed in ((0, 0), (w - 1, 0), (0, h - 1), (w - 1, h - 1)):
+        ImageDraw.floodfill(out, seed, (0, 0, 0, 0), thresh=_BG_TOLERANCE)
+    return out
+
+
 def generate() -> list[Path]:
     """Write every derived favicon asset; return the paths written."""
-    master = _load_master()
+    master = _clear_outer_background(_load_master())
     _OUT.mkdir(parents=True, exist_ok=True)
     written: list[Path] = []
 
     for name, edge in _PNG_VARIANTS:
         resized = master.resize((edge, edge), Image.LANCZOS)
         dest = _OUT / name
-        # apple-touch icons must be opaque (iOS ignores/handles alpha poorly).
+        # apple-touch icons must be opaque (iOS renders alpha as black); flatten
+        # the transparent corners back onto white so it keeps its rounded look.
         if name == "apple-touch-icon.png":
-            resized = resized.convert("RGB")
+            flattened = Image.new("RGB", resized.size, _APPLE_TOUCH_BG)
+            flattened.paste(resized, mask=resized.split()[3])
+            resized = flattened
         resized.save(dest)
         written.append(dest)
 
