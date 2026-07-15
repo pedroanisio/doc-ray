@@ -1004,3 +1004,51 @@ dialog.confirm p { margin: 0 0 var(--space-5); color: var(--ink-soft); font-size
 @media (max-width: 640px) {
   .footer-top { gap: var(--space-5); }
 }
+/* ── Navigation feedback ──────────────────────────────────────────────────
+   Instant response to a click on a server-rendered page: a top progress bar
+   plus a busy state on the activated control, so a slow page load never reads
+   as a freeze. Driven by webapp/static/nav-progress.js. Also exposes reusable
+   .spinner and .skeleton utilities for per-page async/placeholder states. */
+#nav-progress {
+  position: fixed; inset: 0 auto auto 0; height: 3px; width: 0;
+  background: var(--accent); z-index: 9999; pointer-events: none;
+  opacity: 0; box-shadow: 0 0 8px color-mix(in srgb, var(--accent) 60%, transparent);
+  transition: width .24s ease, opacity .2s ease;
+}
+#nav-progress.on { opacity: 1; }
+
+/* The activated link/button while its navigation is in flight. */
+.is-loading { cursor: progress; }
+a.is-loading, button.is-loading, input.is-loading[type="submit"] { opacity: .72; }
+.is-loading::after {
+  content: ""; display: inline-block; width: .8em; height: .8em;
+  margin-left: .5em; vertical-align: -.1em;
+  border: 2px solid currentColor; border-right-color: transparent;
+  border-radius: 50%; animation: docray-spin .6s linear infinite;
+}
+
+/* Standalone spinner for JS-driven / async areas. */
+.spinner {
+  display: inline-block; width: 1.1em; height: 1.1em;
+  border: 2px solid var(--ring); border-top-color: var(--accent);
+  border-radius: 50%; animation: docray-spin .7s linear infinite;
+}
+@keyframes docray-spin { to { transform: rotate(360deg); } }
+
+/* Content placeholder for slow panels/lists (add .skeleton to a sized box). */
+.skeleton {
+  position: relative; overflow: hidden; border-radius: 8px; min-height: 1em;
+  background: var(--accent-wash);
+}
+.skeleton::after {
+  content: ""; position: absolute; inset: 0; transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent,
+    color-mix(in srgb, var(--accent) 14%, transparent), transparent);
+  animation: docray-shimmer 1.3s infinite;
+}
+@keyframes docray-shimmer { 100% { transform: translateX(100%); } }
+
+@media (prefers-reduced-motion: reduce) {
+  #nav-progress { transition: opacity .2s ease; }
+  .is-loading::after, .spinner, .skeleton::after { animation: none; }
+}
