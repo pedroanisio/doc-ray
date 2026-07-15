@@ -205,6 +205,11 @@ MIGRATIONS = [
         "role sees the tenant corpus) excluding sensitivity=sensitive documents",
     ),
     ("077_schema_version_1_24_0", "advance the schema SemVer to 1.24.0"),
+    (
+        "078_drop_duplicate_spans_index",
+        "drop idx_spans_document, the redundant duplicate of the "
+        "spans(document_id, char_start, char_end) unique index",
+    ),
 ]
 
 # ---------------------------------------------------------------------------

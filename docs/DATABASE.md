@@ -1,6 +1,6 @@
 # doc-ray — Database ERD & Data Dictionary
 
-**Schema version `1.24.0`** (SemVer) · 77 migrations applied
+**Schema version `1.24.0`** (SemVer) · 78 migrations applied
 
 > Generated from the live schema by `scripts/gen_data_dictionary.py`. Do not edit by hand — re-run the generator.
 
@@ -459,7 +459,6 @@ a span.
 - **FK:** FOREIGN KEY (document_id) REFERENCES documents(id) ON DELETE CASCADE
 - **Check:** CHECK ((char_end >= char_start))
 - **Check:** CHECK ((((page_number IS NULL) AND (bbox_x0 IS NULL) AND (bbox_y0 IS NULL) AND (bbox_x1 IS NULL) AND (bbox_y1 IS NULL)) OR ((page_number > 0) AND (bbox_x0 IS NOT NULL) AND (bbox_y0 IS NOT NULL) AND (bbox_x1 IS NOT NULL) AND (bbox_y1 IS NOT NULL) AND (bbox_x1 >= bbox_x0) AND (bbox_y1 >= bbox_y0)))) NOT VALID
-- **Index** `idx_spans_document`: public.spans USING btree (document_id, char_start, char_end)
 - **Index** `idx_spans_document_page`: public.spans USING btree (document_id, page_number, char_start) WHERE (page_number IS NOT NULL)
 - **Index** `spans_document_id_char_start_char_end_key`: public.spans USING btree (document_id, char_start, char_end)
 - **RLS:** enabled — read/write policies via *document_id*
@@ -1727,3 +1726,4 @@ owner's bypass.
 | 075 | `075_schema_version_1_23_0.sql` | advance the schema SemVer to 1.23.0 |
 | 076 | `076_reader_corpus_read.sql` | docray_readable_documents() gains the role-permission read branch (reader role sees the tenant corpus) excluding sensitivity=sensitive documents |
 | 077 | `077_schema_version_1_24_0.sql` | advance the schema SemVer to 1.24.0 |
+| 078 | `078_drop_duplicate_spans_index.sql` | drop idx_spans_document, the redundant duplicate of the spans(document_id, char_start, char_end) unique index |
