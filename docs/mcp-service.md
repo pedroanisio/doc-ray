@@ -8,17 +8,24 @@ disclaimer:
   date: "2026-07-15"
 ---
 
-# MCP Service — Implementation Plan
+# MCP Service — Implementation Status & Plan
 
 ## Disclaimer
 
 This work is subject to the methodological caveats and commitments described in [@DISCLAIMER.md](../DISCLAIMER.md).
 > No statement or premise not backed by a real logical definition or verifiable reference should be taken for granted.
 
-Plan for exposing the doc-ray corpus to agentic AI over the **Model Context
-Protocol (MCP)**, authenticating each caller to a doc-ray principal so Postgres
-RLS scopes what they can read. This is a plan, not an as-built record — nothing
-below is implemented yet.
+Exposes the doc-ray corpus to agentic AI over the **Model Context Protocol
+(MCP)**, authenticating each caller to a doc-ray principal so Postgres RLS scopes
+what they can read.
+
+**Status:** the read-only v1 server is **implemented and tested** — Phases 1–2
+below, landed in commit `7cd2c4a` ([`entrypoints/mcp/`](../src/doc_ray/entrypoints/mcp/),
+`test_mcp_{corpus,auth,server}.py` green) and deployable via
+[`docker-compose.mcp.yml`](../docker-compose.mcp.yml). Sections marked **DONE**
+are as-built; unchecked items are roadmap. The only v1 step still open is the
+manual end-to-end smoke test with a live MCP client (Phase 2); Phases 3–4
+(TLS/ops, OAuth 2.1, write tools, gRPC) remain planned.
 
 ---
 
@@ -76,14 +83,13 @@ deferred to Phase 4 behind the `write` scope.
 
 ## 4. Phased plan
 
-### Phase 0 — Decisions & prerequisites (blocking; needs operator)
-- [ ] **Approve the new `mcp` dependency** (`mcp==1.*`; v2.x is beta). The repo's
-      "no unnecessary dependencies" rule makes this an explicit call.
-- [ ] **Confirm transport** = Streamable HTTP MCP (not gRPC). Decide whether a
-      separate gRPC gateway is also wanted (Phase 4).
-- [ ] **Confirm the v1 tool set** (6 read tools above) and read-only scope.
-- [ ] **Decide where it runs** — alongside `api` on the Droplet, or standalone.
-- **Acceptance:** the four decisions recorded (here or in `engineering_decisions.yml`).
+### Phase 0 — Decisions & prerequisites  ·  **RESOLVED (as shipped in v1)**
+- [x] **New `mcp` dependency approved** — `mcp==1.28.*` pinned in `requirements.txt`/`uv.lock`.
+- [x] **Transport = Streamable HTTP MCP** (not gRPC); a separate gRPC gateway stays a Phase-4 option.
+- [x] **v1 tool set = the 6 read tools above**, read-only scope.
+- [x] **Placement** — runs alongside `api` (dev compose) or standalone against the public
+      API (prod); both wired in `docker-compose.mcp.yml`.
+- **Acceptance:** decisions realized in code (commit `7cd2c4a`).
 
 ### Phase 1 — SDK-independent core (no new dependency)  ·  size: M  ·  **DONE**
 - [x] `corpus.py` — `gql()` async passthrough (forwards `caller_token`) + the 6 tool functions.
@@ -153,15 +159,15 @@ deferred to Phase 4 behind the `write` scope.
 | Raw port exposure | Loopback bind + mandatory TLS front (Phase 3) |
 | LLM tool output trusted downstream | Tool results are the corpus's, not the model's — PALS's Law is about *generation*; retrieval tools return verified DB rows |
 
-## 8. Open decisions (need your input)
-1. **Dependency** — OK to add `mcp==1.*`?
-2. **Transport** — Streamable HTTP confirmed? Separate gRPC gateway wanted?
-3. **Scope** — read-only v1, or include write tools now?
-4. **Auth model** — forward caller token (v1) now, OAuth 2.1 resource server (v2) later — or go straight to OAuth 2.1?
-5. **Placement** — MCP service co-located with `api` or standalone?
+## 8. Decisions (resolved for v1)
+1. **Dependency** — `mcp==1.28.*` added (pinned to the stable v1 FastMCP line; v2.x is beta).
+2. **Transport** — Streamable HTTP MCP; a separate gRPC gateway remains a Phase-4 option, not built.
+3. **Scope** — read-only v1 (the 6 tools above); write tools deferred to Phase 4.
+4. **Auth model** — forward the caller's bearer token / access JWT (v1); OAuth 2.1 resource server deferred to Phase 4.
+5. **Placement** — dev co-locates with `api`; prod runs standalone against the public API. Both wired.
 
 ## 9. Sequencing
-Phase 0 (decide) → Phase 1 (core, no dep, immediately landable) → Phase 2 (dep +
-server + smoke test) → Phase 3 (TLS/ops) → Phase 4 (OAuth/writes/gRPC, later).
-Phase 1 can start the moment the tool set is confirmed; Phase 2 needs the
-dependency approval.
+Phase 0 (decide) → Phase 1 (core, no dep) → Phase 2 (dep + server + smoke test)
+→ Phase 3 (TLS/ops) → Phase 4 (OAuth/writes/gRPC, later). **Phases 0–2 are
+complete** (bar the manual smoke test); the next actionable work is Phase 3
+(TLS front door, per-agent token minting, `/health`+`/readyz`).
