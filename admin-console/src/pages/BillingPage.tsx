@@ -117,11 +117,12 @@ export function BillingPage({ redirectToHostedUrl = (url) => window.location.ass
     status && (MANAGED_SUBSCRIPTION_STATUSES.has(state) || status.stripeSubscriptionId),
   );
   const canManagePayments = auth.hasScope("write");
-  const needsCheckoutSetup = Boolean(status && (!status.checkoutReady || !status.liveModeReady));
+  const hostedBillingReady = Boolean(status && (status.liveModeReady || !status.enforcementEnabled));
+  const needsCheckoutSetup = Boolean(status && (!status.checkoutReady || !hostedBillingReady));
   const canStartCheckout = Boolean(
     canManagePayments
       && status?.checkoutReady
-      && status.liveModeReady
+      && hostedBillingReady
       && !hasManagedSubscription
       && busy === null,
   );
@@ -129,7 +130,7 @@ export function BillingPage({ redirectToHostedUrl = (url) => window.location.ass
     canManagePayments
       && status?.portalReady
       && status.stripeCustomerId
-      && status.liveModeReady
+      && hostedBillingReady
       && busy === null,
   );
   const checkoutButtonLabel = !canManagePayments
@@ -142,7 +143,7 @@ export function BillingPage({ redirectToHostedUrl = (url) => window.location.ass
       ? "Use Customer Portal"
     : status && !status.checkoutReady
       ? "Configure Checkout"
-    : status && !status.liveModeReady
+    : status && !hostedBillingReady
       ? "Complete setup"
     : busy === "checkout"
       ? "Opening Checkout..."
@@ -274,7 +275,7 @@ export function BillingPage({ redirectToHostedUrl = (url) => window.location.ass
           <button onClick={openPortal} disabled={!canOpenPortal}>
             {busy === "portal" ? "Opening Portal..." : "Manage payment method"}
           </button>
-          {status?.stripeCustomerId && !status.liveModeReady && (
+          {status?.stripeCustomerId && !hostedBillingReady && (
             <p className="muted compact-note">
               Complete live readiness before opening the Customer Portal.
             </p>

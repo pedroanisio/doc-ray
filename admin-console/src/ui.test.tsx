@@ -372,21 +372,26 @@ describe("BillingPage", () => {
       entitlementReason: "billing enforcement is disabled",
     });
     const services = billingServices(fetchImpl);
+    const redirectToHostedUrl = vi.fn();
 
     render(
       <ServicesProvider services={services}>
         <MemoryRouter>
-          <BillingPage />
+          <BillingPage redirectToHostedUrl={redirectToHostedUrl} />
         </MemoryRouter>
       </ServicesProvider>,
     );
 
     expect(await screen.findByText("Current tenant")).toBeInTheDocument();
+    expect(screen.getByText("needs setup")).toBeInTheDocument();
     expect(screen.getByText("no subscription")).toBeInTheDocument();
     expect(screen.getByText("No Stripe subscription has been recorded")).toBeInTheDocument();
     expect(screen.getByText("Paid access")).toBeInTheDocument();
     expect(screen.getByText("allowed")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /complete setup/i })).toBeDisabled();
+    await userEvent.click(screen.getByRole("button", { name: /start subscription/i }));
+    await waitFor(() =>
+      expect(redirectToHostedUrl).toHaveBeenCalledWith("https://checkout.stripe.test/hosted"),
+    );
   });
 
   it("surfaces unsafe live Stripe configuration issues", async () => {
