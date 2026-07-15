@@ -29,7 +29,7 @@ import sys
 from pathlib import Path
 
 import psycopg
-from flask import Flask, g, make_response, render_template, request, url_for
+from flask import Flask, g, make_response, render_template, request, send_from_directory, url_for
 from psycopg import sql
 from psycopg.rows import dict_row
 
@@ -125,6 +125,15 @@ app.config["MAX_CONTENT_LENGTH"] = int(os.environ.get("DOCRAY_MAX_UPLOAD_MB", "2
 # "landing" is exempt from the webapp auth gate — it is the pre-auth front door.
 app.add_url_rule("/", "landing", lambda: render_template("landing.html"))
 app.add_url_rule("/help", "help_page", lambda: render_template("help.html"))
+# Browsers request /favicon.ico at the site root regardless of <link> tags; serve
+# it directly so that default request resolves instead of 404-ing.
+app.add_url_rule(
+    "/favicon.ico",
+    "favicon",
+    lambda: send_from_directory(
+        app.static_folder or "", "favicon.ico", mimetype="image/vnd.microsoft.icon"
+    ),
+)
 # Signs the session cookie that carries the CSRF token below; stable for the life
 # of one process even when unset (dev-only — set explicitly for a real deployment).
 app.secret_key = os.environ.get("DOCRAY_WEBAPP_SECRET_KEY") or secrets.token_hex(32)

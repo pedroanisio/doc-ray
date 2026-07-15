@@ -22,6 +22,14 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <meta name="color-scheme" content="light dark">
+  {# doc·ray favicon set — derived from static/images/icon.png by
+     scripts/generate_favicons.py; versioned so a mark change busts caches. #}
+  <link rel="icon" href="{{ static_asset('favicon.ico') }}" sizes="any">
+  <link rel="icon" type="image/png" sizes="32x32" href="{{ static_asset('favicon-32.png') }}">
+  <link rel="icon" type="image/png" sizes="16x16" href="{{ static_asset('favicon-16.png') }}">
+  <link rel="apple-touch-icon" sizes="180x180" href="{{ static_asset('apple-touch-icon.png') }}">
+  <link rel="manifest" href="{{ static_asset('site.webmanifest') }}">
+  <meta name="theme-color" content="#e5484d">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="{{ static_asset('design-system.css') }}">
 </head>

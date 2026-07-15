@@ -1,0 +1,13 @@
+{
+  "name": "doc·ray",
+  "short_name": "doc·ray",
+  "description": "A living library for grounded knowledge.",
+  "start_url": "/",
+  "display": "standalone",
+  "theme_color": "#e5484d",
+  "background_color": "#f5f7fa",
+  "icons": [
+    { "src": "/static/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/static/icon-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}
