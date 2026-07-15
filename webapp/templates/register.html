@@ -1,9 +1,10 @@
 {% extends "base.html" %}
-{% block title %}Register · doc-ray{% endblock %}
+{% block title %}Create account · doc·ray{% endblock %}
 {% block body %}
 <section class="page-head">
   <p class="eyebrow">Account</p>
-  <h1>Register</h1>
+  <h1>Create your account</h1>
+  <p class="lede">Set up an account to upload documents, run the pipeline, and curate entities.</p>
 </section>
 
 <section class="auth-panel">
@@ -21,8 +22,10 @@
     <label>
       Password
       <input name="password" type="password" autocomplete="new-password" minlength="12" required>
+      <span class="hint">At least 12 characters.</span>
     </label>
-    <button type="submit">Register</button>
+    <button type="submit">Create account</button>
   </form>
+  <p class="muted">Already have an account? <a href="{{ url_for('login') }}">Sign in</a>.</p>
 </section>
 {% endblock %}

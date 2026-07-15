@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{% block title %}doc·ray{% endblock %}</title>
+  <title>{% block title %}doc·ray — document intelligence{% endblock %}</title>
   {% block head %}{% endblock %}
   <script>
     /* Set theme before paint — no flash of wrong theme. */
@@ -47,14 +47,14 @@
         <a href="{{ url_for('profile') }}" class="{{ 'on' if request.endpoint == 'profile' }}">Profile</a>
         <form method="post" action="{{ url_for('logout') }}" class="nav-inline-form">
           <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-          <button type="submit" class="nav-link-button">Logout</button>
+          <button type="submit" class="nav-link-button">Sign out</button>
         </form>
       </span>
       {% elif web_auth_required %}
       <span class="nav-group nav-account">
-        <a href="{{ url_for('login') }}" class="{{ 'on' if request.endpoint in ['login','login_submit'] }}">Login</a>
+        <a href="{{ url_for('login') }}" class="{{ 'on' if request.endpoint in ['login','login_submit'] }}">Sign in</a>
         {% if local_registration_available %}
-        <a href="{{ url_for('register_form') }}" class="{{ 'on' if request.endpoint in ['register_form','register_submit'] }}">Register</a>
+        <a href="{{ url_for('register_form') }}" class="{{ 'on' if request.endpoint in ['register_form','register_submit'] }}">Sign up</a>
         {% endif %}
       </span>
       {% endif %}
@@ -64,6 +64,46 @@
     </button>
   </header>
   <main>{% block body %}{% endblock %}</main>
+  <footer class="site-footer">
+    <div class="footer-top">
+      <div class="footer-brand">
+        <span class="brand footer-mark">doc<b>·</b>ray</span>
+        <p class="footer-pitch">
+          Document intelligence that turns your files into an auditable, queryable
+          research corpus — extracted, decomposed, annotated, and traceable to the source.
+        </p>
+      </div>
+      {% if show_app_nav %}
+      <nav class="footer-nav" aria-label="Footer">
+        <div class="footer-col">
+          <span class="footer-h">Corpus</span>
+          <a href="{{ url_for('documents') }}">Documents</a>
+          <a href="{{ url_for('collections') }}">Collections</a>
+          <a href="{{ url_for('lexemes') }}">Lexicon</a>
+          <a href="{{ url_for('search') }}">Search</a>
+        </div>
+        <div class="footer-col">
+          <span class="footer-h">Workspace</span>
+          <a href="{{ url_for('upload_form') }}">Upload a document</a>
+          <a href="{{ url_for('help_page') }}">Guide</a>
+          <a href="{{ url_for('backups') }}">Backups</a>
+        </div>
+      </nav>
+      {% elif web_auth_required %}
+      <nav class="footer-nav" aria-label="Footer">
+        <div class="footer-col">
+          <span class="footer-h">Account</span>
+          <a href="{{ url_for('login') }}">Sign in</a>
+          {% if local_registration_available %}<a href="{{ url_for('register_form') }}">Create an account</a>{% endif %}
+        </div>
+      </nav>
+      {% endif %}
+    </div>
+    <div class="footer-base">
+      <span class="footer-copy">doc·ray — document intelligence platform</span>
+      <span class="footer-creed">Every claim traces to its source. Nothing is taken for granted.</span>
+    </div>
+  </footer>
   <script>
     function toggleTheme() {
       var h = document.documentElement;

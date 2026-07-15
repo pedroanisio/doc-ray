@@ -9,9 +9,11 @@
   <button type="submit">Search</button>
 </form>
 <p class="lede" style="max-width:42rem">
-  This is a literal substring match over sentence text; it will not match
-  inflected variants such as <span class="mono">running</span> or
-  <span class="mono">ran</span> when you search for <span class="mono">run</span>.
+  Exact-phrase search across every sentence in the corpus, shown in
+  keyword-in-context. It matches the characters you type, so
+  <span class="mono">run</span> won't match <span class="mono">running</span> or
+  <span class="mono">ran</span> &mdash; for stemmed full-text search, use the
+  <span class="mono">fullTextSearch</span> field in the GraphQL API.
 </p>
 
 {% if term %}
@@ -29,11 +31,11 @@
       {% else %}
         <tr>
           <td colspan="3" class="lede">
-            No sentences match. This browser search is a literal substring search,
+            No sentences match &ldquo;{{ term }}&rdquo;. This is an exact-phrase search,
             so inflected forms such as <span class="mono">running</span> or
-            <span class="mono">ran</span> will not match unless you search for
-            those exact characters. Use the GraphQL <span class="mono">fullTextSearch</span>
-            field for stemmed full-text search.
+            <span class="mono">ran</span> only match when you type those exact characters.
+            For stemmed full-text search, use the GraphQL
+            <span class="mono">fullTextSearch</span> field.
           </td>
         </tr>
       {% endfor %}

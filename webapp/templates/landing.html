@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}doc·ray — document intelligence pipeline{% endblock %}
+{% block title %}doc·ray — document intelligence platform{% endblock %}
 {% block head %}
 <style>
   /* Landing-only layout (lp- prefix avoids clashing with page-local styles
@@ -89,12 +89,13 @@
 {% endblock %}
 {% block body %}
 <section class="lp-hero">
-  <p class="kicker">Document intelligence pipeline</p>
+  <p class="kicker">Document intelligence platform</p>
   <h1 class="lp-title">Turn documents into an <span class="accent">auditable research corpus</span>.</h1>
   <p class="lp-sub">
-    Ingest documents, annotate text, and curate domain entities into an auditable
-    research corpus &mdash; extracted, decomposed to sentences, tagged for part of
-    speech, and queryable through a single API.
+    Point doc&middot;ray at your PDFs, EPUBs, and Office files. It extracts the text,
+    decomposes it to sentences, tags every word for part of speech, canonicalizes the
+    entities, and serves the whole corpus through a fast reader and a single GraphQL API
+    &mdash; with every result traceable back to the source.
   </p>
   <div class="lp-ctas">
     <a class="btn lp-cta-primary" href="{{ url_for('documents') }}">Browse the corpus</a>
@@ -122,12 +123,12 @@
   <div class="lp-step">
     <span class="n">04 &middot; Enrich</span>
     <h3>Enrich</h3>
-    <p>Semantic enrichment layers meaning across the corpus for retrieval and analysis.</p>
+    <p>Semantic embeddings connect related passages so retrieval reaches beyond exact wording.</p>
   </div>
   <div class="lp-step">
     <span class="n">05 &middot; Query</span>
     <h3>Query</h3>
-    <p>A GraphQL API plus full-text and keyword-in-context search over the whole corpus.</p>
+    <p>A typed GraphQL API plus full-text and keyword-in-context search over the whole corpus.</p>
   </div>
 </div>
 
@@ -147,7 +148,7 @@
   </div>
   <div class="card lp-cap">
     <h3>Semantic enrichment</h3>
-    <p>Meaning layered across documents for retrieval, comparison, and analysis.</p>
+    <p>Embeddings connect related passages so retrieval and comparison work across the whole corpus.</p>
   </div>
   <div class="card lp-cap">
     <h3>GraphQL API</h3>
