@@ -76,6 +76,11 @@ def main() -> int:
         action="store_true",
         help="enable local auth so the anonymous (gated) nav is exercised",
     )
+    parser.add_argument(
+        "--dark",
+        action="store_true",
+        help="render in dark mode (prefers-color-scheme: dark) and suffix files _dark",
+    )
     args = parser.parse_args()
 
     if args.auth:
@@ -103,17 +108,21 @@ def main() -> int:
 
     from playwright.sync_api import sync_playwright
 
+    color_scheme = "dark" if args.dark else "light"
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch()
         for path, viewport, name, open_menu in shots:
-            page = browser.new_page(viewport=viewport, device_scale_factor=2)
+            page = browser.new_page(
+                viewport=viewport, device_scale_factor=2, color_scheme=color_scheme
+            )
             page.goto(base + path, wait_until="networkidle")
             if open_menu:
                 page.click(".nav-burger")
                 page.wait_for_timeout(300)
             page.wait_for_timeout(200)
-            page.screenshot(path=str(out / name), full_page=True)
-            print(f"shot: {out / name}")
+            filename = name.replace(".png", "_dark.png") if args.dark else name
+            page.screenshot(path=str(out / filename), full_page=True)
+            print(f"shot: {out / filename}")
             page.close()
         browser.close()
 
