@@ -43,6 +43,10 @@ CORPUS_SHOTS = [
     ("/corpus", DESKTOP, "corpus_desktop.png", False),
     ("/corpus", MOBILE, "corpus_mobile.png", False),
 ]
+ERROR_SHOTS = [
+    ("/no-such-page", DESKTOP, "error_404_desktop.png", False),
+    ("/no-such-page", MOBILE, "error_404_mobile.png", False),
+]
 
 
 def _stubbed_app():
@@ -65,7 +69,7 @@ def _stubbed_app():
 def main() -> int:
     parser = argparse.ArgumentParser(description="Screenshot the doc-ray webapp.")
     parser.add_argument("--out", default=os.environ.get("DOCRAY_VISUAL_OUT", "/tmp/docray-visual"))
-    parser.add_argument("--mode", choices=["public", "corpus", "all"], default="all")
+    parser.add_argument("--mode", choices=["public", "corpus", "error", "all"], default="all")
     parser.add_argument("--port", type=int, default=5077)
     parser.add_argument(
         "--auth",
@@ -90,6 +94,8 @@ def main() -> int:
         shots += PUBLIC_SHOTS
     if args.mode in ("corpus", "all"):
         shots += CORPUS_SHOTS
+    if args.mode in ("error", "all"):
+        shots += ERROR_SHOTS
 
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)

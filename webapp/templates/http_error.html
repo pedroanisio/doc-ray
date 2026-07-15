@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block title %}{{ code }} · doc·ray{% endblock %}
+{% block body %}
+<section class="page-head">
+  <p class="eyebrow">Error {{ code }}</p>
+  <h1>{{ title }}</h1>
+</section>
+<div class="auth-panel">
+  <p class="lede" style="margin:0 0 1.1rem">{{ message }}</p>
+  <a class="btn" href="{{ back_url }}">{{ back_label }}</a>
+</div>
+{% endblock %}

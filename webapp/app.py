@@ -299,6 +299,75 @@ def _database_unavailable(exc: psycopg.OperationalError):
     return render_template("error.html", detail=str(exc)), 503
 
 
+#: User-facing titles/fallbacks for the shared HTTP error envelope. Keyed by
+#: status; anything unlisted falls back to the 500 copy.
+_HTTP_ERROR_TITLES = {
+    400: "Bad request",
+    401: "Sign-in required",
+    403: "Not allowed",
+    404: "Page not found",
+    405: "Method not allowed",
+    500: "Something went wrong",
+}
+_HTTP_ERROR_FALLBACK = {
+    400: "That request couldn't be processed. Check the form and try again.",
+    401: "You need to sign in to view this.",
+    403: "You don't have access to this.",
+    404: "We couldn't find what you were looking for. It may have been moved or removed.",
+    405: "That action isn't allowed on this page.",
+    500: "An unexpected error occurred on our side. Please try again.",
+}
+
+
+def _render_http_error(exc: object) -> tuple[str, int]:
+    """Render any 4xx/5xx through one styled envelope (base.html), no leaks.
+
+    A specific ``abort(code, "message")`` shows that message for 4xx; generic
+    aborts fall back to friendly copy. 5xx never echoes the exception (which may
+    carry internals) — it always uses the fixed 500 copy.
+
+    Args:
+        exc: The HTTPException (or, for a 500, the raw exception) Flask caught.
+
+    Returns:
+        The rendered error page and its status code.
+    """
+    from flask import url_for
+    from werkzeug.exceptions import HTTPException
+
+    code = exc.code if isinstance(exc, HTTPException) and exc.code else 500
+    title = _HTTP_ERROR_TITLES.get(code, _HTTP_ERROR_TITLES[500])
+    if code >= 500:
+        message = _HTTP_ERROR_FALLBACK[500]
+    else:
+        description = getattr(exc, "description", None)
+        is_generic = not description or (
+            isinstance(exc, HTTPException) and description == type(exc).description
+        )
+        message = _HTTP_ERROR_FALLBACK.get(code, _HTTP_ERROR_FALLBACK[500])
+        if not is_generic:
+            message = description
+    try:
+        back_url = url_for("documents")
+    except Exception:  # noqa: BLE001 - url building must never mask the real error
+        back_url = "/"
+    return (
+        render_template(
+            "http_error.html",
+            code=code,
+            title=title,
+            message=message,
+            back_url=back_url,
+            back_label="Back to the corpus",
+        ),
+        code,
+    )
+
+
+for _http_error_code in (400, 401, 403, 404, 405, 500):
+    app.register_error_handler(_http_error_code, _render_http_error)
+
+
 # --- route groups (D-015 split) ---------------------------------------------
 #
 # Each sibling module attaches its routes here and resolves this module's

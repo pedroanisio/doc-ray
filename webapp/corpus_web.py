@@ -11,7 +11,7 @@ from __future__ import annotations
 import json
 from types import ModuleType
 
-from flask import current_app, redirect, request, url_for
+from flask import abort, current_app, redirect, request, url_for
 
 from doc_ray.entrypoints.api.context import MAX_BATCH_IDS
 
@@ -47,7 +47,13 @@ def documents():
     totals = _core.q1(
         "SELECT (SELECT count(*) FROM documents) docs, "
         "(SELECT count(*) FROM sentences) sents, "
-        "(SELECT count(*) FROM lexemes) lexemes, "
+        # `lexemes` is a shared registry with NO row-level security (018_rbac.sql
+        # groups it with authors/tags), so a bare count(*) leaks the global
+        # vocabulary of every tenant's documents to a user who can see none.
+        # Count distinct lexemes through lexeme_occurrences, which IS RLS-scoped —
+        # matching how the Lexicon page joins — so the card reflects only the
+        # caller's visible corpus (0 when they have no documents).
+        "(SELECT count(DISTINCT o.lexeme_uid) FROM lexeme_occurrences o) lexemes, "
         "(SELECT count(*) FROM lexeme_occurrences) occ"
     )
     return _core.render_template(
@@ -202,7 +208,7 @@ def job_status(job_id):
         (job_id,),
     )
     if job is None:
-        return ("job not found", 404)
+        abort(404, "Job not found.")
     doc_id = job["document_id"] or (job["result"] or {}).get("document_id")
     cascade = []
     doc = None
@@ -236,7 +242,7 @@ def seeding(doc_id):
     """
     doc = _core.q1("SELECT id, title FROM documents WHERE id = %s", (doc_id,))
     if doc is None:
-        return ("document not found", 404)
+        abort(404, "Document not found.")
     rows = _core.q(
         """
         SELECT id, term, occurrences, source, qid, label, description, entity_type,
@@ -289,7 +295,7 @@ def seeding_action(doc_id):
             )["seedApproved"]
             notice = f"seeding job {job['id']} queued — refresh shortly"
         else:
-            return ("unknown action", 400)
+            abort(400, "Unknown action.")
     except Exception as exc:
         current_app.logger.exception("seeding action failed")
         return redirect(url_for("seeding", doc_id=doc_id, error=str(exc)))
@@ -372,7 +378,7 @@ def lexeme(uid):
     """
     lex = _core.q1("SELECT * FROM lexemes WHERE uid = %s", (uid,))
     if not lex:
-        return ("Lexeme not found", 404)
+        abort(404, "Lexeme not found.")
     # Both snippet queries bound the occurrence scan BEFORE touching
     # full_text: substring() detoasts the whole document text per row, so
     # computing it for every occurrence of a hot lexeme (105k rows measured

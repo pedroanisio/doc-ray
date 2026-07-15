@@ -12,7 +12,7 @@ from __future__ import annotations
 import json
 from types import ModuleType
 
-from flask import redirect, request, url_for
+from flask import abort, redirect, request, url_for
 
 try:
     from webapp.previews import document_preview
@@ -170,7 +170,7 @@ def collection_detail(collection_id):
     """Render one collection and its current documents."""
     collection = _core.q1("SELECT * FROM document_collections WHERE id = %s", (str(collection_id),))
     if not collection:
-        return ("Collection not found", 404)
+        abort(404, "Collection not found.")
     collection["rule_summary"] = collection_rule_summary(collection.get("rule"))
     documents_in_collection = collection_document_rows(collection)
     available = []
@@ -214,7 +214,7 @@ def collection_document_update(collection_id, doc_id):
             (str(collection_id), str(doc_id)),
         )
     else:
-        return ("unknown action", 400)
+        abort(400, "Unknown action.")
     return redirect(request.referrer or url_for("collection_detail", collection_id=collection_id))
 
 

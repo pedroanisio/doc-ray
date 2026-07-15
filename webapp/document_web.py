@@ -171,7 +171,7 @@ def document(doc_id):
     """Render a single document with metadata, POS stats, and annotated sentences."""
     doc = _core.q1("SELECT * FROM documents WHERE id = %s", (str(doc_id),))
     if not doc:
-        return ("Document not found", 404)
+        abort(404, "Document not found.")
 
     authors = _core.q(
         "SELECT a.name FROM document_authors da JOIN authors a ON a.id = da.author_id "
@@ -327,7 +327,7 @@ def document_reprocess(doc_id):
     """Queue one document pipeline step again through the GraphQL API."""
     doc = _core.q1("SELECT * FROM documents WHERE id = %s", (str(doc_id),))
     if doc is None:
-        return ("Document not found", 404)
+        abort(404, "Document not found.")
     step = request.form.get("step", "")
     cfg = _REPROCESS_CONFIG.get(step)
     if cfg is None:

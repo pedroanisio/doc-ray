@@ -295,6 +295,45 @@ def test_corpus_index_moved_to_corpus_path(client):
     assert 'action="/documents/bulk"' in html
 
 
+# --- error envelopes -------------------------------------------------------
+
+
+def test_missing_document_renders_styled_error_envelope(client):
+    resp = client.get(f"/doc/{MISSING_ID}")
+    assert resp.status_code == 404
+    html = resp.get_data(as_text=True)
+    # Rendered through base.html (not a bare "Document not found" string):
+    # the masthead brand, the error code, the message, and a way back.
+    assert 'class="brand"' in html
+    assert "Error 404" in html
+    assert "Document not found." in html
+    assert 'href="/corpus"' in html
+
+
+def test_unknown_url_renders_styled_404(client):
+    resp = client.get("/no-such-page")
+    assert resp.status_code == 404
+    html = resp.get_data(as_text=True)
+    assert 'class="brand"' in html
+    assert "Error 404" in html
+
+
+def test_uncaught_error_renders_styled_500_without_leaking(client, monkeypatch):
+    # Let the 500 handler run instead of propagating in TESTING mode.
+    monkeypatch.setitem(webapp.app.config, "PROPAGATE_EXCEPTIONS", False)
+
+    def boom(*_args, **_kwargs):
+        raise RuntimeError("secret internal detail")
+
+    monkeypatch.setattr(webapp, "q1", boom)
+    resp = client.get("/corpus")
+    assert resp.status_code == 500
+    html = resp.get_data(as_text=True)
+    assert "Something went wrong" in html
+    assert "secret internal detail" not in html  # never leak exception internals
+    assert 'class="brand"' in html
+
+
 # --- documents index -------------------------------------------------------
 
 
