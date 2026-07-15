@@ -87,3 +87,16 @@ def test_verification_email_body_contains_the_link_and_expiry() -> None:
     assert "verify" in subject.lower()
     assert "https://docs.example.com/verify-email?token=abc" in body
     assert "24" in body
+
+
+def test_welcome_email_greets_and_links_when_given_name_and_url() -> None:
+    subject, body = mailer_smtp.welcome_email("Ada", app_url="https://doc-ray.com")
+    assert "welcome" in subject.lower()
+    assert "Hello Ada," in body
+    assert "https://doc-ray.com" in body
+    assert "active" in body.lower()
+
+
+def test_welcome_email_uses_generic_greeting_without_a_name() -> None:
+    _, body = mailer_smtp.welcome_email()
+    assert body.startswith("Hello,")

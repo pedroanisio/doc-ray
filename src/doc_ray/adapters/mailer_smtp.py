@@ -37,6 +37,33 @@ def verification_email(verify_url: str, *, ttl_hours: int = 24) -> tuple[str, st
     return subject, body
 
 
+def welcome_email(
+    display_name: str | None = None, *, app_url: str | None = None
+) -> tuple[str, str]:
+    """Return the (subject, body) pair for the post-verification welcome message.
+
+    Args:
+        display_name: Optional recipient name for the greeting; a generic greeting
+            is used when omitted.
+        app_url: Optional application URL to point the new user at.
+
+    Returns:
+        The ``(subject, body)`` of the welcome message.
+    """
+    greeting = f"Hello {display_name}," if display_name and display_name.strip() else "Hello,"
+    subject = "Welcome to doc-ray"
+    lines = [
+        greeting,
+        "",
+        "Your email address is verified and your doc-ray account is now active.",
+        "You can sign in and start ingesting, decomposing, and exploring documents.",
+    ]
+    if app_url:
+        lines += ["", f"    {app_url}"]
+    lines += ["", "— The doc-ray team"]
+    return subject, "\n".join(lines) + "\n"
+
+
 class SmtpMailer:
     """Deliver mail over SMTP with optional STARTTLS and authentication."""
 

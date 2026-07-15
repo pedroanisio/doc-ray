@@ -246,6 +246,27 @@ def register_local_auth_routes(app: FastAPI, settings: Config) -> None:  # noqa:
             os.environ.get("DOCRAY_PUBLIC_BASE_URL", "").strip()
         )
 
+    def deliver_welcome(request: Request, email_normalized: str) -> bool:
+        """Best-effort welcome email after verification; never fails the request.
+
+        The account is already verified by the time this runs, so a welcome-mail
+        failure is logged and swallowed rather than surfaced to the caller.
+        """
+        from doc_ray.adapters.mailer_smtp import welcome_email
+        from doc_ray.ports.mailer import MailerError
+
+        outbound = mailer(request)
+        if outbound is None:
+            return False
+        base = os.environ.get("DOCRAY_PUBLIC_BASE_URL", "").strip().rstrip("/")
+        subject, body = welcome_email(app_url=base or None)
+        try:
+            outbound.send(to=email_normalized, subject=subject, body=body)
+        except MailerError:
+            _logger.exception("welcome email delivery failed for %s", email_normalized)
+            return False
+        return True
+
     @app.post("/auth/register", status_code=202)
     async def register_local_account(payload: dict[str, Any], request: Request) -> dict[str, Any]:
         """Register a self-service local account pending email verification."""
@@ -311,10 +332,12 @@ def register_local_auth_routes(app: FastAPI, settings: Config) -> None:  # noqa:
             ) from exc
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
+        welcomed = deliver_welcome(request, result.email_normalized)
         return {
             "principal_id": result.principal_id,
             "email": result.email_normalized,
             "verified": True,
+            "welcome_email_sent": welcomed,
         }
 
     @app.post("/auth/login")
