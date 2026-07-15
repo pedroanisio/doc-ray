@@ -686,7 +686,7 @@ async def _process_invoice_event(
     tenant_id = await billing_store.tenant_for_stripe_customer(conn, customer_id)
     if tenant_id is None:
         return event_type not in _PAID_INVOICE_EVENTS
-    await billing_store.update_invoice_snapshot(
+    updated = await billing_store.update_invoice_snapshot(
         conn,
         stripe_customer_id=customer_id,
         stripe_subscription_id=_string(obj.get("subscription")),
@@ -694,7 +694,7 @@ async def _process_invoice_event(
         fallback_status=_invoice_fallback_status(event_type),
         stripe_event_id=event_id,
     )
-    return True
+    return updated or event_type not in _PAID_INVOICE_EVENTS
 
 
 def _invoice_fallback_status(event_type: str) -> str | None:

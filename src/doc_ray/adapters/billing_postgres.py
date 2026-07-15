@@ -296,9 +296,9 @@ async def update_invoice_snapshot(
     latest_invoice_id: str | None,
     fallback_status: str | None,
     stripe_event_id: str | None,
-) -> None:
+) -> bool:
     """Update invoice details for the matching tenant subscription."""
-    await conn.execute(
+    cur = await conn.execute(
         """
         UPDATE tenant_subscriptions
         SET status = CASE
@@ -331,6 +331,7 @@ async def update_invoice_snapshot(
             stripe_subscription_id,
         ),
     )
+    return cur.rowcount > 0
 
 
 async def tenant_for_stripe_customer(
