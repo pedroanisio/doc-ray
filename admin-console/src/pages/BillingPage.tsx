@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import {
   createBillingCheckoutSession,
   createBillingPortalSession,
@@ -13,12 +14,18 @@ import { useApiClient } from "../services";
 
 const ACTIVE_STATUSES = new Set(["active", "trialing"]);
 
-export function BillingPage() {
+type BillingPageProps = {
+  redirectToHostedUrl?: (url: string) => void;
+};
+
+export function BillingPage({ redirectToHostedUrl = (url) => window.location.assign(url) }: BillingPageProps = {}) {
   const client = useApiClient();
+  const [searchParams] = useSearchParams();
   const [status, setStatus] = useState<BillingStatus | null>(null);
   const [events, setEvents] = useState<BillingEvent[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState<"checkout" | "portal" | null>(null);
+  const [busy, setBusy] = useState<"checkout" | "portal" | "refresh" | null>(null);
+  const checkoutResult = checkoutReturn(searchParams.get("checkout"));
 
   async function load() {
     try {
@@ -42,7 +49,7 @@ export function BillingPage() {
     setBusy("checkout");
     try {
       const url = await createBillingCheckoutSession(client);
-      window.location.assign(url);
+      redirectToHostedUrl(url);
     } catch (err) {
       setError(errorMessage(err));
       setBusy(null);
@@ -53,20 +60,52 @@ export function BillingPage() {
     setBusy("portal");
     try {
       const url = await createBillingPortalSession(client);
-      window.location.assign(url);
+      redirectToHostedUrl(url);
     } catch (err) {
       setError(errorMessage(err));
       setBusy(null);
     }
   }
 
+  async function refreshBilling() {
+    setBusy("refresh");
+    try {
+      await load();
+    } finally {
+      setBusy(null);
+    }
+  }
+
   const state = status?.subscriptionStatus ?? "loading";
   const isActive = Boolean(status?.entitled ?? ACTIVE_STATUSES.has(state));
+  const hasLiveSubscription = ACTIVE_STATUSES.has(state);
+  const canStartCheckout = Boolean(status?.checkoutReady && !hasLiveSubscription && busy === null);
+  const checkoutButtonLabel = hasLiveSubscription
+    ? "Subscription active"
+    : busy === "checkout"
+      ? "Opening Checkout..."
+      : "Start subscription";
 
   return (
     <div>
       <PageHeader title="Billing" />
       {error && <p role="alert" className="alert">{error}</p>}
+      {checkoutResult && (
+        <section
+          role="status"
+          className={`alert billing-return ${checkoutResult.kind === "success" ? "info" : "warn"}`}
+        >
+          <div>
+            <strong>{checkoutResult.title}</strong>
+            <p>{checkoutResult.detail}</p>
+          </div>
+          <div className="billing-return-actions">
+            <button onClick={refreshBilling} disabled={busy !== null}>
+              {busy === "refresh" ? "Refreshing..." : "Refresh billing status"}
+            </button>
+          </div>
+        </section>
+      )}
 
       <section className="billing-hero">
         <div>
@@ -130,9 +169,14 @@ export function BillingPage() {
             <div><dt>Renews</dt><dd>{formatDate(status?.currentPeriodEnd)}</dd></div>
             <div><dt>Cancel at period end</dt><dd>{status?.cancelAtPeriodEnd ? "yes" : "no"}</dd></div>
           </dl>
-          <button onClick={openCheckout} disabled={!status?.checkoutReady || busy !== null}>
-            {busy === "checkout" ? "Opening Checkout..." : "Start subscription"}
+          <button onClick={openCheckout} disabled={!canStartCheckout}>
+            {checkoutButtonLabel}
           </button>
+          {hasLiveSubscription && (
+            <p className="muted compact-note">
+              Use the Customer Portal to change payment method or manage the existing subscription.
+            </p>
+          )}
         </section>
 
         <section className="card billing-panel">
@@ -205,6 +249,24 @@ function ReadinessItem({ ready, label }: { ready: boolean; label: string }) {
       {label}
     </li>
   );
+}
+
+function checkoutReturn(value: string | null): { kind: "success" | "cancel"; title: string; detail: string } | null {
+  if (value === "success") {
+    return {
+      kind: "success",
+      title: "Checkout returned successfully",
+      detail: "Stripe accepted the Checkout return. Refresh after the webhook arrives to confirm the tenant subscription state.",
+    };
+  }
+  if (value === "cancel") {
+    return {
+      kind: "cancel",
+      title: "Checkout was canceled",
+      detail: "No subscription changes were applied. Start a new Checkout session when the tenant is ready.",
+    };
+  }
+  return null;
 }
 
 function formatDate(value: string | null | undefined): string {

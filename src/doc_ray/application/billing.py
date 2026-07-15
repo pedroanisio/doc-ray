@@ -308,6 +308,13 @@ async def create_checkout_session(
     urls = configured_checkout_urls(cfg, success_url=success_url, cancel_url=cancel_url)
     stripe = transport or stripe_transport_from_config(cfg)
     tenant_id = await billing_store.current_tenant_id(conn)
+    status = await billing_store.get_billing_status(conn, tenant_id)
+    subscription_status = str(status.get("subscription_status") or "none")
+    if subscription_status in ENTITLED_SUBSCRIPTION_STATUSES:
+        raise BillingConfigurationError(
+            "tenant already has an "
+            f"{subscription_status} Stripe subscription; use the billing portal"
+        )
     account = await billing_store.get_billing_account(conn, tenant_id)
     customer_id = account.get("stripe_customer_id") if account else None
     if not customer_id:

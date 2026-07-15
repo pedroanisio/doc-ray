@@ -137,6 +137,23 @@ table.grid th { color: var(--muted); font-weight: 500; font-size: 0.78rem; text-
 .billing-state small { color: var(--muted); }
 .billing-state.good { border-color: rgba(46, 204, 113, 0.6); }
 .billing-state.attention { border-color: rgba(245, 166, 35, 0.65); }
+.billing-return {
+  align-items: center;
+  display: flex;
+  gap: 1rem;
+  justify-content: space-between;
+  margin-bottom: 1rem;
+}
+.billing-return strong {
+  display: block;
+  margin-bottom: 0.2rem;
+}
+.billing-return p {
+  margin: 0;
+}
+.billing-return-actions {
+  flex: 0 0 auto;
+}
 .billing-grid {
   display: grid;
   gap: 1rem;
@@ -215,5 +232,8 @@ table.grid th { color: var(--muted); font-weight: 500; font-size: 0.78rem; text-
 
 @media (max-width: 760px) {
   .billing-hero { grid-template-columns: 1fr; }
+  .billing-return { align-items: stretch; flex-direction: column; }
+  .billing-return-actions { flex: 1 1 auto; }
+  .billing-return-actions button { width: 100%; }
   .detail-list div { grid-template-columns: 1fr; gap: 0.25rem; }
 }

@@ -144,9 +144,19 @@ describe("LoginPage", () => {
 });
 
 describe("BillingPage", () => {
-  it("renders the live billing status and payment actions", async () => {
-    const fetchImpl = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+  function billingFetch(statusOverrides: Record<string, unknown> = {}) {
+    return vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
       const body = JSON.parse(String(init?.body ?? "{}"));
+      if (String(body.query).includes("createBillingCheckoutSession")) {
+        return jsonResponse({
+          data: { createBillingCheckoutSession: { url: "https://checkout.stripe.test/hosted" } },
+        });
+      }
+      if (String(body.query).includes("createBillingPortalSession")) {
+        return jsonResponse({
+          data: { createBillingPortalSession: { url: "https://billing.stripe.test/hosted" } },
+        });
+      }
       if (String(body.query).includes("billingEvents")) {
         return jsonResponse({
           data: {
@@ -197,10 +207,15 @@ describe("BillingPage", () => {
             enforcementEnabled: true,
             entitled: true,
             entitlementReason: "subscription is active",
+            ...statusOverrides,
           },
         },
       });
     }) as unknown as typeof fetch;
+  }
+
+  it("renders the live billing status and payment actions", async () => {
+    const fetchImpl = billingFetch();
     const services = servicesWithFetch(fetchImpl);
 
     render(
@@ -219,7 +234,128 @@ describe("BillingPage", () => {
     expect(screen.getAllByText("subscription is active")).toHaveLength(2);
     expect(await screen.findByText("invoice.paid")).toBeInTheDocument();
     expect(screen.getByText(/evt_invoice_1/)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /start subscription/i })).toBeEnabled();
+    expect(screen.getByRole("button", { name: /subscription active/i })).toBeDisabled();
+    expect(screen.getByText(/Use the Customer Portal/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /manage payment method/i })).toBeEnabled();
+  });
+
+  it("keeps Checkout available when no live subscription exists", async () => {
+    const fetchImpl = billingFetch({
+      stripeCustomerId: null,
+      stripeSubscriptionId: null,
+      subscriptionStatus: "none",
+      currentPeriodEnd: null,
+      latestInvoiceId: null,
+      checkoutSessionId: null,
+      entitled: false,
+      entitlementReason: "subscription is none",
+    });
+    const services = servicesWithFetch(fetchImpl);
+
+    render(
+      <ServicesProvider services={services}>
+        <MemoryRouter>
+          <BillingPage />
+        </MemoryRouter>
+      </ServicesProvider>,
+    );
+
+    expect(await screen.findByText("Current tenant")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /start subscription/i })).toBeEnabled();
+    expect(screen.getByRole("button", { name: /manage payment method/i })).toBeDisabled();
+  });
+
+  it("opens hosted Checkout from the Billing page action", async () => {
+    const fetchImpl = billingFetch({
+      stripeCustomerId: null,
+      stripeSubscriptionId: null,
+      subscriptionStatus: "none",
+      currentPeriodEnd: null,
+      latestInvoiceId: null,
+      checkoutSessionId: null,
+      entitled: false,
+      entitlementReason: "subscription is none",
+    });
+    const services = servicesWithFetch(fetchImpl);
+    const redirectToHostedUrl = vi.fn();
+
+    render(
+      <ServicesProvider services={services}>
+        <MemoryRouter>
+          <BillingPage redirectToHostedUrl={redirectToHostedUrl} />
+        </MemoryRouter>
+      </ServicesProvider>,
+    );
+
+    await userEvent.click(await screen.findByRole("button", { name: /start subscription/i }));
+
+    await waitFor(() =>
+      expect(redirectToHostedUrl).toHaveBeenCalledWith("https://checkout.stripe.test/hosted"),
+    );
+    const mutationCall = (fetchImpl as unknown as ReturnType<typeof vi.fn>).mock.calls.find(
+      ([, init]) => String(init?.body ?? "").includes("createBillingCheckoutSession"),
+    );
+    expect(mutationCall).toBeDefined();
+  });
+
+  it("opens hosted Customer Portal from the Billing page action", async () => {
+    const fetchImpl = billingFetch();
+    const services = servicesWithFetch(fetchImpl);
+    const redirectToHostedUrl = vi.fn();
+
+    render(
+      <ServicesProvider services={services}>
+        <MemoryRouter>
+          <BillingPage redirectToHostedUrl={redirectToHostedUrl} />
+        </MemoryRouter>
+      </ServicesProvider>,
+    );
+
+    await userEvent.click(await screen.findByRole("button", { name: /manage payment method/i }));
+
+    await waitFor(() =>
+      expect(redirectToHostedUrl).toHaveBeenCalledWith("https://billing.stripe.test/hosted"),
+    );
+    const mutationCall = (fetchImpl as unknown as ReturnType<typeof vi.fn>).mock.calls.find(
+      ([, init]) => String(init?.body ?? "").includes("createBillingPortalSession"),
+    );
+    expect(mutationCall).toBeDefined();
+  });
+
+  it("surfaces a Checkout success return and refreshes billing state", async () => {
+    const fetchImpl = billingFetch();
+    const services = servicesWithFetch(fetchImpl);
+
+    render(
+      <ServicesProvider services={services}>
+        <MemoryRouter initialEntries={["/billing?checkout=success"]}>
+          <BillingPage />
+        </MemoryRouter>
+      </ServicesProvider>,
+    );
+
+    expect(await screen.findByText("Checkout returned successfully")).toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent(/webhook arrives/i);
+    await waitFor(() => expect((fetchImpl as unknown as ReturnType<typeof vi.fn>).mock.calls).toHaveLength(2));
+
+    await userEvent.click(screen.getByRole("button", { name: /refresh billing status/i }));
+
+    await waitFor(() => expect((fetchImpl as unknown as ReturnType<typeof vi.fn>).mock.calls).toHaveLength(4));
+  });
+
+  it("surfaces a Checkout cancellation return without implying payment changes", async () => {
+    const fetchImpl = billingFetch();
+    const services = servicesWithFetch(fetchImpl);
+
+    render(
+      <ServicesProvider services={services}>
+        <MemoryRouter initialEntries={["/billing?checkout=cancel"]}>
+          <BillingPage />
+        </MemoryRouter>
+      </ServicesProvider>,
+    );
+
+    expect(await screen.findByText("Checkout was canceled")).toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent(/No subscription changes were applied/i);
   });
 });

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import hmac
+import json
 import time
 from dataclasses import replace
 from hashlib import sha256
@@ -12,9 +13,11 @@ from typing import Any
 
 import _itdb
 from _mutations_common import WRITE_PRINCIPAL, _aconn_as
+from fastapi.testclient import TestClient
 
 from doc_ray.application import billing
 from doc_ray.config import Config
+from doc_ray.entrypoints.api.app import create_app
 from doc_ray.entrypoints.api.context import RequestContext
 from doc_ray.entrypoints.api.loaders import Loaders
 from doc_ray.entrypoints.api.schema import build_schema
@@ -116,6 +119,175 @@ def test_verify_stripe_signature_rejects_tampered_payload():
         raise AssertionError("tampered payload was accepted")
 
 
+def test_stripe_webhook_route_verifies_signature_and_persists_event(pg):
+    conn, _created = pg
+    tenant_id = _apply_billing_migration(conn)
+    event = {
+        "id": "evt_route_checkout_1",
+        "type": "checkout.session.completed",
+        "livemode": False,
+        "data": {
+            "object": {
+                "id": "cs_route_1",
+                "customer": "cus_route_1",
+                "subscription": "sub_route_1",
+                "client_reference_id": tenant_id,
+                "metadata": {"price_id": "price_test_monthly"},
+                "customer_details": {"email": "route@example.com"},
+            }
+        },
+    }
+    payload = json.dumps(event, separators=(",", ":"), sort_keys=True).encode()
+    header = _signed_header(payload, "whsec_test", int(time.time()))
+    bad_header = _signed_header(b'{"id":"evt_route_checkout_1"}', "whsec_test", int(time.time()))
+    app = create_app(_cfg())
+
+    try:
+        with TestClient(app) as client:
+            rejected = client.post(
+                "/stripe/webhook",
+                content=payload,
+                headers={"stripe-signature": bad_header},
+            )
+            assert rejected.status_code == 400
+            accepted = client.post(
+                "/stripe/webhook",
+                content=payload,
+                headers={"stripe-signature": header},
+            )
+            assert accepted.status_code == 200
+            assert accepted.json() == {"received": True, "processed": True}
+            duplicate = client.post(
+                "/stripe/webhook",
+                content=payload,
+                headers={"stripe-signature": header},
+            )
+            assert duplicate.status_code == 200
+            assert duplicate.json() == {"received": True, "processed": False}
+
+        row = conn.execute(
+            """
+            SELECT s.status, s.checkout_session_id, s.stripe_subscription_id,
+                   a.stripe_customer_id, a.billing_email
+            FROM tenant_subscriptions s
+            JOIN tenant_billing_accounts a ON a.tenant_id = s.tenant_id
+            WHERE s.tenant_id = %s
+            """,
+            (tenant_id,),
+        ).fetchone()
+        assert row["status"] == "checkout_completed"
+        assert row["checkout_session_id"] == "cs_route_1"
+        assert row["stripe_subscription_id"] == "sub_route_1"
+        assert row["stripe_customer_id"] == "cus_route_1"
+        assert row["billing_email"] == "route@example.com"
+        event_row = conn.execute(
+            """
+            SELECT processed_at IS NOT NULL AS processed
+            FROM stripe_webhook_events
+            WHERE stripe_event_id = 'evt_route_checkout_1'
+            """
+        ).fetchone()
+        assert event_row["processed"] is True
+    finally:
+        conn.execute("DELETE FROM tenant_subscriptions WHERE tenant_id = %s", (tenant_id,))
+        conn.execute("DELETE FROM tenant_billing_accounts WHERE tenant_id = %s", (tenant_id,))
+        conn.execute(
+            "DELETE FROM stripe_webhook_events WHERE stripe_event_id = 'evt_route_checkout_1'"
+        )
+
+
+def test_billing_graphql_mutations_create_checkout_and_portal_sessions(pg, monkeypatch):
+    conn, _created = pg
+    tenant_id = _apply_billing_migration(conn)
+    stripe_calls: list[tuple[str, dict[str, str]]] = []
+
+    async def fake_stripe_post(
+        self: billing.StripeRestTransport, path: str, form: dict[str, str]
+    ) -> dict[str, Any]:
+        stripe_calls.append((path, form))
+        if path == "/customers":
+            return {"id": "cus_graphql_1"}
+        if path == "/checkout/sessions":
+            return {"id": "cs_graphql_1", "url": "https://checkout.stripe.test/graphql"}
+        if path == "/billing_portal/sessions":
+            return {"id": "bps_graphql_1", "url": "https://billing.stripe.test/graphql"}
+        raise AssertionError(f"unexpected Stripe path {path}")
+
+    monkeypatch.setattr(billing.StripeRestTransport, "_post", fake_stripe_post)
+    cfg = replace(
+        _cfg(),
+        api_tokens={
+            "billing-admin-token": (WRITE_PRINCIPAL.principal_id, frozenset({"read", "write"}))
+        },
+        api_allow_anonymous=False,
+    )
+    app = create_app(cfg)
+    headers = {"authorization": "Bearer billing-admin-token"}
+
+    try:
+        with TestClient(app) as client:
+            checkout = client.post(
+                "/graphql",
+                json={
+                    "query": """
+                    mutation {
+                      createBillingCheckoutSession {
+                        url
+                      }
+                    }
+                    """
+                },
+                headers=headers,
+            )
+            assert checkout.status_code == 200
+            checkout_body = checkout.json()
+            assert checkout_body.get("errors") is None
+            assert checkout_body["data"]["createBillingCheckoutSession"]["url"] == (
+                "https://checkout.stripe.test/graphql"
+            )
+
+            portal = client.post(
+                "/graphql",
+                json={
+                    "query": """
+                    mutation {
+                      createBillingPortalSession {
+                        url
+                      }
+                    }
+                    """
+                },
+                headers=headers,
+            )
+            assert portal.status_code == 200
+            portal_body = portal.json()
+            assert portal_body.get("errors") is None
+            assert portal_body["data"]["createBillingPortalSession"]["url"] == (
+                "https://billing.stripe.test/graphql"
+            )
+
+        customer_call = stripe_calls[0]
+        checkout_call = stripe_calls[1]
+        portal_call = stripe_calls[2]
+        assert customer_call == ("/customers", {
+            "name": f"doc-ray tenant {tenant_id}",
+            "metadata[tenant_id]": tenant_id,
+        })
+        assert checkout_call[0] == "/checkout/sessions"
+        assert checkout_call[1]["mode"] == "subscription"
+        assert checkout_call[1]["customer"] == "cus_graphql_1"
+        assert checkout_call[1]["client_reference_id"] == tenant_id
+        assert checkout_call[1]["subscription_data[metadata][tenant_id]"] == tenant_id
+        assert checkout_call[1]["subscription_data[metadata][price_id]"] == "price_test_monthly"
+        assert portal_call == (
+            "/billing_portal/sessions",
+            {"customer": "cus_graphql_1", "return_url": "https://app.example.com/billing"},
+        )
+    finally:
+        conn.execute("DELETE FROM tenant_subscriptions WHERE tenant_id = %s", (tenant_id,))
+        conn.execute("DELETE FROM tenant_billing_accounts WHERE tenant_id = %s", (tenant_id,))
+
+
 def test_checkout_session_creates_customer_and_graphql_status(pg):
     conn, _created = pg
     tenant_id = _apply_billing_migration(conn)
@@ -188,6 +360,44 @@ def test_checkout_session_creates_customer_and_graphql_status(pg):
 
     try:
         asyncio.run(check())
+    finally:
+        conn.execute("DELETE FROM tenant_subscriptions WHERE tenant_id = %s", (tenant_id,))
+        conn.execute("DELETE FROM tenant_billing_accounts WHERE tenant_id = %s", (tenant_id,))
+
+
+def test_checkout_session_rejects_duplicate_active_subscription(pg):
+    conn, _created = pg
+    tenant_id = _apply_billing_migration(conn)
+    fake = FakeStripe()
+    conn.execute(
+        """
+        INSERT INTO tenant_subscriptions
+            (tenant_id, stripe_customer_id, stripe_subscription_id, status)
+        VALUES (%s, 'cus_active_existing', 'sub_active_existing', 'active')
+        ON CONFLICT (tenant_id) DO UPDATE
+        SET stripe_customer_id = EXCLUDED.stripe_customer_id,
+            stripe_subscription_id = EXCLUDED.stripe_subscription_id,
+            status = EXCLUDED.status
+        """,
+        (tenant_id,),
+    )
+
+    async def check() -> None:
+        aconn = await _aconn_as(WRITE_PRINCIPAL.principal_id)
+        try:
+            try:
+                await billing.create_checkout_session(aconn, _cfg(), transport=fake)
+            except billing.BillingConfigurationError as exc:
+                assert "already has an active Stripe subscription" in str(exc)
+            else:  # pragma: no cover - defensive
+                raise AssertionError("active tenant was allowed to start duplicate Checkout")
+        finally:
+            await aconn.close()
+
+    try:
+        asyncio.run(check())
+        assert fake.created_customers == []
+        assert fake.checkout_calls == []
     finally:
         conn.execute("DELETE FROM tenant_subscriptions WHERE tenant_id = %s", (tenant_id,))
         conn.execute("DELETE FROM tenant_billing_accounts WHERE tenant_id = %s", (tenant_id,))
