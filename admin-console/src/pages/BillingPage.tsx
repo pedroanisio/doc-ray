@@ -125,7 +125,14 @@ export function BillingPage({ redirectToHostedUrl = (url) => window.location.ass
 
   return (
     <div>
-      <PageHeader title="Billing" />
+      <PageHeader
+        title="Billing"
+        actions={
+          <button onClick={refreshBilling} disabled={busy !== null || !status}>
+            {busy === "refresh" ? "Refreshing..." : "Refresh billing status"}
+          </button>
+        }
+      />
       {error && <p role="alert" className="alert">{error}</p>}
       {checkoutResult && (
         <section
@@ -135,11 +142,6 @@ export function BillingPage({ redirectToHostedUrl = (url) => window.location.ass
           <div>
             <strong>{checkoutResult.title}</strong>
             <p>{checkoutResult.detail}</p>
-          </div>
-          <div className="billing-return-actions">
-            <button onClick={refreshBilling} disabled={busy !== null}>
-              {busy === "refresh" ? "Refreshing..." : "Refresh billing status"}
-            </button>
           </div>
         </section>
       )}

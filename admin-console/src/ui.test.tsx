@@ -454,6 +454,30 @@ describe("BillingPage", () => {
     });
   });
 
+  it("refreshes billing status from the page action", async () => {
+    const fetchImpl = billingFetch();
+    const services = servicesWithFetch(fetchImpl);
+
+    render(
+      <ServicesProvider services={services}>
+        <MemoryRouter>
+          <BillingPage />
+        </MemoryRouter>
+      </ServicesProvider>,
+    );
+
+    const refresh = await screen.findByRole("button", { name: /refresh billing status/i });
+    await waitFor(() =>
+      expect((fetchImpl as unknown as ReturnType<typeof vi.fn>).mock.calls).toHaveLength(2),
+    );
+
+    await userEvent.click(refresh);
+
+    await waitFor(() =>
+      expect((fetchImpl as unknown as ReturnType<typeof vi.fn>).mock.calls).toHaveLength(4),
+    );
+  });
+
   it("surfaces a Checkout success return and refreshes billing state", async () => {
     const fetchImpl = billingFetch();
     const services = servicesWithFetch(fetchImpl);
