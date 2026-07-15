@@ -464,6 +464,18 @@ def test_cloudflared_tunnel_publishes_no_host_ports():
     assert svc["restart"] == "unless-stopped"
 
 
+def test_ollama_resolver_server_is_not_publicly_exposed():
+    """The local Ollama model server must bind loopback only — an open inference
+    endpoint on the public interface is unauthenticated model access. Also assert
+    the overlay routes the workers' resolver to ollama (not a stray backend).
+    """
+    cfg = _compose_tolerant("docker-compose.ollama.yml")["services"]
+    for mapping in cfg["ollama"].get("ports", []):
+        assert str(mapping).startswith("127.0.0.1:"), mapping
+    for w in ("worker", "worker-fast"):
+        assert "ollama" in cfg[w]["environment"]["DOCRAY_RESOLVER_BACKEND"], w
+
+
 def test_pgadmin_admin_gui_binds_to_loopback_only():
     """pgAdmin exposes an admin surface; it must never publish beyond 127.0.0.1
     (access is via an SSH/VS Code tunnel).

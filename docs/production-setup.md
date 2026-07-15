@@ -8,7 +8,7 @@ disclaimer:
   date: "2026-07-15"
 ---
 
-# Production Setup — Managed Postgres + Spaces
+# Production Setup — Managed Postgres + Spaces + Cloudflare Tunnel
 
 ## Disclaimer
 
@@ -16,26 +16,35 @@ This work is subject to the methodological caveats and commitments described in 
 > No statement or premise not backed by a real logical definition or verifiable reference should be taken for granted.
 
 This runbook stands up a production doc-ray on **managed** DigitalOcean
-services: a **Managed PostgreSQL** cluster for the database, **Spaces** for the
-content-addressed blob store, and a **Droplet** running only the stateless app
-services (GraphQL API + worker). It complements
-[`deploy-digitalocean.md`](deploy-digitalocean.md), which runs Postgres and MinIO
-as containers on the Droplet — use *this* guide when you want the database and
-object storage managed rather than self-hosted.
+services — a **Managed PostgreSQL** cluster, **Spaces** for the content-addressed
+blob store, and a **Droplet** running only the stateless app services — reached
+through a **Cloudflare Tunnel** so the origin publishes **no public web ports**.
+For the self-hosted alternative (Postgres + MinIO as containers on the Droplet),
+run the base [`docker-compose.yml`](../docker-compose.yml) directly; use *this*
+guide when you want the data and object storage managed.
 
 ```
-                         ┌──────────────────────────┐
-   HTTPS (Caddy/nginx) ─►│  Droplet                 │
-                         │   api + worker           │
-                         │   (stateless, no DB/blob)│
-                         └──────┬─────────────┬─────┘
-             DATABASE_URL (TLS) │             │ S3_ENDPOINT (TLS)
-                                ▼             ▼
-              ┌────────────────────────┐  ┌───────────────────────┐
-              │ DO Managed PostgreSQL  │  │ DO Spaces (S3)        │
-              │ pgvector · TLS · PITR  │  │ content-addressed blobs│
-              └────────────────────────┘  └───────────────────────┘
+                       Internet
+                          │  HTTPS — TLS terminates at the Cloudflare edge
+                          ▼
+                     Cloudflare  ── doc-ray.com (proxied DNS + Tunnel ingress)
+                          │  outbound-only tunnel (QUIC); NO origin ports open
+                          ▼
+        ┌──────────────────────────────────────────┐
+        │  Droplet (all app ports bind 127.0.0.1)   │
+        │   cloudflared ─► webapp (gunicorn)        │
+        │   api (uvicorn) · worker · backup-scheduler│
+        └──────────┬────────────────────┬───────────┘
+        DATABASE_URL (TLS)         S3_ENDPOINT (TLS)
+                   ▼                     ▼
+        ┌────────────────────────┐  ┌───────────────────────┐
+        │ DO Managed PostgreSQL  │  │ DO Spaces (S3)        │
+        │ pgvector · TLS · PITR  │  │ content-addressed blobs│
+        └────────────────────────┘  └───────────────────────┘
 ```
+
+The whole flow is driven by `make` targets that load a dedicated **`.env.prod`**
+and layer the production overlay — never the development `.env`.
 
 ---
 
@@ -61,199 +70,268 @@ which holds the pgvector HNSW index plus the hot B-trees resident. A
 high-availability standby node doubles the monthly cost — add it only if an
 uptime SLA requires it (DO's automated backups + PITR already protect the data).
 
+**Postgres version.** doc-ray is built and tested on **PostgreSQL 16** (the
+compose image pins `pgvector/pgvector:pg16` at an immutable digest, and the
+migrations/docs target 16). A newer major runs — the reference deployment is on
+**PostgreSQL 18** — but it is **not in the tested matrix**; treat it as
+unvalidated and watch the migration + health output on first bring-up.
+
 ---
 
 ## Prerequisites
 
-- The Managed PostgreSQL cluster is created (this guide assumes **PostgreSQL 16**,
-  `sslmode=require`, region **nyc3**). Have the connection details ready:
-  `host`, `port` (direct: `25060`), `database` (`defaultdb`), admin user
-  (`doadmin`), and password.
-- A Droplet (or DO App Platform service) to run the app — see
-  [`deploy-digitalocean.md`](deploy-digitalocean.md) steps 1–5 for the base
-  Droplet, Docker, firewall, and checkout. Do **not** start the `postgres` or
-  `minio` containers on it.
-- `psql` available locally or on the Droplet for one-time cluster setup.
+- **Managed PostgreSQL cluster** created (`sslmode=require`, region **nyc3**).
+  Have ready: `host`, direct `port` (`25060`), `defaultdb`, admin `doadmin`, and
+  the admin password. Prefer PostgreSQL 16 (see the sizing note above).
+- **A Droplet** with Docker installed, the firewall limited to SSH, and this repo
+  checked out. Do **not** start the `postgres`/`minio` containers on it (the prod
+  overlay gates them out).
+- **A Cloudflare-managed domain** (e.g. `doc-ray.com`) for the Tunnel ingress.
+- `psql` for one-time cluster setup — or run it from a throwaway container:
+  `docker run --rm -e PGPASSWORD -it postgres:16 psql …` (no host install needed).
+
+Everything below assumes you are in the checkout on the Droplet.
 
 ---
 
 ## Step 1 — Prepare the Managed Postgres cluster
 
-Connect as the admin user and create a **dedicated database and least-privilege
-role** for doc-ray (do not run the app as `doadmin`), then enable pgvector.
+Create a **dedicated database and least-privilege role** (never run the app as
+`doadmin`), then enable pgvector. `docray` should **not** have `CREATEDB`, so the
+database is created by `doadmin`.
 
 ```bash
-ADMIN_URL="postgresql://doadmin:<ADMIN_PW>@<CLUSTER_HOST>:25060/defaultdb?sslmode=require"
+ADMIN="postgresql://doadmin:<ADMIN_PW>@<CLUSTER_HOST>:25060/defaultdb?sslmode=require"
 
-# 1. Dedicated role + database
-psql "$ADMIN_URL" <<'SQL'
+psql "$ADMIN" <<'SQL'
 CREATE ROLE docray LOGIN PASSWORD '<STRONG_APP_PASSWORD>';
 CREATE DATABASE docray OWNER docray;
 SQL
 
-# 2. Enable pgvector INSIDE the docray database (doc-ray requires it)
+# pgvector must be enabled INSIDE the docray database (doc-ray requires it):
 psql "postgresql://doadmin:<ADMIN_PW>@<CLUSTER_HOST>:25060/docray?sslmode=require" \
   -c "CREATE EXTENSION IF NOT EXISTS vector;"
 ```
 
-> DigitalOcean Managed PostgreSQL supports the `vector` extension at no extra
-> cost. If `CREATE EXTENSION vector` errors, enable it from the cluster's
-> **Settings → Extensions** panel first.
+> DO Managed PostgreSQL ships the `vector` extension at no extra cost. If
+> `CREATE EXTENSION vector` errors, enable it from **Settings → Extensions** first.
 
-**Trusted sources (firewall):** in the cluster's **Settings → Trusted Sources**,
-restrict inbound to the Droplet (or its VPC) only. Prefer the **VPC network**
-endpoint when the Droplet is in the same region/VPC — traffic stays private and
-you avoid public-internet egress.
+**Trusted sources (firewall).** In **Settings → Trusted Sources**, restrict
+inbound to the Droplet (or its VPC). Prefer the **VPC endpoint** when the Droplet
+shares the cluster's VPC — traffic stays private. If the Droplet is in a
+different VPC, use the public endpoint and add its IP (note: an **ephemeral GPU
+box's public IP changes per respawn**, so place GPU droplets in the DB's VPC).
 
-**Connection pooling — use the direct endpoint.** doc-ray already pools
-connections **client-side** (`psycopg_pool`, `DOCRAY_API_POOL_MAX_SIZE`), and its
-backend footprint is small (API pool + worker ≪ the ~97 backends an 8 GB cluster
-allows). Point `DATABASE_URL` at the **direct** port `25060`. Only introduce
-DigitalOcean's PgBouncer pool if connection pressure later demands it — and if you
-do, use **session** mode, because `psycopg3` auto-prepares statements and
-transaction-mode pooling breaks prepared statements unless the PgBouncer build
-supports named prepared statements.
+**Connection pooling — use the direct endpoint.** doc-ray pools client-side
+(`psycopg_pool`, `DOCRAY_API_POOL_MAX_SIZE`); its backend footprint is small
+(API pool + workers ≪ the ~97 backends an 8 GB cluster allows). Point
+`DATABASE_URL` at the **direct** port `25060`. Only add DO's PgBouncer pool under
+real connection pressure, and then in **session** mode (`psycopg3` auto-prepares
+statements; transaction-mode pooling breaks them).
 
 ## Step 2 — Provision Spaces as the blob store
 
-Original document bytes are content-addressed in object storage. In production use
-a **dedicated Spaces bucket** (separate from any source/ingest bucket).
+1. Create a **dedicated bucket**, e.g. `doc-ray-prd`, **File Listing: Restricted**.
+2. Create a **bucket-scoped access key** (Applications & API → Spaces Keys),
+   Read/Write, scoped to that bucket. Copy the secret once.
+3. Use the **regional endpoint** — `https://nyc3.digitaloceanspaces.com` — with
+   the bucket as a **separate** `S3_BUCKET` value. Do **not** use the
+   bucket-in-hostname form (`doc-ray-prd.nyc3.digitaloceanspaces.com`) as the
+   endpoint; that double-prefixes the bucket. A bucket-scoped key cannot list
+   *all* buckets — that "Access Denied" on a global `ls` is expected and correct.
 
-1. Create a Spaces bucket, e.g. `docray-prod-<region>`, with **File Listing:
-   Restricted**.
-2. Create a **bucket-scoped access key** (Applications & API → Spaces Keys →
-   Create Access Key), Read/Write, scoped to that bucket. Copy the secret once.
-3. Note the S3 endpoint for the region, e.g. `https://nyc3.digitaloceanspaces.com`.
+## Step 3 — Production environment file (`.env.prod`)
 
-## Step 3 — Production environment file
-
-On the Droplet, in the checkout, write `.env` (mode `600`). Point the database and
-object-store settings at the managed services; leave the app-tuning defaults.
+Production has its **own** env file, never the development `.env`. Copy the
+template and fill it in:
 
 ```bash
-cat > .env <<'EOF'
-# --- Managed Postgres (direct endpoint, TLS required) ---
+cp .env.prod.example .env.prod
+chmod 600 .env.prod
+$EDITOR .env.prod
+```
+
+The `make prod-*` targets load it with `docker compose --env-file .env.prod …`,
+which **replaces** `.env` for interpolation — so `.env.prod` holds only the
+production-specific values; everything else inherits its base-compose default.
+Keep development values in `.env`; never mix the two (a regression test enforces
+that prod uses `.env.prod`).
+
+Minimum production values (`.env.prod.example` documents the full set):
+
+```bash
+# Managed Postgres (direct endpoint, TLS)
 DATABASE_URL=postgresql://docray:<STRONG_APP_PASSWORD>@<CLUSTER_HOST>:25060/docray?sslmode=require
-DOCRAY_API_POOL_MIN_SIZE=1
-DOCRAY_API_POOL_MAX_SIZE=10
-DOCRAY_API_POOL_TIMEOUT=10
-DOCRAY_API_STATEMENT_TIMEOUT_MS=15000
+# The base compose interpolates ${POSTGRES_PASSWORD} even though the local
+# postgres container is gated out in prod — give it any non-default value.
+POSTGRES_PASSWORD=<any-non-default-value>
 
-# --- Spaces (managed blob store) ---
+# Spaces
 S3_ENDPOINT=https://nyc3.digitaloceanspaces.com
-S3_BUCKET=docray-prod-nyc3
-S3_ACCESS_KEY=<SPACES_KEY_ID>
+S3_BUCKET=doc-ray-prd
+S3_ACCESS_KEY=<SPACES_KEY>
 S3_SECRET_KEY=<SPACES_SECRET>
-# Optional: request server-side encryption on writes
-# S3_SERVER_SIDE_ENCRYPTION=AES256
+S3_REGION=nyc3
+S3_ALLOW_INSECURE_ENDPOINT=0
 
-# --- API auth (fail closed in production) ---
+# API — fail closed
 DOCRAY_API_ALLOW_ANONYMOUS=false
-DOCRAY_API_TOKENS=            # set in Step 5 after the admin principal exists
-DOCRAY_API_DEBUG=             # leave UNSET in production (no introspection)
+DOCRAY_API_DEBUG=
+DOCRAY_API_JWT_SECRET=<openssl rand -hex 32>
 
-# --- App-native backups (optional; DO PITR is the primary safety net) ---
-DOCRAY_BACKUP_SCHEDULE_SECONDS=86400
-DOCRAY_BACKUP_RETENTION_COUNT=7
-DOCRAY_BACKUP_RETENTION_DAYS=30
-EOF
-chmod 600 .env
+# Browser auth — require login (no open corpus)
+DOCRAY_AUTH_LOCAL_ENABLED=true
+DOCRAY_AUTH_REGISTRATION_ENABLED=true
+DOCRAY_WEBAPP_REQUIRE_AUTH=true
+DOCRAY_WEBAPP_SECRET_KEY=<openssl rand -hex 32>   # REQUIRED: shared across gunicorn workers
+DOCRAY_WEBAPP_SESSION_COOKIE_SECURE=true
+DOCRAY_PUBLIC_BASE_URL=https://doc-ray.com        # verification-email links
+
+# SMTP — required for registration (else /auth/register fail-closes 503)
+DOCRAY_SMTP_HOST=
+DOCRAY_SMTP_FROM=noreply@doc-ray.com
+
+# Cloudflare Tunnel (Step 6)
+CLOUDFLARE_TUNNEL_TOKEN=
+
+# Worker pool
+DOCRAY_WORKERS=3
 ```
 
 Notes:
-- `S3_ENDPOINT` is `https://` — no `S3_ALLOW_INSECURE_ENDPOINT` needed (that flag
-  is only for local plaintext MinIO).
-- doc-ray's backup blobs land in `S3_BUCKET` too; DO Spaces has no per-object
-  listing cost, so this is fine.
+- `DOCRAY_WEBAPP_SECRET_KEY` is **mandatory** in production: the webapp runs
+  under multiple gunicorn workers, and without a shared key each worker signs
+  session/CSRF cookies differently and requests fail across workers.
+- `S3_ENDPOINT` is `https://`, so `S3_ALLOW_INSECURE_ENDPOINT=0` (that flag is
+  only for local plaintext MinIO).
 
-## Step 4 — Apply the schema and load data
+## Step 4 — Apply the schema
 
-All **container** commands use the production overlay
-[`docker-compose.prod.yml`](../docker-compose.prod.yml): the base compose runs a
-local Postgres + MinIO and hardcodes their URLs over `.env`, so the overlay
-repoints every app service at the managed cluster + Spaces and severs the
-dependency on those local containers (which then never start). Keep a dummy
-`POSTGRES_PASSWORD=<any>` line in `.env` — Compose interpolates the base file at
-load even though that container is unused.
-
-Run the migration runner against the managed cluster (creates all tables,
-indexes, triggers), then load the corpus.
+The prod overlay [`docker-compose.prod.yml`](../docker-compose.prod.yml) repoints
+every app service at the managed cluster + Spaces and **gates the local
+Postgres/MinIO out** (parked on a never-enabled `local-infra` profile), so a bare
+`up` can never start a stray local database.
 
 ```bash
-set -a; source .env; set +a          # DATABASE_URL, S3_*, dummy POSTGRES_PASSWORD
-
-# Host CLI reads DATABASE_URL from .env directly (no compose needed):
-python -m doc_ray.entrypoints.migrate            # re-run should report "0 applied"
-#   containerised equivalent:
-#   docker compose -f docker-compose.yml -f docker-compose.prod.yml run --rm migrate
+make prod-migrate     # docker compose --env-file .env.prod ... run --rm migrate
+make prod-migrate     # re-run should report "0 applied"
 ```
 
-Load the corpus by whichever fits:
+Then load the corpus by whichever fits:
 - **Fresh ingest from Spaces** — idempotent, content-addressed
-  (`scripts/ingest_from_spaces.py`); re-runnable and safe.
-- **Restore a snapshot** — `createBackup` on the old database, then `restoreBackup`
-  on production (schema versions must match).
-- **`pg_dump`/`pg_restore`** — or DigitalOcean's *"Migrate from an existing
-  PostgreSQL database"* flow for a one-shot cutover.
+  (`scripts/ingest_from_spaces.py`).
+- **Restore a snapshot** — `createBackup` on the old DB, `restoreBackup` on prod
+  (schema versions must match).
+- **`pg_dump`/`pg_restore`** — or DO's *"Migrate from an existing PostgreSQL
+  database"* flow for a one-shot cutover.
 
-## Step 5 — Start services, enable auth
-
-Start only the stateless services via the overlay — the local `postgres`/`minio`
-never start because the overlay severed their dependencies:
+## Step 5 — Start the production stack
 
 ```bash
-docker compose -f docker-compose.yml -f docker-compose.prod.yml \
-  up -d api worker worker-fast backup-scheduler
+make prod-up          # migrate, then: api + webapp + worker + worker-fast + backup-scheduler
 ```
 
-Create the admin token from the seeded `bootstrap-admin` principal and fail
-closed (mirrors [`deploy-digitalocean.md`](deploy-digitalocean.md) step 8):
+Production web tier (the base compose's dev servers are overridden in the prod
+overlay):
+- **webapp → gunicorn** (gthread workers) — `flask run`'s Werkzeug dev server is
+  never used in production.
+- **api → uvicorn** with a small worker pool.
+- Both bind **`127.0.0.1`** only — they are reached over the compose network
+  (webapp → `api:8000`) and externally only through the tunnel (Step 6). Raw
+  GraphQL is never published on a public port.
+
+## Step 6 — Cloudflare Tunnel ingress (public access)
+
+The tunnel dials **outbound** to Cloudflare, so `doc-ray.com` is served with
+**zero public ports** on the Droplet (SSH stays the only public surface). One-time
+setup in the **Cloudflare Zero Trust dashboard** (Networks → Tunnels):
+
+1. **Create a tunnel** (connector: Cloudflared), e.g. `doc-ray-prod`. Copy the
+   **token** — the `eyJ…` string only, not the whole install command.
+2. Put it in `.env.prod`: `CLOUDFLARE_TUNNEL_TOKEN=eyJ…`.
+3. **Public Hostname → Add:** Domain `doc-ray.com`, Service **HTTP** →
+   **`webapp:5001`** (the internal service name, not localhost). This also
+   **auto-creates the proxied DNS record** — routing does not work until this
+   step is done.
 
 ```bash
-ADMIN_PRINCIPAL_ID="$(psql "$DATABASE_URL" -Atc \
+make prod-tunnel      # docker compose --env-file .env.prod ... -f docker-compose.cloudflared.yml up -d cloudflared
+docker logs docray-cloudflared | grep -i "Registered tunnel connection"   # expect 4 connections
+```
+
+> **Not using Cloudflare?** `make prod-web` starts the bundled nginx TLS front
+> door (`0.0.0.0:80/443`) instead — supply real certificates in the `nginxcerts`
+> volume (nginx-certgen only issues a self-signed cert for bootstrap).
+
+## Step 7 — Seed the admin, then verify
+
+Create the admin token from the seeded `bootstrap-admin` principal and wire the
+webapp's write path to it:
+
+```bash
+DATABASE_URL="$(grep '^DATABASE_URL=' .env.prod | cut -d= -f2-)"
+ADMIN_ID="$(psql "$DATABASE_URL" -Atc \
   "SELECT id FROM principals WHERE display_name='bootstrap-admin';")"
 API_TOKEN="$(openssl rand -hex 32)"
-sed -i "s|^DOCRAY_API_TOKENS=.*|DOCRAY_API_TOKENS=$API_TOKEN=$ADMIN_PRINCIPAL_ID:read+write|" .env
-docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d api worker worker-fast backup-scheduler
+# add to .env.prod:
+#   DOCRAY_API_TOKENS=$API_TOKEN=$ADMIN_ID:read+write
+#   DOCRAY_WEBAPP_API_TOKEN=$API_TOKEN
+make prod-up          # re-apply with the tokens set
 printf 'Store this API token in your password manager: %s\n' "$API_TOKEN"
 ```
 
-Put HTTPS in front (Caddy or the bundled nginx) as in the base guide, and keep
-the API bound to loopback behind it.
-
-## Step 6 — Verify
+Verify end-to-end:
 
 ```bash
-curl -fsS http://127.0.0.1:8000/readyz          # expect "ready":true (DB + S3 reachable)
+curl -fsS http://127.0.0.1:8000/readyz            # "ready":true (DB + Spaces reachable)
 psql "$DATABASE_URL" -c "SELECT docray_schema_version();"
-python -m doc_ray.entrypoints.db_health         # instance health against the managed cluster
-python -m doc_ray.entrypoints.corpus_health     # document/job content health
+# instance health against the managed cluster (override the uvicorn entrypoint):
+docker compose --env-file .env.prod -f docker-compose.yml -f docker-compose.prod.yml \
+  run --rm --entrypoint python api -m doc_ray.entrypoints.db_health
+curl -I https://doc-ray.com                       # HTTP/2 302 -> /login (served via Cloudflare)
 ```
 
-`/readyz` returning `true` confirms the app reached both the managed database
-(over TLS) and Spaces. `db_health` reports size/connection pressure so you can
-watch the disk-headroom concern from Step 0.
+`REQUIRE_AUTH=true` means `doc-ray.com` lands on `/login`; until an admin exists
+(above) or self-service registration + SMTP is configured, the login page is the
+wall — this is the intended fail-closed posture.
 
 ---
 
 ## Operations
 
-- **Disk headroom.** Watch `db_health` (or DO's dashboard) for disk usage. The
-  32 GB → ~60 GB annotation growth means **resize disk to ~120 GiB before the
-  corpus finishes annotating.** Disk resizes are in place; do it early.
-- **Backups.** DigitalOcean provides automated daily backups + point-in-time
-  recovery on the managed cluster — this is the primary recovery path. doc-ray's
-  `backup-scheduler` produces portable, object-store-hosted snapshots on top;
-  keep it for portability, not durability.
-- **Connections.** If the API/worker ever exhaust backends, add DO's PgBouncer
-  pool in **session** mode (see Step 1) rather than raising doc-ray's pool.
-- **Read-only nodes.** Available once the cluster has ≥1 backup; useful later if
-  read (GraphQL) load grows — point a read replica at `ReadRepository` traffic.
-- **Secrets.** The app password and Spaces secret live only in `.env` (mode
-  `600`); rotate the Spaces key after any exposure.
-- **Batch GPU tier.** For heavy NLP annotation (transformer `en_core_web_trf`),
-  spin up an **ephemeral H200 GPU Droplet** that drains a batch of the shared job
-  queue and is then destroyed — see
-  [`gpu-batch-processing.md`](gpu-batch-processing.md). It connects to this same
-  managed Postgres + Spaces; the always-on `worker` handles the low-volume
-  remainder.
+**Make targets** (each loads `.env.prod`):
+
+| Target | Action |
+| --- | --- |
+| `make prod-migrate` | Apply migrations to the managed cluster |
+| `make prod-up` | Migrate, then start api + webapp + workers + backups |
+| `make prod-tunnel` | Start the Cloudflare Tunnel ingress (no public ports) |
+| `make prod-web` | Start the nginx TLS front door instead (public 80/443) |
+| `make prod-down` | Stop the managed stack (managed data is off-box; nothing wiped) |
+| `make gpu-up` | Start `DOCRAY_WORKERS` GPU annotate workers (adds the CDI overlay) |
+
+- **Disk headroom.** Watch `db_health` (or DO's dashboard). The 32 GB → ~60 GB
+  annotation growth means **resize disk to ~120 GiB before the corpus finishes
+  annotating.** Resizes are in place — do it early.
+- **Backups.** DO's automated daily backups + PITR are the primary recovery path;
+  doc-ray's `backup-scheduler` adds portable object-store snapshots (keep it for
+  portability, not durability).
+- **Connections.** If the API/workers ever exhaust backends, add DO's PgBouncer
+  pool in **session** mode (Step 1) rather than raising doc-ray's pool.
+- **Secrets.** App password, Spaces key, JWT/session secrets, and the tunnel token
+  live only in `.env.prod` (mode `600`, gitignored). Rotate the Spaces key and
+  tunnel token after any exposure.
+- **Local resolver (Ollama).** To run the frontier entity resolver on a local
+  model instead of the Anthropic API (no key, no per-call cost), layer the ollama
+  overlays and route the workers: **`make prod-ollama-up`**. Ollama runs on the
+  H200 (CDI reservation — needs the CDI spec from
+  [`scripts/provision_host.py`](../scripts/provision_host.py)) with the model kept
+  resident (`OLLAMA_KEEP_ALIVE=-1`); the identical PALS verification coerces a
+  weaker model's errors to ABSTAIN and routes them to review. Pick the model with
+  `DOCRAY_OLLAMA_MODEL`. The server binds loopback only — never public.
+- **Batch GPU tier.** For heavy transformer annotation (`en_core_web_trf`), spin
+  up an **ephemeral H200 GPU Droplet** that drains the shared job queue, then
+  destroy it — see [`gpu-batch-processing.md`](gpu-batch-processing.md). It
+  connects to this same managed Postgres + Spaces and runs `make gpu-up`; the
+  always-on `worker` handles the low-volume remainder. Bootstrap a fresh GPU box
+  with [`scripts/provision_host.py`](../scripts/provision_host.py).
