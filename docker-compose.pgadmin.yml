@@ -33,10 +33,11 @@ services:
       - "127.0.0.1:${PGADMIN_PORT:-5050}:80"
     volumes:
       - pgadmin-data:/var/lib/pgadmin
-      # Optional: pre-register the doc-ray server so you don't add it by hand.
-      # Copy pgadmin/servers.example.json to pgadmin/servers.json, set the host,
-      # then uncomment the next line (pgAdmin auto-imports it on first start):
-      # - ./pgadmin/servers.json:/pgadmin4/servers.json:ro
+      # Pre-registers the DO managed cluster on first start. pgadmin/servers.json
+      # is gitignored (operator-specific) — a fresh checkout must create it first:
+      #   cp pgadmin/servers.example.json pgadmin/servers.json  # then set Host
+      # The DB password is entered in pgAdmin on connect, never stored in the file.
+      - ./pgadmin/servers.json:/pgadmin4/servers.json:ro
     healthcheck:
       test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1:80/misc/ping || exit 1"]
       interval: 30s
