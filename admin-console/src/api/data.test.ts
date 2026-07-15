@@ -131,7 +131,11 @@ describe("billing module", () => {
           liveModeReady: true,
           missingConfiguration: [],
           configurationIssues: [],
-          requiredWebhookEvents: ["checkout.session.completed", "invoice.paid"],
+          requiredWebhookEvents: [
+            "checkout.session.completed",
+            "invoice.paid",
+            "invoice.payment_succeeded",
+          ],
           enforcementEnabled: true,
           entitled: true,
           entitlementReason: "subscription is active",
@@ -147,6 +151,7 @@ describe("billing module", () => {
     expect(body.query).toContain("requiredWebhookEvents");
     expect(body.query).toContain("configurationIssues");
     expect(body.query).toContain("entitlementReason");
+    expect(status.requiredWebhookEvents).toContain("invoice.payment_succeeded");
   });
 
   it("fetchBillingEvents unwraps recent Stripe payment activity", async () => {

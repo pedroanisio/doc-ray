@@ -204,6 +204,7 @@ describe("BillingPage", () => {
               "checkout.session.completed",
               "customer.subscription.updated",
               "invoice.paid",
+              "invoice.payment_succeeded",
             ],
             enforcementEnabled: true,
             entitled: true,
@@ -232,6 +233,7 @@ describe("BillingPage", () => {
     expect(screen.getByText("ready")).toBeInTheDocument();
     expect(screen.getByText("https://app.example.com/stripe/webhook")).toBeInTheDocument();
     expect(screen.getByText(/checkout.session.completed/)).toBeInTheDocument();
+    expect(screen.getByText(/invoice.payment_succeeded/)).toBeInTheDocument();
     expect(screen.getAllByText("subscription is active")).toHaveLength(2);
     expect(await screen.findByText("invoice.paid")).toBeInTheDocument();
     expect(screen.getByText(/evt_invoice_1/)).toBeInTheDocument();

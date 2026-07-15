@@ -632,6 +632,7 @@ def test_checkout_session_creates_customer_and_graphql_status(pg):
             assert "checkout.session.completed" in status["requiredWebhookEvents"]
             assert "checkout.session.expired" in status["requiredWebhookEvents"]
             assert "invoice.paid" in status["requiredWebhookEvents"]
+            assert "invoice.payment_succeeded" in status["requiredWebhookEvents"]
             assert "invoice.finalization_failed" in status["requiredWebhookEvents"]
             assert status["enforcementEnabled"] is False
             assert status["entitled"] is True
