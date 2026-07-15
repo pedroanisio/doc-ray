@@ -24,8 +24,7 @@ def _documented_env_vars(path: Path) -> set[str]:
 def test_admin_console_env_example_documents_runtime_env_reads():
     """admin-console/.env.example must document every Vite env key the console reads."""
     missing = sorted(
-        _admin_console_env_reads()
-        - _documented_env_vars(_ROOT / "admin-console" / ".env.example")
+        _admin_console_env_reads() - _documented_env_vars(_ROOT / "admin-console" / ".env.example")
     )
 
     assert not missing

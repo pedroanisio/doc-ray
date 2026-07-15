@@ -24,7 +24,9 @@ def test_extract_html_retains_sanitized_render_html_for_original_view():
     assert extracted.doc_type == "html"
     assert "Heading" in extracted.full_text
     assert "Hello World" in " ".join(extracted.full_text.split())
-    assert extracted.metadata["render_html"] == "<h1>Heading</h1><p>Hello <strong>World</strong></p>"
+    assert (
+        extracted.metadata["render_html"] == "<h1>Heading</h1><p>Hello <strong>World</strong></p>"
+    )
 
 
 def test_extract_epub_retains_sanitized_spine_render_html_for_original_view():
@@ -81,6 +83,4 @@ def test_extract_docx_retains_paragraph_render_html_for_original_view():
 
     assert extracted.doc_type == "docx"
     assert extracted.full_text == "First paragraph\nSecond paragraph"
-    assert extracted.metadata["render_html"] == (
-        "<p>First paragraph</p><p>Second paragraph</p>"
-    )
+    assert extracted.metadata["render_html"] == ("<p>First paragraph</p><p>Second paragraph</p>")

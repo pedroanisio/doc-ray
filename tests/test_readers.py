@@ -11,6 +11,7 @@ import pytest
 # read_txt
 # ---------------------------------------------------------------------------
 
+
 def test_read_txt_round_trips_utf8(tmp_path):
     p = tmp_path / "note.txt"
     p.write_text("Olá, mundo. Ação!", encoding="utf-8")
@@ -21,6 +22,7 @@ def test_read_txt_round_trips_utf8(tmp_path):
 # HTML text extraction
 # ---------------------------------------------------------------------------
 
+
 def test_html_strips_tags_and_keeps_visible_text():
     text = ep._html_to_text("<p>Hello</p><p>World</p>")
     assert "Hello" in text and "World" in text
@@ -28,9 +30,7 @@ def test_html_strips_tags_and_keeps_visible_text():
 
 
 def test_html_skips_script_and_style_content():
-    text = ep._html_to_text(
-        "<p>Keep</p><script>evil()</script><style>.x{}</style><p>This</p>"
-    )
+    text = ep._html_to_text("<p>Keep</p><script>evil()</script><style>.x{}</style><p>This</p>")
     assert "Keep" in text and "This" in text
     assert "evil" not in text and ".x{" not in text
 
@@ -56,6 +56,7 @@ def test_read_html_reads_from_disk(tmp_path):
 # ---------------------------------------------------------------------------
 # EPUB reading
 # ---------------------------------------------------------------------------
+
 
 def test_epub_reads_chapters_in_spine_order(make_epub):
     # Spine reverses dict order; the reader must honour the spine, not the zip.
@@ -89,6 +90,7 @@ def test_epub_falls_back_on_broken_container(make_epub):
 # extract_text — dispatch
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.parametrize("name", ["doc.txt", "DOC.TXT", "readme.md", "notes.text"])
 def test_extract_text_reads_plaintext_formats(tmp_path, name):
     p = tmp_path / name
@@ -114,6 +116,7 @@ def test_extract_text_unsupported_extension_exits(tmp_path):
 # ---------------------------------------------------------------------------
 # Optional-dependency error paths (no real pypdf/python-docx needed)
 # ---------------------------------------------------------------------------
+
 
 def test_read_pdf_without_pypdf_exits(tmp_path, monkeypatch):
     monkeypatch.setitem(sys.modules, "pypdf", None)  # force ImportError

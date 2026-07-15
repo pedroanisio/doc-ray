@@ -113,7 +113,9 @@ def _apply_billing_migration(conn) -> str:
 
 
 def _signed_header(payload: bytes, secret: str, timestamp: int) -> str:
-    digest = hmac.new(secret.encode(), f"{timestamp}.{payload.decode()}".encode(), sha256).hexdigest()
+    digest = hmac.new(
+        secret.encode(), f"{timestamp}.{payload.decode()}".encode(), sha256
+    ).hexdigest()
     return f"t={timestamp},v1={digest}"
 
 
@@ -174,9 +176,7 @@ def test_paid_saas_mutations_cannot_drift_outside_billing_entitlement_guard() ->
         "canonicalize_document": "mutation.canonicalize",
         "create_backup": "mutation.backup",
         "create_collection": "mutation.create_collection",
-        "decide_document_metadata_suggestions": (
-            "mutation.decide_document_metadata_suggestions"
-        ),
+        "decide_document_metadata_suggestions": ("mutation.decide_document_metadata_suggestions"),
         "decide_seeds": "mutation.decide_seeds",
         "delete_document": "mutation.delete",
         "ingest_document": "mutation.ingest",
@@ -572,8 +572,7 @@ def test_stripe_webhook_route_rejects_livemode_mismatch_before_processing(pg):
         conn.execute("DELETE FROM tenant_subscriptions WHERE tenant_id = %s", (tenant_id,))
         conn.execute("DELETE FROM tenant_billing_accounts WHERE tenant_id = %s", (tenant_id,))
         conn.execute(
-            "DELETE FROM stripe_webhook_events WHERE stripe_event_id = "
-            "'evt_route_mode_mismatch_1'"
+            "DELETE FROM stripe_webhook_events WHERE stripe_event_id = 'evt_route_mode_mismatch_1'"
         )
 
 
@@ -849,8 +848,7 @@ def test_graphql_checkout_and_signed_webhooks_activate_billing_entitlement(pg, m
                 "entitlementReason": "subscription is active",
             }
             events = {
-                event["stripeEventId"]: event
-                for event in status_body["data"]["billingEvents"]
+                event["stripeEventId"]: event for event in status_body["data"]["billingEvents"]
             }
             assert events["evt_e2e_invoice_1"]["eventType"] == "invoice.paid"
             assert events["evt_e2e_invoice_1"]["objectStatus"] == "paid"
@@ -1223,9 +1221,7 @@ def test_checkout_session_creates_customer_and_graphql_status(pg):
             url = await billing.create_checkout_session(aconn, _cfg(), transport=fake)
             assert url == "https://checkout.stripe.test/session"
             assert fake.created_customers[0]["metadata"] == {"tenant_id": tenant_id}
-            assert fake.created_customers[0]["idempotency_key"] == (
-                f"docray.customer.{tenant_id}"
-            )
+            assert fake.created_customers[0]["idempotency_key"] == (f"docray.customer.{tenant_id}")
             assert fake.checkout_calls[0]["price_id"] == "price_test_monthly"
             assert fake.checkout_calls[0]["idempotency_key"].startswith(
                 f"docray.checkout.{tenant_id}."
@@ -1281,9 +1277,7 @@ def test_checkout_session_creates_customer_and_graphql_status(pg):
             assert status["webhookReady"] is True
             assert status["webhookEndpointUrl"] == "https://app.example.com/stripe/webhook"
             assert status["liveModeReady"] is False
-            assert status["missingConfiguration"] == [
-                "DOCRAY_BILLING_ENFORCEMENT_ENABLED=true"
-            ]
+            assert status["missingConfiguration"] == ["DOCRAY_BILLING_ENFORCEMENT_ENABLED=true"]
             assert status["configurationIssues"] == []
             assert "checkout.session.completed" in status["requiredWebhookEvents"]
             assert "checkout.session.expired" in status["requiredWebhookEvents"]
@@ -1768,7 +1762,9 @@ def test_checkout_session_expired_clears_pending_checkout_state(pg):
     finally:
         conn.execute("DELETE FROM tenant_subscriptions WHERE tenant_id = %s", (tenant_id,))
         conn.execute("DELETE FROM tenant_billing_accounts WHERE tenant_id = %s", (tenant_id,))
-        conn.execute("DELETE FROM stripe_webhook_events WHERE stripe_event_id = 'evt_checkout_expired_1'")
+        conn.execute(
+            "DELETE FROM stripe_webhook_events WHERE stripe_event_id = 'evt_checkout_expired_1'"
+        )
 
 
 def test_checkout_session_after_expiration_uses_fresh_idempotency_key(pg):
@@ -1785,22 +1781,25 @@ def test_checkout_session_after_expiration_uses_fresh_idempotency_key(pg):
             first_key = fake.checkout_calls[0]["idempotency_key"]
 
             await webhook_conn.execute("RESET ROLE")
-            assert await billing.process_webhook_event(
-                webhook_conn,
-                {
-                    "id": "evt_checkout_expired_fresh_key_1",
-                    "type": "checkout.session.expired",
-                    "livemode": False,
-                    "data": {
-                        "object": {
-                            "id": "cs_test_123",
-                            "customer": "cus_test_123",
-                            "client_reference_id": tenant_id,
-                            "metadata": {"tenant_id": tenant_id},
-                        }
+            assert (
+                await billing.process_webhook_event(
+                    webhook_conn,
+                    {
+                        "id": "evt_checkout_expired_fresh_key_1",
+                        "type": "checkout.session.expired",
+                        "livemode": False,
+                        "data": {
+                            "object": {
+                                "id": "cs_test_123",
+                                "customer": "cus_test_123",
+                                "client_reference_id": tenant_id,
+                                "metadata": {"tenant_id": tenant_id},
+                            }
+                        },
                     },
-                },
-            ) is True
+                )
+                is True
+            )
 
             second_url = await billing.create_checkout_session(aconn, _cfg(), transport=fake)
             assert second_url == "https://checkout.stripe.test/session"
@@ -2042,9 +2041,7 @@ def test_active_subscription_with_wrong_price_is_not_entitled(pg):
                 "stripePriceId": "price_legacy_plan",
                 "enforcementEnabled": True,
                 "entitled": False,
-                "entitlementReason": (
-                    "subscription price does not match configured Stripe price"
-                ),
+                "entitlementReason": ("subscription price does not match configured Stripe price"),
             }
         finally:
             await aconn.close()
@@ -2256,7 +2253,9 @@ def test_unprocessed_webhook_event_can_be_retried(pg):
     finally:
         conn.execute("DELETE FROM tenant_subscriptions WHERE tenant_id = %s", (tenant_id,))
         conn.execute("DELETE FROM tenant_billing_accounts WHERE tenant_id = %s", (tenant_id,))
-        conn.execute("DELETE FROM stripe_webhook_events WHERE stripe_event_id = 'evt_retry_invoice_1'")
+        conn.execute(
+            "DELETE FROM stripe_webhook_events WHERE stripe_event_id = 'evt_retry_invoice_1'"
+        )
 
 
 def test_out_of_order_invoice_without_customer_mapping_retries_after_subscription(pg):
@@ -2625,7 +2624,9 @@ def test_paid_invoice_restores_past_due_billing_entitlement(pg):
     finally:
         conn.execute("DELETE FROM tenant_subscriptions WHERE tenant_id = %s", (tenant_id,))
         conn.execute("DELETE FROM tenant_billing_accounts WHERE tenant_id = %s", (tenant_id,))
-        conn.execute("DELETE FROM stripe_webhook_events WHERE stripe_event_id = 'evt_invoice_recovered_1'")
+        conn.execute(
+            "DELETE FROM stripe_webhook_events WHERE stripe_event_id = 'evt_invoice_recovered_1'"
+        )
 
 
 def test_paid_invoice_does_not_resurrect_canceled_subscription(pg):

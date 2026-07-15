@@ -9,6 +9,7 @@ import pytest
 # reflow — rejoin wrapped lines
 # ---------------------------------------------------------------------------
 
+
 def test_reflow_joins_wrapped_lines_with_a_space():
     assert ep.reflow("The cat\nsat down.") == "The cat sat down."
 
@@ -38,6 +39,7 @@ def test_reflow_ignores_blank_paragraphs():
 # split_sentences — boundary detection
 # ---------------------------------------------------------------------------
 
+
 def test_splits_on_period_exclamation_and_question():
     assert ep.split_sentences("One is here. Two is here! Three is here?") == [
         "One is here.",
@@ -53,11 +55,14 @@ def test_does_not_split_on_semicolon_or_colon():
     ]
 
 
-@pytest.mark.parametrize("abbr_sentence", [
-    "Dr. Silva arrived early. He waited.",
-    "See Fig. 3 for details. It helps.",
-    "The item costs 5 etc. and more. Done here.",
-])
+@pytest.mark.parametrize(
+    "abbr_sentence",
+    [
+        "Dr. Silva arrived early. He waited.",
+        "See Fig. 3 for details. It helps.",
+        "The item costs 5 etc. and more. Done here.",
+    ],
+)
 def test_abbreviations_do_not_cause_a_split(abbr_sentence):
     parts = ep.split_sentences(abbr_sentence)
     # The abbreviation stays inside its sentence, so there are exactly 2 parts.
@@ -100,6 +105,7 @@ def test_collapses_internal_whitespace_in_each_sentence():
 # split_sentences — min_words filter
 # ---------------------------------------------------------------------------
 
+
 def test_min_words_drops_short_fragments():
     text = "Hi. This sentence is clearly long enough."
     assert ep.split_sentences(text, min_words=3) == ["This sentence is clearly long enough."]
@@ -119,6 +125,7 @@ def test_empty_and_whitespace_input_returns_empty_list():
 # extract_sentences — reflow + split end to end
 # ---------------------------------------------------------------------------
 
+
 def test_extract_sentences_reflows_then_splits():
     # A single sentence wrapped across three physical lines becomes one item.
     raw = "The aircraft climbed\nto a high altitude and\nthen levelled off. It cruised."
@@ -137,6 +144,7 @@ def test_extract_sentences_returns_list_of_nonempty_strings():
 # ---------------------------------------------------------------------------
 # extract_paragraphs — group sentences by paragraph
 # ---------------------------------------------------------------------------
+
 
 def test_paragraphs_group_sentences_by_blank_line():
     raw = (

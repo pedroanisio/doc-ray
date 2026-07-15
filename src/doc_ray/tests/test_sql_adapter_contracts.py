@@ -133,24 +133,28 @@ def test_queue_postgres_unqualified_job_sql_columns_exist_in_migrations():
     sql_text = re.sub(r"--.*", "", sql_text)
     sql_text = re.sub(r"'[^']*'", "", sql_text)
     identifiers = set(re.findall(r"\b[a-z_][a-z0-9_]*\b", sql_text.lower()))
-    allowed = _SQL_KEYWORDS | jobs_columns | {
-        "attempt",
-        "canceled",
-        "docray_job_events",
-        "eligible",
-        "false",
-        "id",
-        "j",
-        "jobs",
-        "locked",
-        "picked",
-        "queued",
-        "running",
-        "s",
-        "skip",
-        "succeeded",
-        "worker_id",
-    }
+    allowed = (
+        _SQL_KEYWORDS
+        | jobs_columns
+        | {
+            "attempt",
+            "canceled",
+            "docray_job_events",
+            "eligible",
+            "false",
+            "id",
+            "j",
+            "jobs",
+            "locked",
+            "picked",
+            "queued",
+            "running",
+            "s",
+            "skip",
+            "succeeded",
+            "worker_id",
+        }
+    )
     stale = sorted(
         identifier
         for identifier in identifiers

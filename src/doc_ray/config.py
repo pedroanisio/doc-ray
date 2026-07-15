@@ -285,9 +285,9 @@ class Config:
             stripe_cancel_url=_env_optional_str("DOCRAY_STRIPE_CANCEL_URL"),
             stripe_portal_return_url=_env_optional_str("DOCRAY_STRIPE_PORTAL_RETURN_URL"),
             public_base_url=_env_optional_str("DOCRAY_PUBLIC_BASE_URL"),
-            stripe_api_base=os.environ.get("DOCRAY_STRIPE_API_BASE", "https://api.stripe.com/v1").strip()
+            stripe_api_base=os.environ.get(
+                "DOCRAY_STRIPE_API_BASE", "https://api.stripe.com/v1"
+            ).strip()
             or "https://api.stripe.com/v1",
-            billing_enforcement_enabled=_env_bool(
-                "DOCRAY_BILLING_ENFORCEMENT_ENABLED", False
-            ),
+            billing_enforcement_enabled=_env_bool("DOCRAY_BILLING_ENFORCEMENT_ENABLED", False),
         )

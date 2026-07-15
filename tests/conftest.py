@@ -41,8 +41,7 @@ def _build_epub(
     spine = list(chapters) if spine is None else spine
 
     manifest_items = "\n".join(
-        f'<item id="{_cid(n)}" href="{n}" media-type="application/xhtml+xml"/>'
-        for n in chapters
+        f'<item id="{_cid(n)}" href="{n}" media-type="application/xhtml+xml"/>' for n in chapters
     )
     spine_items = "\n".join(f'<itemref idref="{_cid(n)}"/>' for n in spine)
     opf = (
@@ -50,10 +49,10 @@ def _build_epub(
         '<package xmlns="http://www.idpf.org/2007/opf" version="3.0" '
         'unique-identifier="pub-id">\n'
         '  <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">'
-        '<dc:title>Test</dc:title></metadata>\n'
-        f'  <manifest>\n{manifest_items}\n</manifest>\n'
-        f'  <spine>\n{spine_items}\n</spine>\n'
-        '</package>\n'
+        "<dc:title>Test</dc:title></metadata>\n"
+        f"  <manifest>\n{manifest_items}\n</manifest>\n"
+        f"  <spine>\n{spine_items}\n</spine>\n"
+        "</package>\n"
     )
 
     with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as zf:
@@ -66,7 +65,7 @@ def _build_epub(
                     'xmlns="urn:oasis:names:tc:opendocument:xmlns:container">\n'
                     f'  <rootfiles><rootfile full-path="{opf_prefix}content.opf" '
                     'media-type="application/oebps-package+xml"/></rootfiles>\n'
-                    '</container>\n'
+                    "</container>\n"
                 )
             zf.writestr("META-INF/container.xml", container_body)
         zf.writestr(f"{opf_prefix}content.opf", opf)

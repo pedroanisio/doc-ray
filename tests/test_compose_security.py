@@ -438,16 +438,13 @@ def test_base_compose_passes_stripe_billing_configuration_to_api():
     assert env["DOCRAY_STRIPE_PORTAL_RETURN_URL"] == "${DOCRAY_STRIPE_PORTAL_RETURN_URL:-}"
     assert env["DOCRAY_STRIPE_API_BASE"] == "${DOCRAY_STRIPE_API_BASE:-https://api.stripe.com/v1}"
     assert (
-        env["DOCRAY_BILLING_ENFORCEMENT_ENABLED"]
-        == "${DOCRAY_BILLING_ENFORCEMENT_ENABLED:-false}"
+        env["DOCRAY_BILLING_ENFORCEMENT_ENABLED"] == "${DOCRAY_BILLING_ENFORCEMENT_ENABLED:-false}"
     )
 
 
 def test_nginx_routes_public_stripe_webhook_to_api():
     """Stripe posts to the public origin; nginx must forward that path to the API."""
-    text = (_ROOT / "nginx" / "templates" / "default.conf.template").read_text(
-        encoding="utf-8"
-    )
+    text = (_ROOT / "nginx" / "templates" / "default.conf.template").read_text(encoding="utf-8")
 
     assert "location = /stripe/webhook" in text
     stripe_block = text.split("location = /stripe/webhook", 1)[1].split("location", 1)[0]
@@ -499,7 +496,10 @@ def test_root_makefile_exposes_prod_admin_console_deploy_path():
     prod_doc = (_ROOT / "docs" / "production-setup.md").read_text(encoding="utf-8")
     admin_readme = (_ROOT / "admin-console" / "README.md").read_text(encoding="utf-8")
 
-    assert "COMPOSE_ADMIN := docker compose --env-file .env.prod -f admin-console/docker-compose.yml" in makefile
+    assert (
+        "COMPOSE_ADMIN := docker compose --env-file .env.prod -f admin-console/docker-compose.yml"
+        in makefile
+    )
     assert "prod-admin-console-up:" in makefile
     assert "$(COMPOSE_ADMIN) up -d --build admin-console" in makefile
     assert "prod-admin-console-down:" in makefile
@@ -534,9 +534,7 @@ def test_cloudflared_tunnel_documents_protected_admin_console_ingress():
     """
     admin_compose = _compose_tolerant("admin-console/docker-compose.yml")
     admin_service = admin_compose["services"]["admin-console"]
-    cloudflared_text = (_ROOT / "docker-compose.cloudflared.yml").read_text(
-        encoding="utf-8"
-    )
+    cloudflared_text = (_ROOT / "docker-compose.cloudflared.yml").read_text(encoding="utf-8")
     prod_doc = (_ROOT / "docs" / "production-setup.md").read_text(encoding="utf-8")
     admin_readme = (_ROOT / "admin-console" / "README.md").read_text(encoding="utf-8")
     env_text = (_ROOT / ".env.prod.example").read_text(encoding="utf-8")
@@ -555,7 +553,9 @@ def test_cloudflared_tunnel_documents_protected_admin_console_ingress():
     assert "Hosted Stripe Checkout and Customer Portal remain disabled" in admin_readme
     assert "DOCRAY_STRIPE_WEBHOOK_SECRET" in admin_readme
     assert "DOCRAY_PUBLIC_BASE_URL" in admin_readme
-    assert "DOCRAY_STRIPE_SUCCESS_URL=https://admin.doc-ray.com/billing?checkout=success" in env_text
+    assert (
+        "DOCRAY_STRIPE_SUCCESS_URL=https://admin.doc-ray.com/billing?checkout=success" in env_text
+    )
 
 
 def test_ollama_resolver_server_is_not_publicly_exposed():

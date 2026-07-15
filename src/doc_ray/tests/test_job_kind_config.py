@@ -40,7 +40,9 @@ def test_worker_fast_excludes_only_known_long_running_job_kinds():
     """Compose worker-fast exclusions must be checked against Python constants."""
     worker_fast_env = _compose()["services"]["worker-fast"]["environment"]
 
-    excluded = set(_default_from_compose_expansion(worker_fast_env["WORKER_EXCLUDE_KINDS"]).split(","))
+    excluded = set(
+        _default_from_compose_expansion(worker_fast_env["WORKER_EXCLUDE_KINDS"]).split(",")
+    )
 
     assert excluded == jobs.LONG_RUNNING_JOB_KINDS
     assert excluded <= _known_job_kinds()

@@ -115,9 +115,7 @@ class StripeTransport(Protocol):
     ) -> dict[str, Any]:
         """Create a hosted subscription Checkout Session."""
 
-    async def create_portal_session(
-        self, *, customer_id: str, return_url: str
-    ) -> dict[str, Any]:
+    async def create_portal_session(self, *, customer_id: str, return_url: str) -> dict[str, Any]:
         """Create a hosted Customer Portal Session."""
 
 
@@ -191,13 +189,9 @@ class StripeRestTransport:
         }
         form.update(_metadata_form(metadata))
         form.update(_metadata_form(subscription_metadata, prefix="subscription_data[metadata]"))
-        return await self._post(
-            "/checkout/sessions", form, idempotency_key=idempotency_key
-        )
+        return await self._post("/checkout/sessions", form, idempotency_key=idempotency_key)
 
-    async def create_portal_session(
-        self, *, customer_id: str, return_url: str
-    ) -> dict[str, Any]:
+    async def create_portal_session(self, *, customer_id: str, return_url: str) -> dict[str, Any]:
         """Create a Stripe-hosted Customer Portal Session."""
         return await self._post(
             "/billing_portal/sessions",
@@ -384,9 +378,9 @@ async def billing_status(conn: psycopg.AsyncConnection[Any], cfg: Config) -> dic
     status["required_webhook_events"] = list(REQUIRED_WEBHOOK_EVENTS)
     status["missing_configuration"] = missing_billing_configuration(cfg)
     status["configuration_issues"] = invalid_billing_configuration(cfg)
-    status["live_mode_ready"] = not status["missing_configuration"] and not status[
-        "configuration_issues"
-    ]
+    status["live_mode_ready"] = (
+        not status["missing_configuration"] and not status["configuration_issues"]
+    )
     entitlement = entitlement_from_status(status, cfg)
     status.update(entitlement)
     return status
@@ -551,9 +545,7 @@ def entitlement_from_status(status: dict[str, Any], cfg: Config) -> dict[str, An
     }
 
 
-async def require_entitlement(
-    conn: psycopg.AsyncConnection[Any], cfg: Config | None
-) -> None:
+async def require_entitlement(conn: psycopg.AsyncConnection[Any], cfg: Config | None) -> None:
     """Require the current tenant to be entitled to paid SaaS actions."""
     if cfg is None or not cfg.billing_enforcement_enabled:
         return
@@ -677,10 +669,10 @@ async def create_portal_session(
         customer_id=str(customer_id),
         return_url=url.return_url,
     )
-    url = session.get("url")
-    if not isinstance(url, str) or not url:
+    portal_url = session.get("url")
+    if not isinstance(portal_url, str) or not portal_url:
         raise RuntimeError("Stripe Portal Session did not include a url")
-    return url
+    return portal_url
 
 
 def verify_stripe_signature(
@@ -700,9 +692,7 @@ def verify_stripe_signature(
             try:
                 timestamp = int(value)
             except ValueError as exc:
-                raise StripeSignatureError(
-                    "Stripe signature timestamp is malformed"
-                ) from exc
+                raise StripeSignatureError("Stripe signature timestamp is malformed") from exc
         elif key == "v1":
             signatures.append(value)
     if timestamp is None or not signatures:
@@ -953,7 +943,7 @@ def _subscription_price_id(obj: dict[str, Any]) -> str | None:
 
 
 def _timestamp_to_datetime(value: object) -> datetime | None:
-    if value is None:
+    if not isinstance(value, (int, float, str)):
         return None
     try:
         return datetime.fromtimestamp(int(value), tz=timezone.utc)

@@ -86,9 +86,7 @@ def test_reads_epub_end_to_end(make_epub, capsys):
 def test_paragraphs_flag_separates_groups_with_blank_line(tmp_path, capsys):
     p = _make(tmp_path, "Para one first. Para one second.\n\nPara two only.")
     ep.main([str(p), "--paragraphs", "-q"])
-    assert capsys.readouterr().out == (
-        "Para one first.\nPara one second.\n\nPara two only.\n"
-    )
+    assert capsys.readouterr().out == ("Para one first.\nPara one second.\n\nPara two only.\n")
 
 
 def test_paragraphs_flag_reports_paragraph_count(tmp_path, capsys):

@@ -45,9 +45,7 @@ def test_mint_round_trips_through_the_api_verifier(jwt_env):
 
 
 def test_mint_preserves_the_users_write_scope(jwt_env):
-    token = mint_forwardable_api_jwt(
-        "p-2", "local:admin@x.com", frozenset({"read", "write"})
-    )
+    token = mint_forwardable_api_jwt("p-2", "local:admin@x.com", frozenset({"read", "write"}))
     principal = verify_access_jwt(token, secret=_SECRET, issuer="doc-ray", audience=None)
     assert principal.scopes == frozenset({"read", "write"})
 

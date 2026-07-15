@@ -48,12 +48,14 @@ def test_every_internal_node_text_equals_join_of_children(text):
             assert node.text == "".join(c.compose() for c in node.children)
             for c in node.children:
                 check(c)
+
     check(dm.decompose(text))
 
 
 # ---------------------------------------------------------------------------
 # JSON serialization round-trip
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.parametrize("text", ROUNDTRIP_CASES)
 def test_json_dict_round_trip_is_lossless(text):
@@ -76,6 +78,7 @@ def test_leaf_dicts_carry_text_internal_dicts_carry_children():
 # ---------------------------------------------------------------------------
 # Structure of the decomposition
 # ---------------------------------------------------------------------------
+
 
 def test_hierarchy_kinds_are_present():
     tree = dm.decompose("Intro heading\n\nA sentence, with a clause. Second one.")
@@ -108,18 +111,21 @@ def test_words_are_extracted_as_leaves():
     assert words == ["The", "quick", "brown", "fox"]
 
 
-@pytest.mark.parametrize("block, expected", [
-    ("1.6.9 Systems function", "heading"),      # dotted-decimal section number
-    ("# Title", "heading"),                     # markdown marker
-    ("CONSTITUIÇÃO", "heading"),                # short, titley
-    ("This is a normal sentence that ends.", "paragraph"),
-    ("1. Os Estados Partes se comprometem a assegurar.", "paragraph"),  # numbered prose
-    ("XXX – é garantido o direito;", "paragraph"),   # roman list item + clause end
-    ("• a bullet point here", "paragraph"),          # bullet list item
-    ("a) lettered list item", "paragraph"),          # lettered list item
-    ("ends with a comma,", "paragraph"),             # clause-ending
-    ("lowercase start line", "paragraph"),           # headings don't start lowercase
-])
+@pytest.mark.parametrize(
+    "block, expected",
+    [
+        ("1.6.9 Systems function", "heading"),  # dotted-decimal section number
+        ("# Title", "heading"),  # markdown marker
+        ("CONSTITUIÇÃO", "heading"),  # short, titley
+        ("This is a normal sentence that ends.", "paragraph"),
+        ("1. Os Estados Partes se comprometem a assegurar.", "paragraph"),  # numbered prose
+        ("XXX – é garantido o direito;", "paragraph"),  # roman list item + clause end
+        ("• a bullet point here", "paragraph"),  # bullet list item
+        ("a) lettered list item", "paragraph"),  # lettered list item
+        ("ends with a comma,", "paragraph"),  # clause-ending
+        ("lowercase start line", "paragraph"),  # headings don't start lowercase
+    ],
+)
 def test_classify_block_rules(block, expected):
     assert dm._classify_block(block) == expected
 
@@ -133,6 +139,7 @@ def test_gap_nodes_preserve_whitespace():
 # ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
+
 
 def _write(tmp_path, text, name="doc.txt"):
     p = tmp_path / name

@@ -21,9 +21,7 @@ async def current_tenant_id(conn: psycopg.AsyncConnection[Any]) -> str:
     return str(tenant_id)
 
 
-async def get_billing_status(
-    conn: psycopg.AsyncConnection[Any], tenant_id: str
-) -> BillingRow:
+async def get_billing_status(conn: psycopg.AsyncConnection[Any], tenant_id: str) -> BillingRow:
     """Return the billing snapshot for *tenant_id*."""
     cur = await conn.execute(
         """
@@ -192,7 +190,10 @@ async def upsert_billing_account(
         """,
         (tenant_id, stripe_customer_id, billing_email, created_by_principal_id),
     )
-    return dict(await cur.fetchone())
+    row = await cur.fetchone()
+    if row is None:
+        raise RuntimeError("INSERT ... RETURNING produced no row")
+    return dict(row)
 
 
 async def record_checkout_session(
