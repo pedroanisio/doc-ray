@@ -154,3 +154,54 @@ def test_semantic_enrichment_is_idempotent_for_document(pg):
         ).fetchone()["n"]
         == first["embeddings"]
     )
+
+
+class _FakeCopy:
+    """Records rows written to a COPY stream."""
+
+    def __init__(self) -> None:
+        self.rows: list[tuple] = []
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_exc) -> bool:
+        return False
+
+    def write_row(self, row) -> None:
+        self.rows.append(row)
+
+
+class _RecordingCursor:
+    """Cursor double: records copy() usage and flags any executemany fallback."""
+
+    def __init__(self) -> None:
+        self.copy_sql: str | None = None
+        self.copy_stream = _FakeCopy()
+        self.executemany_called = False
+
+    def copy(self, sql: str):
+        self.copy_sql = sql
+        return self.copy_stream
+
+    def executemany(self, *_a, **_k) -> None:
+        self.executemany_called = True
+
+
+def test_copy_rows_bulk_loads_via_copy_not_executemany():
+    # The embedding write must be one COPY (bulk), not one INSERT statement per
+    # row: psycopg3 executemany still issues N server-side statements, and with
+    # the pgvector HNSW index that per-row storm saturates the managed cluster.
+    cur = _RecordingCursor()
+    rows = [("s1", "hash-bow-768", "[0.1]"), ("s2", "hash-bow-768", "[0.2]")]
+    se._copy_rows(cur, "embedding", ("span_id", "model", "vector"), rows)
+    assert cur.copy_sql == "COPY embedding (span_id, model, vector) FROM STDIN"
+    assert cur.copy_stream.rows == rows
+    assert cur.executemany_called is False
+
+
+def test_copy_rows_is_noop_on_empty_rows():
+    cur = _RecordingCursor()
+    se._copy_rows(cur, "embedding", ("span_id", "model", "vector"), [])
+    assert cur.copy_sql is None
+    assert cur.copy_stream.rows == []
