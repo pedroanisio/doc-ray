@@ -191,6 +191,13 @@ services:
       # dead-end inside the container — the same trap docker-compose.api.yml
       # documents for S3_ENDPOINT.
       DOCRAY_API_URL: http://api:8000/graphql
+      # Shared JWT signing config so local/SAML logins can mint a forwardable API
+      # token (webapp.api_jwt.mint_forwardable_api_jwt) the api verifies with the SAME
+      # secret — without it, proxied originals/page-images fall back to the static
+      # token and 401 (broken previews under local auth).
+      DOCRAY_API_JWT_SECRET: ${DOCRAY_API_JWT_SECRET:-}
+      DOCRAY_API_JWT_ISSUER: ${DOCRAY_API_JWT_ISSUER:-doc-ray}
+      DOCRAY_API_JWT_AUDIENCE: ${DOCRAY_API_JWT_AUDIENCE:-}
       DOCRAY_WEBAPP_SECRET_KEY: ${DOCRAY_WEBAPP_SECRET_KEY:-}
       DOCRAY_WEBAPP_API_TOKEN: ${DOCRAY_WEBAPP_API_TOKEN:-}
       DOCRAY_OPERATOR_HEALTH_TOKEN: ${DOCRAY_OPERATOR_HEALTH_TOKEN:-}

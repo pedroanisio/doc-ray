@@ -109,7 +109,7 @@ def _assert_db_role_resolves_principals(db_role: str, *, browser_auth_required: 
         )
 
 
-_assert_db_role_resolves_principals(DB_ROLE, browser_auth_required=auth_web._web_auth_required())
+_assert_db_role_resolves_principals(DB_ROLE, browser_auth_required=auth_web.web_auth_required())
 
 app = Flask(__name__)
 # Uploads are forwarded to the API, which buffers the file for hashing — cap

@@ -115,7 +115,7 @@ def _require_principal():
     principal_id = _settings_principal_id()
     if principal_id:
         return principal_id, None
-    if auth_web._web_auth_required():
+    if auth_web.web_auth_required():
         return None, redirect(url_for("login"))
     return None, ("account settings require a configured principal", 404)
 
@@ -143,7 +143,7 @@ def settings():
         notice=ok,
         error=error,
         email_token=email_token,
-        local_auth_enabled=auth_web._local_auth_enabled(),
+        local_auth_enabled=auth_web.local_auth_enabled(),
     )
 
 
@@ -201,7 +201,7 @@ def settings_email():
     # deliver the confirmation link — otherwise the settings page would show a
     # "change pending" banner for a token the user can never receive.
     mailer = _core._verification_mailer()
-    expose_token = auth_web._env_bool("DOCRAY_AUTH_EXPOSE_VERIFICATION_TOKEN", False)
+    expose_token = auth_web.env_bool("DOCRAY_AUTH_EXPOSE_VERIFICATION_TOKEN", False)
     if mailer is None and not expose_token:
         session[_ERR_KEY] = "Email change is unavailable: no email delivery is configured."
         return redirect(url_for("settings"))

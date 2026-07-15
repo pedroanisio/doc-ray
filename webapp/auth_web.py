@@ -32,6 +32,13 @@ from doc_ray.application.local_auth import (
 )
 
 try:
+    from webapp.api_jwt import mint_forwardable_api_jwt
+    from webapp.auth_config import (
+        env_bool,
+        local_auth_enabled,
+        local_registration_enabled,
+        web_auth_required,
+    )
     from webapp.auth_session import (
         AuthenticatedWebPrincipal,
         auth_sessions,
@@ -41,6 +48,13 @@ try:
         saml_login_redirect,
     )
 except ModuleNotFoundError:  # pragma: no cover - direct ``python webapp/app.py`` path.
+    from api_jwt import mint_forwardable_api_jwt
+    from auth_config import (
+        env_bool,
+        local_auth_enabled,
+        local_registration_enabled,
+        web_auth_required,
+    )
     from auth_session import (
         AuthenticatedWebPrincipal,
         auth_sessions,
@@ -177,52 +191,14 @@ def _request_principal_id() -> str | None:
         return principal_id
     if had_auth_session:
         return None
-    if _web_auth_required():
+    if web_auth_required():
         return None
     return _core.PRINCIPAL_ID
 
 
-def _env_bool(name: str, default: bool = False) -> bool:
-    """Read a boolean environment flag with the shared truthy vocabulary."""
-    raw = os.environ.get(name)
-    if raw is None:
-        return default
-    return raw.strip().lower() in {"1", "true", "yes", "on"}
-
-
-def _local_auth_enabled() -> bool:
-    """Return whether local email/password login is enabled."""
-    return _env_bool("DOCRAY_AUTH_LOCAL_ENABLED", False)
-
-
-def _local_registration_enabled() -> bool:
-    """Return whether self-service registration is enabled."""
-    return _env_bool("DOCRAY_AUTH_REGISTRATION_ENABLED", False)
-
-
-def _oidc_auth_enabled() -> bool:
-    """Return whether an OIDC authorization endpoint is configured."""
-    return bool(os.environ.get("DOCRAY_WEBAPP_OIDC_AUTHORIZATION_URL", "").strip())
-
-
-def _saml_auth_enabled() -> bool:
-    """Return whether a SAML SSO endpoint is configured."""
-    return bool(os.environ.get("DOCRAY_WEBAPP_SAML_SSO_URL", "").strip())
-
-
-def _web_auth_required() -> bool:
-    """Return whether any browser auth provider is configured or forced on."""
-    return (
-        _env_bool("DOCRAY_WEBAPP_REQUIRE_AUTH", False)
-        or _local_auth_enabled()
-        or _oidc_auth_enabled()
-        or _saml_auth_enabled()
-    )
-
-
 def require_webapp_auth():
     """Block anonymous browser reads when a web auth provider is configured."""
-    if not _web_auth_required():
+    if not web_auth_required():
         return None
     if request.endpoint in _AUTH_PUBLIC_ENDPOINTS:
         return None
@@ -238,8 +214,8 @@ def inject_auth_navigation():
     """Expose browser-auth state to global templates."""
     return {
         "current_auth_session": _current_auth_session(),
-        "web_auth_required": _web_auth_required(),
-        "local_registration_available": _local_auth_enabled() and _local_registration_enabled(),
+        "web_auth_required": web_auth_required(),
+        "local_registration_available": local_auth_enabled() and local_registration_enabled(),
     }
 
 
@@ -309,15 +285,25 @@ def complete_local_login(email: str, password: str) -> AuthenticatedWebPrincipal
     principal = _local_auth_service().login(email=email, password=password)
     if principal.principal_id is None or principal.subject is None:
         raise ValueError("local login did not resolve a principal")
-    return AuthenticatedWebPrincipal(principal_id=principal.principal_id, subject=principal.subject)
+    return AuthenticatedWebPrincipal(
+        principal_id=principal.principal_id,
+        subject=principal.subject,
+        bearer_token=mint_forwardable_api_jwt(
+            principal.principal_id, principal.subject, principal.scopes
+        ),
+    )
 
 
 def verify_local_email(token: str) -> AuthenticatedWebPrincipal:
     """Consume an email verification token and resolve a browser principal."""
     result = _local_auth_service().verify_email(token)
+    subject = f"local:{result.email_normalized}"
+    # Registered users hold the reader role; mint a read-scoped forwardable token
+    # so the post-verification auto-login can render previews/originals too.
     return AuthenticatedWebPrincipal(
         principal_id=result.principal_id,
-        subject=f"local:{result.email_normalized}",
+        subject=subject,
+        bearer_token=mint_forwardable_api_jwt(result.principal_id, subject, frozenset({"read"})),
     )
 
 
@@ -333,10 +319,10 @@ def login():
     saml_url = saml_login_redirect(state=state)
     if saml_url:
         return redirect(saml_url)
-    if _local_auth_enabled():
+    if local_auth_enabled():
         return _core.render_template(
             "login.html",
-            registration_enabled=_local_registration_enabled(),
+            registration_enabled=local_registration_enabled(),
             email=request.args.get("email", ""),
         )
     return "webapp login is not configured", 404
@@ -344,7 +330,7 @@ def login():
 
 def login_submit():
     """Complete local email/password login and establish the web session."""
-    if not _local_auth_enabled():
+    if not local_auth_enabled():
         return "webapp login is not configured", 404
     email = request.form.get("email", "")
     try:
@@ -353,7 +339,7 @@ def login_submit():
         return (
             _core.render_template(
                 "login.html",
-                registration_enabled=_local_registration_enabled(),
+                registration_enabled=local_registration_enabled(),
                 email=email,
                 error="Email verification is required before login.",
             ),
@@ -363,7 +349,7 @@ def login_submit():
         return (
             _core.render_template(
                 "login.html",
-                registration_enabled=_local_registration_enabled(),
+                registration_enabled=local_registration_enabled(),
                 email=email,
                 error="Invalid email or password.",
             ),
@@ -373,7 +359,7 @@ def login_submit():
         return (
             _core.render_template(
                 "login.html",
-                registration_enabled=_local_registration_enabled(),
+                registration_enabled=local_registration_enabled(),
                 email=email,
                 error=str(exc),
             ),
@@ -385,19 +371,19 @@ def login_submit():
 
 def register_form():
     """Render the local registration form."""
-    if not (_local_auth_enabled() and _local_registration_enabled()):
+    if not (local_auth_enabled() and local_registration_enabled()):
         return "webapp registration is not configured", 404
     return _core.render_template("register.html")
 
 
 def register_submit():
     """Register a local account and deliver its email-verification link."""
-    if not (_local_auth_enabled() and _local_registration_enabled()):
+    if not (local_auth_enabled() and local_registration_enabled()):
         return "webapp registration is not configured", 404
     email = request.form.get("email", "")
     display_name = request.form.get("display_name") or None
     mailer = _core._verification_mailer()
-    expose_token = _env_bool("DOCRAY_AUTH_EXPOSE_VERIFICATION_TOKEN", False)
+    expose_token = env_bool("DOCRAY_AUTH_EXPOSE_VERIFICATION_TOKEN", False)
     if mailer is None and not expose_token:
         # Fail closed BEFORE creating the account: with no delivery mechanism
         # the token would be discarded (only its hash is stored) and the
@@ -436,7 +422,7 @@ def register_submit():
 
 def verify_email_form():
     """Verify local email tokens or render the pending-verification page."""
-    if not _local_auth_enabled():
+    if not local_auth_enabled():
         return "webapp email verification is not configured", 404
     token = request.args.get("token", "").strip()
     if not token:
@@ -467,7 +453,7 @@ def resend_verification():
     Responds identically whether or not the address has a pending
     registration, so this endpoint cannot be used to enumerate accounts.
     """
-    if not _local_auth_enabled():
+    if not local_auth_enabled():
         return "webapp email verification is not configured", 404
     email = request.form.get("email", "").strip()
     token = _core.resend_local_verification(email) if email else None
@@ -475,7 +461,7 @@ def resend_verification():
         mailer = _core._verification_mailer()
         if mailer is not None:
             _send_verification_email(mailer, email.lower(), token)
-        elif _env_bool("DOCRAY_AUTH_EXPOSE_VERIFICATION_TOKEN", False):
+        elif env_bool("DOCRAY_AUTH_EXPOSE_VERIFICATION_TOKEN", False):
             session["pending_verification_token"] = token
     return _core.render_template(
         "verify_email.html",
