@@ -10,6 +10,12 @@ const bundle: TokenBundle = {
   refreshExpiresAt: 1_000_986_400,
 };
 
+function fakeAccessToken(payload: Record<string, unknown>): string {
+  const encode = (value: unknown) =>
+    btoa(JSON.stringify(value)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/u, "");
+  return `${encode({ alg: "none", typ: "JWT" })}.${encode(payload)}.sig`;
+}
+
 describe("TokenStore", () => {
   beforeEach(() => localStorage.clear());
 
@@ -66,5 +72,25 @@ describe("TokenStore", () => {
     store.save(bundle);
     store.clear();
     expect(seen).toEqual([bundle, null]);
+  });
+
+  it("extracts scopes from locally issued access JWTs", () => {
+    const store = new TokenStore(localStorage);
+    store.save({ ...bundle, accessToken: fakeAccessToken({ scopes: ["read", "write"] }) });
+    expect(store.accessScopes()).toEqual(["read", "write"]);
+    expect(store.hasScope("write")).toBe(true);
+  });
+
+  it("accepts OAuth-style space-delimited scope claims", () => {
+    const store = new TokenStore(localStorage);
+    store.save({ ...bundle, accessToken: fakeAccessToken({ scope: "read write" }) });
+    expect(store.accessScopes()).toEqual(["read", "write"]);
+  });
+
+  it("treats malformed access tokens as having no scopes", () => {
+    const store = new TokenStore(localStorage);
+    store.save({ ...bundle, accessToken: "not-a-jwt" });
+    expect(store.accessScopes()).toEqual([]);
+    expect(store.hasScope("write")).toBe(false);
   });
 });

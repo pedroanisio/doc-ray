@@ -40,6 +40,10 @@ export class AuthService {
     return !this.store.isAccessExpired(this.now());
   }
 
+  hasScope(scope: string): boolean {
+    return this.store.hasScope(scope);
+  }
+
   async login(email: string, password: string): Promise<void> {
     const pair = await this.client.postJson<JwtPairResponse>(
       "/auth/login",
