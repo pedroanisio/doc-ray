@@ -452,15 +452,15 @@ def invalid_billing_configuration(cfg: Config) -> list[str]:
     return issues
 
 
-def _require_checkout_live_readiness(cfg: Config) -> None:
-    """Refuse hosted Checkout when configured for live collection but not ready."""
+def _require_hosted_billing_live_readiness(cfg: Config, flow_name: str) -> None:
+    """Refuse hosted Stripe billing flows when live collection is not ready."""
     if not cfg.billing_enforcement_enabled and _expected_stripe_livemode(cfg) is not True:
         return
     missing = missing_billing_configuration(cfg)
     issues = invalid_billing_configuration(cfg)
     if not missing and not issues:
         return
-    message = "Stripe Checkout is not live-ready"
+    message = f"{flow_name} is not live-ready"
     if missing:
         message += ": missing " + ", ".join(missing)
     if issues:
@@ -534,7 +534,7 @@ async def create_checkout_session(
     """Create a Stripe subscription Checkout Session for the current tenant."""
     if not cfg.stripe_price_id:
         raise BillingConfigurationError("DOCRAY_STRIPE_PRICE_ID is required")
-    _require_checkout_live_readiness(cfg)
+    _require_hosted_billing_live_readiness(cfg, "Stripe Checkout")
     urls = configured_checkout_urls(cfg, success_url=success_url, cancel_url=cancel_url)
     stripe = transport or stripe_transport_from_config(cfg)
     tenant_id = await billing_store.current_tenant_id(conn)
@@ -602,6 +602,7 @@ async def create_portal_session(
 ) -> str:
     """Create a Stripe Customer Portal Session for the current tenant."""
     url = configured_portal_url(cfg, return_url=return_url)
+    _require_hosted_billing_live_readiness(cfg, "Stripe Customer Portal")
     stripe = transport or stripe_transport_from_config(cfg)
     tenant_id = await billing_store.current_tenant_id(conn)
     account = await billing_store.get_billing_account(conn, tenant_id)

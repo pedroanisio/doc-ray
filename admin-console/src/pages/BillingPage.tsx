@@ -106,6 +106,9 @@ export function BillingPage({ redirectToHostedUrl = (url) => window.location.ass
   const canStartCheckout = Boolean(
     status?.checkoutReady && status.liveModeReady && !hasManagedSubscription && busy === null,
   );
+  const canOpenPortal = Boolean(
+    status?.portalReady && status.stripeCustomerId && status.liveModeReady && busy === null,
+  );
   const checkoutButtonLabel = hasLiveSubscription
     ? "Subscription active"
     : state === "checkout_pending"
@@ -235,9 +238,14 @@ export function BillingPage({ redirectToHostedUrl = (url) => window.location.ass
             <div><dt>Subscription</dt><dd>{status?.stripeSubscriptionId ?? "none"}</dd></div>
             <div><dt>Latest invoice</dt><dd>{status?.latestInvoiceId ?? "none"}</dd></div>
           </dl>
-          <button onClick={openPortal} disabled={!status?.portalReady || !status?.stripeCustomerId || busy !== null}>
+          <button onClick={openPortal} disabled={!canOpenPortal}>
             {busy === "portal" ? "Opening Portal..." : "Manage payment method"}
           </button>
+          {status?.stripeCustomerId && !status.liveModeReady && (
+            <p className="muted compact-note">
+              Complete live readiness before opening the Customer Portal.
+            </p>
+          )}
         </section>
       </div>
 

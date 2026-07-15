@@ -284,7 +284,7 @@ describe("BillingPage", () => {
 
   it("surfaces unsafe live Stripe configuration issues", async () => {
     const fetchImpl = billingFetch({
-      stripeCustomerId: null,
+      stripeCustomerId: "cus_unsafe_live",
       stripeSubscriptionId: null,
       stripePriceId: null,
       subscriptionStatus: "none",
@@ -314,6 +314,7 @@ describe("BillingPage", () => {
     expect(screen.getByText(/DOCRAY_PUBLIC_BASE_URL must use https for live billing/)).toBeInTheDocument();
     expect(screen.getByText("Live-safe configuration")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /complete setup/i })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /manage payment method/i })).toBeDisabled();
   });
 
   it("keeps Checkout available when no live subscription exists", async () => {

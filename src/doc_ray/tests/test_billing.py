@@ -865,6 +865,49 @@ def test_live_checkout_session_requires_complete_live_readiness(pg):
         conn.execute("DELETE FROM tenant_billing_accounts WHERE tenant_id = %s", (tenant_id,))
 
 
+def test_live_portal_session_requires_complete_live_readiness(pg):
+    conn, _created = pg
+    tenant_id = _apply_billing_migration(conn)
+    fake = FakeStripe()
+    cfg = replace(
+        _cfg(enforcement_enabled=True),
+        stripe_secret_key="sk_live_realistic",
+        stripe_webhook_secret="",
+    )
+    conn.execute(
+        """
+        INSERT INTO tenant_billing_accounts
+            (tenant_id, stripe_customer_id, billing_email, created_by_principal_id)
+        VALUES (%s, 'cus_live_portal', 'billing@example.com', %s)
+        ON CONFLICT (tenant_id) DO UPDATE
+        SET stripe_customer_id = EXCLUDED.stripe_customer_id,
+            billing_email = EXCLUDED.billing_email
+        """,
+        (tenant_id, WRITE_PRINCIPAL.principal_id),
+    )
+
+    async def check() -> None:
+        aconn = await _aconn_as(WRITE_PRINCIPAL.principal_id)
+        try:
+            try:
+                await billing.create_portal_session(aconn, cfg, transport=fake)
+            except billing.BillingConfigurationError as exc:
+                message = str(exc)
+                assert "Stripe Customer Portal is not live-ready" in message
+                assert "DOCRAY_STRIPE_WEBHOOK_SECRET" in message
+            else:  # pragma: no cover - defensive
+                raise AssertionError("live Customer Portal opened without webhook readiness")
+        finally:
+            await aconn.close()
+
+    try:
+        asyncio.run(check())
+        assert fake.portal_calls == []
+    finally:
+        conn.execute("DELETE FROM tenant_subscriptions WHERE tenant_id = %s", (tenant_id,))
+        conn.execute("DELETE FROM tenant_billing_accounts WHERE tenant_id = %s", (tenant_id,))
+
+
 def test_checkout_session_rejects_duplicate_active_subscription(pg):
     conn, _created = pg
     tenant_id = _apply_billing_migration(conn)
