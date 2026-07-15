@@ -17,9 +17,11 @@
 <p class="kicker">Guide</p>
 <h1>doc·ray guide</h1>
 <p class="lede" style="max-width:42rem">
-  doc·ray turns source documents into an auditable corpus: ingest files, annotate
-  text into linguistic layers, search the results, and curate domain entities
-  before they enter the shared canonical registry.
+  doc·ray is a living library: ingest documents, annotate the text into linguistic
+  layers, and resolve the entities inside them into shared identities that connect
+  the whole corpus. Search and read stay grounded — every result traces back to the
+  document it came from. Entity resolution is AI-proposed but human-verified before
+  it enters the shared canonical registry.
 </p>
 
 <div class="anchor-list">
@@ -74,14 +76,18 @@
   <div class="card guide-card" id="glossary">
     <h2>Glossary</h2>
     <dl class="steps">
+      <dt><strong>Entity</strong></dt>
+      <dd>A person, place, date, or organization named in the text. Entities are the connective tissue: the same one, resolved to a single shared identity, links every document that mentions it.</dd>
+      <dt><strong>Provenance</strong></dt>
+      <dd>The traceable path from any result back to its source — the document, span, or entity that supports it. Source before synthesis.</dd>
       <dt><strong>Lexeme</strong></dt>
-      <dd>one normalized vocabulary identity, grouping observed forms by lemma, language, and part of speech.</dd>
+      <dd>One normalized vocabulary identity, grouping observed forms by lemma, language, and part of speech.</dd>
       <dt><strong>Occurrence</strong></dt>
       <dd>One place where a lexeme appears in a document.</dd>
       <dt><strong>Annotate</strong></dt>
       <dd>Builds sentences, lexemes, part-of-speech tags, and entity mentions from extracted text.</dd>
       <dt><strong>Canonicalize</strong></dt>
-      <dd>links mentions to known canonical entities when the registry can resolve them.</dd>
+      <dd>Resolves entity mentions to one shared identity — AI-proposed, human-verified — so scattered mentions of the same thing connect across the corpus.</dd>
       <dt><strong>Domain seeding</strong></dt>
       <dd>The human curation loop that approves exact knowledge-base identities for the canonical registry.</dd>
       <dt><strong>Part-of-speech codes</strong></dt>

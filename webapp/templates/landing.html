@@ -1,10 +1,10 @@
 {% extends "base.html" %}
-{% block title %}doc·ray — document intelligence platform{% endblock %}
+{% block title %}doc·ray — a living library for grounded knowledge{% endblock %}
 {% block head %}
 <style>
   /* Landing-only layout (lp- prefix avoids clashing with page-local styles
      elsewhere). Composition only — all color/type/spacing come from tokens. */
-  .lp-hero { max-width: 46rem; margin: clamp(1.5rem, 6vw, 4rem) 0 var(--space-7); }
+  .lp-hero { max-width: 48rem; margin: clamp(1.5rem, 6vw, 4rem) 0 var(--space-7); }
   .lp-title {
     margin: .4rem 0 var(--space-4);
     font-family: var(--display);
@@ -14,7 +14,7 @@
     letter-spacing: -0.03em;
     text-wrap: balance;
   }
-  .lp-sub { max-width: 40rem; font-size: 1.08rem; color: var(--ink-soft); }
+  .lp-sub { max-width: 42rem; font-size: 1.08rem; color: var(--ink-soft); }
   .lp-ctas { display: flex; flex-wrap: wrap; gap: .7rem; margin-top: var(--space-5); }
   /* Selectors are 2-class specific on purpose: base.html loads the head block
      before design-system.css, so plain .lp-cta-* would lose to .btn. */
@@ -33,13 +33,60 @@
     letter-spacing: .08em;
     text-transform: uppercase;
   }
+  .lp-section-label .soon {
+    margin-left: .6rem;
+    padding: .1rem .45rem;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    color: var(--ink-faint);
+    font-weight: 600;
+  }
+
+  /* Entity fabric — the thesis, made visible: scattered mentions resolve to one
+     identity that threads the corpus together. */
+  .lp-fabric {
+    display: grid;
+    grid-template-columns: 1fr 1.05fr;
+    gap: var(--space-6);
+    align-items: center;
+    margin: 0 0 var(--space-8);
+    padding: var(--space-6);
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: var(--r-lg);
+    box-shadow: var(--shadow-sm);
+  }
+  @media (max-width: 760px) { .lp-fabric { grid-template-columns: 1fr; } }
+  .lp-fabric h2 { margin: 0 0 .5rem; padding: 0; border: 0; font-family: var(--display);
+    font-size: 1.35rem; font-weight: 650; letter-spacing: -0.01em; text-transform: none; color: var(--ink); }
+  .lp-fabric p { margin: 0; color: var(--ink-soft); font-size: .95rem; line-height: 1.6; }
+  .lp-svg { width: 100%; height: auto; display: block; }
+  .lp-svg .doc { fill: var(--bg2); stroke: var(--line); stroke-width: 1.5; }
+  .lp-svg .rule { stroke: var(--line); stroke-width: 1.5; }
+  .lp-svg .mention { fill: var(--accent); }
+  .lp-svg .link { stroke: var(--accent); stroke-width: 1.5; fill: none; opacity: .55; }
+  .lp-svg .hub { fill: var(--accent); }
+  .lp-svg .hub-ring { fill: none; stroke: var(--accent); stroke-width: 1.5; opacity: .35; }
+  .lp-svg .concept { fill: var(--panel); stroke: var(--ink-faint); stroke-width: 1.5; }
+  .lp-svg .fab { stroke: var(--ink-faint); stroke-width: 1.5; fill: none; opacity: .5; }
+  .lp-svg .lbl { fill: var(--ink-faint); font-family: var(--mono); font-size: 11px; letter-spacing: .04em; }
+  .lp-svg .hub-lbl { fill: var(--accent-ink); font-family: var(--mono); font-size: 10px; font-weight: 700; }
+
+  .lp-principles {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: var(--space-4);
+    margin: 0 0 var(--space-8);
+  }
+  .lp-principle { padding: var(--space-5); }
+  .lp-principle h3 { margin: 0 0 .35rem; font-size: .98rem; }
+  .lp-principle p { margin: 0; font-size: .88rem; color: var(--ink-soft); line-height: 1.55; }
 
   .lp-pipe {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
     gap: var(--space-3);
     margin: 0 0 var(--space-8);
-    counter-reset: step;
   }
   .lp-step {
     padding: var(--space-4);
@@ -57,19 +104,48 @@
     font-weight: 700;
     letter-spacing: .08em;
   }
-  .lp-step h3 { margin: 0 0 .3rem; font-size: 1.05rem; }
+  .lp-step h3 { margin: 0 0 .3rem; font-size: 1.02rem; }
   .lp-step p { margin: 0; font-size: .86rem; color: var(--ink-soft); line-height: 1.5; }
 
   .lp-caps {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
     gap: var(--space-4);
     margin: 0 0 var(--space-8);
   }
   .lp-cap { padding: var(--space-5); }
   .lp-cap h3 { margin: 0 0 .4rem; font-size: 1rem; }
   .lp-cap p { margin: 0; font-size: .9rem; color: var(--ink-soft); line-height: 1.55; }
-  .lp-cap .mono { color: var(--ink-faint); font-size: .74rem; }
+
+  /* "Becoming" — intent, not fact. Visually distinct (dashed, muted) so it can
+     never read as a shipped capability. */
+  .lp-soon {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: var(--space-4);
+    margin: 0 0 var(--space-7);
+  }
+  .lp-soon-card {
+    padding: var(--space-5);
+    background: transparent;
+    border: 1px dashed var(--line);
+    border-radius: var(--r);
+  }
+  .lp-soon-card h3 { margin: 0 0 .35rem; font-size: .98rem; color: var(--ink-soft); }
+  .lp-soon-card p { margin: 0; font-size: .86rem; color: var(--ink-faint); line-height: 1.55; }
+
+  .lp-audience {
+    margin: 0 0 var(--space-8);
+    padding: var(--space-5) var(--space-6);
+    border-left: 3px solid var(--accent);
+    background: var(--panel);
+    border-radius: 0 var(--r) var(--r) 0;
+    color: var(--ink-soft);
+    font-size: .95rem;
+    line-height: 1.65;
+    max-width: 52rem;
+  }
+  .lp-audience b { color: var(--ink); font-weight: 600; }
 
   .lp-end {
     display: flex;
@@ -89,13 +165,15 @@
 {% endblock %}
 {% block body %}
 <section class="lp-hero">
-  <p class="kicker">Document intelligence platform</p>
-  <h1 class="lp-title">Turn documents into an <span class="accent">auditable research corpus</span>.</h1>
+  <p class="kicker">Living library · knowledge base</p>
+  <h1 class="lp-title">A living library that keeps every idea
+    <span class="accent">connected to its source</span>.</h1>
   <p class="lp-sub">
-    Point doc&middot;ray at your PDFs, EPUBs, and Office files. It extracts the text,
-    decomposes it to sentences, tags every word for part of speech, canonicalizes the
-    entities, and serves the whole corpus through a fast reader and a single GraphQL API
-    &mdash; with every result traceable back to the source.
+    doc&middot;ray turns your documents into a connected corpus — extracted,
+    decomposed, and annotated, then threaded together by the entities inside them.
+    Every person, place, date, and organization is resolved to one shared identity,
+    so the same idea links across your whole library. Source before synthesis:
+    every result traces back to the document it came from.
   </p>
   <div class="lp-ctas">
     <a class="btn lp-cta-primary" href="{{ url_for('documents') }}">Browse the corpus</a>
@@ -103,62 +181,157 @@
   </div>
 </section>
 
-<p class="lp-section-label">How it works</p>
-<div class="lp-pipe">
-  <div class="lp-step">
-    <span class="n">01 &middot; Extract</span>
-    <h3>Ingest &amp; extract</h3>
-    <p>Text and metadata from PDF, EPUB, TXT, MD, and DOCX. Original bytes are stored content-addressed in S3&#8202;/&#8202;MinIO.</p>
+<section class="lp-fabric">
+  <div>
+    <h2>Entities are the connective tissue</h2>
+    <p>
+      Scattered mentions of the same person, place, date, or organization are
+      recognized and resolved — <b>AI proposes, verification decides</b> — into one
+      canonical identity. That identity threads documents and concepts across the
+      whole corpus, so related work finds related work instead of sitting in
+      separate files.
+    </p>
   </div>
-  <div class="lp-step">
-    <span class="n">02 &middot; Annotate</span>
-    <h3>Annotate</h3>
-    <p>A 20-layer linguistic annotation graph over every sentence &mdash; lemmas, parts of speech, and dependency structure.</p>
+  <svg class="lp-svg" viewBox="0 0 520 260" role="img"
+       aria-label="Diagram: scattered entity mentions across three documents resolve to one canonical identity that connects to related concepts.">
+    <!-- Left: three documents, each with mentions of the same entity -->
+    <g>
+      <rect class="doc" x="8" y="24" width="120" height="52" rx="6"/>
+      <line class="rule" x1="22" y1="42" x2="98" y2="42"/>
+      <line class="rule" x1="22" y1="56" x2="86" y2="56"/>
+      <circle class="mention" cx="112" cy="42" r="5"/>
+
+      <rect class="doc" x="8" y="104" width="120" height="52" rx="6"/>
+      <line class="rule" x1="22" y1="122" x2="98" y2="122"/>
+      <line class="rule" x1="22" y1="136" x2="80" y2="136"/>
+      <circle class="mention" cx="112" cy="130" r="5"/>
+
+      <rect class="doc" x="8" y="184" width="120" height="52" rx="6"/>
+      <line class="rule" x1="22" y1="202" x2="98" y2="202"/>
+      <line class="rule" x1="22" y1="216" x2="90" y2="216"/>
+      <circle class="mention" cx="112" cy="210" r="5"/>
+    </g>
+    <text class="lbl" x="8" y="16">scattered mentions</text>
+
+    <!-- Converge to one canonical identity -->
+    <path class="link" d="M112 42 C 200 60, 220 110, 268 128"/>
+    <path class="link" d="M112 130 C 190 130, 210 130, 268 130"/>
+    <path class="link" d="M112 210 C 200 200, 220 150, 268 132"/>
+    <circle class="hub-ring" cx="286" cy="130" r="30"/>
+    <circle class="hub" cx="286" cy="130" r="20"/>
+    <text class="hub-lbl" x="286" y="134" text-anchor="middle">ID</text>
+    <text class="lbl" x="252" y="182">one identity</text>
+
+    <!-- Radiate to connected concepts (the fabric) -->
+    <path class="fab" d="M306 130 C 360 96, 410 80, 470 70"/>
+    <path class="fab" d="M306 130 C 380 130, 420 130, 476 130"/>
+    <path class="fab" d="M306 130 C 360 164, 410 180, 470 190"/>
+    <circle class="concept" cx="482" cy="70" r="8"/>
+    <circle class="concept" cx="488" cy="130" r="8"/>
+    <circle class="concept" cx="482" cy="190" r="8"/>
+    <text class="lbl" x="430" y="222">connected concepts</text>
+  </svg>
+</section>
+
+<p class="lp-section-label">How we work</p>
+<div class="lp-principles">
+  <div class="card lp-principle">
+    <h3>Source before synthesis</h3>
+    <p>Claims, summaries, and views trace back to the documents, spans, and entities that support them — never a fluent answer you can't check.</p>
   </div>
-  <div class="lp-step">
-    <span class="n">03 &middot; Canonicalize</span>
-    <h3>Canonicalize entities</h3>
-    <p>Entity mentions are resolved to canonical, deduplicated identities you can curate.</p>
+  <div class="card lp-principle">
+    <h3>AI proposes, verification decides</h3>
+    <p>Entity resolution and enrichment may be AI-curated, but they're untrusted by default. Low-confidence matches abstain and route to review.</p>
   </div>
-  <div class="lp-step">
-    <span class="n">04 &middot; Enrich</span>
-    <h3>Enrich</h3>
-    <p>Semantic embeddings connect related passages so retrieval reaches beyond exact wording.</p>
-  </div>
-  <div class="lp-step">
-    <span class="n">05 &middot; Query</span>
-    <h3>Query</h3>
-    <p>A typed GraphQL API plus full-text and keyword-in-context search over the whole corpus.</p>
+  <div class="card lp-principle">
+    <h3>Human direction</h3>
+    <p>Durable truth, deletion, shared identities, and catalog structure pass through explicit human or policy review — not autonomous drift.</p>
   </div>
 </div>
 
-<p class="lp-section-label">What you get</p>
+<p class="lp-section-label">How the library works today</p>
+<div class="lp-pipe">
+  <div class="lp-step">
+    <span class="n">01 · Ingest</span>
+    <h3>Ingest &amp; preserve</h3>
+    <p>Text, layout, and metadata from PDF, EPUB, TXT, MD, and DOCX. Original bytes are stored content-addressed with checksums, so provenance stays intact.</p>
+  </div>
+  <div class="lp-step">
+    <span class="n">02 · Annotate</span>
+    <h3>Decompose &amp; annotate</h3>
+    <p>Sentences plus a 20-layer linguistic annotation graph — lemmas, parts of speech, and dependency structure over every sentence.</p>
+  </div>
+  <div class="lp-step">
+    <span class="n">03 · Resolve</span>
+    <h3>Resolve entities</h3>
+    <p>People, places, dates, and organizations are recognized and canonicalized under mandatory verification, so mentions become shared identities.</p>
+  </div>
+  <div class="lp-step">
+    <span class="n">04 · Curate</span>
+    <h3>Curate the library</h3>
+    <p>Collections, editable titles, descriptions, and tags — with an AI-suggest → human-decide metadata workflow.</p>
+  </div>
+  <div class="lp-step">
+    <span class="n">05 · Query</span>
+    <h3>Query &amp; connect</h3>
+    <p>Full-text and keyword-in-context search, a typed GraphQL API, and a read-only MCP server for AI agents.</p>
+  </div>
+</div>
+
+<p class="lp-section-label">What you get today</p>
 <div class="lp-caps">
   <div class="card lp-cap">
-    <h3>Multi-format ingestion</h3>
-    <p>PDF, EPUB, TXT, MD, and DOCX in; a normalized, full-text corpus out.</p>
+    <h3>Provenance-preserving ingestion</h3>
+    <p>PDF, EPUB, TXT, MD, and DOCX in; a normalized corpus out — original bytes kept content-addressed and checksummed to their source.</p>
   </div>
   <div class="card lp-cap">
     <h3>20-layer annotation graph</h3>
-    <p>Every sentence carries a rich linguistic annotation layer you can read alongside the source.</p>
+    <p>Every sentence carries a linguistic annotation layer you can read alongside the original text.</p>
   </div>
   <div class="card lp-cap">
-    <h3>Entity canonicalization</h3>
-    <p>Mentions collapse to canonical identities, with a review path for curation.</p>
+    <h3>Entity resolution &amp; curation</h3>
+    <p>Mentions collapse to canonical identities under human-reviewed verification — the connective tissue of the library.</p>
   </div>
   <div class="card lp-cap">
-    <h3>Semantic enrichment</h3>
-    <p>Embeddings connect related passages so retrieval and comparison work across the whole corpus.</p>
+    <h3>Search &amp; concordance</h3>
+    <p>Full-text search and keyword-in-context reading, sentence by sentence, across the corpus you can see.</p>
   </div>
   <div class="card lp-cap">
-    <h3>GraphQL API</h3>
-    <p>A typed Strawberry GraphQL surface over the corpus, with role-scoped access.</p>
+    <h3>GraphQL API &amp; MCP for agents</h3>
+    <p>A typed GraphQL surface, plus a read-only MCP server so AI agents read the corpus — RLS-scoped to what they're allowed.</p>
   </div>
   <div class="card lp-cap">
-    <h3>Full-text &amp; KWIC search</h3>
-    <p>Search the corpus and read matches in keyword-in-context, sentence by sentence.</p>
+    <h3>Governed for organizations</h3>
+    <p>Tenant-scoped RLS, RBAC/ABAC, SSO/SCIM, audit, backups, and operator workflows for serious collections.</p>
   </div>
 </div>
+
+<p class="lp-section-label">Where it's going <span class="soon">Becoming · not yet built</span></p>
+<div class="lp-soon">
+  <div class="lp-soon-card">
+    <h3>Relationship discovery</h3>
+    <p>Traverse entity-to-entity connections several degrees out — "friend-of-a-friend" — so discovery follows the graph, not just a shared identity.</p>
+  </div>
+  <div class="lp-soon-card">
+    <h3>Inspiration from prior art</h3>
+    <p>Semantic and similarity retrieval that surfaces relevant prior work by meaning, not keywords.</p>
+  </div>
+  <div class="lp-soon-card">
+    <h3>Document Composer</h3>
+    <p>Compose standalone documents grounded in — and cited to — source evidence, written outside the library, never into it.</p>
+  </div>
+  <div class="lp-soon-card">
+    <h3>Agent-driven curation</h3>
+    <p>AI agents that propose library reorganizations through a governed, human-or-policy-approved write path.</p>
+  </div>
+</div>
+
+<p class="lp-audience">
+  Built for <b>individual researchers, authors, and builders</b> who want a personal
+  living library — and for <b>organizations</b> that need governed ingestion, access
+  control, auditability, and continuity. <b>AI agents are first-class here too</b>:
+  they read, resolve, and curate, but never bypass human or policy review.
+</p>
 
 <section class="lp-end">
   <div>

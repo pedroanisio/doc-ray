@@ -2,13 +2,13 @@
 {% import "_terms.html" as terms %}
 {% block title %}Corpus · doc·ray{% endblock %}
 {% block body %}
-<p class="kicker">Ingest &rarr; annotate &rarr; curate</p>
+<p class="kicker">Ingest &rarr; annotate &rarr; resolve &rarr; connect</p>
 <h1>The <span class="accent">Corpus</span></h1>
 {% set doc_count = totals.docs or 0 %}
 {% set doc_label = "document" if doc_count == 1 else "documents" %}
 <p class="lede" style="max-width:34rem">
-  Every document you ingest, annotated and curated into one auditable, queryable
-  research corpus.
+  Your living library: every document ingested, annotated, and threaded together by
+  the entities inside it — each one still traceable back to its source.
 </p>
 <p class="lede" style="max-width:34rem">
   {{ "{:,}".format(doc_count) }} {{ doc_label }}, decomposed to sentences and
