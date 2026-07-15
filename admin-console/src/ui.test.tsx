@@ -265,6 +265,28 @@ describe("BillingPage", () => {
     expect(screen.getByRole("button", { name: /manage payment method/i })).toBeDisabled();
   });
 
+  it("routes checkout-completed tenants to Customer Portal instead of duplicate Checkout", async () => {
+    const fetchImpl = billingFetch({
+      subscriptionStatus: "checkout_completed",
+      entitled: false,
+      entitlementReason: "subscription is checkout_completed",
+    });
+    const services = servicesWithFetch(fetchImpl);
+
+    render(
+      <ServicesProvider services={services}>
+        <MemoryRouter>
+          <BillingPage />
+        </MemoryRouter>
+      </ServicesProvider>,
+    );
+
+    expect(await screen.findByText("Current tenant")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /use customer portal/i })).toBeDisabled();
+    expect(screen.getByText(/complete recovery/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /manage payment method/i })).toBeEnabled();
+  });
+
   it("opens hosted Checkout from the Billing page action", async () => {
     const fetchImpl = billingFetch({
       stripeCustomerId: null,

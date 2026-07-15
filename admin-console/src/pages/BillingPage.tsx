@@ -13,6 +13,14 @@ import { PageHeader } from "../components/common";
 import { useApiClient } from "../services";
 
 const ACTIVE_STATUSES = new Set(["active", "trialing"]);
+const MANAGED_SUBSCRIPTION_STATUSES = new Set([
+  "active",
+  "trialing",
+  "checkout_completed",
+  "incomplete",
+  "past_due",
+  "unpaid",
+]);
 
 type BillingPageProps = {
   redirectToHostedUrl?: (url: string) => void;
@@ -79,9 +87,14 @@ export function BillingPage({ redirectToHostedUrl = (url) => window.location.ass
   const state = status?.subscriptionStatus ?? "loading";
   const isActive = Boolean(status?.entitled ?? ACTIVE_STATUSES.has(state));
   const hasLiveSubscription = ACTIVE_STATUSES.has(state);
-  const canStartCheckout = Boolean(status?.checkoutReady && !hasLiveSubscription && busy === null);
+  const hasManagedSubscription = Boolean(
+    status && (MANAGED_SUBSCRIPTION_STATUSES.has(state) || status.stripeSubscriptionId),
+  );
+  const canStartCheckout = Boolean(status?.checkoutReady && !hasManagedSubscription && busy === null);
   const checkoutButtonLabel = hasLiveSubscription
     ? "Subscription active"
+    : hasManagedSubscription
+      ? "Use Customer Portal"
     : busy === "checkout"
       ? "Opening Checkout..."
       : "Start subscription";
@@ -172,9 +185,10 @@ export function BillingPage({ redirectToHostedUrl = (url) => window.location.ass
           <button onClick={openCheckout} disabled={!canStartCheckout}>
             {checkoutButtonLabel}
           </button>
-          {hasLiveSubscription && (
+          {hasManagedSubscription && (
             <p className="muted compact-note">
-              Use the Customer Portal to change payment method or manage the existing subscription.
+              Use the Customer Portal to change payment method, complete recovery, or manage the
+              existing subscription.
             </p>
           )}
         </section>

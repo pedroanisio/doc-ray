@@ -228,6 +228,7 @@ async def update_invoice_snapshot(
     conn: psycopg.AsyncConnection[Any],
     *,
     stripe_customer_id: str,
+    stripe_subscription_id: str | None,
     latest_invoice_id: str | None,
     fallback_status: str | None,
     stripe_event_id: str | None,
@@ -241,8 +242,20 @@ async def update_invoice_snapshot(
             latest_invoice_id = COALESCE(%s, latest_invoice_id),
             last_stripe_event_id = %s
         WHERE stripe_customer_id = %s
+          AND (
+              %s::text IS NULL
+              OR stripe_subscription_id IS NULL
+              OR stripe_subscription_id = %s
+          )
         """,
-        (fallback_status, latest_invoice_id, stripe_event_id, stripe_customer_id),
+        (
+            fallback_status,
+            latest_invoice_id,
+            stripe_event_id,
+            stripe_customer_id,
+            stripe_subscription_id,
+            stripe_subscription_id,
+        ),
     )
 
 
@@ -270,17 +283,36 @@ async def insert_webhook_event(
     livemode: bool,
     payload: dict[str, Any],
 ) -> bool:
-    """Insert a webhook event ledger row; return false if already processed."""
+    """Insert or claim a webhook event ledger row.
+
+    Returns false only when the event was already processed. Existing unprocessed
+    rows are returned for retry so Stripe delivery retries cannot get stuck
+    behind an earlier failed processing attempt.
+    """
     cur = await conn.execute(
         """
-        INSERT INTO stripe_webhook_events (stripe_event_id, event_type, livemode, payload)
-        VALUES (%s, %s, %s, %s)
-        ON CONFLICT (stripe_event_id) DO NOTHING
-        RETURNING stripe_event_id
+        WITH inserted AS (
+            INSERT INTO stripe_webhook_events
+                (stripe_event_id, event_type, livemode, payload)
+            VALUES (%s, %s, %s, %s)
+            ON CONFLICT (stripe_event_id) DO NOTHING
+            RETURNING TRUE AS should_process
+        ),
+        existing AS (
+            SELECT processed_at IS NULL AS should_process
+            FROM stripe_webhook_events
+            WHERE stripe_event_id = %s
+              AND NOT EXISTS (SELECT 1 FROM inserted)
+        )
+        SELECT should_process FROM inserted
+        UNION ALL
+        SELECT should_process FROM existing
+        LIMIT 1
         """,
-        (stripe_event_id, event_type, livemode, Json(payload)),
+        (stripe_event_id, event_type, livemode, Json(payload), stripe_event_id),
     )
-    return await cur.fetchone() is not None
+    row = await cur.fetchone()
+    return bool(row and row["should_process"])
 
 
 async def mark_webhook_processed(conn: psycopg.AsyncConnection[Any], stripe_event_id: str) -> None:

@@ -31,6 +31,9 @@ class StripeSignatureError(ValueError):
 
 
 ENTITLED_SUBSCRIPTION_STATUSES = frozenset({"active", "trialing"})
+CHECKOUT_BLOCKING_SUBSCRIPTION_STATUSES = ENTITLED_SUBSCRIPTION_STATUSES | frozenset(
+    {"checkout_completed", "incomplete", "past_due", "unpaid"}
+)
 REQUIRED_WEBHOOK_EVENTS = (
     "checkout.session.completed",
     "customer.subscription.created",
@@ -310,10 +313,10 @@ async def create_checkout_session(
     tenant_id = await billing_store.current_tenant_id(conn)
     status = await billing_store.get_billing_status(conn, tenant_id)
     subscription_status = str(status.get("subscription_status") or "none")
-    if subscription_status in ENTITLED_SUBSCRIPTION_STATUSES:
+    if subscription_status in CHECKOUT_BLOCKING_SUBSCRIPTION_STATUSES:
         raise BillingConfigurationError(
             "tenant already has an "
-            f"{subscription_status} Stripe subscription; use the billing portal"
+            f"{subscription_status} Stripe subscription state; use the billing portal"
         )
     account = await billing_store.get_billing_account(conn, tenant_id)
     customer_id = account.get("stripe_customer_id") if account else None
@@ -514,10 +517,23 @@ async def _process_invoice_event(
     await billing_store.update_invoice_snapshot(
         conn,
         stripe_customer_id=customer_id,
+        stripe_subscription_id=_string(obj.get("subscription")),
         latest_invoice_id=_string(obj.get("id")),
-        fallback_status="past_due" if event_type == "invoice.payment_failed" else None,
+        fallback_status=_invoice_fallback_status(event_type),
         stripe_event_id=event_id,
     )
+
+
+def _invoice_fallback_status(event_type: str) -> str | None:
+    if event_type in _FAILED_INVOICE_EVENTS:
+        return "past_due"
+    if event_type in _PAID_INVOICE_EVENTS:
+        return "active"
+    return None
+
+
+_FAILED_INVOICE_EVENTS = frozenset({"invoice.payment_failed", "invoice.finalization_failed"})
+_PAID_INVOICE_EVENTS = frozenset({"invoice.paid", "invoice.payment_succeeded"})
 
 
 def _tenant_from_object(obj: dict[str, Any]) -> str | None:
