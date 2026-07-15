@@ -394,6 +394,42 @@ describe("BillingPage", () => {
     );
   });
 
+  it("requires signed webhook processing before opening hosted payment flows", async () => {
+    const fetchImpl = billingFetch({
+      stripeCustomerId: "cus_without_webhook",
+      stripeSubscriptionId: null,
+      stripePriceId: null,
+      subscriptionStatus: "none",
+      currentPeriodEnd: null,
+      latestInvoiceId: null,
+      checkoutSessionId: null,
+      webhookReady: false,
+      webhookEndpointUrl: null,
+      missingConfiguration: ["DOCRAY_STRIPE_WEBHOOK_SECRET"],
+      enforcementEnabled: false,
+      entitled: true,
+      entitlementReason: "billing enforcement is disabled",
+    });
+    const services = billingServices(fetchImpl);
+    const redirectToHostedUrl = vi.fn();
+
+    render(
+      <ServicesProvider services={services}>
+        <MemoryRouter>
+          <BillingPage redirectToHostedUrl={redirectToHostedUrl} />
+        </MemoryRouter>
+      </ServicesProvider>,
+    );
+
+    expect(await screen.findByText("Current tenant")).toBeInTheDocument();
+    expect(screen.getByText("Signed Stripe webhook")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /complete setup/i })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /manage payment method/i })).toBeDisabled();
+    expect(screen.getAllByText(/Complete payment processing setup/)).toHaveLength(2);
+    await userEvent.click(screen.getByRole("button", { name: /complete setup/i }));
+    expect(redirectToHostedUrl).not.toHaveBeenCalled();
+  });
+
   it("surfaces unsafe live Stripe configuration issues", async () => {
     const fetchImpl = billingFetch({
       stripeCustomerId: "cus_unsafe_live",

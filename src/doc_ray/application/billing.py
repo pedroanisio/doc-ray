@@ -499,6 +499,19 @@ def _require_hosted_billing_live_readiness(cfg: Config, flow_name: str) -> None:
     raise BillingConfigurationError(message)
 
 
+def _require_hosted_payment_processing_readiness(cfg: Config) -> None:
+    """Refuse hosted billing when Stripe events cannot be processed afterward."""
+    missing: list[str] = []
+    if not cfg.stripe_webhook_secret:
+        missing.append("DOCRAY_STRIPE_WEBHOOK_SECRET")
+    if webhook_endpoint_url(cfg) is None:
+        missing.append("DOCRAY_PUBLIC_BASE_URL")
+    if missing:
+        raise BillingConfigurationError(
+            "Stripe webhook processing is not configured: missing " + ", ".join(missing)
+        )
+
+
 def _looks_like_stripe_test_secret(value: str | None) -> bool:
     return bool(value and value.startswith(("sk_test_", "rk_test_")))
 
@@ -567,6 +580,7 @@ async def create_checkout_session(
     if not cfg.stripe_price_id:
         raise BillingConfigurationError("DOCRAY_STRIPE_PRICE_ID is required")
     _require_hosted_billing_live_readiness(cfg, "Stripe Checkout")
+    _require_hosted_payment_processing_readiness(cfg)
     urls = configured_checkout_urls(cfg, success_url=success_url, cancel_url=cancel_url)
     stripe = transport or stripe_transport_from_config(cfg)
     tenant_id = await billing_store.current_tenant_id(conn)
@@ -652,6 +666,7 @@ async def create_portal_session(
     """Create a Stripe Customer Portal Session for the current tenant."""
     url = configured_portal_url(cfg, return_url=return_url)
     _require_hosted_billing_live_readiness(cfg, "Stripe Customer Portal")
+    _require_hosted_payment_processing_readiness(cfg)
     stripe = transport or stripe_transport_from_config(cfg)
     tenant_id = await billing_store.current_tenant_id(conn)
     account = await billing_store.get_billing_account(conn, tenant_id)

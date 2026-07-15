@@ -1310,6 +1310,74 @@ def test_checkout_session_creates_customer_and_graphql_status(pg):
         conn.execute("DELETE FROM tenant_billing_accounts WHERE tenant_id = %s", (tenant_id,))
 
 
+def test_checkout_session_requires_signed_webhook_processing_even_in_test_mode(pg):
+    conn, _created = pg
+    tenant_id = _apply_billing_migration(conn)
+    fake = FakeStripe()
+    cfg = replace(_cfg(), stripe_webhook_secret="")
+
+    async def check() -> None:
+        aconn = await _aconn_as(WRITE_PRINCIPAL.principal_id)
+        try:
+            try:
+                await billing.create_checkout_session(aconn, cfg, transport=fake)
+            except billing.BillingConfigurationError as exc:
+                message = str(exc)
+                assert "Stripe webhook processing is not configured" in message
+                assert "DOCRAY_STRIPE_WEBHOOK_SECRET" in message
+            else:  # pragma: no cover - defensive
+                raise AssertionError("Checkout started without signed webhook processing")
+        finally:
+            await aconn.close()
+
+    try:
+        asyncio.run(check())
+        assert fake.created_customers == []
+        assert fake.checkout_calls == []
+    finally:
+        conn.execute("DELETE FROM tenant_subscriptions WHERE tenant_id = %s", (tenant_id,))
+        conn.execute("DELETE FROM tenant_billing_accounts WHERE tenant_id = %s", (tenant_id,))
+
+
+def test_portal_session_requires_signed_webhook_processing_even_in_test_mode(pg):
+    conn, _created = pg
+    tenant_id = _apply_billing_migration(conn)
+    fake = FakeStripe()
+    cfg = replace(_cfg(), stripe_webhook_secret="")
+    conn.execute(
+        """
+        INSERT INTO tenant_billing_accounts
+            (tenant_id, stripe_customer_id, billing_email, created_by_principal_id)
+        VALUES (%s, 'cus_test_portal_no_webhook', 'billing@example.com', %s)
+        ON CONFLICT (tenant_id) DO UPDATE
+        SET stripe_customer_id = EXCLUDED.stripe_customer_id,
+            billing_email = EXCLUDED.billing_email
+        """,
+        (tenant_id, WRITE_PRINCIPAL.principal_id),
+    )
+
+    async def check() -> None:
+        aconn = await _aconn_as(WRITE_PRINCIPAL.principal_id)
+        try:
+            try:
+                await billing.create_portal_session(aconn, cfg, transport=fake)
+            except billing.BillingConfigurationError as exc:
+                message = str(exc)
+                assert "Stripe webhook processing is not configured" in message
+                assert "DOCRAY_STRIPE_WEBHOOK_SECRET" in message
+            else:  # pragma: no cover - defensive
+                raise AssertionError("Portal started without signed webhook processing")
+        finally:
+            await aconn.close()
+
+    try:
+        asyncio.run(check())
+        assert fake.portal_calls == []
+    finally:
+        conn.execute("DELETE FROM tenant_subscriptions WHERE tenant_id = %s", (tenant_id,))
+        conn.execute("DELETE FROM tenant_billing_accounts WHERE tenant_id = %s", (tenant_id,))
+
+
 def test_live_mode_readiness_rejects_test_key_and_insecure_payment_urls(pg):
     conn, _created = pg
     tenant_id = _apply_billing_migration(conn)

@@ -118,11 +118,15 @@ export function BillingPage({ redirectToHostedUrl = (url) => window.location.ass
   );
   const canManagePayments = auth.hasScope("write");
   const hostedBillingReady = Boolean(status && (status.liveModeReady || !status.enforcementEnabled));
-  const needsCheckoutSetup = Boolean(status && (!status.checkoutReady || !hostedBillingReady));
+  const paymentProcessingReady = Boolean(status?.webhookReady);
+  const readyForHostedPaymentFlow = hostedBillingReady && paymentProcessingReady;
+  const needsCheckoutSetup = Boolean(
+    status && (!status.checkoutReady || !readyForHostedPaymentFlow),
+  );
   const canStartCheckout = Boolean(
     canManagePayments
       && status?.checkoutReady
-      && hostedBillingReady
+      && readyForHostedPaymentFlow
       && !hasManagedSubscription
       && busy === null,
   );
@@ -130,7 +134,7 @@ export function BillingPage({ redirectToHostedUrl = (url) => window.location.ass
     canManagePayments
       && status?.portalReady
       && status.stripeCustomerId
-      && hostedBillingReady
+      && readyForHostedPaymentFlow
       && busy === null,
   );
   const checkoutButtonLabel = !canManagePayments
@@ -143,7 +147,7 @@ export function BillingPage({ redirectToHostedUrl = (url) => window.location.ass
       ? "Use Customer Portal"
     : status && !status.checkoutReady
       ? "Configure Checkout"
-    : status && !hostedBillingReady
+    : status && !readyForHostedPaymentFlow
       ? "Complete setup"
     : busy === "checkout"
       ? "Opening Checkout..."
@@ -254,7 +258,9 @@ export function BillingPage({ redirectToHostedUrl = (url) => window.location.ass
           )}
           {needsCheckoutSetup && !hasManagedSubscription && (
             <p className="muted compact-note">
-              Complete live readiness before opening Stripe Checkout.
+              {paymentProcessingReady
+                ? "Complete live readiness before opening Stripe Checkout."
+                : "Complete payment processing setup before opening Stripe Checkout."}
             </p>
           )}
           {!canManagePayments && (
@@ -275,9 +281,11 @@ export function BillingPage({ redirectToHostedUrl = (url) => window.location.ass
           <button onClick={openPortal} disabled={!canOpenPortal}>
             {busy === "portal" ? "Opening Portal..." : "Manage payment method"}
           </button>
-          {status?.stripeCustomerId && !hostedBillingReady && (
+          {status?.stripeCustomerId && !readyForHostedPaymentFlow && (
             <p className="muted compact-note">
-              Complete live readiness before opening the Customer Portal.
+              {paymentProcessingReady
+                ? "Complete live readiness before opening the Customer Portal."
+                : "Complete payment processing setup before opening the Customer Portal."}
             </p>
           )}
           {!canManagePayments && (
