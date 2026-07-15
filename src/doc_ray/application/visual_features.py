@@ -66,10 +66,13 @@ def _dominant_colors(rgb: Image.Image) -> tuple[tuple[str, float], ...]:
         colors=_PALETTE_COLORS, method=Image.Quantize.MEDIANCUT, dither=Image.Dither.NONE
     )
     palette = quant.getpalette() or []
-    counts = quant.getcolors(maxcolors=_PALETTE_COLORS * 4) or []
-    total = sum(count for count, _ in counts) or 1
+    counts = np.bincount(np.asarray(quant, dtype=np.int64).ravel(), minlength=_PALETTE_COLORS)
+    total = int(counts.sum()) or 1
     merged: dict[str, float] = {}
-    for count, index in counts:
+    for index in range(len(counts)):
+        count = int(counts[index])
+        if count == 0:
+            continue
         r, g, b = palette[index * 3 : index * 3 + 3]
         hexv = f"#{r:02x}{g:02x}{b:02x}"
         merged[hexv] = merged.get(hexv, 0.0) + count / total
@@ -95,9 +98,7 @@ def _edge_density(luma: np.ndarray) -> float:
     return float(edges / total) if total else 0.0
 
 
-def _classify(
-    n_colors: int, mean_saturation: float, contrast: float, edge_density: float
-) -> str:
+def _classify(n_colors: int, mean_saturation: float, contrast: float, edge_density: float) -> str:
     """Rule-based, deterministic image-type class.
 
     Heuristic (to be calibrated with labelled fixtures per Prism Phase 1), but

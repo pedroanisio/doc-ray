@@ -12,13 +12,14 @@ import re
 from io import BytesIO
 
 import numpy as np
+from PIL import Image
+
 from doc_ray.application.visual_features import (
     ALLOWED_IMAGE_CLASSES,
     TOOL_NAME,
     TOOL_VERSION,
     extract_tier1_features,
 )
-from PIL import Image
 
 _HEX = re.compile(r"^#[0-9a-f]{6}$")
 

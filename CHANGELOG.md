@@ -62,6 +62,18 @@ doc-ray carries **one global version** covering both the application package
   (Claude Fable 5 via Claude Code) — typography, layout, and navigation pass
   over the browser UI; no route or data-contract changes.
 
+## [1.28.0] - 2026-07-15
+
+### Added
+- **Prism Tier-1 visual layer — deterministic image features** (Claude Opus 4.8
+  via Claude Code). First tier of the visual/multimodal layer (see
+  `docs/proposals/prism-visual-layer.md`): two additive, document-scoped tables
+  (`document_image`, `image_tier1_features`) under the existing RLS, and a pure
+  deterministic feature extractor (`application/visual_features.py`) — colour
+  palette (median-cut, byte-reproducible), per-channel histogram, saturation/
+  value/contrast/edge-density, and a rule-based image-type class. No model, no
+  hallucination surface: this tier is ground truth. Migrations 089–090.
+
 ## [1.27.0] - 2026-07-15
 
 Schema 1.27.0 (migrations 085-086).
