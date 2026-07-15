@@ -2,8 +2,9 @@
 #
 # Runs as a SEPARATE stack from the main doc-ray compose so it can be deployed,
 # scaled, and torn down independently. It attaches to the main stack's network
-# to reach the `api` and `webapp` services by name (same-origin proxying — see
-# nginx/default.conf.template).
+# to reach the `api` and `webapp` services by name, and publishes the stable
+# `admin-console` network alias so a Cloudflare Tunnel hostname can route live
+# Stripe Checkout/Portal returns to this service without exposing a host port.
 #
 # Usage:
 #   1. Bring up the main doc-ray stack first (creates the shared network).
@@ -31,7 +32,9 @@ services:
     ports:
       - "127.0.0.1:${ADMIN_CONSOLE_PORT:-8080}:80"
     networks:
-      - docray
+      docray:
+        aliases:
+          - admin-console
     healthcheck:
       test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1/healthz"]
       interval: 30s

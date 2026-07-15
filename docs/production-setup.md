@@ -279,17 +279,21 @@ compose project so it can be rebuilt or stopped without touching workers/API:
 make prod-admin-console-up
 ```
 
-It attaches to `DOCRAY_NETWORK` (default `doc-ray_default`) and binds
-`127.0.0.1:${ADMIN_CONSOLE_PORT:-8080}:80`. Keep it behind an SSH/VPN tunnel or
-trusted private ingress unless you add an external TLS/auth boundary. Stop it
-with `make prod-admin-console-down`.
+It attaches to `DOCRAY_NETWORK` (default `doc-ray_default`), publishes the
+in-network alias `admin-console`, and binds
+`127.0.0.1:${ADMIN_CONSOLE_PORT:-8080}:80`. Keep the host bind loopback-only.
+For a browser-reachable production Billing panel, route a protected Cloudflare
+Tunnel hostname to `http://admin-console:80` and enforce Cloudflare Access (or an
+equivalent trusted identity boundary) on that hostname. Stop it with
+`make prod-admin-console-down`.
 
 For live Stripe Checkout and Customer Portal flows, the Billing panel passes its
 current `/billing` URL as the hosted-session success/cancel/return target. Set
 `DOCRAY_STRIPE_SUCCESS_URL`, `DOCRAY_STRIPE_CANCEL_URL`, and
 `DOCRAY_STRIPE_PORTAL_RETURN_URL` to that same trusted HTTPS admin-console
-origin, while keeping `DOCRAY_PUBLIC_BASE_URL` on the public `doc-ray.com`
-origin for `/stripe/webhook`.
+origin, for example `https://admin.doc-ray.com/billing`, while keeping
+`DOCRAY_PUBLIC_BASE_URL` on the public `doc-ray.com` origin for
+`/stripe/webhook`.
 
 ## Step 6 — Cloudflare Tunnel ingress (public access)
 
@@ -304,6 +308,11 @@ setup in the **Cloudflare Zero Trust dashboard** (Networks → Tunnels):
    **`webapp:5001`** (the internal service name, not localhost). This also
    **auto-creates the proxied DNS record** — routing does not work until this
    step is done.
+4. **Protected admin hostname → Add:** Domain `admin.doc-ray.com`, Service
+   **HTTP** → **`admin-console:80`**. Protect this hostname with **Cloudflare
+   Access** before using it for the Stripe Billing panel; it is the trusted HTTPS
+   origin used by `DOCRAY_STRIPE_SUCCESS_URL`, `DOCRAY_STRIPE_CANCEL_URL`, and
+   `DOCRAY_STRIPE_PORTAL_RETURN_URL`.
 
 ```bash
 make prod-tunnel      # docker compose --env-file .env.prod ... -f docker-compose.cloudflared.yml up -d cloudflared

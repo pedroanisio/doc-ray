@@ -13,9 +13,12 @@
 #   2. Put it in .env:  CLOUDFLARE_TUNNEL_TOKEN=<token>
 #   3. Add Public Hostnames on the tunnel (routing is dashboard-side, so this
 #      overlay stays hostname-agnostic):
-#        doc-ray.com          -> Service  http://webapp:5001
+#        doc-ray.com             -> Service  http://webapp:5001
+#        admin.doc-ray.com       -> Service  http://admin-console:80
 #        (optional) api.doc-ray.com -> Service  http://api:8000
 #      For UAT, point doc-ray.dev at the UAT deployment's webapp the same way.
+#   4. Protect admin.doc-ray.com with Cloudflare Access (or an equivalent
+#      trusted identity boundary) before using it for Stripe Billing returns.
 #
 # Run (layer after the prod overlay):
 #   make prod-tunnel

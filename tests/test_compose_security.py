@@ -525,6 +525,35 @@ def test_cloudflared_tunnel_publishes_no_host_ports():
     assert svc["restart"] == "unless-stopped"
 
 
+def test_cloudflared_tunnel_documents_protected_admin_console_ingress():
+    """Live Stripe hosted-session returns need a real HTTPS admin-console origin.
+
+    The admin console still must not publish a public host port, so the supported
+    production path is a Cloudflare Tunnel hostname protected by Cloudflare
+    Access that resolves to a stable in-network admin-console alias.
+    """
+    admin_compose = _compose_tolerant("admin-console/docker-compose.yml")
+    admin_service = admin_compose["services"]["admin-console"]
+    cloudflared_text = (_ROOT / "docker-compose.cloudflared.yml").read_text(
+        encoding="utf-8"
+    )
+    prod_doc = (_ROOT / "docs" / "production-setup.md").read_text(encoding="utf-8")
+    admin_readme = (_ROOT / "admin-console" / "README.md").read_text(encoding="utf-8")
+    env_text = (_ROOT / ".env.prod.example").read_text(encoding="utf-8")
+
+    assert admin_service["ports"] == ["127.0.0.1:${ADMIN_CONSOLE_PORT:-8080}:80"]
+    assert admin_service["networks"]["docray"]["aliases"] == ["admin-console"]
+
+    assert "admin.doc-ray.com" in cloudflared_text
+    assert "http://admin-console:80" in cloudflared_text
+    assert "Cloudflare Access" in cloudflared_text
+    assert "admin.doc-ray.com" in prod_doc
+    assert "http://admin-console:80" in prod_doc
+    assert "Cloudflare Access" in prod_doc
+    assert "Cloudflare Access" in admin_readme
+    assert "DOCRAY_STRIPE_SUCCESS_URL=https://admin.doc-ray.com/billing?checkout=success" in env_text
+
+
 def test_ollama_resolver_server_is_not_publicly_exposed():
     """The local Ollama model server must bind loopback only — an open inference
     endpoint on the public interface is unauthenticated model access. Also assert

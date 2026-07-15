@@ -94,13 +94,17 @@ make prod-admin-console-down
 ```
 
 If your main compose project name is not `doc-ray`, set `DOCRAY_NETWORK` to its
-`<project>_default` network. See [.env.example](.env.example) for all overrides.
+`<project>_default` network. The service also joins that network with the stable
+`admin-console` alias, so a Cloudflare Tunnel Public Hostname can target
+`http://admin-console:80`. See [.env.example](.env.example) for all overrides.
 
 For live Stripe billing, open the console through the same trusted HTTPS origin
 configured in `DOCRAY_STRIPE_SUCCESS_URL`, `DOCRAY_STRIPE_CANCEL_URL`, and
 `DOCRAY_STRIPE_PORTAL_RETURN_URL`. The Billing page sends its current `/billing`
 URL as the hosted Checkout/Portal return target; the API rejects cross-origin
-overrides when billing enforcement is enabled.
+overrides when billing enforcement is enabled. For the Cloudflare Tunnel
+production path, publish `admin.doc-ray.com` to `http://admin-console:80` and
+protect it with Cloudflare Access before sending operators there.
 
 ### Local dev
 
