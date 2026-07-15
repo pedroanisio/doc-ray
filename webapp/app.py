@@ -84,6 +84,10 @@ app = Flask(__name__)
 # Uploads are forwarded to the API, which buffers the file for hashing — cap
 # the request size here so an oversized POST is rejected at the front door.
 app.config["MAX_CONTENT_LENGTH"] = int(os.environ.get("DOCRAY_MAX_UPLOAD_MB", "200")) * 1024 * 1024
+# Public marketing landing at the root. The corpus browser now lives at
+# /corpus (endpoint name "documents" is unchanged, so url_for keeps working).
+# "landing" is exempt from the webapp auth gate — it is the pre-auth front door.
+app.add_url_rule("/", "landing", lambda: render_template("landing.html"))
 app.add_url_rule("/help", "help_page", lambda: render_template("help.html"))
 # Signs the session cookie that carries the CSRF token below; stable for the life
 # of one process even when unset (dev-only — set explicitly for a real deployment).

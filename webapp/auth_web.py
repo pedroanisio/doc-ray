@@ -56,6 +56,7 @@ _LOCAL_AUTH_SERVICE: LocalAuthService | None = None
 #: Endpoints reachable without an authenticated web session.
 _AUTH_PUBLIC_ENDPOINTS = {
     "static",
+    "landing",
     "login",
     "login_submit",
     "register_form",

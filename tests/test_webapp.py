@@ -264,18 +264,49 @@ def client(monkeypatch):
     return webapp.app.test_client()
 
 
+# --- landing (public front door at /) --------------------------------------
+
+
+def test_landing_is_served_at_root(client):
+    html = client.get("/").get_data(as_text=True)
+    # Hero uses the project's own established value proposition.
+    assert "auditable research corpus" in html
+    # Primary CTA points into the app; sign-in CTA is present.
+    assert 'href="/corpus"' in html
+    assert 'href="/login"' in html
+    # It is the marketing landing, not the corpus table.
+    assert 'action="/documents/bulk"' not in html
+
+
+def test_landing_shows_pipeline_stages(client):
+    html = _norm(client.get("/").get_data(as_text=True))
+    for stage in ("Extract", "Annotate", "Canonicalize", "Enrich", "Query"):
+        assert stage in html
+
+
+def test_corpus_index_moved_to_corpus_path(client):
+    # The corpus browser endpoint keeps its name but now lives at /corpus.
+    with webapp.app.test_request_context():
+        from flask import url_for
+
+        assert url_for("documents") == "/corpus"
+    html = client.get("/corpus").get_data(as_text=True)
+    assert "orwell1984" in html
+    assert 'action="/documents/bulk"' in html
+
+
 # --- documents index -------------------------------------------------------
 
 
 def test_home_lists_documents_and_totals(client):
-    html = client.get("/").get_data(as_text=True)
+    html = client.get("/corpus").get_data(as_text=True)
     assert "orwell1984" in html
     assert f"/doc/{DOC_ID}" in html
     assert "283,809" in html  # occurrence total, comma-formatted
 
 
 def test_home_renders_pdf_document_preview_thumbnail(client):
-    html = client.get("/").get_data(as_text=True)
+    html = client.get("/corpus").get_data(as_text=True)
 
     assert 'class="doc-preview doc-preview-image"' in html
     assert f'src="/doc/{DOC_ID}/page/1.png"' in html
@@ -312,7 +343,7 @@ def test_home_renders_file_type_preview_fallback_and_status(client, monkeypatch)
 
     monkeypatch.setattr(webapp, "q", preview_rows)
 
-    html = client.get("/").get_data(as_text=True)
+    html = client.get("/corpus").get_data(as_text=True)
 
     assert "DOCX" in html
     assert "HTML" in html
@@ -330,7 +361,7 @@ def test_home_lede_uses_live_document_count(client, monkeypatch):
 
     monkeypatch.setattr(webapp, "q1", totals_41)
 
-    html = client.get("/").get_data(as_text=True)
+    html = client.get("/corpus").get_data(as_text=True)
 
     assert "41 documents, decomposed" in _norm(html)
     assert "Five documents" not in html
@@ -350,7 +381,7 @@ def test_home_empty_corpus_shows_upload_call_to_action(client, monkeypatch):
     monkeypatch.setattr(webapp, "q", empty_docs)
     monkeypatch.setattr(webapp, "q1", empty_totals)
 
-    html = client.get("/").get_data(as_text=True)
+    html = client.get("/corpus").get_data(as_text=True)
 
     assert "No documents yet." in html
     assert "Upload the first document" in html
@@ -358,7 +389,7 @@ def test_home_empty_corpus_shows_upload_call_to_action(client, monkeypatch):
 
 
 def test_home_states_product_value_proposition(client):
-    html = client.get("/").get_data(as_text=True)
+    html = client.get("/corpus").get_data(as_text=True)
     normalized = _norm(html)
 
     assert "Ingest documents, annotate text, and curate domain entities" in normalized
@@ -377,7 +408,7 @@ def test_home_paginates_and_shows_next_link(client, monkeypatch):
 
     monkeypatch.setattr(webapp, "q", paginated_q)
 
-    html = client.get("/?page=2").get_data(as_text=True)
+    html = client.get("/corpus?page=2").get_data(as_text=True)
 
     assert captured["params"]["offset"] == 50
     assert captured["params"]["limit"] == 50
@@ -387,12 +418,12 @@ def test_home_paginates_and_shows_next_link(client, monkeypatch):
 
 def test_home_last_page_has_no_next_link(client):
     # The default fixture returns a single row: fewer than a full page.
-    html = client.get("/").get_data(as_text=True)
+    html = client.get("/corpus").get_data(as_text=True)
     assert "next →" not in html
 
 
 def test_home_supports_bulk_document_selection(client):
-    html = client.get("/").get_data(as_text=True)
+    html = client.get("/corpus").get_data(as_text=True)
 
     assert 'action="/documents/bulk"' in html
     assert f'name="document_id" value="{DOC_ID}"' in html
@@ -413,7 +444,7 @@ def test_bulk_document_tag_posts_graphql_mutation(client, monkeypatch):
 
     monkeypatch.setattr(webapp, "gql", fake_gql)
 
-    token = _csrf_token_from(client.get("/").get_data(as_text=True))
+    token = _csrf_token_from(client.get("/corpus").get_data(as_text=True))
     resp = client.post(
         "/documents/bulk",
         data={
@@ -440,7 +471,7 @@ def test_bulk_document_archive_posts_graphql_mutation(client, monkeypatch):
 
     monkeypatch.setattr(webapp, "gql", fake_gql)
 
-    token = _csrf_token_from(client.get("/").get_data(as_text=True))
+    token = _csrf_token_from(client.get("/corpus").get_data(as_text=True))
     resp = client.post(
         "/documents/bulk",
         data={"document_id": [DOC_ID], "bulk_action": "archive", "csrf_token": token},
@@ -461,7 +492,7 @@ def test_bulk_document_reannotate_posts_per_document_mutations(client, monkeypat
 
     monkeypatch.setattr(webapp, "gql", fake_gql)
 
-    token = _csrf_token_from(client.get("/").get_data(as_text=True))
+    token = _csrf_token_from(client.get("/corpus").get_data(as_text=True))
     resp = client.post(
         "/documents/bulk",
         data={
@@ -495,7 +526,7 @@ def test_bulk_document_reextract_skips_non_pdf_and_reports_skip_count(client, mo
     monkeypatch.setattr(webapp, "q", docs_by_id_q)
     monkeypatch.setattr(webapp, "gql", fake_gql)
 
-    token = _csrf_token_from(client.get("/").get_data(as_text=True))
+    token = _csrf_token_from(client.get("/corpus").get_data(as_text=True))
     resp = client.post(
         "/documents/bulk",
         data={
@@ -519,7 +550,7 @@ def test_bulk_document_reprocess_rejects_batches_over_api_limit(client, monkeypa
     calls = []
     monkeypatch.setattr(webapp, "gql", lambda *args, **kwargs: calls.append((args, kwargs)))
 
-    token = _csrf_token_from(client.get("/").get_data(as_text=True))
+    token = _csrf_token_from(client.get("/corpus").get_data(as_text=True))
     ids = [DOC_ID] * (MAX_BATCH_IDS + 1)
     resp = client.post(
         "/documents/bulk",
@@ -532,7 +563,7 @@ def test_bulk_document_reprocess_rejects_batches_over_api_limit(client, monkeypa
 
 
 def test_header_groups_reading_and_admin_navigation(client):
-    html = client.get("/").get_data(as_text=True)
+    html = client.get("/corpus").get_data(as_text=True)
     normalized = _norm(html)
 
     assert 'class="nav-group nav-reading"' in html
@@ -1650,7 +1681,7 @@ def test_search_without_query_shows_no_results_table(client):
 
 
 def test_help_entry_is_reachable_from_every_page(client):
-    home = client.get("/").get_data(as_text=True)
+    home = client.get("/corpus").get_data(as_text=True)
     guide = client.get("/help").get_data(as_text=True)
 
     assert 'href="/help"' in home
@@ -2552,7 +2583,7 @@ def test_webapp_write_error_handlers_log_before_redirecting(
 
 
 def test_responses_carry_security_headers(client):
-    resp = client.get("/")
+    resp = client.get("/corpus")
     assert resp.headers["X-Frame-Options"] == "DENY"
     assert resp.headers["X-Content-Type-Options"] == "nosniff"
     assert resp.headers["Referrer-Policy"] == "strict-origin-when-cross-origin"

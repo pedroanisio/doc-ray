@@ -15,13 +15,21 @@
   </script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;600;800&display=swap" rel="stylesheet">
+  <meta name="color-scheme" content="light dark">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="{{ url_for('static', filename='design-system.css') }}">
 </head>
 <body>
   <header>
-    <a class="brand" href="{{ url_for('documents') }}">doc<b>·</b>ray</a>
+    {# App nav is only meaningful to someone who can use it: a signed-in user,
+       or an open (no-auth) deployment. An anonymous visitor on a login-gated
+       instance sees just the brand + account actions. #}
+    {% set show_app_nav = current_auth_session or not web_auth_required %}
+    <a class="brand" href="{{ url_for('documents') if show_app_nav else url_for('landing') }}">doc<b>·</b>ray</a>
+    <input type="checkbox" id="nav-open" class="nav-cb" aria-hidden="true" tabindex="-1">
+    <label for="nav-open" class="nav-burger" aria-label="Toggle navigation"><span></span></label>
     <nav>
+      {% if show_app_nav %}
       <span class="nav-group nav-reading">
         <a href="{{ url_for('documents') }}" class="{{ 'on' if request.endpoint in ['documents','document','seeding','seeding_action'] }}">Corpus</a>
         <a href="{{ url_for('collections') }}" class="{{ 'on' if request.endpoint in ['collections','collections_create','collection_detail','collection_document_update'] }}">Collections</a>
@@ -33,6 +41,7 @@
       <span class="nav-group nav-admin">
         <a href="{{ url_for('backups') }}" class="{{ 'on' if request.endpoint in ['backups','backups_create','backups_restore','backups_download'] }}">Backups</a>
       </span>
+      {% endif %}
       {% if current_auth_session %}
       <span class="nav-group nav-account">
         <a href="{{ url_for('profile') }}" class="{{ 'on' if request.endpoint == 'profile' }}">Profile</a>

@@ -394,10 +394,37 @@ def test_webapp_requires_auth_for_corpus_when_local_auth_enabled(monkeypatch) ->
     monkeypatch.setattr(webapp, "q", lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError))
     monkeypatch.setattr(webapp, "q1", lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError))
 
-    resp = webapp.app.test_client().get("/")
+    # The corpus now lives at /corpus and is gated; the root landing is public.
+    resp = webapp.app.test_client().get("/corpus")
 
     assert resp.status_code == 302
     assert resp.headers["Location"].endswith("/login")
+
+
+def test_webapp_landing_is_public_when_local_auth_enabled(monkeypatch) -> None:
+    webapp.auth_sessions.reset()
+    monkeypatch.setenv("DOCRAY_AUTH_LOCAL_ENABLED", "true")
+    monkeypatch.setenv("DOCRAY_PRINCIPAL_ID", "ffffffff-ffff-ffff-ffff-ffffffffffff")
+
+    # The marketing landing must render without a session (no auth redirect).
+    resp = webapp.app.test_client().get("/")
+
+    assert resp.status_code == 200
+    assert "auditable research corpus" in resp.get_data(as_text=True)
+
+
+def test_webapp_hides_app_nav_for_anonymous_when_auth_required(monkeypatch) -> None:
+    webapp.auth_sessions.reset()
+    monkeypatch.setenv("DOCRAY_AUTH_LOCAL_ENABLED", "true")
+
+    body = webapp.app.test_client().get("/").get_data(as_text=True)
+
+    # App destinations are dead-ends for an anonymous visitor on a gated
+    # instance — the top bar must not advertise them.
+    assert 'nav-group nav-reading' not in body
+    assert 'nav-group nav-admin' not in body
+    # The account entry point is still offered.
+    assert 'href="/login"' in body
 
 
 def test_webapp_uses_no_env_principal_fallback_when_auth_required(monkeypatch) -> None:

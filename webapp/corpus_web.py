@@ -449,7 +449,7 @@ def register(app, core: ModuleType) -> None:
     """Attach the corpus browse routes to *app*, late-binding *core* (D-015 split)."""
     global _core
     _core = core
-    app.add_url_rule("/", "documents", documents)
+    app.add_url_rule("/corpus", "documents", documents)
     app.add_url_rule(
         "/documents/bulk", "documents_bulk_action", documents_bulk_action, methods=["POST"]
     )
