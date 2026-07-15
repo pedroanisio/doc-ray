@@ -6,13 +6,13 @@
 # resolver's PALS verification is identical to the Anthropic backend, so a weaker
 # local model's hallucinations are still coerced to ABSTAIN and routed to review.
 #
-# Run (layer on the base compose):
+# Run (dev, CPU, layer on the base compose):
 #   docker compose -f docker-compose.yml -f docker-compose.ollama.yml up -d \
 #     postgres minio createbucket ollama ollama-pull worker worker-fast api
 #
-# First start pulls the model (see ollama-pull) — give it a few minutes. Ollama is
-# CPU-only here; for GPU, uncomment the CDI reservation below (needs
-# nvidia-container-toolkit) or layer docker-compose.gpu.yml's device settings.
+# First start pulls the model (see ollama-pull) — give it a few minutes. This
+# overlay runs Ollama CPU-only. For GPU (production on the H200), layer
+# docker-compose.ollama.gpu.yml on top — or just `make prod-ollama-up`.
 
 services:
   ollama:
@@ -30,14 +30,7 @@ services:
       timeout: 5s
       retries: 10
       start_period: 20s
-    # --- GPU (optional): reserve the host NVIDIA GPU via CDI ---
-    # deploy:
-    #   resources:
-    #     reservations:
-    #       devices:
-    #         - driver: cdi
-    #           capabilities: ["gpu"]
-    #           device_ids: ["nvidia.com/gpu=all"]
+    # GPU: layer docker-compose.ollama.gpu.yml (CDI reservation + VRAM keep-alive).
 
   # One-shot: pull the resolver model so the first /api/chat call doesn't 404.
   ollama-pull:

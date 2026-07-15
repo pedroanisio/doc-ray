@@ -17,7 +17,7 @@ PYTHON ?= $(shell [ -x .venv/bin/python ] && echo .venv/bin/python || echo pytho
 COMPOSE_PROD := docker compose --env-file .env.prod -f docker-compose.yml -f docker-compose.prod.yml
 
 .PHONY: help check check-static db-dump truncate-db workers-up workers-status \
-        prod-migrate prod-up prod-web prod-tunnel prod-down gpu-up pgadmin-up
+        prod-migrate prod-up prod-web prod-tunnel prod-down gpu-up prod-ollama-up pgadmin-up
 
 help: ## List available tasks
 	@grep -E '^[a-z][a-zA-Z_-]*:.*## ' $(MAKEFILE_LIST) | awk -F ':.*## ' '{printf "  %-14s %s\n", $$1, $$2}'
@@ -77,6 +77,15 @@ prod-down: ## Stop the managed stateless stack (managed data is off-box; nothing
 
 gpu-up: ## Start DOCRAY_WORKERS GPU annotate workers on an H200 box (managed + CDI)
 	$(COMPOSE_PROD) -f docker-compose.gpu.yml up -d --build --scale worker=$(DOCRAY_WORKERS) worker
+
+prod-ollama-up: prod-migrate ## Migrate, then run the managed stack with the LOCAL Ollama resolver on the H200 GPU
+	# Layered AFTER the prod overlay so the ollama overlay's worker resolver-env and
+	# ollama health-dependency win over prod's `depends_on: !reset {}`. Set
+	# DOCRAY_OLLAMA_MODEL (the benchmark winner) in .env.prod; the backend defaults
+	# to ollama via the overlay. Compose with `make gpu-up` to also put the trf
+	# annotate worker on the GPU (independent tenant; both fit the H200).
+	$(COMPOSE_PROD) -f docker-compose.ollama.yml -f docker-compose.ollama.gpu.yml \
+	  up -d --build ollama ollama-pull api webapp worker worker-fast backup-scheduler
 
 pgadmin-up: ## Start the loopback-only pgAdmin GUI (tunnel to 127.0.0.1:5050)
 	docker compose -f docker-compose.pgadmin.yml up -d pgadmin

@@ -1,0 +1,140 @@
+{
+  "_meta": {
+    "purpose": "Human-authored gold set for the Stage-3 frontier entity resolver.",
+    "labeling": "Ground-truth verdicts are hand-assigned; each case is constructed so the correct verdict is objectively determined by the sentence context, not a judgment call.",
+    "generated_by": "Claude Opus 4.8 (1M context) via Claude Code — labels human-reviewed",
+    "date": "2026-07-15",
+    "schema": {
+      "id": "stable case id",
+      "mention": "surface text passed as `mention`",
+      "sentence": "disambiguating context passed as `sentence`",
+      "candidates": "Stage-2 candidate set: [{canonical_id, preferred, entity_type, description?}]",
+      "expected": {
+        "kind": "select | new_entity | abstain",
+        "canonical_id": "required when kind=select — the single correct id",
+        "new_entity_type": "optional expected class when kind=new_entity",
+        "bait_id": "optional — a tempting-but-WRONG candidate id; selecting it is a hard error",
+        "note": "why this is the correct verdict"
+      }
+    }
+  },
+  "cases": [
+    {
+      "id": "select-clear-city",
+      "mention": "Paris",
+      "sentence": "After the coronation the court travelled north to Paris, where the Seine had frozen solid.",
+      "candidates": [
+        {"canonical_id": 101, "preferred": "Paris", "entity_type": "PLACE", "description": "Capital city of France on the Seine"},
+        {"canonical_id": 102, "preferred": "Paris", "entity_type": "PERSON", "description": "Trojan prince, son of Priam"}
+      ],
+      "expected": {"kind": "select", "canonical_id": 101, "bait_id": 102, "note": "The Seine fixes the referent to the French city."}
+    },
+    {
+      "id": "select-clear-person",
+      "mention": "Paris",
+      "sentence": "Paris raised his bow and loosed the arrow that felled Achilles at the Scaean Gate.",
+      "candidates": [
+        {"canonical_id": 101, "preferred": "Paris", "entity_type": "PLACE", "description": "Capital city of France on the Seine"},
+        {"canonical_id": 102, "preferred": "Paris", "entity_type": "PERSON", "description": "Trojan prince, son of Priam"}
+      ],
+      "expected": {"kind": "select", "canonical_id": 102, "bait_id": 101, "note": "Achilles and the Scaean Gate fix the referent to the Trojan prince."}
+    },
+    {
+      "id": "select-disambiguate-org",
+      "mention": "the Bank",
+      "sentence": "The Bank raised its base rate to four percent, tightening credit across the whole of England.",
+      "candidates": [
+        {"canonical_id": 201, "preferred": "Bank of England", "entity_type": "ORG", "description": "Central bank of the United Kingdom"},
+        {"canonical_id": 202, "preferred": "West Bank", "entity_type": "PLACE", "description": "Territory west of the Jordan River"}
+      ],
+      "expected": {"kind": "select", "canonical_id": 201, "bait_id": 202, "note": "Setting a base rate is a central-bank action."}
+    },
+    {
+      "id": "select-alias-harvest",
+      "mention": "the Bard",
+      "sentence": "Scholars still argue whether the Bard of Avon, William Shakespeare, wrote the disputed sonnets alone.",
+      "candidates": [
+        {"canonical_id": 301, "preferred": "William Shakespeare", "entity_type": "PERSON", "description": "English playwright and poet, 1564-1616"}
+      ],
+      "expected": {"kind": "select", "canonical_id": 301, "note": "Apposition names Shakespeare directly; 'Bard of Avon' is an alias to harvest."}
+    },
+    {
+      "id": "new-clear-person",
+      "mention": "Ada Lovelace",
+      "sentence": "Ada Lovelace annotated Menabrea's memoir and described an algorithm for the Analytical Engine.",
+      "candidates": [
+        {"canonical_id": 401, "preferred": "Charles Babbage", "entity_type": "PERSON", "description": "Designer of the Analytical Engine"},
+        {"canonical_id": 402, "preferred": "Analytical Engine", "entity_type": "WORK", "description": "Babbage's proposed mechanical computer"}
+      ],
+      "expected": {"kind": "new_entity", "new_entity_type": "PERSON", "bait_id": 401, "note": "A real, distinct person absent from the candidate set — not Babbage."}
+    },
+    {
+      "id": "new-empty-candidates",
+      "mention": "Timbuktu",
+      "sentence": "The salt caravans reached Timbuktu after forty days crossing the Sahara.",
+      "candidates": [],
+      "expected": {"kind": "new_entity", "new_entity_type": "PLACE", "note": "No candidates offered; a real place must be declared new, never abstained away by default."}
+    },
+    {
+      "id": "new-mistyped-upstream",
+      "mention": "Sherlock Holmes",
+      "sentence": "Sherlock Holmes examined the mud on the visitor's boots and named the county at once.",
+      "candidates": [
+        {"canonical_id": 501, "preferred": "Sherlock Holmes", "entity_type": "PLACE", "description": "NER-tagged GPE (likely mistype)"}
+      ],
+      "expected": {"kind": "new_entity", "new_entity_type": "PERSON", "bait_id": 501, "note": "The only candidate is the right name but wrong class (PLACE); the resolver should propose the corrected PERSON rather than select a mistyped row. Selecting 501 is acceptable-but-worse; abstain is a soft miss."}
+    },
+    {
+      "id": "abstain-ambiguous-initials",
+      "mention": "J. Smith",
+      "sentence": "The ledger was signed only 'J. Smith', with no further mark.",
+      "candidates": [
+        {"canonical_id": 601, "preferred": "John Smith", "entity_type": "PERSON", "description": "Jamestown colonist, 1580-1631"},
+        {"canonical_id": 602, "preferred": "Joseph Smith", "entity_type": "PERSON", "description": "American religious leader, 1805-1844"},
+        {"canonical_id": 603, "preferred": "Jane Smith", "entity_type": "PERSON", "description": "Generic placeholder name"}
+      ],
+      "expected": {"kind": "abstain", "note": "Context cannot pick among the J. Smiths; committing any of them is a confident wrong link."}
+    },
+    {
+      "id": "abstain-no-context",
+      "mention": "Aurora",
+      "sentence": "Aurora.",
+      "candidates": [
+        {"canonical_id": 701, "preferred": "Aurora", "entity_type": "PLACE", "description": "City in Colorado, USA"},
+        {"canonical_id": 702, "preferred": "Aurora", "entity_type": "PERSON", "description": "Roman goddess of the dawn"},
+        {"canonical_id": 703, "preferred": "Aurora (phenomenon)", "entity_type": "CONCEPT", "description": "Polar atmospheric light display"}
+      ],
+      "expected": {"kind": "abstain", "note": "A bare token with no context supports no single referent."}
+    },
+    {
+      "id": "abstain-bait-plausible",
+      "mention": "Springfield",
+      "sentence": "The Simpsons never confirm which Springfield they live in, and the show plays the ambiguity for laughs.",
+      "candidates": [
+        {"canonical_id": 801, "preferred": "Springfield, Illinois", "entity_type": "PLACE", "description": "Capital of Illinois"},
+        {"canonical_id": 802, "preferred": "Springfield, Massachusetts", "entity_type": "PLACE", "description": "City in western Massachusetts"}
+      ],
+      "expected": {"kind": "abstain", "note": "The sentence explicitly asserts the referent is undetermined; either pick is wrong."}
+    },
+    {
+      "id": "select-event",
+      "mention": "the Fire",
+      "sentence": "The Fire began in a Pudding Lane bakery in 1666 and burned much of the medieval City of London.",
+      "candidates": [
+        {"canonical_id": 901, "preferred": "Great Fire of London", "entity_type": "EVENT", "description": "1666 conflagration in London"},
+        {"canonical_id": 902, "preferred": "Great Chicago Fire", "entity_type": "EVENT", "description": "1871 fire in Chicago"}
+      ],
+      "expected": {"kind": "select", "canonical_id": 901, "bait_id": 902, "note": "Pudding Lane and 1666 fix the London fire."}
+    },
+    {
+      "id": "select-work",
+      "mention": "the Odyssey",
+      "sentence": "In the Odyssey, the hero's ten-year voyage home from Troy is narrated in Homer's dactylic hexameter.",
+      "candidates": [
+        {"canonical_id": 1001, "preferred": "Odyssey", "entity_type": "WORK", "description": "Homeric epic poem"},
+        {"canonical_id": 1002, "preferred": "Honda Odyssey", "entity_type": "WORK", "description": "Minivan model"}
+      ],
+      "expected": {"kind": "select", "canonical_id": 1001, "bait_id": 1002, "note": "Homer and Troy fix the epic."}
+    }
+  ]
+}
