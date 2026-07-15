@@ -102,13 +102,20 @@ export function BillingPage({ redirectToHostedUrl = (url) => window.location.ass
   const hasManagedSubscription = Boolean(
     status && (MANAGED_SUBSCRIPTION_STATUSES.has(state) || status.stripeSubscriptionId),
   );
-  const canStartCheckout = Boolean(status?.checkoutReady && !hasManagedSubscription && busy === null);
+  const needsCheckoutSetup = Boolean(status && (!status.checkoutReady || !status.liveModeReady));
+  const canStartCheckout = Boolean(
+    status?.checkoutReady && status.liveModeReady && !hasManagedSubscription && busy === null,
+  );
   const checkoutButtonLabel = hasLiveSubscription
     ? "Subscription active"
     : state === "checkout_pending"
       ? "Checkout pending"
     : hasManagedSubscription
       ? "Use Customer Portal"
+    : status && !status.checkoutReady
+      ? "Configure Checkout"
+    : status && !status.liveModeReady
+      ? "Complete setup"
     : busy === "checkout"
       ? "Opening Checkout..."
       : "Start subscription";
@@ -212,6 +219,11 @@ export function BillingPage({ redirectToHostedUrl = (url) => window.location.ass
             <p className="muted compact-note">
               Use the Customer Portal to change payment method, complete recovery, or manage the
               existing subscription.
+            </p>
+          )}
+          {needsCheckoutSetup && !hasManagedSubscription && (
+            <p className="muted compact-note">
+              Complete live readiness before opening Stripe Checkout.
             </p>
           )}
         </section>

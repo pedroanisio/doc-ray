@@ -784,6 +784,39 @@ def test_hosted_redirect_origin_can_differ_from_public_webhook_origin():
         raise AssertionError("cross-origin admin-console Checkout URL was accepted")
 
 
+def test_live_checkout_session_requires_complete_live_readiness(pg):
+    conn, _created = pg
+    tenant_id = _apply_billing_migration(conn)
+    fake = FakeStripe()
+    cfg = replace(
+        _cfg(enforcement_enabled=True),
+        stripe_secret_key="sk_live_realistic",
+        stripe_webhook_secret="",
+    )
+
+    async def check() -> None:
+        aconn = await _aconn_as(WRITE_PRINCIPAL.principal_id)
+        try:
+            try:
+                await billing.create_checkout_session(aconn, cfg, transport=fake)
+            except billing.BillingConfigurationError as exc:
+                message = str(exc)
+                assert "Stripe Checkout is not live-ready" in message
+                assert "DOCRAY_STRIPE_WEBHOOK_SECRET" in message
+            else:  # pragma: no cover - defensive
+                raise AssertionError("live Checkout started without webhook readiness")
+        finally:
+            await aconn.close()
+
+    try:
+        asyncio.run(check())
+        assert fake.created_customers == []
+        assert fake.checkout_calls == []
+    finally:
+        conn.execute("DELETE FROM tenant_subscriptions WHERE tenant_id = %s", (tenant_id,))
+        conn.execute("DELETE FROM tenant_billing_accounts WHERE tenant_id = %s", (tenant_id,))
+
+
 def test_checkout_session_rejects_duplicate_active_subscription(pg):
     conn, _created = pg
     tenant_id = _apply_billing_migration(conn)

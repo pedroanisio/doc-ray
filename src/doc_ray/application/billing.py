@@ -410,6 +410,23 @@ def invalid_billing_configuration(cfg: Config) -> list[str]:
     return issues
 
 
+def _require_checkout_live_readiness(cfg: Config) -> None:
+    """Refuse hosted Checkout when configured for live collection but not ready."""
+    if not cfg.billing_enforcement_enabled and _expected_stripe_livemode(cfg) is not True:
+        return
+    missing = missing_billing_configuration(cfg)
+    issues = invalid_billing_configuration(cfg)
+    if not missing and not issues:
+        return
+    message = "Stripe Checkout is not live-ready"
+    if missing:
+        message += ": missing " + ", ".join(missing)
+    if issues:
+        separator = "; " if missing else ": "
+        message += separator + "fix " + ", ".join(issues)
+    raise BillingConfigurationError(message)
+
+
 def _looks_like_stripe_test_secret(value: str | None) -> bool:
     return bool(value and value.startswith(("sk_test_", "rk_test_")))
 
@@ -475,6 +492,7 @@ async def create_checkout_session(
     """Create a Stripe subscription Checkout Session for the current tenant."""
     if not cfg.stripe_price_id:
         raise BillingConfigurationError("DOCRAY_STRIPE_PRICE_ID is required")
+    _require_checkout_live_readiness(cfg)
     urls = configured_checkout_urls(cfg, success_url=success_url, cancel_url=cancel_url)
     stripe = transport or stripe_transport_from_config(cfg)
     tenant_id = await billing_store.current_tenant_id(conn)

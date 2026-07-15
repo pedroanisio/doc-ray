@@ -277,11 +277,20 @@ describe("BillingPage", () => {
     expect(screen.getByText("No Stripe subscription has been recorded")).toBeInTheDocument();
     expect(screen.getByText("Paid access")).toBeInTheDocument();
     expect(screen.getByText("allowed")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /start subscription/i })).toBeEnabled();
+    expect(screen.getByRole("button", { name: /complete setup/i })).toBeDisabled();
   });
 
   it("surfaces unsafe live Stripe configuration issues", async () => {
     const fetchImpl = billingFetch({
+      stripeCustomerId: null,
+      stripeSubscriptionId: null,
+      stripePriceId: null,
+      subscriptionStatus: "none",
+      currentPeriodEnd: null,
+      latestInvoiceId: null,
+      checkoutSessionId: null,
+      entitled: false,
+      entitlementReason: "subscription is none",
       liveModeReady: false,
       configurationIssues: [
         "DOCRAY_STRIPE_SECRET_KEY uses a Stripe test-mode key",
@@ -302,6 +311,7 @@ describe("BillingPage", () => {
     expect(screen.getByText(/DOCRAY_STRIPE_SECRET_KEY uses a Stripe test-mode key/)).toBeInTheDocument();
     expect(screen.getByText(/DOCRAY_PUBLIC_BASE_URL must use https for live billing/)).toBeInTheDocument();
     expect(screen.getByText("Live-safe configuration")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /complete setup/i })).toBeDisabled();
   });
 
   it("keeps Checkout available when no live subscription exists", async () => {
