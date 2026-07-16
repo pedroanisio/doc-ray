@@ -248,16 +248,20 @@ def attach_page_blocks(
     page_text = (slice_row or {}).get("t") or ""
     occ = (
         query(
+            # Drive from the page's spans (document_id + char range, indexed) and
+            # join their occurrences — not the reverse. The occurrence-first plan
+            # materialised every occurrence of the document before filtering to the
+            # page's char window (measured ~1.7 s for one page of a 1250-page PDF).
             """
             SELECT sp.char_start AS a, sp.char_end AS b, l.uid, l.lemma, l.pos
-            FROM lexeme_occurrences o
-            JOIN annotations an ON an.id = o.annotation_id
-            JOIN spans sp       ON sp.id = o.span_id
-            JOIN lexemes l      ON l.uid = o.lexeme_uid
-            WHERE an.document_id = %s AND sp.char_start >= %s AND sp.char_end <= %s
+            FROM spans sp
+            JOIN lexeme_occurrences o ON o.span_id = sp.id
+            JOIN annotations an       ON an.id = o.annotation_id AND an.document_id = %s
+            JOIN lexemes l            ON l.uid = o.lexeme_uid
+            WHERE sp.document_id = %s AND sp.char_start >= %s AND sp.char_end <= %s
             ORDER BY sp.char_start
             """,
-            (str(doc_id), lo, hi),
+            (str(doc_id), str(doc_id), lo, hi),
         )
         if annotate
         else []

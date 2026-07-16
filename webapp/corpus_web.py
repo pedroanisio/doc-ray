@@ -34,7 +34,8 @@ def documents():
     rows = _core.q(
         """
         SELECT d.id, d.title, d.doc_type, d.language, d.char_count, d.page_count, d.status,
-               (SELECT count(*) FROM sentences s WHERE s.document_id = d.id) AS n_sentences,
+               (SELECT n_sentences FROM document_stats ds WHERE ds.document_id = d.id)
+                   AS n_sentences,
                (SELECT string_agg(DISTINCT a.tool, ', ')
                   FROM annotations a WHERE a.document_id = d.id) AS tools
         FROM documents d
@@ -44,17 +45,24 @@ def documents():
         {"limit": per_page, "offset": (page - 1) * per_page},
     )
     rows = [dict(row, preview=document_preview(row)) for row in rows]
+    # The stat band reads PRECOMPUTED rollups (migration 095), never the live
+    # corpus-wide scans it used to: those full-scanned the 17.5M-row
+    # lexeme_occurrences table twice per load (~18.7 s vs. a 300 ms SLA).
+    #   * documents           — count(*) over the RLS-scoped documents (index-only).
+    #   * sentences / occurrences — SUM over document_stats, which is RLS-scoped by
+    #     document_id, so the totals are exact for the caller's visible corpus.
+    #   * lexemes (distinct)  — NOT summable across documents, so it is a maintained
+    #     per-tenant scalar in corpus_stats (itself RLS-scoped to the caller's
+    #     tenant). Gated on "sees >= 1 document" so a principal with no visible
+    #     corpus reads 0 — preserving the confidentiality guarantee that
+    #     tests/test_corpus_stats_rls.py defends (never the global registry count).
     totals = _core.q1(
         "SELECT (SELECT count(*) FROM documents) docs, "
-        "(SELECT count(*) FROM sentences) sents, "
-        # `lexemes` is a shared registry with NO row-level security (018_rbac.sql
-        # groups it with authors/tags), so a bare count(*) leaks the global
-        # vocabulary of every tenant's documents to a user who can see none.
-        # Count distinct lexemes through lexeme_occurrences, which IS RLS-scoped —
-        # matching how the Lexicon page joins — so the card reflects only the
-        # caller's visible corpus (0 when they have no documents).
-        "(SELECT count(DISTINCT o.lexeme_uid) FROM lexeme_occurrences o) lexemes, "
-        "(SELECT count(*) FROM lexeme_occurrences) occ"
+        "(SELECT coalesce(sum(n_sentences), 0) FROM document_stats) sents, "
+        "(SELECT CASE WHEN EXISTS (SELECT 1 FROM documents) "
+        "             THEN coalesce((SELECT n_distinct_lexemes FROM corpus_stats), 0) "
+        "             ELSE 0 END) lexemes, "
+        "(SELECT coalesce(sum(n_lexeme_occurrences), 0) FROM document_stats) occ"
     )
     return _core.render_template(
         "documents.html",
@@ -318,42 +326,29 @@ def lexemes():
         "limit": per_page,
         "offset": (page - 1) * per_page,
     }
+    # Usage counts come from the precomputed, RLS-tenant-scoped lexeme_stats
+    # rollup (migration 098) — ordered by (tenant_id, uses DESC) index — instead of
+    # joining the whole 17.5M-row lexeme_occurrences table and GROUP BY-counting
+    # every lexeme on each page load (measured ~37 s live). lexeme_stats is
+    # RLS-scoped to the caller's tenant, so no explicit tenant predicate is needed.
     rows = _core.q(
         """
-        SELECT l.uid, l.lang, l.pos, l.lemma, count(o.*) AS uses
-        FROM lexemes l
-        JOIN lexeme_occurrences o ON o.lexeme_uid = l.uid
+        SELECT l.uid, l.lang, l.pos, l.lemma, ls.uses
+        FROM lexeme_stats ls
+        JOIN lexemes l ON l.uid = ls.lexeme_uid
         WHERE (%(q)s = '' OR l.lemma ILIKE %(qpat)s)
           AND (%(pos)s = '' OR l.pos = %(pos)s)
           AND (%(lang)s = '' OR l.lang = %(lang)s)
-        GROUP BY l.uid, l.lang, l.pos, l.lemma
-        ORDER BY uses DESC, l.lemma
+        ORDER BY ls.uses DESC, l.lemma
         LIMIT %(limit)s OFFSET %(offset)s
         """,
         params,
     )
-    langs = [
-        r["lang"]
-        for r in _core.q(
-            """
-            SELECT DISTINCT l.lang
-            FROM lexemes l
-            JOIN lexeme_occurrences o ON o.lexeme_uid = l.uid
-            ORDER BY l.lang
-            """
-        )
-    ]
-    poses = [
-        r["pos"]
-        for r in _core.q(
-            """
-            SELECT DISTINCT l.pos
-            FROM lexemes l
-            JOIN lexeme_occurrences o ON o.lexeme_uid = l.uid
-            ORDER BY l.pos
-            """
-        )
-    ]
+    # Filter facets: the distinct languages / parts of speech in the shared lexeme
+    # registry. Read straight from lexemes (a small, indexed registry) rather than
+    # joining lexeme_occurrences just to enumerate a handful of values.
+    langs = [r["lang"] for r in _core.q("SELECT DISTINCT lang FROM lexemes ORDER BY lang")]
+    poses = [r["pos"] for r in _core.q("SELECT DISTINCT pos FROM lexemes ORDER BY pos")]
     return _core.render_template(
         "lexemes.html",
         rows=rows,

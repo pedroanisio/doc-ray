@@ -50,9 +50,9 @@ source_schema:         "db/migrations"
 # by tenant-scoped Stripe billing status (migration 085).
 # Kept in lockstep with doc_ray.__version__
 # by scripts/check_version_consistency.py.
-source_schema_version: "1.30.0"
+source_schema_version: "1.33.0"
 target_engine:         "PostgreSQL 16"
-total_decisions:       23
+total_decisions:       25
 
 decisions:
 
@@ -1308,5 +1308,79 @@ decisions:
             context:     "ci"
             side_effects: "reads"
             command:     "pytest tests/test_uv_lock_sync.py -q"
+            expect:
+              exit:      0
+
+  - id:                 "D-025"
+    title:              "Read paths never aggregate large fact tables live; derive read-model rollups refreshed at the pipeline boundary"
+    version_introduced: "1.33.0"
+    category:           "performance"
+    decision: |
+      Every read surface — the Flask webapp, the GraphQL resolvers, the MCP
+      server, and the read-only persistence adapters they delegate to — is
+      forbidden from computing an aggregate (count / count(distinct) / GROUP BY /
+      string_agg / sum) over a large append-mostly fact table on the request
+      path. The flagged fact tables are lexeme_occurrences (~17.5M), spans
+      (~29M), tokens (~25M), entity_mention (~1.1M), chunk (~5.7M), embedding,
+      and sentences (~870k). Those aggregates are derived into read-model rollup
+      tables — document_stats (per-document: n_sentences, n_lexeme_occurrences,
+      n_tokens, pos_counts, top_verbs), corpus_stats (per-tenant distinct
+      lexemes), lexeme_stats (per-tenant lexeme usage), entity_frequency_stats
+      (per-tenant entity frequency) — refreshed by the trusted batch writer at
+      the pipeline job boundary (annotate / reannotate / ingest via
+      docray_refresh_stats_for_document, debounced for tenant-wide recomputes),
+      never at read time. The rollup carries its own RLS grain: document-scoped
+      rollups inherit the document_id read policy (exact per principal),
+      tenant-scoped rollups carry a tenant_id policy (never one global row, which
+      would leak vocabulary/entity magnitude across tenants). Read paths query
+      the rollup in O(result). scripts/check_read_path_aggregates.py enforces the
+      rule as a landing gate; a small reasoned allowlist covers queries that are
+      genuinely bounded to a single key (O(result)).
+    rationale: |
+      Four separate read pages were measured serving 16-37 s against a 300-400 ms
+      budget, all from the same defect: live aggregation over lexeme_occurrences
+      (and joins to spans) on every request — the corpus band (18.7 s), the
+      Lexicon (37 s), the reader POS/verb sidebar (1.2 s), and the original-page
+      overlay (0.5-1.7 s), plus the GraphQL twins (list_lexemes, entityFrequency)
+      and per-document count(*) subqueries over sentences/tokens. Confirmed live
+      with EXPLAIN ANALYZE as docray_api + admin; the reads drop to 1.5-12 ms off
+      the rollups. Materialized views were rejected: PostgreSQL 16 has no
+      incremental refresh (a per-document annotation would trigger a full-corpus
+      recompute) and matviews cannot carry RLS policies (they would query with
+      owner privileges and leak across tenants). Fact-table triggers were
+      rejected: the pipeline COPYs millions of rows per document, so per-row
+      trigger overhead would wreck ingest throughput — refresh belongs at the job
+      boundary, not the row boundary. Two related offenders are tracked
+      separately because they belong to other layers, not the rollup pattern:
+      the GraphQL Lexeme.occurrences N+1 (needs request batching / a DataLoader,
+      but the field takes per-call pagination args so it is not a trivial by-key
+      loader) and searchSentences' leading-wildcard ILIKE scan (needs a trigram /
+      FTS index). The static gate has a known blind spot for SQL assembled from
+      module-constant fragments (e.g. the shared _ENTITY_FROM), covered by the
+      audit + code review.
+    decision_status:    "accepted"
+    decision_date:      "2026-07-16"
+    owner:              ["pedroanisio@faz.ai"]
+    scope_path:
+      - "scripts/check_read_path_aggregates.py"
+      - "db/migrations/095_corpus_stats.sql"
+      - "db/migrations/098_reader_stats.sql"
+      - "db/migrations/100_read_model_token_entity.sql"
+      - "src/doc_ray/adapters/persistence_read.py"
+      - "webapp/corpus_web.py"
+    claims:
+      - claim_id:    "D-025.k1"
+        claim_text:  "No read-surface module aggregates a large fact table live (outside the reasoned allowlist)."
+        auditable:   true
+        status:      "populated"
+        declared_checks_count: 1
+        checks:
+          - check_id:    "D-025.k1.c1"
+            description: "The read-path aggregate gate passes."
+            check_kind:  "shell"
+            severity:    "error"
+            context:     "ci"
+            side_effects: "reads"
+            command:     "python scripts/check_read_path_aggregates.py"
             expect:
               exit:      0

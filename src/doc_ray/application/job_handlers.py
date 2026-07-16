@@ -8,6 +8,7 @@ routes claimed jobs here through :data:`HANDLERS`.
 
 from __future__ import annotations
 
+import logging
 import tempfile
 from collections.abc import Callable
 from pathlib import Path
@@ -46,8 +47,29 @@ if TYPE_CHECKING:
     # so this module stays importable without boto3.
     from doc_ray.adapters.object_store import ObjectStore as S3ObjectStore
 
+_logger = logging.getLogger("doc_ray.jobs")
+
 #: A handler runs one job and returns a JSON-able result recorded on the job row.
 Handler = Callable[[psycopg.Connection[Any], ObjectStore | None, Job], dict[str, Any]]
+
+
+def _refresh_document_stats(conn: psycopg.Connection[Any], document_id: object) -> None:
+    """Refresh the corpus stat-band rollups after a document's counts change.
+
+    Keeps ``document_stats`` (per-document sentence/occurrence counts) exact and
+    debounce-refreshes the tenant's distinct-lexeme scalar (migration 095), so
+    ``GET /corpus`` reads precomputed totals instead of scanning the 17.5M-row
+    ``lexeme_occurrences`` table on every request.
+
+    Best-effort: the rollup is derived convenience data, so a refresh failure is
+    logged and swallowed rather than failing an annotation/ingest job that
+    already committed its real work — the migration backfill and the next
+    count-mutating job reconcile any drift.
+    """
+    try:
+        conn.execute("SELECT docray_refresh_stats_for_document(%s)", (str(document_id),))
+    except Exception:  # pragma: no cover - defensive; refresh must never fail a job
+        _logger.warning("corpus stat rollup refresh failed for document %s", document_id)
 
 
 def handle_delete(
@@ -148,6 +170,7 @@ def handle_reannotate(
     lang = job.payload.get("lang", "en")
     report_progress(0, 1, "Re-annotating document")
     info = reann.reannotate_document(conn, job.document_id, cache={}, lang_default=lang)
+    _refresh_document_stats(conn, job.document_id)
     return info or {"skipped": True}
 
 
@@ -204,6 +227,8 @@ def handle_ingest(
         conn.execute(
             "UPDATE documents SET title = %s WHERE id = %s", (str(title), result.document_id)
         )
+    if result.status == "ingested" and result.document_id is not None:
+        _refresh_document_stats(conn, result.document_id)
     return {"document_id": result.document_id, "status": result.status}
 
 
@@ -233,6 +258,7 @@ def handle_annotate(
             "UPDATE documents SET language = %s WHERE id = %s AND language IS DISTINCT FROM %s",
             (lang, job.document_id, lang),
         )
+    _refresh_document_stats(conn, job.document_id)
     return info
 
 

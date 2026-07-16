@@ -62,6 +62,77 @@ doc-ray carries **one global version** covering both the application package
   (Claude Fable 5 via Claude Code) — typography, layout, and navigation pass
   over the browser UI; no route or data-contract changes.
 
+## [1.33.0] - 2026-07-16
+
+### Added
+- **D-024 read-path aggregate gate + read-model layer generalized across the
+  GraphQL/MCP surfaces** (Claude Opus 4.8 (1M context) via Claude Code). The same
+  live-aggregation-over-fact-tables defect fixed for the webapp in 1.31.0/1.32.0
+  was found by an audit across every read surface. This release turns the fix
+  into an enforced architecture (ADR **D-025**): `scripts/check_read_path_aggregates.py`
+  fails the build if any read module (`webapp/`, `entrypoints/api/`,
+  `entrypoints/mcp/`, the read adapters) aggregates a large fact table
+  (`lexeme_occurrences`/`spans`/`tokens`/`entity_mention`/`chunk`/`embedding`/`sentences`)
+  live, with a small reasoned allowlist for single-key-bounded queries. Two more
+  rollups back it: `document_stats.n_tokens` and per-tenant `entity_frequency_stats`
+  (migration 100). Resolvers/loaders now read the rollups: GraphQL `list_lexemes`
+  → `lexeme_stats`; `list_documents`/`sentenceCount`/`tokenCount` and the collection
+  document lists → `document_stats`; `entityFrequency` (corpus-wide) →
+  `entity_frequency_stats`; the webapp corpus/collections lists → `document_stats`;
+  and the `/collections` landing counts smart collections without hydrating rows.
+  Tracked separately (different layers): the `Lexeme.occurrences` N+1 (needs
+  request batching) and `searchSentences`' leading-wildcard `ILIKE` (needs a
+  trigram/FTS index).
+
+## [1.32.0] - 2026-07-16
+
+### Fixed
+- **Document reader + Lexicon no longer aggregate `lexeme_occurrences` on every
+  read** (Claude Opus 4.8 (1M context) via Claude Code). Same disease as the
+  corpus band (1.31.0): live aggregation over the 17.5M-row table on read paths.
+  Confirmed live via `EXPLAIN ANALYZE`/timings as `docray_api` + admin:
+  - The Lexicon (`/lexemes`) joined `lexemes` → `lexeme_occurrences`, `GROUP BY`
+    lexeme, `ORDER BY uses DESC` on every load — **~37 s**.
+  - The reader sidebar recomputed a document's POS distribution (~740 ms) and top
+    verbs (~464 ms) on every page navigation of a 1,250-page document.
+  - The original-page overlay (`?view=original`) materialised **all 448k**
+    occurrences of the document before filtering to one page (~500 ms grammar,
+    and `attach_page_blocks` ~1.7 s), and ran even in the image-overlay view where
+    sentence blocks are never rendered.
+  Migration 098 adds `lexeme_stats(tenant_id, lexeme_uid, uses)` (per-tenant,
+  ranked index) and `document_stats.pos_counts`/`top_verbs` (JSONB, document-level,
+  RLS-scoped). Reads drop to ~1.5 ms (Lexicon) / ~1.6 ms (sidebar). The overlay
+  and block queries now drive from `spans(document_id, page_number)` (indexed) —
+  ~12 ms — and `attach_page_blocks` is skipped entirely in the original view.
+  Rollups refresh in the trusted batch writer, never on the read path.
+- **`/doc/<id>?view=original&overlay=entities` no longer 500s** (Claude Opus 4.8
+  (1M context) via Claude Code) — `permission denied for table canonical`. The
+  entity-overlay query joins the shared `canonical` registry to resolve a linked
+  entity's preferred name, but `docray_client`'s SELECT allowlist (018_rbac.sql)
+  predated the `canonical` table (021) and never included it. Migration 097 grants
+  it, consistent with the `lexemes`/`authors`/`tags` registries; confidentiality
+  is unchanged (the query only reaches canonical rows via RLS-scoped entity links).
+
+## [1.31.0] - 2026-07-16
+
+### Fixed
+- **"The Corpus" landing page no longer scans 17.5M rows per request**
+  (Claude Opus 4.8 (1M context) via Claude Code). `GET /corpus` recomputed four
+  corpus-wide aggregates on every load; two of them (`count(DISTINCT lexeme_uid)`
+  and `count(*)` over `lexeme_occurrences`) full-scanned the 17.5M-row table,
+  costing ~18.7 s of origin time against a 300 ms SLA (confirmed live via
+  `EXPLAIN ANALYZE` as `docray_api` + admin principal). Migration 095 adds two
+  precomputed rollups read on the hot path: `document_stats` (per-document
+  sentence/occurrence counts, RLS-scoped so `SUM(...)` over the caller's visible
+  documents stays exact per principal, ~2 ms) and `corpus_stats` (the
+  non-summable distinct-lexeme count as a maintained **per-tenant** scalar,
+  visibility-gated to 0 for a principal with no visible corpus). The scalar is
+  keyed per tenant — never one global row — so it cannot leak one tenant's
+  vocabulary magnitude to another. Rollups refresh in the trusted batch writer
+  (ingest/annotate), never on the read path; the per-tenant scalar is
+  debounced (default 10 min) so a bulk re-annotation pays the recompute once, not
+  once per document.
+
 ## [1.30.0] - 2026-07-16
 
 ### Added

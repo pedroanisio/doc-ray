@@ -66,7 +66,8 @@ def collection_document_rows(collection: dict) -> list[dict]:
             """
             SELECT d.id, d.title, d.doc_type, d.language, d.char_count, d.page_count,
                    d.status,
-                   (SELECT count(*) FROM sentences s WHERE s.document_id = d.id) AS n_sentences,
+                   (SELECT n_sentences FROM document_stats ds WHERE ds.document_id = d.id)
+                       AS n_sentences,
                    (SELECT string_agg(DISTINCT a.tool, ', ')
                       FROM annotations a WHERE a.document_id = d.id) AS tools
             FROM document_collection_members m
@@ -82,7 +83,8 @@ def collection_document_rows(collection: dict) -> list[dict]:
             """
             SELECT d.id, d.title, d.doc_type, d.language, d.char_count, d.page_count,
                    d.status,
-                   (SELECT count(*) FROM sentences s WHERE s.document_id = d.id) AS n_sentences,
+                   (SELECT n_sentences FROM document_stats ds WHERE ds.document_id = d.id)
+                       AS n_sentences,
                    (SELECT string_agg(DISTINCT a.tool, ', ')
                       FROM annotations a WHERE a.document_id = d.id) AS tools
             FROM documents d
@@ -139,9 +141,37 @@ def collections():
     )
     for row in rows:
         if row.get("document_count") is None:
-            row["document_count"] = len(collection_document_rows(row))
+            row["document_count"] = _smart_collection_count(row)
         row["rule_summary"] = collection_rule_summary(row.get("rule"))
     return _core.render_template("collections.html", rows=rows, error=request.args.get("error"))
+
+
+def _smart_collection_count(collection: dict) -> int:
+    """Count a smart collection's documents without hydrating them.
+
+    The landing page only needs the number; the old code ``len()``-ed a fully
+    materialised 200-row page (previews + per-row subqueries) per collection.
+    This counts over the small ``documents`` table with the same rule predicate.
+    """
+    rule = collection_rule(collection.get("rule"))
+    row = _core.q1(
+        """
+        SELECT count(*) AS n
+        FROM documents d
+        WHERE (%(doc_type)s::text IS NULL OR d.doc_type = %(doc_type)s)
+          AND (%(status)s::text IS NULL OR d.status = %(status)s)
+          AND (%(tags)s::text[] IS NULL OR EXISTS (
+                SELECT 1 FROM document_tags dt JOIN tags t ON t.id = dt.tag_id
+                WHERE dt.document_id = d.id AND t.tag = ANY(%(tags)s::text[])
+              ))
+        """,
+        {
+            "doc_type": rule.get("doc_type"),
+            "status": rule.get("status"),
+            "tags": rule.get("tags") or None,
+        },
+    )
+    return int((row or {}).get("n") or 0)
 
 
 def collections_create():

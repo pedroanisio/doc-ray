@@ -183,28 +183,18 @@ def document(doc_id):
         "WHERE dt.document_id = %s ORDER BY t.tag",
         (str(doc_id),),
     )
-    pos = _core.q(
-        """
-        SELECT l.pos, count(*) n
-        FROM lexeme_occurrences o
-        JOIN annotations a ON a.id = o.annotation_id
-        JOIN lexemes l     ON l.uid = o.lexeme_uid
-        WHERE a.document_id = %s
-        GROUP BY l.pos ORDER BY n DESC
-        """,
+    # POS distribution + top verbs are document-level stats shown in the reader
+    # sidebar on every page. They are read from the precomputed document_stats
+    # rollup (migration 098) — as JSONB arrays of {pos,n} / {uid,lemma,n} — instead
+    # of aggregating the whole document's lexeme_occurrences live on every page
+    # navigation (measured ~740 ms + ~464 ms for a 1250-page document). The row is
+    # RLS-scoped by document_id, so it is present iff the caller can read the doc.
+    stats = _core.q1(
+        "SELECT pos_counts, top_verbs FROM document_stats WHERE document_id = %s",
         (str(doc_id),),
     )
-    top_verbs = _core.q(
-        """
-        SELECT l.uid, l.lemma, count(*) n
-        FROM lexeme_occurrences o
-        JOIN annotations a ON a.id = o.annotation_id
-        JOIN lexemes l     ON l.uid = o.lexeme_uid
-        WHERE a.document_id = %s AND l.pos = 'VERB'
-        GROUP BY l.uid, l.lemma ORDER BY n DESC LIMIT 15
-        """,
-        (str(doc_id),),
-    )
+    pos = (stats or {}).get("pos_counts") or []
+    top_verbs = (stats or {}).get("top_verbs") or []
     # Prism Tier-1: image-class distribution (RLS-scoped via the docray_api role).
     visual = _core.q(
         """
@@ -277,7 +267,12 @@ def document(doc_id):
             )
             pages = max(1, -(-n_sent // per_page))
 
-    attach_page_blocks(_core.q, _core.q1, sentences, doc_id, annotate=annotate)
+    # Sentence blocks are rendered only in the reading views (annotated/plain),
+    # never in the original-image overlay view — so skip the per-page block
+    # annotation there. It re-reads the page's occurrences (measured ~1.7 s for a
+    # 1250-page PDF) purely to build markup the original view never shows.
+    if not original_view:
+        attach_page_blocks(_core.q, _core.q1, sentences, doc_id, annotate=annotate)
     overlay = None
     if original_view:
         overlay = (

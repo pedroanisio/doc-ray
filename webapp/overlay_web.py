@@ -32,16 +32,23 @@ def overlay_box_style(box: dict, page_width: float, page_height: float) -> str:
 
 
 def pos_overlay_boxes(doc_id, page: int, page_width: float, page_height: float) -> list[dict]:
-    """Build POS/lexeme overlay boxes for one rendered PDF page."""
+    """Build POS/lexeme overlay boxes for one rendered PDF page.
+
+    Drives from ``spans(document_id, page_number)`` (indexed) so only the page's
+    spans are read, then joins their occurrences — not the reverse. The old
+    occurrence-first plan materialised EVERY occurrence of the document (measured
+    448k rows / 466k buffer hits / ~500 ms for one page of a 1250-page PDF) before
+    filtering to the page; this returns the identical rows in ~12 ms.
+    """
     boxes = _core.q(
         """
         SELECT l.uid, l.lemma, l.pos,
                sp.bbox_x0, sp.bbox_y0, sp.bbox_x1, sp.bbox_y1
-        FROM lexeme_occurrences o
-        JOIN annotations an ON an.id = o.annotation_id
-        JOIN spans sp       ON sp.id = o.span_id
-        JOIN lexemes l      ON l.uid = o.lexeme_uid
-        WHERE an.document_id = %s
+        FROM spans sp
+        JOIN lexeme_occurrences o ON o.span_id = sp.id
+        JOIN annotations an       ON an.id = o.annotation_id AND an.document_id = %s
+        JOIN lexemes l            ON l.uid = o.lexeme_uid
+        WHERE sp.document_id = %s
           AND sp.page_number = %s
           AND sp.bbox_x0 IS NOT NULL
           AND sp.bbox_y0 IS NOT NULL
@@ -49,7 +56,7 @@ def pos_overlay_boxes(doc_id, page: int, page_width: float, page_height: float) 
           AND sp.bbox_y1 IS NOT NULL
         ORDER BY sp.char_start
         """,
-        (str(doc_id), page),
+        (str(doc_id), str(doc_id), page),
     )
     return [
         {
@@ -65,18 +72,25 @@ def pos_overlay_boxes(doc_id, page: int, page_width: float, page_height: float) 
 
 
 def entity_overlay_boxes(doc_id, page: int, page_width: float, page_height: float) -> list[dict]:
-    """Build entity/canonical overlay boxes for one rendered PDF page."""
+    """Build entity/canonical overlay boxes for one rendered PDF page.
+
+    Drives from ``spans(document_id, page_number)`` (indexed) so only the page's
+    spans are read before joining mentions — the same fix as
+    :func:`pos_overlay_boxes`. Reading the ``canonical`` registry here requires the
+    ``docray_client`` SELECT grant added in migration 097 (its absence was a live
+    500 on ``?overlay=entities``).
+    """
     boxes = _core.q(
         """
         SELECT em.id AS mention_id, em.surface, em.entity_type,
                el.scheme, el.kb_id, c.preferred,
                sp.bbox_x0, sp.bbox_y0, sp.bbox_x1, sp.bbox_y1
-        FROM entity_mention em
-        JOIN annotations an ON an.id = em.annotation_id
-        JOIN spans sp       ON sp.id = em.span_id
+        FROM spans sp
+        JOIN entity_mention em ON em.span_id = sp.id
+        JOIN annotations an    ON an.id = em.annotation_id AND an.document_id = %s
         LEFT JOIN entity_link el ON el.mention_id = em.id
-        LEFT JOIN canonical c ON c.id::text = el.kb_id
-        WHERE an.document_id = %s
+        LEFT JOIN canonical c    ON c.id::text = el.kb_id
+        WHERE sp.document_id = %s
           AND sp.page_number = %s
           AND sp.bbox_x0 IS NOT NULL
           AND sp.bbox_y0 IS NOT NULL
@@ -84,7 +98,7 @@ def entity_overlay_boxes(doc_id, page: int, page_width: float, page_height: floa
           AND sp.bbox_y1 IS NOT NULL
         ORDER BY sp.char_start
         """,
-        (str(doc_id), page),
+        (str(doc_id), str(doc_id), page),
     )
     rendered = []
     for box in boxes:

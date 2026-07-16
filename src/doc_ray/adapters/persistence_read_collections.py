@@ -202,7 +202,8 @@ async def list_collection_documents(
             SELECT d.id, d.title, d.original_filename AS filename, d.doc_type, d.language,
                    d.page_count, d.char_count, d.status, d.lifecycle_state,
                    d.archived_at, d.deleted_at, d.created_at,
-                   (SELECT count(*) FROM sentences s WHERE s.document_id = d.id) AS n_sentences,
+                   (SELECT n_sentences FROM document_stats ds WHERE ds.document_id = d.id)
+                       AS n_sentences,
                    (SELECT count(*) FROM document_provenance p WHERE p.document_id = d.id)
                        AS n_provenance,
                    m.added_at
@@ -236,7 +237,8 @@ async def list_collection_documents(
         SELECT d.id, d.title, d.original_filename AS filename, d.doc_type, d.language,
                d.page_count, d.char_count, d.status, d.lifecycle_state,
                d.archived_at, d.deleted_at, d.created_at,
-               (SELECT count(*) FROM sentences s WHERE s.document_id = d.id) AS n_sentences,
+               (SELECT n_sentences FROM document_stats ds WHERE ds.document_id = d.id)
+                   AS n_sentences,
                (SELECT count(*) FROM document_provenance p WHERE p.document_id = d.id)
                    AS n_provenance
         FROM documents d

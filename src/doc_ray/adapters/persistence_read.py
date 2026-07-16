@@ -145,7 +145,8 @@ async def list_documents(
         SELECT d.id, d.title, d.original_filename AS filename, d.doc_type, d.language,
                d.page_count, d.char_count, d.status, d.lifecycle_state,
                d.archived_at, d.deleted_at, d.created_at,
-               (SELECT count(*) FROM sentences s WHERE s.document_id = d.id) AS n_sentences,
+               (SELECT n_sentences FROM document_stats ds WHERE ds.document_id = d.id)
+                   AS n_sentences,
                (SELECT count(*) FROM document_provenance p WHERE p.document_id = d.id)
                    AS n_provenance
         FROM documents d
@@ -331,12 +332,16 @@ async def metadata_by_documents(conn: _AConn, document_ids: list[str]) -> dict[s
 
 
 async def sentence_counts_by_documents(conn: _AConn, document_ids: list[str]) -> dict[str, int]:
-    """Return ``{document_id: sentence_count}`` for every id (0 when none)."""
+    """Return ``{document_id: sentence_count}`` for every id (0 when none).
+
+    Reads the ``document_stats`` rollup (migration 095) instead of aggregating the
+    870k-row ``sentences`` table live per request (D-024).
+    """
     out: dict[str, int] = {str(i): 0 for i in document_ids}
     rows = await _rows(
         conn,
-        "SELECT document_id, count(*) AS n FROM sentences "
-        "WHERE document_id = ANY(%s::uuid[]) GROUP BY document_id",
+        "SELECT document_id, n_sentences AS n FROM document_stats "
+        "WHERE document_id = ANY(%s::uuid[])",
         (document_ids,),
     )
     for r in rows:
@@ -353,9 +358,7 @@ async def token_counts_by_documents(conn: _AConn, document_ids: list[str]) -> di
     out: dict[str, int] = {str(i): 0 for i in document_ids}
     rows = await _rows(
         conn,
-        "SELECT a.document_id, count(*) AS n FROM tokens t "
-        "JOIN annotations a ON a.id = t.annotation_id "
-        "WHERE a.document_id = ANY(%s::uuid[]) GROUP BY a.document_id",
+        "SELECT document_id, n_tokens AS n FROM document_stats WHERE document_id = ANY(%s::uuid[])",
         (document_ids,),
     )
     for r in rows:
@@ -421,21 +424,36 @@ async def list_lexemes(
         "after_lemma": cursor["lemma"] if cursor else None,
         "after_uid": cursor["uid"] if cursor else None,
     }
-    joins = "JOIN lexeme_occurrences o ON o.lexeme_uid = l.uid"
-    if document_id is not None:
-        # Restrict to lexemes present in the requested document; RLS still
-        # decides whether that document is visible to the caller.
-        joins += (
-            " JOIN annotations ann ON ann.id = o.annotation_id AND ann.document_id = %(doc)s::uuid"
-        )
+    if document_id is None:
+        # Corpus-wide "busiest lexemes": read the precomputed, RLS-tenant-scoped
+        # lexeme_stats rollup (migration 098) instead of GROUP BY-counting the
+        # whole 17.5M-row lexeme_occurrences table on every page (D-024). uses is
+        # per-tenant and the (tenant_id, uses DESC) index serves the ORDER BY.
+        sql = """
+        SELECT l.uid, l.lang, l.pos, l.lemma, ls.uses
+        FROM lexeme_stats ls
+        JOIN lexemes l ON l.uid = ls.lexeme_uid
+        WHERE (%(q)s = '' OR l.lemma ILIKE %(qpat)s)
+          AND (%(pos)s = '' OR l.pos = %(pos)s)
+          AND (%(lang)s = '' OR l.lang = %(lang)s)
+          AND (%(after_uses)s::bigint IS NULL OR ls.uses < %(after_uses)s::bigint
+               OR (ls.uses = %(after_uses)s::bigint AND l.lemma > %(after_lemma)s)
+               OR (ls.uses = %(after_uses)s::bigint AND l.lemma = %(after_lemma)s
+                   AND l.uid > %(after_uid)s))
+        ORDER BY ls.uses DESC, l.lemma, l.uid
+        LIMIT %(limit)s
+        """
+    else:
+        # Document-scoped: uses counts occurrences in ONE document only, which is
+        # bounded to that document (RLS still decides its visibility). No rollup —
+        # a per-document lexeme-usage rollup is not maintained.
         params["doc"] = document_id
-    rows = await _rows(
-        conn,
-        f"""
+        sql = """
         WITH ranked AS (
         SELECT l.uid, l.lang, l.pos, l.lemma, count(o.lexeme_uid) AS uses
         FROM lexemes l
-        {joins}
+        JOIN lexeme_occurrences o ON o.lexeme_uid = l.uid
+        JOIN annotations ann ON ann.id = o.annotation_id AND ann.document_id = %(doc)s::uuid
         WHERE (%(q)s = '' OR l.lemma ILIKE %(qpat)s)
           AND (%(pos)s = '' OR l.pos = %(pos)s)
           AND (%(lang)s = '' OR l.lang = %(lang)s)
@@ -448,9 +466,8 @@ async def list_lexemes(
                    AND uid > %(after_uid)s))
         ORDER BY uses DESC, lemma, uid
         LIMIT %(limit)s
-        """,
-        params,
-    )
+        """
+    rows = await _rows(conn, sql, params)
     for row in rows:
         row["cursor"] = encode_cursor(
             "lexemes", uses=int(row["uses"]), lemma=row["lemma"], uid=row["uid"]
@@ -670,27 +687,44 @@ async def entity_frequency(
         Rows of ``{text, entity_type, count}`` ordered by descending count.
     """
     cursor = decode_cursor(after, "entity-frequency")
-    rows = await _rows(
-        conn,
-        "WITH ranked AS ("
-        "SELECT em.surface AS text, em.entity_type, count(*) AS count "
-        + _ENTITY_FROM
-        + "GROUP BY text, em.entity_type) "
-        + "SELECT * FROM ranked "
-        + "WHERE (%(after_count)s::bigint IS NULL OR count < %(after_count)s::bigint "
-        + "       OR (count = %(after_count)s::bigint AND text > %(after_text)s) "
-        + "       OR (count = %(after_count)s::bigint AND text = %(after_text)s "
-        + "           AND entity_type > %(after_type)s)) "
-        + "ORDER BY count DESC, text, entity_type LIMIT %(limit)s",
-        {
-            "doc": document_id,
-            "etype": entity_type or "",
-            "limit": limit,
-            "after_count": cursor["count"] if cursor else None,
-            "after_text": cursor["text"] if cursor else None,
-            "after_type": cursor["entity_type"] if cursor else None,
-        },
-    )
+    params = {
+        "doc": document_id,
+        "etype": entity_type or "",
+        "limit": limit,
+        "after_count": cursor["count"] if cursor else None,
+        "after_text": cursor["text"] if cursor else None,
+        "after_type": cursor["entity_type"] if cursor else None,
+    }
+    if document_id is None:
+        # Corpus-wide frequency: read the precomputed, RLS-tenant-scoped
+        # entity_frequency_stats rollup (migration 100) instead of GROUP BY-counting
+        # the 1.1M-row entity_mention table live (D-024). The (tenant_id, uses DESC)
+        # index serves the ORDER BY.
+        sql = (
+            "SELECT entity_text AS text, entity_type, uses AS count "
+            "FROM entity_frequency_stats "
+            "WHERE (%(etype)s = '' OR entity_type = %(etype)s) "
+            "  AND (%(after_count)s::bigint IS NULL OR uses < %(after_count)s::bigint "
+            "       OR (uses = %(after_count)s::bigint AND entity_text > %(after_text)s) "
+            "       OR (uses = %(after_count)s::bigint AND entity_text = %(after_text)s "
+            "           AND entity_type > %(after_type)s)) "
+            "ORDER BY uses DESC, entity_text, entity_type LIMIT %(limit)s"
+        )
+    else:
+        # Document-scoped: bounded to one document (RLS decides visibility).
+        sql = (
+            "WITH ranked AS ("
+            "SELECT em.surface AS text, em.entity_type, count(*) AS count "
+            + _ENTITY_FROM
+            + "GROUP BY text, em.entity_type) "
+            + "SELECT * FROM ranked "
+            + "WHERE (%(after_count)s::bigint IS NULL OR count < %(after_count)s::bigint "
+            + "       OR (count = %(after_count)s::bigint AND text > %(after_text)s) "
+            + "       OR (count = %(after_count)s::bigint AND text = %(after_text)s "
+            + "           AND entity_type > %(after_type)s)) "
+            + "ORDER BY count DESC, text, entity_type LIMIT %(limit)s"
+        )
+    rows = await _rows(conn, sql, params)
     for row in rows:
         row["cursor"] = encode_cursor(
             "entity-frequency",
