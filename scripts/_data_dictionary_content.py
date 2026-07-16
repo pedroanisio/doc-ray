@@ -46,6 +46,12 @@ RLS_PATH = {
     "tlink": "annotation_id → annotations",
     "sentiment": "annotation_id → annotations",
     "embedding": "span_id → spans",
+    "document_image": "document_id",
+    "image_tier1_features": "document_id",
+    "image_embedding": "document_id",
+    "sentence_vision_embedding": "document_id",
+    "visual_caption": "document_id",
+    "visual_review": "document_id",
     "jobs": "document_id (admin-only when NULL)",
     "seed_suggestion": "document_id",
     "backups": "docray_is_admin()",
@@ -244,6 +250,12 @@ MIGRATIONS = [
         "088_billing_event_retry",
         "tenant-admin retry policy for unprocessed Stripe billing webhook events",
     ),
+    ("089_visual_tier1", "Prism Tier-1: document_image + image_tier1_features (deterministic)"),
+    ("090_schema_version_1_28_0", "advance the schema SemVer to 1.28.0"),
+    ("091_visual_tier2", "Prism Tier-2: image_embedding + sentence_vision_embedding (HNSW)"),
+    ("092_schema_version_1_29_0", "advance the schema SemVer to 1.29.0"),
+    ("093_visual_tier3", "Prism Tier-3: visual_caption + visual_review (grounded VLM)"),
+    ("094_schema_version_1_30_0", "advance the schema SemVer to 1.30.0"),
 ]
 
 # ---------------------------------------------------------------------------
@@ -426,5 +438,23 @@ GROUPS: list[tuple[str, str, list[str]]] = [
         "`jobs` queue are excluded from every snapshot and from restore, so a "
         "restore never clobbers the queue or the archive index it is reading from.",
         ["jobs", "schema_migrations", "schema_version", "backups"],
+    ),
+    (
+        "Prism visual layer",
+        "The visual/multimodal layer over the corpus (docs/proposals/prism-visual-"
+        "layer.md), document-scoped under the same RLS as the NLP layers. Tier-1 "
+        "`document_image`/`image_tier1_features` are deterministic (no model). Tier-2 "
+        "`image_embedding`/`sentence_vision_embedding` are HNSW-indexed vectors in one "
+        "shared space for cross-modal retrieval (ranking only). Tier-3 `visual_caption` "
+        "holds grounded VLM captions (only status='committed' is trusted) and "
+        "`visual_review` is the human gate for low-confidence output.",
+        [
+            "document_image",
+            "image_tier1_features",
+            "image_embedding",
+            "sentence_vision_embedding",
+            "visual_caption",
+            "visual_review",
+        ],
     ),
 ]

@@ -13,6 +13,7 @@ test DB, like every other DB-backed suite).
 
 from __future__ import annotations
 
+import re
 import uuid
 from pathlib import Path
 
@@ -37,8 +38,11 @@ def test_migration_077_bumps_schema_version() -> None:
         encoding="utf-8"
     )
     assert "1.24.0" in migration
+    # engineering_decisions.yml declares a source_schema_version; the *current*
+    # value moves with every schema bump and is enforced against __version__ by
+    # check_version_consistency.py — this test must not pin it to a stale value.
     decisions = (_ROOT / "engineering_decisions.yml").read_text(encoding="utf-8")
-    assert 'source_schema_version: "1.24.0"' in decisions
+    assert re.search(r'^source_schema_version:\s*"\d+\.\d+\.\d+"', decisions, re.MULTILINE)
 
 
 def _ensure_migration_076(conn) -> None:

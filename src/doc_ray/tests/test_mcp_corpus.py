@@ -99,7 +99,7 @@ async def test_list_documents_and_entity_frequency_map(monkeypatch):
     assert await corpus.entity_frequency() == [{"text": "Berlin", "count": 3}]
 
 
-def test_tools_tuple_is_the_six_read_tools():
+def test_tools_tuple_is_the_read_tools():
     assert {fn.__name__ for fn in corpus.TOOLS} == {
         "search_sentences",
         "full_text_search",
@@ -107,4 +107,9 @@ def test_tools_tuple_is_the_six_read_tools():
         "get_document",
         "entity_frequency",
         "lexeme_kwic",
+        # Prism visual tools
+        "document_images",
+        "image_class_summary",
+        "cross_modal_image_search",
+        "visual_captions",
     }

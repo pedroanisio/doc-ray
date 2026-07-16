@@ -1,6 +1,6 @@
 # doc-ray — Database ERD & Data Dictionary
 
-**Schema version `1.27.0`** (SemVer) · 88 migrations applied
+**Schema version `1.30.0`** (SemVer) · 94 migrations applied
 
 > Generated from the live schema by `scripts/gen_data_dictionary.py`. Do not edit by hand — re-run the generator.
 
@@ -172,7 +172,7 @@ erDiagram
 ## 4. Domains & enumerated types
 
 - **domain `ulid`** = `character(26)` — `CHECK ((VALUE ~ '^[0-7][0-9A-HJKMNP-TV-Z]{25}$'::text))`
-- **enum `provenance_kind`** ∈ { 'acquired', 'stored', 'extracted', 'decomposed', 'segmented', 'embedded', 'indexed', 'redacted', 'translated', 'superseded', 'annotated' }
+- **enum `provenance_kind`** ∈ { 'acquired', 'stored', 'extracted', 'decomposed', 'segmented', 'embedded', 'indexed', 'redacted', 'translated', 'superseded', 'annotated', 'vision_captioned' }
 
 
 ## 5. Data dictionary
@@ -1317,8 +1317,10 @@ operator-seeded; self-registered principals get the reader role only.
 | `grant_types` | text[] |  |  | `ARRAY['authorization_code'::text, 'refresh_token'::text]` |  |
 | `scope` | text |  |  | `'read'::text` |  |
 | `created_at` | timestamp with time zone |  |  | `now()` |  |
+| `principal_id` | uuid | yes | FK→principals |  |  |
 
 - **Primary key:** (client_id)
+- **FK:** FOREIGN KEY (principal_id) REFERENCES principals(id) ON DELETE SET NULL
 - **Check:** CHECK ((cardinality(redirect_uris) > 0))
 - **Check:** CHECK ((token_endpoint_auth_method = ANY (ARRAY['none'::text, 'client_secret_post'::text, 'client_secret_basic'::text])))
 
@@ -1667,6 +1669,162 @@ clobbers the queue or the archive index it is reading from.
 - **Index** `idx_backups_created`: public.backups USING btree (created_at DESC)
 - **RLS:** enabled — read/write policies via *docray_is_admin()*
 
+### 5.18 Prism visual layer
+
+The visual/multimodal layer over the corpus (docs/proposals/prism-visual-layer.md), document-scoped
+under the same RLS as the NLP layers. Tier-1 `document_image`/`image_tier1_features` are
+deterministic (no model). Tier-2 `image_embedding`/`sentence_vision_embedding` are HNSW-indexed
+vectors in one shared space for cross-modal retrieval (ranking only). Tier-3 `visual_caption` holds
+grounded VLM captions (only status='committed' is trusted) and `visual_review` is the human gate for
+low-confidence output.
+
+#### `document_image`
+
+| Column | Type | Null | Key | Default | Notes |
+|---|---|---|---|---|---|
+| `id` | ulid |  | PK |  |  |
+| `document_id` | uuid |  | FK→documents, UQ |  |  |
+| `page_number` | integer |  | UQ |  |  |
+| `source` | text |  | UQ |  |  |
+| `xref` | integer | yes |  |  |  |
+| `bbox_x0` | double precision | yes |  |  |  |
+| `bbox_y0` | double precision | yes |  |  |  |
+| `bbox_x1` | double precision | yes |  |  |  |
+| `bbox_y1` | double precision | yes |  |  |  |
+| `width_px` | integer |  |  |  |  |
+| `height_px` | integer |  |  |  |  |
+| `object_key` | text |  |  |  |  |
+| `sha256` | character(64) |  | UQ |  |  |
+| `detector` | text |  |  |  |  |
+| `detector_version` | text |  |  |  |  |
+| `created_at` | timestamp with time zone |  |  | `now()` |  |
+
+- **Primary key:** (id)
+- **Unique:** UNIQUE (document_id, page_number, source, sha256)
+- **FK:** FOREIGN KEY (document_id) REFERENCES documents(id) ON DELETE CASCADE
+- **Check:** CHECK ((height_px > 0))
+- **Check:** CHECK ((page_number > 0))
+- **Check:** CHECK ((source = ANY (ARRAY['embedded-raster'::text, 'rendered-region'::text, 'full-page'::text])))
+- **Check:** CHECK ((width_px > 0))
+- **Index** `document_image_document_id_page_number_source_sha256_key`: public.document_image USING btree (document_id, page_number, source, sha256)
+- **Index** `idx_document_image_doc_page`: public.document_image USING btree (document_id, page_number)
+- **RLS:** enabled — read/write policies via *document_id*
+
+#### `image_tier1_features`
+
+| Column | Type | Null | Key | Default | Notes |
+|---|---|---|---|---|---|
+| `id` | ulid |  | PK |  |  |
+| `document_image_id` | ulid |  | FK→document_image, UQ |  |  |
+| `document_id` | uuid |  | FK→documents |  |  |
+| `dominant_colors` | jsonb |  |  |  |  |
+| `histogram` | jsonb |  |  |  |  |
+| `mean_saturation` | real |  |  |  |  |
+| `mean_value` | real |  |  |  |  |
+| `contrast` | real |  |  |  |  |
+| `edge_density` | real |  |  |  |  |
+| `image_class` | text |  |  |  |  |
+| `aspect_ratio` | real |  |  |  |  |
+| `width_px` | integer |  |  |  |  |
+| `height_px` | integer |  |  |  |  |
+| `exif` | jsonb | yes |  |  |  |
+| `tool` | text |  | UQ |  |  |
+| `tool_version` | text |  |  |  |  |
+| `created_at` | timestamp with time zone |  |  | `now()` |  |
+
+- **Primary key:** (id)
+- **Unique:** UNIQUE (document_image_id, tool)
+- **FK:** FOREIGN KEY (document_id) REFERENCES documents(id) ON DELETE CASCADE
+- **FK:** FOREIGN KEY (document_image_id) REFERENCES document_image(id) ON DELETE CASCADE
+- **Check:** CHECK ((image_class = ANY (ARRAY['photo'::text, 'diagram'::text, 'screenshot'::text, 'line-art'::text, 'chart'::text])))
+- **Index** `idx_image_tier1_features_doc`: public.image_tier1_features USING btree (document_id)
+- **Index** `image_tier1_features_document_image_id_tool_key`: public.image_tier1_features USING btree (document_image_id, tool)
+- **RLS:** enabled — read/write policies via *document_id*
+
+#### `image_embedding`
+
+| Column | Type | Null | Key | Default | Notes |
+|---|---|---|---|---|---|
+| `document_image_id` | ulid |  | PK, FK→document_image |  |  |
+| `document_id` | uuid |  | FK→documents |  |  |
+| `model` | text |  | PK |  |  |
+| `vector` | vector(768) |  |  |  |  |
+| `preprocessing_sha256` | character(64) |  |  |  |  |
+| `created_at` | timestamp with time zone |  |  | `now()` |  |
+
+- **Primary key:** (document_image_id, model)
+- **FK:** FOREIGN KEY (document_id) REFERENCES documents(id) ON DELETE CASCADE
+- **FK:** FOREIGN KEY (document_image_id) REFERENCES document_image(id) ON DELETE CASCADE
+- **Index** `idx_image_embedding_doc`: public.image_embedding USING btree (document_id)
+- **Index** `idx_image_embedding_hnsw`: public.image_embedding USING hnsw (vector vector_cosine_ops)
+- **RLS:** enabled — read/write policies via *document_id*
+
+#### `sentence_vision_embedding`
+
+| Column | Type | Null | Key | Default | Notes |
+|---|---|---|---|---|---|
+| `sentence_id` | ulid |  | PK, FK→sentences |  |  |
+| `document_id` | uuid |  | FK→documents |  |  |
+| `model` | text |  | PK |  |  |
+| `vector` | vector(768) |  |  |  |  |
+| `created_at` | timestamp with time zone |  |  | `now()` |  |
+
+- **Primary key:** (sentence_id, model)
+- **FK:** FOREIGN KEY (document_id) REFERENCES documents(id) ON DELETE CASCADE
+- **FK:** FOREIGN KEY (sentence_id) REFERENCES sentences(id) ON DELETE CASCADE
+- **Index** `idx_sentence_vision_embedding_doc`: public.sentence_vision_embedding USING btree (document_id)
+- **Index** `idx_sentence_vision_embedding_hnsw`: public.sentence_vision_embedding USING hnsw (vector vector_cosine_ops)
+- **RLS:** enabled — read/write policies via *document_id*
+
+#### `visual_caption`
+
+| Column | Type | Null | Key | Default | Notes |
+|---|---|---|---|---|---|
+| `id` | ulid |  | PK |  |  |
+| `document_image_id` | ulid |  | FK→document_image, UQ |  |  |
+| `document_id` | uuid |  | FK→documents |  |  |
+| `caption` | text |  |  |  |  |
+| `analysis` | jsonb | yes |  |  |  |
+| `model` | text |  | UQ |  |  |
+| `model_version` | text | yes |  |  |  |
+| `grounding_score` | real |  |  |  |  |
+| `grounded_against` | jsonb |  |  | `'{}'::jsonb` |  |
+| `status` | text |  |  | `'review'::text` |  |
+| `created_at` | timestamp with time zone |  |  | `now()` |  |
+
+- **Primary key:** (id)
+- **Unique:** UNIQUE (document_image_id, model)
+- **FK:** FOREIGN KEY (document_id) REFERENCES documents(id) ON DELETE CASCADE
+- **FK:** FOREIGN KEY (document_image_id) REFERENCES document_image(id) ON DELETE CASCADE
+- **Check:** CHECK ((status = ANY (ARRAY['committed'::text, 'review'::text, 'rejected'::text])))
+- **Index** `idx_visual_caption_committed`: public.visual_caption USING btree (document_id) WHERE (status = 'committed'::text)
+- **Index** `idx_visual_caption_doc`: public.visual_caption USING btree (document_id)
+- **Index** `visual_caption_document_image_id_model_key`: public.visual_caption USING btree (document_image_id, model)
+- **RLS:** enabled — read/write policies via *document_id*
+
+#### `visual_review`
+
+| Column | Type | Null | Key | Default | Notes |
+|---|---|---|---|---|---|
+| `id` | ulid |  | PK |  |  |
+| `document_image_id` | ulid |  | FK→document_image |  |  |
+| `document_id` | uuid |  | FK→documents |  |  |
+| `proposed` | jsonb |  |  |  |  |
+| `grounding_score` | real |  |  |  |  |
+| `grounding_evidence` | jsonb |  |  | `'{}'::jsonb` |  |
+| `status` | text |  |  | `'pending'::text` |  |
+| `reviewer` | uuid | yes | FK→principals |  |  |
+| `created_at` | timestamp with time zone |  |  | `now()` |  |
+| `updated_at` | timestamp with time zone |  |  | `now()` |  |
+
+- **Primary key:** (id)
+- **FK:** FOREIGN KEY (document_id) REFERENCES documents(id) ON DELETE CASCADE
+- **FK:** FOREIGN KEY (document_image_id) REFERENCES document_image(id) ON DELETE CASCADE
+- **FK:** FOREIGN KEY (reviewer) REFERENCES principals(id)
+- **Check:** CHECK ((status = ANY (ARRAY['pending'::text, 'approved'::text, 'rejected'::text])))
+- **Index** `idx_visual_review_pending`: public.visual_review USING btree (document_id) WHERE (status = 'pending'::text)
+- **RLS:** enabled — read/write policies via *document_id*
+
 
 ## 6. Views
 
@@ -1743,6 +1901,7 @@ SELECT a.document_id,
 - **principal_roles** `trg_reject_manual_scim_role_edit`: CREATE TRIGGER trg_reject_manual_scim_role_edit BEFORE INSERT OR DELETE OR UPDATE …
 - **tenant_billing_accounts** `trg_tenant_billing_accounts_updated_at`: CREATE TRIGGER trg_tenant_billing_accounts_updated_at BEFORE UPDATE …
 - **tenant_subscriptions** `trg_tenant_subscriptions_updated_at`: CREATE TRIGGER trg_tenant_subscriptions_updated_at BEFORE UPDATE …
+- **visual_review** `trg_visual_review_updated_at`: CREATE TRIGGER trg_visual_review_updated_at BEFORE UPDATE …
 
 
 ## 8. Access control (RBAC + RLS)
@@ -1752,7 +1911,7 @@ document-scoped table. A principal may **read** a same-tenant document iff it is
 *admin* or holds any `document_acl` row on it, and may **write** iff *admin* or
 holds an `annotate`/`delete`/`admin` grant.
 
-**Enforcement.** RLS is `ENABLE`d (not `FORCE`) on 45 tables (incl. `jobs` and
+**Enforcement.** RLS is `ENABLE`d (not `FORCE`) on 51 tables (incl. `jobs` and
 `backups` since migration 043 — BL-064). The `docray`
 role is a **superuser and table owner**, so it **bypasses RLS** — the ingest
 pipeline and admin tooling use it as the trusted batch writer. End-user / API
@@ -1880,3 +2039,9 @@ owner's bypass.
 | 086 | `086_schema_version_1_27_0.sql` | advance the schema SemVer to 1.27.0 |
 | 087 | `087_oauth_client_service_principal.sql` | bind confidential OAuth clients to explicit service principals for client_credentials |
 | 088 | `088_billing_event_retry.sql` | tenant-admin retry policy for unprocessed Stripe billing webhook events |
+| 089 | `089_visual_tier1.sql` | Prism Tier-1: document_image + image_tier1_features (deterministic) |
+| 090 | `090_schema_version_1_28_0.sql` | advance the schema SemVer to 1.28.0 |
+| 091 | `091_visual_tier2.sql` | Prism Tier-2: image_embedding + sentence_vision_embedding (HNSW) |
+| 092 | `092_schema_version_1_29_0.sql` | advance the schema SemVer to 1.29.0 |
+| 093 | `093_visual_tier3.sql` | Prism Tier-3: visual_caption + visual_review (grounded VLM) |
+| 094 | `094_schema_version_1_30_0.sql` | advance the schema SemVer to 1.30.0 |
