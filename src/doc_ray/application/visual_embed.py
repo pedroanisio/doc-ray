@@ -30,7 +30,7 @@ _IMAGE_COLUMNS = ("document_image_id", "document_id", "model", "vector", "prepro
 _SENTENCE_COLUMNS = ("sentence_id", "document_id", "model", "vector")
 
 
-def _to_vector_literal(vec: Sequence[float]) -> str:
+def to_vector_literal(vec: Sequence[float]) -> str:
     """L2-normalize *vec* and format it as a pgvector text literal."""
     norm = math.sqrt(sum(v * v for v in vec)) or 1.0
     return "[" + ",".join(f"{v / norm:.8f}" for v in vec) + "]"
@@ -76,7 +76,7 @@ def embed_document_visuals(
             image_id,
             document_id,
             model,
-            _to_vector_literal(vec),
+            to_vector_literal(vec),
             hashlib.sha256(crop).hexdigest(),
         )
         for (image_id, _), crop, vec in zip(image_meta, crop_bytes, image_vectors, strict=True)
@@ -92,7 +92,7 @@ def embed_document_visuals(
         encoder.embed_texts([text for _, text in sentence_meta]) if sentence_meta else []
     )
     sentence_rows = [
-        (sentence_id, document_id, model, _to_vector_literal(vec))
+        (sentence_id, document_id, model, to_vector_literal(vec))
         for (sentence_id, _), vec in zip(sentence_meta, sentence_vectors, strict=True)
     ]
 
@@ -129,7 +129,7 @@ def cross_modal_image_search(
     ``image_embedding`` by HNSW cosine distance. RLS-scoped: only images the
     caller may read are visible.
     """
-    query_vec = _to_vector_literal(encoder.embed_texts([query_text])[0])
+    query_vec = to_vector_literal(encoder.embed_texts([query_text])[0])
     cur = conn.execute(
         """
         SELECT di.id, di.document_id, di.page_number, di.source, di.object_key,

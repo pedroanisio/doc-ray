@@ -160,6 +160,36 @@ async def image_class_summary(document_id: str) -> list[dict[str, Any]]:
     return rows
 
 
+async def cross_modal_image_search(query: str, limit: int = 25) -> list[dict[str, Any]]:
+    """Find images by meaning from a text query (text->image cross-modal retrieval).
+
+    Ranks the corpus's images by CLIP/SigLIP cosine similarity to *query*; returns
+    document/page/class and a similarity score. RLS-scoped to readable images.
+    """
+    data = await gql(
+        "query($q:String!,$l:Int!){crossModalImageSearch(query:$q,limit:$l)"
+        "{id documentId pageNumber source imageClass similarity}}",
+        {"q": query, "l": limit},
+    )
+    rows: list[dict[str, Any]] = data["crossModalImageSearch"]
+    return rows
+
+
+async def visual_captions(document_id: str, limit: int = 100) -> list[dict[str, Any]]:
+    """A document's COMMITTED, grounded first-tier VLM captions (trusted only).
+
+    Only captions whose grounding cleared the gate are returned; low-confidence
+    captions stay in human review and are never surfaced here.
+    """
+    data = await gql(
+        "query($d:ID!,$l:Int!){visualCaptions(documentId:$d,limit:$l)"
+        "{id documentImageId pageNumber caption model groundingScore}}",
+        {"d": document_id, "l": limit},
+    )
+    rows: list[dict[str, Any]] = data["visualCaptions"]
+    return rows
+
+
 #: The read tools registered on the MCP server (see server.py).
 TOOLS: tuple[Callable[..., Any], ...] = (
     search_sentences,
@@ -170,4 +200,6 @@ TOOLS: tuple[Callable[..., Any], ...] = (
     lexeme_kwic,
     document_images,
     image_class_summary,
+    cross_modal_image_search,
+    visual_captions,
 )

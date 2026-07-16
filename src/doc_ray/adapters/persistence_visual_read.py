@@ -72,3 +72,49 @@ async def image_class_summary(conn: _AConn, document_id: str) -> list[Row]:
         {"doc": document_id},
     )
     return await cur.fetchall()
+
+
+async def cross_modal_image_search(
+    conn: _AConn, query_vector: str, model: str, *, limit: int = 25
+) -> list[Row]:
+    """Return images ranked by cosine similarity to a pre-embedded text query vector.
+
+    ``query_vector`` is a pgvector literal from the same model's text tower. RLS
+    scopes the result to images the caller may read.
+    """
+    cur = await conn.execute(
+        """
+        SELECT di.id, di.document_id, di.page_number, di.source, di.object_key,
+               f.image_class,
+               1 - (ie.vector <=> %(q)s::vector) AS similarity
+        FROM image_embedding ie
+        JOIN document_image di ON di.id = ie.document_image_id
+        LEFT JOIN image_tier1_features f ON f.document_image_id = di.id
+        WHERE ie.model = %(model)s
+        ORDER BY ie.vector <=> %(q)s::vector
+        LIMIT %(limit)s
+        """,
+        {"q": query_vector, "model": model, "limit": limit},
+    )
+    return await cur.fetchall()
+
+
+async def list_visual_captions(conn: _AConn, document_id: str, *, limit: int = 100) -> list[Row]:
+    """Return a document's COMMITTED Tier-3 captions (never the review/rejected ones).
+
+    Only ``status='committed'`` is trusted output — low-confidence captions live in
+    ``visual_review`` and are deliberately not exposed here.
+    """
+    cur = await conn.execute(
+        """
+        SELECT vc.id, vc.document_id, vc.document_image_id, vc.caption, vc.model,
+               vc.grounding_score, di.page_number, di.object_key
+        FROM visual_caption vc
+        JOIN document_image di ON di.id = vc.document_image_id
+        WHERE vc.document_id = %(doc)s::uuid AND vc.status = 'committed'
+        ORDER BY di.page_number, vc.id
+        LIMIT %(limit)s
+        """,
+        {"doc": document_id, "limit": limit},
+    )
+    return await cur.fetchall()

@@ -73,3 +73,55 @@ class ImageClassCount:
     def from_row(cls, row: dict[str, Any]) -> ImageClassCount:
         """Map an ``image_class_summary`` row."""
         return cls(image_class=str(row["image_class"]), count=int(row["count"]))
+
+
+@strawberry.type
+class CrossModalImageHit:
+    """An image ranked by cross-modal (text->image) similarity."""
+
+    id: strawberry.ID
+    document_id: strawberry.ID
+    page_number: int
+    source: str
+    object_key: str
+    image_class: str | None
+    similarity: float
+
+    @classmethod
+    def from_row(cls, row: dict[str, Any]) -> CrossModalImageHit:
+        """Map a ``cross_modal_image_search`` row."""
+        return cls(
+            id=strawberry.ID(str(row["id"])),
+            document_id=strawberry.ID(str(row["document_id"])),
+            page_number=int(row["page_number"]),
+            source=str(row["source"]),
+            object_key=str(row["object_key"]),
+            image_class=row.get("image_class"),
+            similarity=float(row["similarity"]),
+        )
+
+
+@strawberry.type
+class VisualCaption:
+    """A COMMITTED, grounded Tier-3 caption for a document image."""
+
+    id: strawberry.ID
+    document_id: strawberry.ID
+    document_image_id: strawberry.ID
+    page_number: int
+    caption: str
+    model: str
+    grounding_score: float
+
+    @classmethod
+    def from_row(cls, row: dict[str, Any]) -> VisualCaption:
+        """Map a ``list_visual_captions`` row."""
+        return cls(
+            id=strawberry.ID(str(row["id"])),
+            document_id=strawberry.ID(str(row["document_id"])),
+            document_image_id=strawberry.ID(str(row["document_image_id"])),
+            page_number=int(row["page_number"]),
+            caption=str(row["caption"]),
+            model=str(row["model"]),
+            grounding_score=float(row["grounding_score"]),
+        )

@@ -7,8 +7,11 @@ lives here.
 
 from __future__ import annotations
 
+import functools
+import os
 import uuid
 
+import anyio
 import strawberry
 
 from doc_ray.adapters import document_metadata_suggestion_store as metadata_suggestions
@@ -41,7 +44,29 @@ from doc_ray.entrypoints.api.types import (
     SeedSuggestion,
     SentenceHit,
 )
-from doc_ray.entrypoints.api.visual_types import DocumentImage, ImageClassCount
+from doc_ray.entrypoints.api.visual_types import (
+    CrossModalImageHit,
+    DocumentImage,
+    ImageClassCount,
+    VisualCaption,
+)
+from doc_ray.ports.vision_encoder import VisionEncoder
+
+
+@functools.lru_cache(maxsize=1)
+def _query_vision_encoder() -> VisionEncoder:
+    """Lazily build the (cached) cross-modal query encoder from env config.
+
+    Loads the vision model on first cross-modal query only — the model is
+    required only where cross-modal search actually runs. Isolated here so the
+    schema builds without importing torch/open_clip.
+    """
+    from doc_ray.adapters.vision_encoder_openclip import OpenClipVisionEncoder
+
+    return OpenClipVisionEncoder(
+        model_name=os.environ.get("DOCRAY_VISION_MODEL", "ViT-L-14"),
+        pretrained=os.environ.get("DOCRAY_VISION_PRETRAINED", "openai"),
+    )
 
 
 def _clean_uuid(value: str) -> str | None:
@@ -280,6 +305,42 @@ class Query:
             return []
         rows = await visual_read.image_class_summary(info.context.conn, doc_id)
         return [ImageClassCount.from_row(r) for r in rows]
+
+    @strawberry.field
+    async def visual_captions(
+        self, info: Info, document_id: strawberry.ID, limit: int = 100
+    ) -> list[VisualCaption]:
+        """Return a document's COMMITTED, grounded Tier-3 captions (RLS-scoped).
+
+        Only trusted (``status='committed'``) captions are exposed; low-confidence
+        captions stay in the ``visual_review`` queue and are never returned here.
+        """
+        doc_id = _clean_uuid(str(document_id))
+        if doc_id is None:
+            return []
+        ctx = info.context
+        rows = await visual_read.list_visual_captions(ctx.conn, doc_id, limit=ctx.page_size(limit))
+        return [VisualCaption.from_row(r) for r in rows]
+
+    @strawberry.field
+    async def cross_modal_image_search(
+        self, info: Info, query: str, limit: int = 25
+    ) -> list[CrossModalImageHit]:
+        """Rank images by cross-modal similarity to *query* (text->image), RLS-scoped.
+
+        Embeds the query through the vision model's text tower (loaded lazily on
+        the API host) and ranks ``image_embedding`` by HNSW cosine distance.
+        """
+        from doc_ray.application.visual_embed import to_vector_literal
+
+        ctx = info.context
+        encoder = _query_vision_encoder()
+        vectors = await anyio.to_thread.run_sync(encoder.embed_texts, [query])
+        query_vector = to_vector_literal(vectors[0])
+        rows = await visual_read.cross_modal_image_search(
+            ctx.conn, query_vector, encoder.model_id, limit=ctx.page_size(limit)
+        )
+        return [CrossModalImageHit.from_row(r) for r in rows]
 
     @strawberry.field
     async def lexeme(self, info: Info, uid: strawberry.ID) -> Lexeme | None:
