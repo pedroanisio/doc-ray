@@ -23,7 +23,6 @@ from urllib.parse import urlparse
 import psycopg
 from psycopg.types.json import Json
 
-from doc_ray.adapters.pdf_renderer_pymupdf import DEFAULT_RENDER_DPI
 from doc_ray.application.integrity import verify_bytes
 from doc_ray.application.visual_features import (
     TOOL_NAME,
@@ -36,7 +35,7 @@ from doc_ray.domain.progress import report_progress
 from doc_ray.domain.ulid import new_ulid_str
 from doc_ray.ports.object_store import ObjectStore
 from doc_ray.ports.pdf_image_source import PdfImageSource
-from doc_ray.ports.pdf_renderer import PdfRenderer
+from doc_ray.ports.pdf_renderer import DEFAULT_RENDER_DPI, PdfRenderer
 
 DETECTOR = "doc-ray/visual-regions"
 DETECTOR_VERSION = "1.0"
@@ -183,8 +182,11 @@ def extract_document_visuals(
     row = cast("dict[str, Any] | None", cur.fetchone())
     if row is None:
         raise RuntimeError(f"document {document_id} not found")
-    if row.get("status") != "extracted":
-        return {"skipped": "not-extracted", "images": 0}
+    # 'failed' documents are the scanned/image-only PDFs (near-zero extractable
+    # text) — the highest-value visual targets, so Tier-1 must include them, not
+    # only 'extracted' docs (proposal §2 "image-only documents").
+    if row.get("status") not in ("extracted", "failed"):
+        return {"skipped": "not-ready", "images": 0}
     if not _is_pdf(row):
         return {"skipped": "not-pdf", "images": 0}
 
@@ -212,9 +214,19 @@ def extract_document_visuals(
     version = str(row.get("content_sha256") or document_id)
     image_rows: list[tuple[Any, ...]] = []
     feature_rows: list[tuple[Any, ...]] = []
+    # Dedup byte-identical crops per (page, source): one embedded image placed
+    # multiple times on a page (repeated logo/icon/watermark) yields identical
+    # regions, which would violate document_image's UNIQUE(document_id,
+    # page_number, source, sha256) under COPY (no ON CONFLICT) and abort the job.
+    # Identical crops have identical deterministic features, so one row suffices.
+    seen: set[tuple[int, str, str]] = set()
     report_progress(2, 3, f"Featurizing {len(regions)} regions")
     for region in regions:
         sha = _sha256(region.png_bytes)
+        dedup_key = (region.page_number, region.source, sha)
+        if dedup_key in seen:
+            continue
+        seen.add(dedup_key)
         object_key = (
             f"document-images/{version}/p{region.page_number}-{region.source}-{sha[:16]}.png"
         )
@@ -224,11 +236,12 @@ def extract_document_visuals(
         features = extract_tier1_features(region.png_bytes)
         feature_rows.append(_feature_row(cast(str, image_row[0]), document_id, features))
 
-    embedded_count = sum(1 for region in regions if region.source == "embedded-raster")
+    # Count what is actually written (post-dedup): source is column index 3.
+    embedded_count = sum(1 for r in image_rows if r[3] == "embedded-raster")
     summary = {
-        "images": len(regions),
+        "images": len(image_rows),
         "embedded_rasters": embedded_count,
-        "full_page_renders": len(regions) - embedded_count,
+        "full_page_renders": len(image_rows) - embedded_count,
     }
     provenance_id = new_ulid_str()
     with conn.transaction():

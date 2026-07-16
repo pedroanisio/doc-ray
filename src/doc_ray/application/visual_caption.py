@@ -77,24 +77,39 @@ def caption_document_images(
     """Caption + ground + gate every image of a document. Idempotent per model."""
     model = vlm.model_id
     images = conn.execute(
-        "SELECT id, object_key FROM document_image WHERE document_id = %s ORDER BY id",
+        "SELECT id, object_key, page_number FROM document_image WHERE document_id = %s ORDER BY id",
         (document_id,),
     ).fetchall()
-    evidence_rows = conn.execute(
-        "SELECT text FROM sentences WHERE document_id = %s ORDER BY ordinal, id",
+    # Figure-local evidence: sentences on the SAME page as each image (via span
+    # geometry), so grounding compares a caption against its figure's own prose,
+    # not the whole document (proposal §5.4). Pages without geometry/sentences get
+    # empty evidence -> low grounding -> review, which is the safe direction.
+    page_evidence: dict[int, str] = {}
+    for row in conn.execute(
+        "SELECT sp.page_number AS page, s.text AS text "
+        "FROM sentences s JOIN spans sp ON sp.id = s.span_id "
+        "WHERE s.document_id = %s AND sp.page_number IS NOT NULL "
+        "ORDER BY sp.page_number, s.ordinal",
         (document_id,),
-    ).fetchall()
-    evidence_text = " ".join(str(r["text"]) for r in evidence_rows)
+    ).fetchall():
+        page = int(row["page"])
+        page_evidence[page] = f"{page_evidence.get(page, '')} {row['text']}".strip()
 
     committed = review = rejected = 0
     with conn.transaction():
+        # Replace prior output for this model, INCLUDING the review queue, so a
+        # re-caption is idempotent and never leaves orphaned pending reviews.
         conn.execute(
             "DELETE FROM visual_caption WHERE document_id = %s AND model = %s",
             (document_id, model),
         )
-        for image in images:
-            report_progress(0, len(images) or 1, "Captioning images")
-            output = vlm.caption_image(store.get(str(image["object_key"])), evidence_text)
+        conn.execute("DELETE FROM visual_review WHERE document_id = %s", (document_id,))
+        for index, image in enumerate(images):
+            report_progress(index, len(images) or 1, "Captioning images")
+            evidence_text = page_evidence.get(int(image["page_number"]), "")
+            # The VLM captions from the image ALONE — it is never shown the
+            # grounding evidence, so grounding cannot be gamed by echoing it.
+            output = vlm.caption_image(store.get(str(image["object_key"])), "")
             decision = gate_caption(output, evidence_text, threshold=threshold)
             grounded = _grounded_against(decision)
             conn.execute(

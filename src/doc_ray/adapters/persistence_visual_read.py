@@ -82,21 +82,26 @@ async def cross_modal_image_search(
     ``query_vector`` is a pgvector literal from the same model's text tower. RLS
     scopes the result to images the caller may read.
     """
-    cur = await conn.execute(
-        """
-        SELECT di.id, di.document_id, di.page_number, di.source, di.object_key,
-               f.image_class,
-               1 - (ie.vector <=> %(q)s::vector) AS similarity
-        FROM image_embedding ie
-        JOIN document_image di ON di.id = ie.document_image_id
-        LEFT JOIN image_tier1_features f ON f.document_image_id = di.id
-        WHERE ie.model = %(model)s
-        ORDER BY ie.vector <=> %(q)s::vector
-        LIMIT %(limit)s
-        """,
-        {"q": query_vector, "model": model, "limit": limit},
-    )
-    return await cur.fetchall()
+    # HNSW returns a bounded candidate set BEFORE the RLS/model filters apply, so a
+    # plain top-N can silently under-return for a non-admin principal. pgvector 0.8+
+    # iterative scan keeps scanning the index until LIMIT rows pass the filters.
+    async with conn.transaction():
+        await conn.execute("SET LOCAL hnsw.iterative_scan = 'relaxed_order'")
+        cur = await conn.execute(
+            """
+            SELECT di.id, di.document_id, di.page_number, di.source, di.object_key,
+                   f.image_class,
+                   1 - (ie.vector <=> %(q)s::vector) AS similarity
+            FROM image_embedding ie
+            JOIN document_image di ON di.id = ie.document_image_id
+            LEFT JOIN image_tier1_features f ON f.document_image_id = di.id
+            WHERE ie.model = %(model)s
+            ORDER BY ie.vector <=> %(q)s::vector
+            LIMIT %(limit)s
+            """,
+            {"q": query_vector, "model": model, "limit": limit},
+        )
+        return await cur.fetchall()
 
 
 async def list_visual_captions(conn: _AConn, document_id: str, *, limit: int = 100) -> list[Row]:

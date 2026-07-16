@@ -11,6 +11,10 @@ from __future__ import annotations
 
 from typing import Protocol, runtime_checkable
 
+#: Default render resolution (matches the page-image cache in the download route),
+#: on the port so application code depends on it without importing an adapter.
+DEFAULT_RENDER_DPI = 144
+
 
 @runtime_checkable
 class PdfRenderer(Protocol):

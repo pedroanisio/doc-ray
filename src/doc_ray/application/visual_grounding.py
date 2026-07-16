@@ -88,11 +88,38 @@ _MIN_SPECIFIC_TERMS = 2
 _INSUFFICIENT_SPECIFICITY_CAP = 0.5
 
 
-def _weight(token: str) -> float:
-    """Specificity weight: numerals highest, distinctive words high, stopwords ~0."""
-    if any(c.isdigit() for c in token):
+def _has_digit(token: str) -> bool:
+    return any(c.isdigit() for c in token)
+
+
+def _is_proper(token: str, index: int) -> bool:
+    """True for entity-like tokens: acronyms, or capitalized words not sentence-initial.
+
+    This is the *specificity* signal (numerals + named entities/labels), the thing
+    the proposal says must carry grounding. A plain sentence-initial capital
+    ("Picture …") is NOT counted — only mid-sentence proper nouns, ALL-CAPS
+    acronyms, or multi-capital tokens — so a generic caption cannot clear the gate.
+    """
+    if not any(c.isupper() for c in token):
+        return False
+    if token.isupper() and len(token) >= 2:  # acronym: BEA, PDF
+        return True
+    if sum(1 for c in token if c.isupper()) > 1:  # e.g. A330, iPhone
+        return True
+    return index > 0  # a capitalized word that isn't the first token
+
+
+def _is_specific(token: str, index: int) -> bool:
+    return _has_digit(token) or _is_proper(token, index)
+
+
+def _weight(token: str, index: int) -> float:
+    """Specificity weight for the overlap score (specific terms dominate)."""
+    if _has_digit(token):
         return 3.0
-    if len(token) >= 4 and token not in _STOPWORDS:
+    if _is_proper(token, index):
+        return 2.0
+    if len(token) >= 4 and token.lower() not in _STOPWORDS:
         return 1.0
     return 0.15
 
@@ -120,26 +147,29 @@ def grounding_score(caption: str, evidence_text: str) -> GroundingResult:
     high-specificity terms is flagged ``insufficient_specificity`` and its score
     is capped at ``_INSUFFICIENT_SPECIFICITY_CAP`` so it cannot auto-commit.
     """
-    caption_tokens = _tokens(caption)
-    evidence = set(_tokens(evidence_text))
-    if not caption_tokens:
+    original = _TOKEN_RE.findall(caption)
+    if not original:
         return GroundingResult(0.0, 0, 0, (), True)
+    lower = [t.lower() for t in original]
+    weights = [_weight(t, i) for i, t in enumerate(original)]
+    evidence = set(_tokens(evidence_text))
 
-    total_weight = sum(_weight(t) for t in caption_tokens)
-    matched = [t for t in caption_tokens if t in evidence]
-    matched_weight = sum(_weight(t) for t in matched)
+    total_weight = sum(weights)
+    matched_weight = sum(w for t, w in zip(lower, weights, strict=True) if t in evidence)
     raw = matched_weight / total_weight if total_weight else 0.0
 
-    specific_terms = {t for t in caption_tokens if _weight(t) >= 1.0}
-    insufficient = len(specific_terms) < _MIN_SPECIFIC_TERMS
+    # Specificity gate: distinct numerals/entities/labels the caption actually
+    # carries. Generic captions have none, so they can never auto-commit.
+    specific = {t.lower() for i, t in enumerate(original) if _is_specific(t, i)}
+    insufficient = len(specific) < _MIN_SPECIFIC_TERMS
     score = min(raw, _INSUFFICIENT_SPECIFICITY_CAP) if insufficient else raw
 
-    # Deterministic, de-duplicated matched terms (specific first, then alnum order).
-    matched_unique = sorted(set(matched), key=lambda t: (-_weight(t), t))
+    matched_terms = {t for i, t in enumerate(lower) if t in evidence}
+    matched_unique = sorted(matched_terms, key=lambda t: t)
     return GroundingResult(
         score=round(score, 6),
-        caption_terms=len(caption_tokens),
-        specific_terms=len(specific_terms),
+        caption_terms=len(original),
+        specific_terms=len(specific),
         matched_terms=tuple(matched_unique),
         insufficient_specificity=insufficient,
     )

@@ -44,9 +44,15 @@ class OllamaVisionLanguageModel(VisionLanguageModel):
 
     def caption_image(self, image_bytes: bytes, evidence_text: str) -> VLMOutput:
         """Return the model's caption + analysis (untrusted, JSON-decoded best-effort)."""
+        # Only condition on evidence when the caller supplies it. Prism's Tier-3
+        # grounding calls this with NO evidence (image-only) so grounding stays
+        # independent of what the model saw and cannot be gamed by echoing it.
+        prompt = _PROMPT
+        if evidence_text.strip():
+            prompt = f"{_PROMPT}\n\nContext from the document: {evidence_text[:2000]}"
         payload = {
             "model": self.model_id,
-            "prompt": f"{_PROMPT}\n\nThe document says about this figure: {evidence_text[:2000]}",
+            "prompt": prompt,
             "images": [base64.b64encode(image_bytes).decode("ascii")],
             "stream": False,
             "format": "json",

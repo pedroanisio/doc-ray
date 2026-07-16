@@ -7,17 +7,11 @@ lives here.
 
 from __future__ import annotations
 
-import functools
-import os
-import uuid
-
-import anyio
 import strawberry
 
 from doc_ray.adapters import document_metadata_suggestion_store as metadata_suggestions
 from doc_ray.adapters import persistence_canonical_read as canonical_read
 from doc_ray.adapters import persistence_read as read
-from doc_ray.adapters import persistence_visual_read as visual_read
 from doc_ray.adapters import queue_postgres as queue
 from doc_ray.adapters import security_audit_read
 from doc_ray.adapters import seed_suggestion_store as seeds
@@ -29,6 +23,7 @@ from doc_ray.entrypoints.api.canonical_types import (
     ResolutionReview,
     UnresolvedMention,
 )
+from doc_ray.entrypoints.api.ids import clean_uuid as _clean_uuid
 from doc_ray.entrypoints.api.mutation_guards import _require_admin_read
 from doc_ray.entrypoints.api.security_audit import record_audit_event
 from doc_ray.entrypoints.api.security_audit_types import SecurityAuditEvent
@@ -44,48 +39,11 @@ from doc_ray.entrypoints.api.types import (
     SeedSuggestion,
     SentenceHit,
 )
-from doc_ray.entrypoints.api.visual_types import (
-    CrossModalImageHit,
-    DocumentImage,
-    ImageClassCount,
-    VisualCaption,
-)
-from doc_ray.ports.vision_encoder import VisionEncoder
-
-
-@functools.lru_cache(maxsize=1)
-def _query_vision_encoder() -> VisionEncoder:
-    """Lazily build the (cached) cross-modal query encoder from env config.
-
-    Loads the vision model on first cross-modal query only — the model is
-    required only where cross-modal search actually runs. Isolated here so the
-    schema builds without importing torch/open_clip.
-    """
-    from doc_ray.adapters.vision_encoder_openclip import OpenClipVisionEncoder
-
-    return OpenClipVisionEncoder(
-        model_name=os.environ.get("DOCRAY_VISION_MODEL", "ViT-L-14"),
-        pretrained=os.environ.get("DOCRAY_VISION_PRETRAINED", "openai"),
-    )
-
-
-def _clean_uuid(value: str) -> str | None:
-    """Normalize *value* to a canonical uuid string, or ``None`` if malformed.
-
-    A ``uuid``-typed column raises ``invalid input syntax for type uuid`` on
-    comparison with a malformed value (unlike the ``ulid`` domain, whose CHECK
-    constraint only fires on an explicit cast, not a ``=`` comparison) — every
-    resolver taking a document/job id must validate before querying, or that
-    raw Postgres exception text reaches the caller verbatim (BL-110).
-    """
-    try:
-        return str(uuid.UUID(value))
-    except ValueError:
-        return None
+from doc_ray.entrypoints.api.visual_query import VisualQueries
 
 
 @strawberry.type
-class Query:
+class Query(VisualQueries):
     """The GraphQL query root."""
 
     @strawberry.field
@@ -276,71 +234,6 @@ class Query:
         ctx = info.context
         rows = await read.fulltext_search(ctx.conn, query, limit=ctx.page_size(limit))
         return [DocumentHit.from_row(r) for r in rows]
-
-    @strawberry.field
-    async def document_images(
-        self,
-        info: Info,
-        document_id: strawberry.ID,
-        limit: int = 100,
-        after: str | None = None,
-    ) -> list[DocumentImage]:
-        """Return a document's detected images + Tier-1 visual features (RLS-scoped)."""
-        doc_id = _clean_uuid(str(document_id))
-        if doc_id is None:
-            return []
-        ctx = info.context
-        rows = await visual_read.list_document_images(
-            ctx.conn, doc_id, limit=ctx.page_size(limit), after=after
-        )
-        return [DocumentImage.from_row(r) for r in rows]
-
-    @strawberry.field
-    async def image_class_summary(
-        self, info: Info, document_id: strawberry.ID
-    ) -> list[ImageClassCount]:
-        """Return the ``(image_class, count)`` distribution for a document's images."""
-        doc_id = _clean_uuid(str(document_id))
-        if doc_id is None:
-            return []
-        rows = await visual_read.image_class_summary(info.context.conn, doc_id)
-        return [ImageClassCount.from_row(r) for r in rows]
-
-    @strawberry.field
-    async def visual_captions(
-        self, info: Info, document_id: strawberry.ID, limit: int = 100
-    ) -> list[VisualCaption]:
-        """Return a document's COMMITTED, grounded Tier-3 captions (RLS-scoped).
-
-        Only trusted (``status='committed'``) captions are exposed; low-confidence
-        captions stay in the ``visual_review`` queue and are never returned here.
-        """
-        doc_id = _clean_uuid(str(document_id))
-        if doc_id is None:
-            return []
-        ctx = info.context
-        rows = await visual_read.list_visual_captions(ctx.conn, doc_id, limit=ctx.page_size(limit))
-        return [VisualCaption.from_row(r) for r in rows]
-
-    @strawberry.field
-    async def cross_modal_image_search(
-        self, info: Info, query: str, limit: int = 25
-    ) -> list[CrossModalImageHit]:
-        """Rank images by cross-modal similarity to *query* (text->image), RLS-scoped.
-
-        Embeds the query through the vision model's text tower (loaded lazily on
-        the API host) and ranks ``image_embedding`` by HNSW cosine distance.
-        """
-        from doc_ray.application.visual_embed import to_vector_literal
-
-        ctx = info.context
-        encoder = _query_vision_encoder()
-        vectors = await anyio.to_thread.run_sync(encoder.embed_texts, [query])
-        query_vector = to_vector_literal(vectors[0])
-        rows = await visual_read.cross_modal_image_search(
-            ctx.conn, query_vector, encoder.model_id, limit=ctx.page_size(limit)
-        )
-        return [CrossModalImageHit.from_row(r) for r in rows]
 
     @strawberry.field
     async def lexeme(self, info: Info, uid: strawberry.ID) -> Lexeme | None:
