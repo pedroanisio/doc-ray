@@ -1,8 +1,9 @@
 """Prism Tier-1 orchestrator: detect image regions and store deterministic features.
 
 The ``KIND_VISUAL_EXTRACT`` job body. For one document it: fetches the original
-PDF from the object store, detects regions (embedded rasters + full-page renders
-of near-text-free pages), stores each crop content-addressed in the object store,
+PDF from the object store, detects regions (embedded rasters + rasterized
+vector-figure clusters + full-page renders of near-text-free pages), stores each
+crop content-addressed in the object store,
 computes deterministic Tier-1 features (``visual_features``), and replaces the
 document's ``document_image`` / ``image_tier1_features`` rows in one transaction
 with a ``document_provenance`` event.
@@ -198,6 +199,7 @@ def extract_document_visuals(
 
     report_progress(1, 3, "Detecting image regions")
     embedded = image_source.embedded_images(pdf)
+    vector_figures = image_source.vector_figures(pdf)
     runs_cur = conn.execute(
         "SELECT page_number, text_run_count FROM document_pages WHERE document_id = %s",
         (document_id,),
@@ -209,7 +211,20 @@ def extract_document_visuals(
         width, height = _png_size(png)
         return png, width, height
 
-    regions = plan_regions(embedded, page_text_runs, _render_full_page)
+    def _render_region(
+        page_number: int, bbox: tuple[float, float, float, float]
+    ) -> tuple[bytes, int, int]:
+        png = renderer.render_region_png(pdf, page_number, bbox, dpi=DEFAULT_RENDER_DPI)
+        width, height = _png_size(png)
+        return png, width, height
+
+    regions = plan_regions(
+        embedded,
+        page_text_runs,
+        _render_full_page,
+        vector_figures,
+        _render_region,
+    )
 
     version = str(row.get("content_sha256") or document_id)
     image_rows: list[tuple[Any, ...]] = []
@@ -237,11 +252,14 @@ def extract_document_visuals(
         feature_rows.append(_feature_row(cast(str, image_row[0]), document_id, features))
 
     # Count what is actually written (post-dedup): source is column index 3.
-    embedded_count = sum(1 for r in image_rows if r[3] == "embedded-raster")
+    def _count(source: str) -> int:
+        return sum(1 for r in image_rows if r[3] == source)
+
     summary = {
         "images": len(image_rows),
-        "embedded_rasters": embedded_count,
-        "full_page_renders": len(image_rows) - embedded_count,
+        "embedded_rasters": _count("embedded-raster"),
+        "rendered_regions": _count("rendered-region"),
+        "full_page_renders": _count("full-page"),
     }
     provenance_id = new_ulid_str()
     with conn.transaction():

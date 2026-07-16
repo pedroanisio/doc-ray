@@ -47,7 +47,10 @@ class _FakeStore:
         self._blobs.pop(key, None)
 
 
-def _pdf_with_image_and_blank_page() -> bytes:
+def _pdf_with_image_blank_and_vector_page() -> bytes:
+    """Three pages, one per region source: an embedded raster (p1), a text-free
+    page (p2 -> full-page render), and a text-heavy page carrying a vector figure
+    (p3 -> rendered-region)."""
     import fitz
 
     doc = fitz.open()
@@ -56,6 +59,10 @@ def _pdf_with_image_and_blank_page() -> bytes:
     Image.new("RGB", (40, 40), (10, 180, 60)).save(buf, "PNG")
     page.insert_image(fitz.Rect(20, 20, 120, 120), stream=buf.getvalue())
     doc.new_page(width=200, height=300)  # text-free -> full-page render
+    vector_page = doc.new_page(width=200, height=300)  # text-heavy + vector figure
+    vector_page.draw_rect(fitz.Rect(30, 30, 170, 200), color=(0, 0, 1), fill=(0.2, 0.4, 0.9))
+    for i in range(6):
+        vector_page.insert_text((20, 215 + i * 12), f"body prose line {i} beside the figure")
     data: bytes = doc.tobytes()
     doc.close()
     return data
@@ -67,7 +74,7 @@ def _count(conn: Any, sql: str, doc_id: str) -> int:
 
 def test_visual_extract_writes_features_and_replaces(pg: Any) -> None:
     conn, created = pg
-    pdf = _pdf_with_image_and_blank_page()
+    pdf = _pdf_with_image_blank_and_vector_page()
     sha = hashlib.sha256(pdf).hexdigest()
     key = "originals/it-visual.pdf"
     store = _FakeStore({key: pdf})
@@ -78,7 +85,7 @@ def test_visual_extract_writes_features_and_replaces(pg: Any) -> None:
         source_uri=f"s3://{_BUCKET}/{key}",
         content_sha256=sha,
         byte_size=len(pdf),
-        page_count=2,
+        page_count=3,
         full_text="",
         status="extracted",
         sentences=[],
@@ -87,16 +94,29 @@ def test_visual_extract_writes_features_and_replaces(pg: Any) -> None:
     conn.execute(
         "INSERT INTO document_pages "
         "(document_id, page_number, page_width, page_height, has_text, text_run_count) "
-        "VALUES (%s, 1, 200, 300, true, 10), (%s, 2, 200, 300, false, 0)",
-        (doc_id, doc_id),
+        "VALUES (%s, 1, 200, 300, true, 10), (%s, 2, 200, 300, false, 0), "
+        "(%s, 3, 200, 300, true, 20)",
+        (doc_id, doc_id, doc_id),
     )
 
     result = extract_document_visuals(
         conn, store, doc_id, renderer=PyMuPDFRenderer(), image_source=PyMuPDFImageSource()
     )
-    assert result["images"] >= 2
+    assert result["images"] >= 3
     assert result["embedded_rasters"] >= 1
     assert result["full_page_renders"] >= 1
+    assert result["rendered_regions"] >= 1
+
+    # The vector figure on the text-heavy page 3 is captured as a rendered-region.
+    assert (
+        _count(
+            conn,
+            "SELECT count(*) n FROM document_image "
+            "WHERE document_id=%s AND source='rendered-region' AND page_number=3",
+            doc_id,
+        )
+        == 1
+    )
 
     assert (
         _count(conn, "SELECT count(*) n FROM document_image WHERE document_id=%s", doc_id)
