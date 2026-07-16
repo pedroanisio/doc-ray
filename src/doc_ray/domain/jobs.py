@@ -49,6 +49,9 @@ KIND_VISUAL_EXTRACT = "visual_extract"
 # space for cross-modal retrieval (GPU dual encoder). Never auto-chained — model
 # cost stays an explicit request (D-018); triggered per-document on demand.
 KIND_VISUAL_EMBED = "visual_embed"
+# Prism Tier-3: grounded VLM captions with the PALS gate (commit vs review). The
+# only tier with untrusted model output; never auto-chained (D-018).
+KIND_VISUAL_CAPTION = "visual_caption"
 
 # Job kinds that are expected to take enough wall-clock time to need a reserved
 # slow lane. Compose worker filters must stay in sync with this set. Visual
