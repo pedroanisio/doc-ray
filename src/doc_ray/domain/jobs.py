@@ -45,6 +45,10 @@ KIND_REEXTRACT = "reextract"
 # Prism Tier-1: detect image/regions in a document and compute deterministic
 # visual features (CPU-only; no model). Appended to the post-ingest chain tail.
 KIND_VISUAL_EXTRACT = "visual_extract"
+# Prism Tier-2: embed a document's images + sentences into one shared vector
+# space for cross-modal retrieval (GPU dual encoder). Never auto-chained — model
+# cost stays an explicit request (D-018); triggered per-document on demand.
+KIND_VISUAL_EMBED = "visual_embed"
 
 # Job kinds that are expected to take enough wall-clock time to need a reserved
 # slow lane. Compose worker filters must stay in sync with this set. Visual

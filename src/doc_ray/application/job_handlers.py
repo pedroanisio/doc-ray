@@ -33,6 +33,7 @@ from doc_ray.domain.jobs import (
     KIND_SEMANTIC_ENRICH,
     KIND_SUGGEST_DOCUMENT_METADATA,
     KIND_UPDATE_METADATA,
+    KIND_VISUAL_EMBED,
     KIND_VISUAL_EXTRACT,
     Job,
 )
@@ -268,6 +269,27 @@ def handle_visual_extract(
     )
 
 
+def handle_visual_embed(
+    conn: psycopg.Connection[Any], store: ObjectStore | None, job: Job
+) -> dict[str, Any]:
+    """Prism Tier-2: embed a document's images + sentences (GPU dual encoder)."""
+    import os
+
+    from doc_ray.adapters.vision_encoder_openclip import OpenClipVisionEncoder
+    from doc_ray.application import visual_embed
+
+    if job.document_id is None:
+        raise RuntimeError("visual_embed requires a document_id")
+    if store is None:
+        raise RuntimeError("visual_embed requires an object store")
+    encoder = OpenClipVisionEncoder(
+        model_name=os.environ.get("DOCRAY_VISION_MODEL", "ViT-L-14"),
+        pretrained=os.environ.get("DOCRAY_VISION_PRETRAINED", "openai"),
+    )
+    report_progress(0, 1, "Embedding document visuals")
+    return visual_embed.embed_document_visuals(conn, store, job.document_id, encoder=encoder)
+
+
 def handle_seed_canonical(
     conn: psycopg.Connection[Any], store: ObjectStore | None, job: Job
 ) -> dict[str, Any]:
@@ -438,6 +460,7 @@ HANDLERS: dict[str, Handler] = {
     KIND_ANNOTATE: handle_annotate,
     KIND_SEMANTIC_ENRICH: handle_semantic_enrich,
     KIND_VISUAL_EXTRACT: handle_visual_extract,
+    KIND_VISUAL_EMBED: handle_visual_embed,
     KIND_REANNOTATE: handle_reannotate,
     KIND_REEXTRACT: handle_reextract,
     KIND_DELETE: handle_delete,

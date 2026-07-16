@@ -62,6 +62,16 @@ doc-ray carries **one global version** covering both the application package
   (Claude Fable 5 via Claude Code) — typography, layout, and navigation pass
   over the browser UI; no route or data-contract changes.
 
+## [1.29.0] - 2026-07-16
+
+### Added
+- **Prism Tier-2 visual layer — vision embeddings (schema + port)** (Claude Opus
+  4.8 via Claude Code). HNSW-indexed `image_embedding` and (real text-tower)
+  `sentence_vision_embedding` tables under the existing RLS (migrations 091-092),
+  and a `VisionEncoder` port (dual image/text encoder) so cross-modal retrieval
+  is independent of the GPU serving stack. Vectors rank only; they never assert a
+  fact into the trusted graph.
+
 ## [1.28.0] - 2026-07-15
 
 ### Added
