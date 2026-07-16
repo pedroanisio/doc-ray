@@ -12,7 +12,7 @@ import hashlib
 from io import BytesIO
 from typing import Any
 
-from PIL import Image
+from PIL import Image, ImageDraw
 
 from doc_ray.adapters import persistence as db
 from doc_ray.adapters.pdf_image_source_pymupdf import PyMuPDFImageSource
@@ -47,20 +47,38 @@ class _FakeStore:
         self._blobs.pop(key, None)
 
 
+def _busy_png() -> bytes:
+    """A non-uniform raster (checkerboard) that clears the content-quality gate —
+    a solid-colour or sub-48px crop would (correctly) be dropped as junk."""
+    img = Image.new("RGB", (96, 96), (250, 250, 250))
+    draw = ImageDraw.Draw(img)
+    for i in range(0, 96, 16):
+        for j in range(0, 96, 16):
+            if (i // 16 + j // 16) % 2 == 0:
+                draw.rectangle([i, j, i + 15, j + 15], fill=(20, 120, 200))
+    buf = BytesIO()
+    img.save(buf, "PNG")
+    return buf.getvalue()
+
+
 def _pdf_with_image_blank_and_vector_page() -> bytes:
     """Three pages, one per region source: an embedded raster (p1), a text-free
-    page (p2 -> full-page render), and a text-heavy page carrying a vector figure
-    (p3 -> rendered-region)."""
+    page carrying line-work (p2 -> full-page render), and a text-heavy page with a
+    vector figure (p3 -> rendered-region). All crops carry real content so they
+    pass the content-quality gate."""
     import fitz
 
     doc = fitz.open()
     page = doc.new_page(width=200, height=300)
-    buf = BytesIO()
-    Image.new("RGB", (40, 40), (10, 180, 60)).save(buf, "PNG")
-    page.insert_image(fitz.Rect(20, 20, 120, 120), stream=buf.getvalue())
-    doc.new_page(width=200, height=300)  # text-free -> full-page render
+    page.insert_image(fitz.Rect(20, 20, 116, 116), stream=_busy_png())
+    grid_page = doc.new_page(width=200, height=300)  # text-free line-work -> full-page render
+    for i in range(5):
+        grid_page.draw_line((20, 50 + i * 45), (180, 50 + i * 45))
+        grid_page.draw_line((20 + i * 40, 40), (20 + i * 40, 240))
     vector_page = doc.new_page(width=200, height=300)  # text-heavy + vector figure
-    vector_page.draw_rect(fitz.Rect(30, 30, 170, 200), color=(0, 0, 1), fill=(0.2, 0.4, 0.9))
+    for i in range(6):
+        vector_page.draw_line((30, 34 + i * 28), (170, 34 + i * 28))
+        vector_page.draw_line((30 + i * 28, 30), (30 + i * 28, 200))
     for i in range(6):
         vector_page.insert_text((20, 215 + i * 12), f"body prose line {i} beside the figure")
     data: bytes = doc.tobytes()

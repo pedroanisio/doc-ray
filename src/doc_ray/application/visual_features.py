@@ -38,6 +38,19 @@ _HIST_BINS = 16
 _EDGE_THRESHOLD = 0.08
 _LUMA = np.array([0.299, 0.587, 0.114])
 
+# --- Content-quality gate (drop non-content crops before they are stored) -----
+# A large fraction of raw embedded rasters are page-background slivers, rules,
+# tiny logos, and blank pages — not figures. These thresholds were calibrated on
+# the corpus so they drop that junk while sparing real figures AND sparse scanned
+# pages (which still carry text-level contrast). Applied in ``visual_extract``.
+#: Minimum length of each side (px) — below this a crop is a fragment/sliver.
+MIN_MEANINGFUL_SIDE_PX = 48
+#: Maximum side ratio — a rule/underline is far thinner than any real figure.
+MAX_MEANINGFUL_ASPECT = 12.0
+#: A crop this uniform (near-zero RMS contrast) AND this edge-free is blank.
+BLANK_CONTRAST_MAX = 0.02
+BLANK_EDGE_MAX = 0.01
+
 
 @dataclass(frozen=True)
 class Tier1Features:
@@ -58,6 +71,23 @@ class Tier1Features:
     def palette_json(self) -> list[dict[str, Any]]:
         """Palette as ``[{hex, proportion}]`` for the ``dominant_colors`` jsonb column."""
         return [{"hex": hexv, "proportion": prop} for hexv, prop in self.dominant_colors]
+
+
+def is_meaningful_region(features: Tier1Features) -> bool:
+    """Whether a crop carries real visual content (vs. a sliver/rule/blank page).
+
+    Deterministic gate over already-computed Tier-1 features, so no extra decode:
+    reject fragments (a side under ``MIN_MEANINGFUL_SIDE_PX``), hairline
+    slivers/rules (aspect over ``MAX_MEANINGFUL_ASPECT``), and blank crops
+    (near-zero contrast AND edge density). Sparse scanned pages keep text-level
+    contrast, so they pass; real figures have edges, so they pass.
+    """
+    if min(features.width, features.height) < MIN_MEANINGFUL_SIDE_PX:
+        return False
+    shortest = min(features.width, features.height)
+    if shortest and max(features.width, features.height) / shortest > MAX_MEANINGFUL_ASPECT:
+        return False
+    return not (features.contrast < BLANK_CONTRAST_MAX and features.edge_density < BLANK_EDGE_MAX)
 
 
 def _dominant_colors(rgb: Image.Image) -> tuple[tuple[str, float], ...]:

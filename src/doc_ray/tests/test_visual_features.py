@@ -19,6 +19,7 @@ from doc_ray.application.visual_features import (
     TOOL_NAME,
     TOOL_VERSION,
     extract_tier1_features,
+    is_meaningful_region,
 )
 
 _HEX = re.compile(r"^#[0-9a-f]{6}$")
@@ -66,6 +67,17 @@ def test_solid_image_has_near_zero_edge_and_contrast() -> None:
     assert f.edge_density < 0.01
     assert f.contrast < 0.01
     assert f.image_class != "photo"  # a flat fill is a graphic, never a photo
+
+
+def test_content_gate_keeps_figures_and_drops_junk() -> None:
+    # A real figure (varied content, sane size) is kept.
+    assert is_meaningful_region(extract_tier1_features(_gradient_png((80, 80))))
+    # A fragment (a side under the minimum) is dropped.
+    assert not is_meaningful_region(extract_tier1_features(_gradient_png((32, 32))))
+    # A hairline sliver (extreme aspect, both sides >= min) is dropped.
+    assert not is_meaningful_region(extract_tier1_features(_gradient_png((640, 48))))
+    # A blank/uniform crop is dropped even at a healthy size.
+    assert not is_meaningful_region(extract_tier1_features(_png(size=(96, 96))))
 
 
 def test_histogram_is_per_channel_normalized() -> None:

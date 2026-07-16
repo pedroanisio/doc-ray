@@ -30,6 +30,7 @@ from doc_ray.application.visual_features import (
     TOOL_VERSION,
     Tier1Features,
     extract_tier1_features,
+    is_meaningful_region,
 )
 from doc_ray.application.visual_regions import PlannedRegion, plan_regions
 from doc_ray.domain.progress import report_progress
@@ -235,8 +236,16 @@ def extract_document_visuals(
     # page_number, source, sha256) under COPY (no ON CONFLICT) and abort the job.
     # Identical crops have identical deterministic features, so one row suffices.
     seen: set[tuple[int, str, str]] = set()
+    skipped_lowvalue = 0
     report_progress(2, 3, f"Featurizing {len(regions)} regions")
     for region in regions:
+        features = extract_tier1_features(region.png_bytes)
+        # Content-quality gate: never store page-background slivers, hairline
+        # rules, tiny logos, or blank crops — they are not figures and otherwise
+        # flood the corpus (deterministic over the crop's own Tier-1 features).
+        if not is_meaningful_region(features):
+            skipped_lowvalue += 1
+            continue
         sha = _sha256(region.png_bytes)
         dedup_key = (region.page_number, region.source, sha)
         if dedup_key in seen:
@@ -248,7 +257,6 @@ def extract_document_visuals(
         store.put(object_key, region.png_bytes, "image/png")
         image_row = _document_image_row(document_id, region, object_key, sha)
         image_rows.append(image_row)
-        features = extract_tier1_features(region.png_bytes)
         feature_rows.append(_feature_row(cast(str, image_row[0]), document_id, features))
 
     # Count what is actually written (post-dedup): source is column index 3.
@@ -260,6 +268,7 @@ def extract_document_visuals(
         "embedded_rasters": _count("embedded-raster"),
         "rendered_regions": _count("rendered-region"),
         "full_page_renders": _count("full-page"),
+        "skipped_lowvalue": skipped_lowvalue,
     }
     provenance_id = new_ulid_str()
     with conn.transaction():

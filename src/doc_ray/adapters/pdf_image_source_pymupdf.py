@@ -10,11 +10,14 @@ Vector-graphics figures are detected via ``page.cluster_drawings`` (proposal
 from __future__ import annotations
 
 from io import BytesIO
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from PIL import Image
 
 from doc_ray.ports.pdf_image_source import ExtractedImage, PdfImageSource, VectorFigure
+
+if TYPE_CHECKING:
+    import fitz
 
 # --- Vector-figure cluster filter (calibrated on the corpus) ----------------
 # ``cluster_drawings`` groups vector paths into candidate figures but also
@@ -32,6 +35,12 @@ MAX_FIGURE_AREA_FRAC = 0.92
 MIN_FIGURE_SIDE_PT = 40.0
 #: Maximum side-length ratio; rules/underlines are far thinner than any figure.
 MAX_FIGURE_ASPECT = 12.0
+#: Reject a cluster whose area is this covered by the page's own text words — it
+#: is a prose/text block (outlined or drawn), not a figure. Calibrated on the
+#: corpus: real diagrams (even with labels) sit at/below ~0.13; dense text is
+#: higher. Only fires when the page has a text layer; outlined-text-only PDFs are
+#: caught downstream by the Tier-3 content-type classifier.
+MAX_FIGURE_TEXT_COVERAGE = 0.20
 
 
 def _to_png(raw: bytes) -> tuple[bytes, int, int]:
@@ -41,6 +50,21 @@ def _to_png(raw: bytes) -> tuple[bytes, int, int]:
     buffer = BytesIO()
     rgb.save(buffer, format="PNG")
     return buffer.getvalue(), rgb.width, rgb.height
+
+
+def _text_coverage(page: fitz.Page, rect: fitz.Rect) -> float:
+    """Fraction of *rect* covered by the page's text words (0 if no text layer)."""
+    area = float(rect.width) * float(rect.height)
+    if area <= 0:
+        return 0.0
+    covered = 0.0
+    for word in page.get_text("words", clip=rect):
+        x0, y0, x1, y1 = (float(v) for v in word[:4])
+        iw = min(x1, rect.x1) - max(x0, rect.x0)
+        ih = min(y1, rect.y1) - max(y0, rect.y0)
+        if iw > 0 and ih > 0:
+            covered += iw * ih
+    return covered / area
 
 
 class PyMuPDFImageSource(PdfImageSource):
@@ -67,6 +91,10 @@ class PyMuPDFImageSource(PdfImageSource):
                     if width < MIN_FIGURE_SIDE_PT or height < MIN_FIGURE_SIDE_PT:
                         continue
                     if max(width / height, height / width) > MAX_FIGURE_ASPECT:
+                        continue
+                    # A cluster dominated by the page's text is a prose block that
+                    # was drawn/outlined, not a figure — skip it.
+                    if _text_coverage(page, cluster) > MAX_FIGURE_TEXT_COVERAGE:
                         continue
                     out.append(
                         VectorFigure(

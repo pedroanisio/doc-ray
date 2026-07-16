@@ -59,6 +59,21 @@ def test_vector_figures_detects_drawn_figure_on_text_page() -> None:
     assert x0 <= 31 and y0 <= 31 and x1 >= 169 and y1 >= 199
 
 
+def test_vector_figures_skips_text_dense_clusters() -> None:
+    """A vector cluster whose area is filled with the page's text is a prose block
+    (drawn/outlined), not a figure — the text-coverage guard must drop it."""
+    import fitz
+
+    doc = fitz.open()
+    page = doc.new_page(width=200, height=300)
+    page.draw_rect(fitz.Rect(20, 20, 180, 260))  # a boxed region...
+    for i in range(14):  # ...filled with dense text (a bordered paragraph)
+        page.insert_text((26, 34 + i * 16), "the quick brown fox jumps over the lazy dog again")
+    data = doc.tobytes()
+    doc.close()
+    assert PyMuPDFImageSource().vector_figures(data) == []
+
+
 def test_vector_figures_ignores_text_only_pdf() -> None:
     import fitz
 
