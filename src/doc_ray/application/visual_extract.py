@@ -224,27 +224,38 @@ def extract_document_visuals(
         features = extract_tier1_features(region.png_bytes)
         feature_rows.append(_feature_row(cast(str, image_row[0]), document_id, features))
 
+    embedded_count = sum(1 for region in regions if region.source == "embedded-raster")
+    summary = {
+        "images": len(regions),
+        "embedded_rasters": embedded_count,
+        "full_page_renders": len(regions) - embedded_count,
+    }
+    provenance_id = new_ulid_str()
     with conn.transaction():
         # Replace prior rows: deleting document_image cascades to image_tier1_features.
         conn.execute("DELETE FROM document_image WHERE document_id = %s", (document_id,))
         with conn.cursor() as write_cur:
             _copy_rows(write_cur, "document_image", _DOCUMENT_IMAGE_COLUMNS, image_rows)
             _copy_rows(write_cur, "image_tier1_features", _FEATURE_COLUMNS, feature_rows)
+        # Provenance params live in provenance_params((event_id, key, value)) — the
+        # document_provenance.params column was dropped in migration 004.
         conn.execute(
-            "INSERT INTO document_provenance (id, document_id, kind, tool, tool_version, params) "
-            "VALUES (%s, %s, 'indexed', %s, %s, %s)",
+            "INSERT INTO document_provenance "
+            "(id, document_id, kind, tool, tool_version, actor, note) "
+            "VALUES (%s, %s, 'indexed', %s, %s, %s, %s)",
             (
-                new_ulid_str(),
+                provenance_id,
                 document_id,
                 DETECTOR,
                 DETECTOR_VERSION,
-                Json({"images": len(regions)}),
+                "doc_ray.application.visual_extract",
+                "Deterministic Tier-1 visual features committed with replacement semantics.",
             ),
         )
+        with conn.cursor() as pcur:
+            pcur.executemany(
+                "INSERT INTO provenance_params (event_id, key, value) VALUES (%s, %s, %s)",
+                [(provenance_id, key, str(value)) for key, value in summary.items()],
+            )
 
-    embedded_count = sum(1 for r in regions if r.source == "embedded-raster")
-    return {
-        "images": len(regions),
-        "embedded_rasters": embedded_count,
-        "full_page_renders": len(regions) - embedded_count,
-    }
+    return summary
