@@ -134,13 +134,18 @@ has a dedicated `/jobs/events` location with response buffering disabled; add
 Other query/mutation surface: `documents(docType:, status:, tags:)` /
 `document` / `documentMetadataHistory` / `searchSentences` / `fullTextSearch` /
 `lexeme(s)` / `entities` / `entityFrequency` / `job` / `jobs` /
-`documentMetadataSuggestions` / `collections` / `collection` (reads);
+`documentMetadataSuggestions` / `collections` / `collection` /
+`documentImages` / `imageClassSummary` / `visualCaptions` /
+`crossModalImageSearch` (Prism visual-layer reads) / `billingStatus` /
+`billingEvents` (reads);
 `createCollection` / `addDocumentToCollection` / `removeDocumentFromCollection`
 / `reannotate` / `deleteDocument` / `archiveDocument` / `restoreDocument` /
 `bulkArchiveDocuments` / `bulkTagDocuments` / `annotateDocument` /
 `reextractDocument` / `reextractDocuments` / `canonicalizeDocument(resolve:)` /
 `semanticEnrichDocument` / `updateDocumentMetadata` / `suggestDocumentMetadata`
-/ `decideDocumentMetadataSuggestions` / `cancelJob` (pipeline
+/ `decideDocumentMetadataSuggestions` / `cancelJob` /
+`createBillingCheckoutSession` / `createBillingPortalSession` /
+`retryBillingEvent` (pipeline
 writes — every mutation enqueues a worker job or records a curator decision;
 poll `job(id)` for completion, never a synchronous pipeline result). Entity
 canonicalization curation: `seedSuggestions` / `canonical` /

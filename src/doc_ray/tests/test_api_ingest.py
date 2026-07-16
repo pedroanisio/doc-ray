@@ -132,7 +132,12 @@ def test_ingest_document_upload_mutation(pg):
             cur = await aconn.execute("SELECT payload FROM jobs")
             payload = (await cur.fetchone())["payload"]
             assert payload["original_filename"] == "upload-test.txt"
-            assert payload["chain"] == ["annotate", "semantic_enrich", "canonicalize"]
+            assert payload["chain"] == [
+                "annotate",
+                "semantic_enrich",
+                "canonicalize",
+                "visual_extract",
+            ]
         finally:
             await aconn.close()
 

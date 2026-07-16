@@ -80,6 +80,13 @@ WIPED_TABLES = (
     "lexemes",
     "seed_suggestion",
     "resolution_review",
+    # Prism visual layer — derived per-document corpus data, wiped with the corpus.
+    "visual_review",
+    "visual_caption",
+    "image_embedding",
+    "sentence_vision_embedding",
+    "image_tier1_features",
+    "document_image",
     "corpus_snapshot",
     "evaluation_run",
     "evaluation_metric",
