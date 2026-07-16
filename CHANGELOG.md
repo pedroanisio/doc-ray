@@ -62,6 +62,17 @@ doc-ray carries **one global version** covering both the application package
   (Claude Fable 5 via Claude Code) — typography, layout, and navigation pass
   over the browser UI; no route or data-contract changes.
 
+## [1.30.0] - 2026-07-16
+
+### Added
+- **Prism Tier-3 grounded VLM captions — gate + schema** (Claude Opus 4.8 via
+  Claude Code). The specificity-weighted grounding scorer
+  (`application/visual_grounding.py`) — the PALS gate that caps generic captions
+  so they route to `visual_review` instead of the trusted graph — plus the
+  `visual_caption` and (net-new-RLS) `visual_review` tables (migrations 093-094)
+  and a corpus-wide vision-backfill enqueuer (`application/visual_backfill.py` +
+  `scripts/enqueue_visual_backfill.py`).
+
 ## [1.29.0] - 2026-07-16
 
 ### Added
