@@ -34,6 +34,16 @@ class _RecordingVLM:
         return VLMOutput(caption=self._caption, analysis={"note": "x"})
 
 
+class _FakeOcr:
+    """A fake ImageOcr returning a fixed transcription for every crop."""
+
+    def __init__(self, text: str) -> None:
+        self._text = text
+
+    def ocr_image(self, image_bytes: bytes) -> str:
+        return self._text
+
+
 class _FakeStore:
     bucket = "it-caption"
 
@@ -127,3 +137,39 @@ def test_generic_caption_routes_to_review_and_reruns_are_idempotent(pg: Any) -> 
     caption_document_images(conn, store, doc_id, vlm=vlm, threshold=0.8)
     assert _count(conn, "visual_review", doc_id) == 1
     assert _count(conn, "visual_caption", doc_id) == 1
+
+
+def test_ocr_of_crop_lifts_grounding_when_page_text_is_sparse(pg: Any) -> None:
+    """A figure caption unsupported by page prose commits once OCR of the crop
+    supplies the same labels — the OCR-grounding lever for image-only pages."""
+    conn, created = pg
+    # Page prose is unrelated to the figure's labels (as on a scanned/figure page).
+    doc_id = _itdb.make_doc(conn, "This chapter is about music.")
+    created.append(doc_id)
+    conn.execute(
+        "UPDATE spans SET page_number = 1, bbox_x0 = 0, bbox_y0 = 0, bbox_x1 = 100, "
+        "bbox_y1 = 100 WHERE document_id = %s",
+        (doc_id,),
+    )
+    store = _FakeStore({})
+    _add_image(conn, doc_id, store)
+    caption = "GTHIRD Tonnetz C E G B D F A"
+
+    # Without OCR: the labels aren't in the page prose -> held for review.
+    without = caption_document_images(
+        conn, store, doc_id, vlm=_RecordingVLM(caption), threshold=0.8
+    )
+    assert without["committed"] == 0 and without["review"] == 1
+
+    # With OCR of the crop supplying those labels -> grounded, so it commits.
+    vlm = _RecordingVLM(caption)
+    with_ocr = caption_document_images(
+        conn, store, doc_id, vlm=vlm, image_ocr=_FakeOcr(caption), threshold=0.8
+    )
+    assert with_ocr["committed"] == 1 and with_ocr["review"] == 0
+    # PALS preserved: the VLM still captions the image alone, never the OCR text.
+    assert vlm.seen_evidence == [""]
+    row = conn.execute(
+        "SELECT status, grounding_score FROM visual_caption WHERE document_id=%s", (doc_id,)
+    ).fetchone()
+    assert row["status"] == "committed" and row["grounding_score"] >= 0.8

@@ -24,6 +24,7 @@ from doc_ray.application.resolution import AUTO_COMMIT_THRESHOLD
 from doc_ray.application.visual_grounding import GroundingResult, grounding_score
 from doc_ray.domain.progress import report_progress
 from doc_ray.domain.ulid import new_ulid_str
+from doc_ray.ports.image_ocr import ImageOcr
 from doc_ray.ports.object_store import ObjectStore
 from doc_ray.ports.vlm import VisionLanguageModel, VLMOutput
 
@@ -72,9 +73,17 @@ def caption_document_images(
     document_id: str,
     *,
     vlm: VisionLanguageModel,
+    image_ocr: ImageOcr | None = None,
     threshold: float = AUTO_COMMIT_THRESHOLD,
 ) -> dict[str, Any]:
-    """Caption + ground + gate every image of a document. Idempotent per model."""
+    """Caption + ground + gate every image of a document. Idempotent per model.
+
+    ``image_ocr`` (optional) supplies a deterministic OCR transcription of each
+    crop that is *added to the grounding evidence* — never to the VLM prompt. It
+    lets a faithful caption of a figure's own labels ground against those labels
+    (crucial for figures on image-only/scanned pages, whose extracted page text
+    is sparse), while a hallucinated label the OCR never read stays ungrounded.
+    """
     model = vlm.model_id
     images = conn.execute(
         "SELECT id, object_key, page_number FROM document_image WHERE document_id = %s ORDER BY id",
@@ -106,10 +115,17 @@ def caption_document_images(
         conn.execute("DELETE FROM visual_review WHERE document_id = %s", (document_id,))
         for index, image in enumerate(images):
             report_progress(index, len(images) or 1, "Captioning images")
-            evidence_text = page_evidence.get(int(image["page_number"]), "")
+            crop_bytes = store.get(str(image["object_key"]))
+            # Grounding evidence = the figure's page prose PLUS a deterministic OCR
+            # of the crop itself. OCR corroborates labels a faithful caption
+            # transcribes even when the page has little extractable text; it is
+            # NOT shown to the VLM, so it cannot be gamed.
+            page_text = page_evidence.get(int(image["page_number"]), "")
+            ocr_text = image_ocr.ocr_image(crop_bytes) if image_ocr is not None else ""
+            evidence_text = f"{page_text} {ocr_text}".strip()
             # The VLM captions from the image ALONE — it is never shown the
             # grounding evidence, so grounding cannot be gamed by echoing it.
-            output = vlm.caption_image(store.get(str(image["object_key"])), "")
+            output = vlm.caption_image(crop_bytes, "")
             decision = gate_caption(output, evidence_text, threshold=threshold)
             grounded = _grounded_against(decision)
             conn.execute(

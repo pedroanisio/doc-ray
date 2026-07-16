@@ -295,6 +295,7 @@ def handle_visual_caption(
     conn: psycopg.Connection[Any], store: ObjectStore | None, job: Job
 ) -> dict[str, Any]:
     """Prism Tier-3: grounded VLM captions with the PALS commit/review gate."""
+    from doc_ray.adapters.image_ocr_pymupdf import PyMuPDFImageOcr
     from doc_ray.adapters.vlm_ollama import OllamaVisionLanguageModel
     from doc_ray.application import visual_caption
 
@@ -304,7 +305,11 @@ def handle_visual_caption(
         raise RuntimeError("visual_caption requires an object store")
     report_progress(0, 1, "Captioning document images")
     return visual_caption.caption_document_images(
-        conn, store, job.document_id, vlm=OllamaVisionLanguageModel()
+        conn,
+        store,
+        job.document_id,
+        vlm=OllamaVisionLanguageModel(),
+        image_ocr=PyMuPDFImageOcr(),
     )
 
 

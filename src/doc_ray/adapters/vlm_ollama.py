@@ -1,9 +1,13 @@
 """Adapter: an Ollama-served vision-language model (Prism Tier-3).
 
 Reuses the Ollama HTTP scaffolding the Stage-3 resolver already uses, adding the
-base64 ``images`` field the vision models need (the resolver payload has none).
-Only runs where an Ollama host serves a vision model (the H200 worker); the
-caption gate and orchestration are tested with a fake VLM instead.
+base64 ``images`` field the vision models need. The prompt asks for a
+feature-report — a literal transcription of what is visible (labels, numbers,
+shapes, arrows), with no interpretation — because a faithful transcription is
+exactly what the Tier-3 grounding gate can verify against the document's own text
+and against OCR of the crop. The model is an *Instruct* VLM (e.g.
+``qwen3-vl:32b-instruct``): no hidden reasoning, so the whole token budget goes
+to the description.
 
 Output is UNTRUSTED (PALS): the caller grounds and gates it — this adapter only
 transports the model's words, it does not decide anything.
@@ -14,15 +18,21 @@ from __future__ import annotations
 import base64
 import json
 import os
-from typing import Any, cast
 from urllib import request as urllib_request
 
+from doc_ray.adapters.extraction_common import env_float, env_int
 from doc_ray.ports.vlm import VisionLanguageModel, VLMOutput
 
-_PROMPT = (
-    "Describe this figure precisely for a technical index. Name any labels, "
-    "numbers, entities, and chart/diagram type you can read. Be specific; do not "
-    'guess. Reply as JSON: {"caption": str, "analysis": {...}}.'
+#: The default VLM: the most capable open vision model that fits a single H200
+#: (the 235B flagship needs multiple GPUs). Instruct, not Thinking — so the token
+#: budget produces the description, not hidden reasoning that empties the answer.
+DEFAULT_MODEL = "qwen3-vl:32b-instruct"
+DEFAULT_NUM_PREDICT = 768
+DEFAULT_TEMPERATURE = 0.1
+
+#: Feature-report instruction: transcribe visible features, do not interpret.
+_PROMPT_TEMPLATE = (
+    "describe this image. no inference, just report features.\ntoken_budget: {budget}."
 )
 
 
@@ -34,28 +44,40 @@ class OllamaVisionLanguageModel(VisionLanguageModel):
         model: str | None = None,
         host: str | None = None,
         *,
-        timeout_seconds: int = 120,
+        num_predict: int | None = None,
+        temperature: float | None = None,
+        timeout_seconds: int = 180,
     ) -> None:
-        """Configure host/model from args or DOCRAY_VLM_* / OLLAMA_HOST env."""
-        self.model_id = model or os.environ.get("DOCRAY_VLM_MODEL", "llava")
+        """Configure host/model/decoding from args or DOCRAY_VLM_* / OLLAMA_HOST env."""
+        self.model_id = model or os.environ.get("DOCRAY_VLM_MODEL", DEFAULT_MODEL)
         self.model_version = "ollama"
         self._host = (host or os.environ.get("OLLAMA_HOST", "http://localhost:11434")).rstrip("/")
+        self._num_predict = (
+            num_predict
+            if num_predict is not None
+            else env_int(os.environ, "DOCRAY_VLM_NUM_PREDICT", DEFAULT_NUM_PREDICT)
+        )
+        self._temperature = (
+            temperature
+            if temperature is not None
+            else env_float(os.environ, "DOCRAY_VLM_TEMPERATURE", DEFAULT_TEMPERATURE)
+        )
         self._timeout = timeout_seconds
 
     def caption_image(self, image_bytes: bytes, evidence_text: str) -> VLMOutput:
-        """Return the model's caption + analysis (untrusted, JSON-decoded best-effort)."""
-        # Only condition on evidence when the caller supplies it. Prism's Tier-3
-        # grounding calls this with NO evidence (image-only) so grounding stays
-        # independent of what the model saw and cannot be gamed by echoing it.
-        prompt = _PROMPT
+        """Return the model's feature-report caption (untrusted, plain text)."""
+        # Prism Tier-3 calls this with NO evidence (image-only) so the caption is
+        # produced blind to the grounding text and cannot be gamed by echoing it;
+        # the evidence branch exists only for callers that deliberately condition.
+        prompt = _PROMPT_TEMPLATE.format(budget=self._num_predict)
         if evidence_text.strip():
-            prompt = f"{_PROMPT}\n\nContext from the document: {evidence_text[:2000]}"
+            prompt = f"{prompt}\n\nContext from the document: {evidence_text[:2000]}"
         payload = {
             "model": self.model_id,
             "prompt": prompt,
             "images": [base64.b64encode(image_bytes).decode("ascii")],
             "stream": False,
-            "format": "json",
+            "options": {"num_predict": self._num_predict, "temperature": self._temperature},
         }
         req = urllib_request.Request(
             f"{self._host}/api/generate",
@@ -64,15 +86,4 @@ class OllamaVisionLanguageModel(VisionLanguageModel):
         )
         with urllib_request.urlopen(req, timeout=self._timeout) as resp:
             body = json.loads(resp.read().decode("utf-8"))
-        return _parse_response(body.get("response", ""))
-
-
-def _parse_response(response: str) -> VLMOutput:
-    """Best-effort parse of the model's JSON response into a VLMOutput."""
-    try:
-        data = cast("dict[str, Any]", json.loads(response))
-    except (json.JSONDecodeError, TypeError):
-        return VLMOutput(caption=response.strip())
-    caption = str(data.get("caption", "")).strip()
-    analysis = data.get("analysis")
-    return VLMOutput(caption=caption, analysis=analysis if isinstance(analysis, dict) else {})
+        return VLMOutput(caption=str(body.get("response", "")).strip())
