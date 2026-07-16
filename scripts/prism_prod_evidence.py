@@ -81,9 +81,7 @@ def main() -> int:
                 print(f"    {row['image_class']:12} {row['c']}")
 
         if "image_embedding" in present:
-            dims = _scalar(
-                conn, "SELECT max(vector_dims(vector)) d FROM image_embedding"
-            )
+            dims = _scalar(conn, "SELECT max(vector_dims(vector)) d FROM image_embedding")
             models = conn.execute(
                 "SELECT model, count(*) c FROM image_embedding GROUP BY model ORDER BY c DESC"
             ).fetchall()
