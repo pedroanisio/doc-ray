@@ -173,6 +173,158 @@ async def test_briefing_pack_forwards_caller_bearer(monkeypatch):
     )
 
 
+# --- multi-word retrieval: per-term fan-out ---------------------------------
+
+
+def _sent(doc_id, title, ordinal, hit, pre="", post=""):
+    return {
+        "documentId": doc_id,
+        "title": title,
+        "ordinal": ordinal,
+        "pre": pre,
+        "hit": hit,
+        "post": post,
+    }
+
+
+def _fanout_handler(docs, sents_by_term, ents=None):
+    """Route searchSentences by the exact term searched (variables['t'])."""
+
+    def handler(query, variables):
+        if "fullTextSearch" in query:
+            return {"fullTextSearch": docs}
+        if "searchSentences" in query:
+            return {"searchSentences": sents_by_term.get(variables["t"], [])}
+        if "entityFrequency" in query:
+            return {"entityFrequency": ents or []}
+        raise AssertionError(f"unexpected query: {query}")
+
+    return handler
+
+
+_ONE_DOC = [{"documentId": "docA", "title": "Relativity Papers", "rank": 0.9}]
+
+
+@pytest.mark.asyncio
+async def test_briefing_pack_multiword_topic_matches_by_term_fanout(monkeypatch):
+    # The full phrase matches nothing, but individual content terms do; the pack
+    # must still ground passages instead of reporting a gap. Stopwords ("the")
+    # must not be searched.
+    sents_by_term = {
+        "einstein": [_sent("docA", "Relativity Papers", 5, "Einstein", post=" field insight.")],
+        "field": [
+            _sent("docA", "Relativity Papers", 5, "field", pre="Einstein ", post=" insight."),
+            _sent("docA", "Relativity Papers", 9, "field", post=" equations alone."),
+        ],
+    }
+    router = _install(monkeypatch, _fanout_handler(_ONE_DOC, sents_by_term))
+    pack = await compose.briefing_pack("the einstein field equations", max_documents=1)
+
+    searched = [c["variables"]["t"] for c in router.calls if "searchSentences" in c["query"]]
+    assert "the" not in searched  # stopwords never fan out
+    assert pack["gaps"] == []
+    assert pack["coverage"]["passages"] == 2
+    # Sentence 5 matched two distinct terms and must outrank sentence 9 (one term).
+    first, second = pack["key_passages"]
+    assert first["sentence_ordinal"] == 5
+    assert first["matched_terms"] == ["einstein", "field"]
+    assert second["sentence_ordinal"] == 9
+    assert second["matched_terms"] == ["field"]
+    assert "fan-out" in pack["retrieval"]
+
+
+@pytest.mark.asyncio
+async def test_briefing_pack_phrase_match_outranks_term_matches(monkeypatch):
+    sents_by_term = {
+        "field equations": [_sent("docA", "Relativity Papers", 33, "field equations")],
+        "field": [
+            _sent("docA", "Relativity Papers", 5, "field"),
+            _sent("docA", "Relativity Papers", 9, "field"),
+        ],
+        "equations": [_sent("docA", "Relativity Papers", 5, "equations")],
+    }
+    _install(monkeypatch, _fanout_handler(_ONE_DOC, sents_by_term))
+    pack = await compose.briefing_pack("field equations", max_documents=1, passages_per_document=3)
+
+    ordinals = [p["sentence_ordinal"] for p in pack["key_passages"]]
+    # Phrase hit (33) first, then the two-term sentence (5), then the one-term (9).
+    assert ordinals == [33, 5, 9]
+    assert pack["key_passages"][0]["matched_terms"] == ["field equations"]
+
+
+@pytest.mark.asyncio
+async def test_briefing_pack_single_term_topic_issues_single_search(monkeypatch):
+    sents_by_term = {"relativity": [_sent("docA", "Relativity Papers", 3, "relativity")]}
+    router = _install(monkeypatch, _fanout_handler(_ONE_DOC, sents_by_term))
+    pack = await compose.briefing_pack("relativity", max_documents=1)
+
+    searched = [c["variables"]["t"] for c in router.calls if "searchSentences" in c["query"]]
+    assert searched == ["relativity"]  # no redundant fan-out for a single term
+    assert pack["coverage"]["passages"] == 1
+
+
+@pytest.mark.asyncio
+async def test_briefing_pack_filters_numeric_and_generic_entities(monkeypatch):
+    ents = [
+        {"text": "message", "entityType": "UNKNOWN", "count": 283},  # generic lowercase noun
+        {"text": "2", "entityType": "CARDINAL", "count": 161},  # bare number
+        {"text": "two", "entityType": "CARDINAL", "count": 41},  # number word
+        {"text": "data", "entityType": None, "count": 100},  # untyped lowercase
+        {"text": "the", "entityType": "PRODUCT", "count": 9},  # stopword, any type
+        {"text": "MCP", "entityType": "PRODUCT", "count": 62},
+        {"text": "VS Code", "entityType": "PRODUCT", "count": 40},
+        {"text": "Einstein", "entityType": "PERSON", "count": 5},
+    ]
+    sents_by_term = {"relativity": [_sent("docA", "Relativity Papers", 3, "relativity")]}
+    _install(monkeypatch, _fanout_handler(_ONE_DOC, sents_by_term, ents))
+    pack = await compose.briefing_pack("relativity", max_documents=1)
+
+    texts = [e["text"] for e in pack["entities"]]
+    assert texts == ["MCP", "VS Code", "Einstein"]  # noise dropped, count order kept
+
+
+@pytest.mark.asyncio
+async def test_document_evidence_multiword_focus_matches_by_term_fanout(monkeypatch):
+    sents_by_term = {
+        "best": [_sent("docA", "Paper A", 95, "best", post=" practices for keys.")],
+        "practices": [
+            _sent("docA", "Paper A", 95, "practices", pre="best ", post=" for keys."),
+            _sent("docA", "Paper A", 12, "practices", pre="operational "),
+        ],
+    }
+
+    def handler(query, variables):
+        if "document(id" in query:
+            return {"document": {"id": "docA", "title": "Paper A", "docType": "pdf"}}
+        if "searchSentences" in query:
+            return {"searchSentences": sents_by_term.get(variables["t"], [])}
+        raise AssertionError(query)
+
+    _install(monkeypatch, handler)
+    evidence = await compose.document_evidence("docA", focus="best practices")
+
+    assert evidence["gaps"] == []
+    assert [p["sentence_ordinal"] for p in evidence["passages"]] == [95, 12]
+    assert evidence["passages"][0]["matched_terms"] == ["best", "practices"]
+
+
+@pytest.mark.asyncio
+async def test_document_evidence_gap_reports_terms_tried(monkeypatch):
+    def handler(query, variables):
+        if "document(id" in query:
+            return {"document": {"id": "docA", "title": "Paper A", "docType": "pdf"}}
+        if "searchSentences" in query:
+            return {"searchSentences": []}
+        raise AssertionError(query)
+
+    _install(monkeypatch, handler)
+    evidence = await compose.document_evidence("docA", focus="structured output")
+
+    assert evidence["passages"] == []
+    assert evidence["gaps"], "an empty result must be reported as a gap"
+    assert "terms tried: structured, output" in evidence["gaps"][0]
+
+
 # --- entity_dossier ---------------------------------------------------------
 
 

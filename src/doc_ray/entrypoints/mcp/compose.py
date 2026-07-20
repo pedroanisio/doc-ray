@@ -17,8 +17,11 @@ This is deliberate, and it enforces PURPOSE.md's three lines:
   until every citation is checked.
 
 Retrieval today is full-text / keyword match (semantic similarity is on the
-roadmap, not yet built), so tools find sources by term, not by meaning, and report
-what they could not ground in ``gaps`` rather than inventing coverage.
+roadmap, not yet built). Multi-word topics fan out to their content terms so a
+phrase that never occurs verbatim still grounds passages: the full phrase is
+searched first and outranks term hits, then sentences matching more distinct
+terms, then earlier ordinals. What could not be grounded is reported in ``gaps``
+rather than invented.
 
 Everything is pure orchestration over the read tools in
 :mod:`doc_ray.entrypoints.mcp.corpus`, so it inherits the same token-forwarded,
@@ -28,10 +31,223 @@ RLS-scoped visibility: an agent grounds only in what its principal may read.
 from __future__ import annotations
 
 import asyncio
+import re
 from collections.abc import Callable
 from typing import Any
 
 from doc_ray.entrypoints.mcp import corpus
+
+#: Cap on distinct terms fanned out per document so one topic cannot amplify
+#: into an unbounded number of GraphQL round-trips.
+_MAX_FANOUT_TERMS = 8
+
+#: English function words: never searched as fan-out terms and never reported
+#: as briefing entities.
+_STOPWORDS = frozenset(
+    {
+        "a",
+        "about",
+        "above",
+        "after",
+        "again",
+        "all",
+        "also",
+        "am",
+        "an",
+        "and",
+        "any",
+        "are",
+        "as",
+        "at",
+        "be",
+        "because",
+        "been",
+        "before",
+        "being",
+        "below",
+        "between",
+        "both",
+        "but",
+        "by",
+        "can",
+        "did",
+        "do",
+        "does",
+        "doing",
+        "down",
+        "during",
+        "each",
+        "few",
+        "for",
+        "from",
+        "further",
+        "had",
+        "has",
+        "have",
+        "having",
+        "he",
+        "her",
+        "here",
+        "hers",
+        "him",
+        "his",
+        "how",
+        "i",
+        "if",
+        "in",
+        "into",
+        "is",
+        "it",
+        "its",
+        "itself",
+        "just",
+        "me",
+        "more",
+        "most",
+        "my",
+        "no",
+        "nor",
+        "not",
+        "now",
+        "of",
+        "off",
+        "on",
+        "once",
+        "only",
+        "or",
+        "other",
+        "our",
+        "ours",
+        "out",
+        "over",
+        "own",
+        "same",
+        "she",
+        "should",
+        "so",
+        "some",
+        "such",
+        "than",
+        "that",
+        "the",
+        "their",
+        "theirs",
+        "them",
+        "then",
+        "there",
+        "these",
+        "they",
+        "this",
+        "those",
+        "through",
+        "to",
+        "too",
+        "under",
+        "until",
+        "up",
+        "very",
+        "was",
+        "we",
+        "were",
+        "what",
+        "when",
+        "where",
+        "which",
+        "while",
+        "who",
+        "whom",
+        "why",
+        "will",
+        "with",
+        "you",
+        "your",
+        "yours",
+    }
+)
+
+#: Entity types that are counts, not names — noise in a briefing's entity list.
+_NOISE_ENTITY_TYPES = frozenset({"CARDINAL", "ORDINAL", "QUANTITY", "PERCENT"})
+
+#: Type labels that carry no typing signal; surfaces under them must look like
+#: proper nouns to be worth listing.
+_UNTYPED_ENTITY_TYPES = frozenset({"", "UNKNOWN"})
+
+
+def _content_terms(text: str) -> list[str]:
+    """Distinct content terms of *text* in order, stopwords and bare numbers dropped."""
+    terms: list[str] = []
+    seen: set[str] = set()
+    for token in re.findall(r"[^\W_]+(?:[-'][^\W_]+)*", text):
+        lowered = token.lower()
+        if len(token) < 2 or token.isdigit() or lowered in _STOPWORDS or lowered in seen:
+            continue
+        seen.add(lowered)
+        terms.append(token)
+    return terms[:_MAX_FANOUT_TERMS]
+
+
+def _entity_signal(text: str | None, entity_type: str | None) -> bool:
+    """Whether an entity row is briefing signal rather than counting/function-word noise."""
+    surface = str(text or "").strip()
+    if len(surface) < 2 or not any(char.isalpha() for char in surface):
+        return False
+    if surface.lower() in _STOPWORDS:
+        return False
+    kind = str(entity_type or "").upper()
+    if kind in _NOISE_ENTITY_TYPES:
+        return False
+    return not (kind in _UNTYPED_ENTITY_TYPES and surface == surface.lower())
+
+
+async def _ranked_passages(
+    query_text: str, document_id: str, limit: int
+) -> tuple[list[dict[str, Any]], list[str]]:
+    """KWIC-search *query_text* in one document, fanning multi-word queries out per term.
+
+    The full phrase and each distinct content term are searched concurrently and
+    the hits merged by sentence. Ranking: phrase matches first, then sentences
+    matching more distinct terms, then earlier ordinals.
+
+    Returns:
+        A ``(hits, terms)`` tuple — ranked sentence dicts (each annotated with the
+        ``matched_terms`` that found it), and the content terms that were tried.
+    """
+    phrase = query_text.strip()
+    terms = _content_terms(phrase)
+    queries: list[str] = [phrase] if phrase else []
+    if len(terms) > 1:
+        queries.extend(term for term in terms if term.lower() != phrase.lower())
+    if not queries:
+        return [], terms
+
+    batches = await asyncio.gather(
+        *(corpus.search_sentences(query, document_id=document_id, limit=limit) for query in queries)
+    )
+    merged: dict[Any, dict[str, Any]] = {}
+    for query, hits in zip(queries, batches, strict=True):
+        for sentence in hits:
+            key = sentence.get("id") or (sentence.get("documentId"), sentence.get("ordinal"))
+            entry = merged.setdefault(key, {"sentence": sentence, "matched_terms": []})
+            if query not in entry["matched_terms"]:
+                entry["matched_terms"].append(query)
+
+    def rank(entry: dict[str, Any]) -> tuple[int, int, int]:
+        matched = entry["matched_terms"]
+        ordinal = entry["sentence"].get("ordinal")
+        return (
+            0 if phrase in matched else 1,
+            -sum(1 for match in matched if match != phrase),
+            ordinal if isinstance(ordinal, int) else 2**31,
+        )
+
+    ranked = sorted(merged.values(), key=rank)[:limit]
+    hits = [{**entry["sentence"], "matched_terms": entry["matched_terms"]} for entry in ranked]
+    return hits, terms
+
+
+def _terms_tried(terms: list[str]) -> str:
+    """Render the fan-out terms for a gap message; empty when nothing fanned out."""
+    return f" (terms tried: {', '.join(terms)})" if terms else ""
 
 
 def _cite(document_id: str, title: str | None = None, ordinal: int | None = None) -> dict[str, Any]:
@@ -65,8 +281,8 @@ async def _document_slice(
     """Gather one source's cited passages and entities for a briefing pack."""
     document_id = str(document["documentId"])
     title = document.get("title")
-    sentences, entities = await asyncio.gather(
-        corpus.search_sentences(topic, document_id=document_id, limit=passages_per_document),
+    (sentences, terms), entities = await asyncio.gather(
+        _ranked_passages(topic, document_id, passages_per_document),
         corpus.entity_frequency(document_id=document_id, limit=entities_per_document),
     )
     passages = [
@@ -75,11 +291,12 @@ async def _document_slice(
             "title": sentence.get("title") or title,
             "sentence_ordinal": sentence.get("ordinal"),
             "text": _passage_text(sentence),
+            "matched_terms": sentence["matched_terms"],
             "cite": _cite(document_id, sentence.get("title") or title, sentence.get("ordinal")),
         }
         for sentence in sentences
     ]
-    gap = None if passages else f"No passage in “{title}” literally matches “{topic}”."
+    gap = None if passages else f"No passage in “{title}” matches “{topic}”{_terms_tried(terms)}."
     return {
         "source": {
             "document_id": document_id,
@@ -112,7 +329,9 @@ async def briefing_pack(
     could not ground.
 
     Args:
-        topic: The subject to gather evidence for (matched by keyword/full-text today).
+        topic: The subject to gather evidence for. Multi-word topics also fan out
+            to their content terms, so a phrase absent verbatim still grounds
+            passages; each passage lists the `matched_terms` that found it.
         max_documents: Most relevant documents to draw from.
         passages_per_document: Cited passages to pull from each document.
         max_entities: Cap on the merged entity list returned.
@@ -142,6 +361,8 @@ async def briefing_pack(
         if part["gap"]:
             gaps.append(part["gap"])
         for entity in part["entities"]:
+            if not _entity_signal(entity.get("text"), entity.get("entityType")):
+                continue
             key = (str(entity.get("text")), entity.get("entityType"))
             entity_counts[key] = entity_counts.get(key, 0) + int(entity.get("count") or 0)
 
@@ -155,7 +376,10 @@ async def briefing_pack(
 
     return {
         "topic": topic,
-        "retrieval": "full-text/keyword match (semantic similarity retrieval is not yet available)",
+        "retrieval": (
+            "full-text/keyword match with per-term fan-out for multi-word topics "
+            "(semantic similarity retrieval is not yet available)"
+        ),
         "sources": sources,
         "key_passages": key_passages,
         "entities": entities,
@@ -222,31 +446,37 @@ async def document_evidence(document_id: str, focus: str, max_passages: int = 12
 
     Args:
         document_id: The document to read from.
-        focus: The aspect to pull passages about (keyword/full-text within the doc).
+        focus: The aspect to pull passages about. Multi-word focuses also fan out
+            to their content terms; each passage lists the `matched_terms` that
+            found it.
         max_passages: Cap on the cited passages returned.
 
     Returns:
         A dict with `document`, `focus`, `passages`, `gaps`, and `guidance`.
     """
-    document, sentences = await asyncio.gather(
+    document, (sentences, terms) = await asyncio.gather(
         corpus.get_document(document_id),
-        corpus.search_sentences(focus, document_id=document_id, limit=max_passages),
+        _ranked_passages(focus, document_id, max_passages),
     )
     title = (document or {}).get("title")
     passages = [
         {
             "sentence_ordinal": sentence.get("ordinal"),
             "text": _passage_text(sentence),
+            "matched_terms": sentence["matched_terms"],
             "cite": _cite(document_id, title, sentence.get("ordinal")),
         }
         for sentence in sentences
     ]
+    gaps = (
+        [] if passages else [f"No passage in this document matches “{focus}”{_terms_tried(terms)}."]
+    )
     return {
         "document_id": document_id,
         "document": document,
         "focus": focus,
         "passages": passages,
-        "gaps": [] if passages else [f"No passage in this document matches “{focus}”."],
+        "gaps": gaps,
         "guidance": "Ground every statement about this document in the passages above.",
     }
 
