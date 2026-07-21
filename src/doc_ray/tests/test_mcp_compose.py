@@ -325,6 +325,82 @@ async def test_document_evidence_gap_reports_terms_tried(monkeypatch):
     assert "terms tried: structured, output" in evidence["gaps"][0]
 
 
+# --- response-size budgets --------------------------------------------------
+
+
+def _forty(tag):
+    """A deterministic 40-char passage body."""
+    body = f"relativity {tag} "
+    return body + "a" * (40 - len(body))
+
+
+_BUDGET_SENTS = {
+    "relativity": [
+        _sent("docA", "Relativity Papers", 1, _forty("one")),
+        _sent("docA", "Relativity Papers", 2, _forty("two")),
+        _sent("docA", "Relativity Papers", 3, _forty("three")),
+    ]
+}
+
+
+@pytest.mark.asyncio
+async def test_briefing_pack_clips_oversized_passage_text(monkeypatch):
+    monkeypatch.setattr(compose, "_MAX_PASSAGE_CHARS", 50)
+    long_sent = _sent("docA", "Relativity Papers", 7, "relativity", post=" " + "z" * 200)
+    _install(monkeypatch, _fanout_handler(_ONE_DOC, {"relativity": [long_sent]}))
+    pack = await compose.briefing_pack("relativity", max_documents=1)
+
+    (passage,) = pack["key_passages"]
+    assert passage["text"].startswith("relativity ")
+    assert "[+161 chars]" in passage["text"]  # 211-char body clipped at 50, marked
+    assert passage["cite"]["sentence_ordinal"] == 7  # citation survives clipping
+
+
+@pytest.mark.asyncio
+async def test_briefing_pack_budget_drops_excess_passages_and_reports(monkeypatch):
+    monkeypatch.setattr(compose, "_BRIEFING_PASSAGE_BUDGET", 60)
+    _install(monkeypatch, _fanout_handler(_ONE_DOC, _BUDGET_SENTS))
+    pack = await compose.briefing_pack("relativity", max_documents=1, passages_per_document=3)
+
+    # 3 passages of 40 chars against a 60-char budget: the first always survives,
+    # the rest are dropped and the drop is reported — never silent.
+    assert pack["coverage"]["passages"] == 1
+    assert [p["sentence_ordinal"] for p in pack["key_passages"]] == [1]
+    assert any("dropped 2" in gap for gap in pack["gaps"])
+
+
+@pytest.mark.asyncio
+async def test_document_evidence_budget_drops_excess_and_reports(monkeypatch):
+    monkeypatch.setattr(compose, "_EVIDENCE_PASSAGE_BUDGET", 60)
+
+    def handler(query, variables):
+        if "document(id" in query:
+            return {"document": {"id": "docA", "title": "Relativity Papers", "docType": "pdf"}}
+        if "searchSentences" in query:
+            return {"searchSentences": _BUDGET_SENTS["relativity"]}
+        raise AssertionError(query)
+
+    _install(monkeypatch, handler)
+    evidence = await compose.document_evidence("docA", focus="relativity")
+
+    assert [p["sentence_ordinal"] for p in evidence["passages"]] == [1]
+    assert any("dropped 2" in gap for gap in evidence["gaps"])
+
+
+@pytest.mark.asyncio
+async def test_entity_dossier_budget_keeps_tallies_and_reports(monkeypatch):
+    monkeypatch.setattr(compose, "_DOSSIER_MENTION_BUDGET", 60)
+    _install(monkeypatch, lambda q, v: {"searchSentences": _BUDGET_SENTS["relativity"]})
+    dossier = await compose.entity_dossier("relativity")
+
+    # total_mentions and per-document tallies reflect everything FOUND; only the
+    # returned mention texts are budgeted.
+    assert dossier["total_mentions"] == 3
+    assert dossier["documents"][0]["mention_count"] == 3
+    assert len(dossier["mentions"]) == 1
+    assert any("dropped 2" in gap for gap in dossier["gaps"])
+
+
 # --- entity_dossier ---------------------------------------------------------
 
 

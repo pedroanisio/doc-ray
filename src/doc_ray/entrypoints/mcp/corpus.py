@@ -27,6 +27,28 @@ caller_token: contextvars.ContextVar[str] = contextvars.ContextVar(
     "docray_mcp_caller_token", default=""
 )
 
+#: Per-window character cap for KWIC text fields. Upstream sentence segmentation
+#: can produce mega-sentences (e.g. a whole table of contents extracted as one
+#: sentence); windows are clipped with an explicit marker so tool responses stay
+#: bounded and truncation is never silent.
+MAX_KWIC_WINDOW_CHARS = 500
+
+
+def clip_text(text: str | None, cap: int) -> str | None:
+    """Clip *text* to *cap* characters, marking exactly how much was dropped."""
+    if text is None or len(text) <= cap:
+        return text
+    return f"{text[:cap]}… [+{len(text) - cap} chars]"
+
+
+def _clip_windows(row: dict[str, Any], fields: tuple[str, ...]) -> dict[str, Any]:
+    """Clip each KWIC text window of *row* to :data:`MAX_KWIC_WINDOW_CHARS`."""
+    for field in fields:
+        value = row.get(field)
+        if isinstance(value, str):
+            row[field] = clip_text(value, MAX_KWIC_WINDOW_CHARS)
+    return row
+
 
 async def gql(query: str, variables: dict[str, Any]) -> dict[str, Any]:
     """Execute a GraphQL operation, forwarding the caller's bearer token.
@@ -58,16 +80,21 @@ async def gql(query: str, variables: dict[str, Any]) -> dict[str, Any]:
 
 
 async def search_sentences(
-    term: str, document_id: str | None = None, limit: int = 20
+    term: str, document_id: str | None = None, limit: int = 20, after: str | None = None
 ) -> list[dict[str, Any]]:
-    """Keyword-in-context search across the corpus you can read (pre/hit/post windows)."""
+    """Keyword-in-context search across the corpus you can read (pre/hit/post windows).
+
+    Pass a row's ``cursor`` as ``after`` to fetch the next page. Oversized windows
+    are clipped with an explicit ``… [+N chars]`` marker.
+    """
     data = await gql(
-        "query($t:String!,$d:ID,$l:Int!){searchSentences(term:$t,documentId:$d,limit:$l)"
+        "query($t:String!,$d:ID,$l:Int!,$a:String)"
+        "{searchSentences(term:$t,documentId:$d,limit:$l,after:$a)"
         "{id documentId title ordinal pre hit post cursor}}",
-        {"t": term, "d": document_id, "l": limit},
+        {"t": term, "d": document_id, "l": limit, "a": after},
     )
     hits: list[dict[str, Any]] = data["searchSentences"]
-    return hits
+    return [_clip_windows(hit, ("pre", "hit", "post")) for hit in hits]
 
 
 async def full_text_search(query: str, limit: int = 25) -> list[dict[str, Any]]:
@@ -81,13 +108,20 @@ async def full_text_search(query: str, limit: int = 25) -> list[dict[str, Any]]:
 
 
 async def list_documents(
-    limit: int = 25, doc_type: str | None = None, status: str | None = None
+    limit: int = 25,
+    doc_type: str | None = None,
+    status: str | None = None,
+    after: str | None = None,
 ) -> list[dict[str, Any]]:
-    """List documents visible to you, newest first."""
+    """List documents visible to you, newest first.
+
+    Pass a row's ``cursor`` as ``after`` to fetch the next page.
+    """
     data = await gql(
-        "query($l:Int!,$dt:String,$s:String){documents(limit:$l,docType:$dt,status:$s)"
+        "query($l:Int!,$dt:String,$s:String,$a:String)"
+        "{documents(limit:$l,docType:$dt,status:$s,after:$a)"
         "{id title docType status pageCount charCount createdAt cursor}}",
-        {"l": limit, "dt": doc_type, "s": status},
+        {"l": limit, "dt": doc_type, "s": status, "a": after},
     )
     docs: list[dict[str, Any]] = data["documents"]
     return docs
@@ -120,7 +154,10 @@ async def entity_frequency(
 async def lexeme_kwic(
     uid: str, document_id: str | None = None, limit: int = 40
 ) -> list[dict[str, Any]]:
-    """Keyword-in-context concordance for a lexeme (KWIC = Lexeme.occurrences, not a root field)."""
+    """Keyword-in-context concordance for a lexeme (KWIC = Lexeme.occurrences, not a root field).
+
+    Oversized windows are clipped with an explicit ``… [+N chars]`` marker.
+    """
     data = await gql(
         "query($u:ID!,$d:ID,$l:Int!){lexeme(uid:$u){uid lemma pos "
         "occurrences(documentId:$d,limit:$l)"
@@ -129,7 +166,7 @@ async def lexeme_kwic(
     )
     lexeme = data.get("lexeme") or {}
     occ: list[dict[str, Any]] = lexeme.get("occurrences", [])
-    return occ
+    return [_clip_windows(row, ("kwic", "pre", "hit", "post")) for row in occ]
 
 
 async def document_images(

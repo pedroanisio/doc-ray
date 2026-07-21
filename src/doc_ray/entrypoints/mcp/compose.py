@@ -23,6 +23,10 @@ searched first and outranks term hits, then sentences matching more distinct
 terms, then earlier ordinals. What could not be grounded is reported in ``gaps``
 rather than invented.
 
+Outputs are size-bounded: passage text is clipped with an explicit
+``… [+N chars]`` marker and per-response budgets drop lowest-ranked passages,
+reporting every drop in ``gaps`` — caps are never silent.
+
 Everything is pure orchestration over the read tools in
 :mod:`doc_ray.entrypoints.mcp.corpus`, so it inherits the same token-forwarded,
 RLS-scoped visibility: an agent grounds only in what its principal may read.
@@ -172,6 +176,18 @@ _NOISE_ENTITY_TYPES = frozenset({"CARDINAL", "ORDINAL", "QUANTITY", "PERCENT"})
 #: proper nouns to be worth listing.
 _UNTYPED_ENTITY_TYPES = frozenset({"", "UNKNOWN"})
 
+#: Per-passage character cap after KWIC assembly — defense in depth against
+#: upstream mega-sentences (a whole TOC segmented as one sentence) flooding an
+#: agent's context. Clipping is marked, never silent.
+_MAX_PASSAGE_CHARS = 1_000
+
+#: Total passage/mention text budgets per response, so one call cannot flood the
+#: caller. Overflow is dropped from the tail (lowest-ranked first) and reported
+#: in ``gaps``.
+_BRIEFING_PASSAGE_BUDGET = 12_000
+_EVIDENCE_PASSAGE_BUDGET = 8_000
+_DOSSIER_MENTION_BUDGET = 12_000
+
 
 def _content_terms(text: str) -> list[str]:
     """Distinct content terms of *text* in order, stopwords and bare numbers dropped."""
@@ -250,6 +266,35 @@ def _terms_tried(terms: list[str]) -> str:
     return f" (terms tried: {', '.join(terms)})" if terms else ""
 
 
+def _clipped_passage_text(sentence: dict[str, Any]) -> str:
+    """Assemble a KWIC passage, clipped to the per-passage cap with a marker."""
+    return corpus.clip_text(_passage_text(sentence), _MAX_PASSAGE_CHARS) or ""
+
+
+def _budget_passages(
+    passages: list[dict[str, Any]], budget_chars: int
+) -> tuple[list[dict[str, Any]], int]:
+    """Keep the leading passages whose cumulative text fits *budget_chars*.
+
+    At least one passage always survives, and order is preserved so the
+    highest-ranked passages win. Returns ``(kept, dropped_count)``.
+    """
+    kept: list[dict[str, Any]] = []
+    total = 0
+    for index, passage in enumerate(passages):
+        size = len(str(passage.get("text") or ""))
+        if kept and total + size > budget_chars:
+            return kept, len(passages) - index
+        kept.append(passage)
+        total += size
+    return kept, 0
+
+
+def _budget_gap(dropped: int, noun: str, hint: str) -> str:
+    """A gap line reporting a response-budget drop — caps are never silent."""
+    return f"Response budget reached: dropped {dropped} lower-ranked {noun}; {hint}."
+
+
 def _cite(document_id: str, title: str | None = None, ordinal: int | None = None) -> dict[str, Any]:
     """Build a citation handle an agent can quote and later re-verify."""
     label = title or f"document {document_id}"
@@ -290,7 +335,7 @@ async def _document_slice(
             "document_id": document_id,
             "title": sentence.get("title") or title,
             "sentence_ordinal": sentence.get("ordinal"),
-            "text": _passage_text(sentence),
+            "text": _clipped_passage_text(sentence),
             "matched_terms": sentence["matched_terms"],
             "cite": _cite(document_id, sentence.get("title") or title, sentence.get("ordinal")),
         }
@@ -374,6 +419,12 @@ async def briefing_pack(
         for (text, entity_type), count in top_entities[:max_entities]
     ]
 
+    key_passages, dropped = _budget_passages(key_passages, _BRIEFING_PASSAGE_BUDGET)
+    if dropped:
+        gaps.append(
+            _budget_gap(dropped, "passages", "narrow the topic or lower passages_per_document")
+        )
+
     return {
         "topic": topic,
         "retrieval": (
@@ -420,10 +471,14 @@ async def entity_dossier(name: str, max_mentions: int = 40) -> dict[str, Any]:
                 "document_id": document_id,
                 "title": title,
                 "sentence_ordinal": sentence.get("ordinal"),
-                "text": _passage_text(sentence),
+                "text": _clipped_passage_text(sentence),
                 "cite": _cite(document_id, title, sentence.get("ordinal")),
             }
         )
+    kept, dropped = _budget_passages(cited, _DOSSIER_MENTION_BUDGET)
+    gaps = [] if cited else [f"No mentions of “{name}” found in the corpus you can read."]
+    if dropped:
+        gaps.append(_budget_gap(dropped, "mentions", "lower max_mentions or scope by document"))
     return {
         "entity": name,
         "retrieval": "literal mention match across the corpus you can read",
@@ -431,8 +486,8 @@ async def entity_dossier(name: str, max_mentions: int = 40) -> dict[str, Any]:
         "documents": sorted(
             by_document.values(), key=lambda doc: doc["mention_count"], reverse=True
         ),
-        "mentions": cited,
-        "gaps": [] if cited else [f"No mentions of “{name}” found in the corpus you can read."],
+        "mentions": kept,
+        "gaps": gaps,
         "guidance": "State nothing about this entity that a mention above does not support.",
     }
 
@@ -462,7 +517,7 @@ async def document_evidence(document_id: str, focus: str, max_passages: int = 12
     passages = [
         {
             "sentence_ordinal": sentence.get("ordinal"),
-            "text": _passage_text(sentence),
+            "text": _clipped_passage_text(sentence),
             "matched_terms": sentence["matched_terms"],
             "cite": _cite(document_id, title, sentence.get("ordinal")),
         }
@@ -471,6 +526,9 @@ async def document_evidence(document_id: str, focus: str, max_passages: int = 12
     gaps = (
         [] if passages else [f"No passage in this document matches “{focus}”{_terms_tried(terms)}."]
     )
+    passages, dropped = _budget_passages(passages, _EVIDENCE_PASSAGE_BUDGET)
+    if dropped:
+        gaps.append(_budget_gap(dropped, "passages", "narrow the focus or lower max_passages"))
     return {
         "document_id": document_id,
         "document": document,

@@ -55,7 +55,73 @@ async def test_search_forwards_bearer_and_maps_variables(monkeypatch):
     url, body, headers = client.calls[0]
     assert url == corpus.API_URL
     assert headers["Authorization"] == "Bearer tok-abc"  # RLS travels with the caller's token
-    assert body["variables"] == {"t": "Berlin", "d": None, "l": 5}
+    assert body["variables"] == {"t": "Berlin", "d": None, "l": 5, "a": None}
+
+
+# --- cursor pagination ------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_search_sentences_forwards_after_cursor(monkeypatch):
+    client = _patch(monkeypatch, {"data": {"searchSentences": []}})
+    await corpus.search_sentences("Berlin", limit=5, after="cur-9")
+    _, body, _ = client.calls[0]
+    assert body["variables"]["a"] == "cur-9"
+    assert "after:$a" in body["query"]
+
+
+@pytest.mark.asyncio
+async def test_list_documents_forwards_after_cursor(monkeypatch):
+    client = _patch(monkeypatch, {"data": {"documents": []}})
+    await corpus.list_documents(limit=3, after="cur-42")
+    _, body, _ = client.calls[0]
+    assert body["variables"]["a"] == "cur-42"
+    assert "after:$a" in body["query"]
+
+
+# --- KWIC window clipping ---------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_search_sentences_clips_oversized_kwic_windows(monkeypatch):
+    # A TOC segmented as one mega-sentence must not flood the response; windows
+    # are clipped with an explicit marker, never silently.
+    mega = "x" * 15_000
+    _patch(
+        monkeypatch,
+        {
+            "data": {
+                "searchSentences": [
+                    {"id": "1", "pre": mega, "hit": "Berlin", "post": "small tail."}
+                ]
+            }
+        },
+    )
+    (row,) = await corpus.search_sentences("Berlin")
+    assert row["pre"] == "x" * corpus.MAX_KWIC_WINDOW_CHARS + "… [+14500 chars]"
+    assert row["hit"] == "Berlin"  # small windows pass through untouched
+    assert row["post"] == "small tail."
+
+
+@pytest.mark.asyncio
+async def test_lexeme_kwic_clips_oversized_windows(monkeypatch):
+    mega = "y" * 1_000
+    _patch(
+        monkeypatch,
+        {
+            "data": {
+                "lexeme": {
+                    "uid": "u1",
+                    "occurrences": [{"kwic": mega, "pre": mega, "hit": "run", "post": "ok"}],
+                }
+            }
+        },
+    )
+    (row,) = await corpus.lexeme_kwic("u1")
+    assert row["kwic"] == "y" * corpus.MAX_KWIC_WINDOW_CHARS + "… [+500 chars]"
+    assert row["pre"] == "y" * corpus.MAX_KWIC_WINDOW_CHARS + "… [+500 chars]"
+    assert row["hit"] == "run"
+    assert row["post"] == "ok"
 
 
 @pytest.mark.asyncio
