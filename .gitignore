@@ -31,3 +31,4 @@ concept-cinema/
 pgadmin/servers.json
 .ingest-state/doc-ray-dev.json
 .mypy_cache/
+out/logotype-composition-guide.yaml
