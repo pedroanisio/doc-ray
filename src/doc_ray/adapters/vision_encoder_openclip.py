@@ -42,7 +42,9 @@ class OpenClipVisionEncoder(VisionEncoder):
     def _ensure_loaded(self) -> None:
         if self._model is not None:
             return
-        import open_clip  # type: ignore[import-not-found]
+        # Absent on CPU-only hosts, installed without stubs on GPU hosts: the
+        # pyproject mypy override covers both, so no inline ignore can go stale.
+        import open_clip
         import torch
 
         device = self._device or ("cuda" if torch.cuda.is_available() else "cpu")
