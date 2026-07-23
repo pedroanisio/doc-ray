@@ -142,7 +142,180 @@ async def test_graphql_error_raises_runtimeerror(monkeypatch):
 @pytest.mark.asyncio
 async def test_get_document_returns_none_when_null(monkeypatch):
     _patch(monkeypatch, {"data": {"document": None}})
-    assert await corpus.get_document("x") is None
+    assert await corpus.get_document("00000000-0000-0000-0000-000000000000") is None
+
+
+# --- typed errors -----------------------------------------------------------
+
+
+class _FailingClient:
+    """Fake httpx client whose post raises a transport-level exception."""
+
+    def __init__(self, exc):
+        self._exc = exc
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *exc):
+        return False
+
+    async def post(self, url, json, headers):
+        raise self._exc
+
+
+class _StatusResp:
+    """Fake response whose raise_for_status raises for the given HTTP status."""
+
+    def __init__(self, status):
+        self._status = status
+
+    def raise_for_status(self):
+        raise corpus.httpx.HTTPStatusError(
+            f"HTTP {self._status}",
+            request=corpus.httpx.Request("POST", "http://api/graphql"),
+            response=corpus.httpx.Response(self._status),
+        )
+
+    def json(self):  # pragma: no cover - raise_for_status always fires first
+        return {}
+
+
+def _patch_failing(monkeypatch, exc):
+    monkeypatch.setattr(corpus.httpx, "AsyncClient", lambda **kw: _FailingClient(exc))
+
+
+def _patch_status(monkeypatch, status):
+    class _Client:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):
+            return False
+
+        async def post(self, url, json, headers):
+            return _StatusResp(status)
+
+    monkeypatch.setattr(corpus.httpx, "AsyncClient", lambda **kw: _Client())
+
+
+@pytest.mark.asyncio
+async def test_timeout_maps_to_retriable_upstream_unavailable(monkeypatch):
+    _patch_failing(monkeypatch, corpus.httpx.TimeoutException("boom"))
+    with pytest.raises(corpus.ToolCallError) as err:
+        await corpus.full_text_search("x")
+    assert err.value.kind == "upstream_unavailable"
+    assert err.value.retriable is True
+
+
+@pytest.mark.asyncio
+async def test_connect_error_maps_to_retriable_upstream_unavailable(monkeypatch):
+    _patch_failing(monkeypatch, corpus.httpx.ConnectError("no route"))
+    with pytest.raises(corpus.ToolCallError) as err:
+        await corpus.full_text_search("x")
+    assert err.value.kind == "upstream_unavailable"
+    assert err.value.retriable is True
+
+
+@pytest.mark.asyncio
+async def test_http_401_maps_to_permission_denied(monkeypatch):
+    _patch_status(monkeypatch, 401)
+    with pytest.raises(corpus.ToolCallError) as err:
+        await corpus.full_text_search("x")
+    assert err.value.kind == "permission_denied"
+    assert err.value.retriable is False
+
+
+@pytest.mark.asyncio
+async def test_http_500_maps_to_retriable_upstream_unavailable(monkeypatch):
+    _patch_status(monkeypatch, 500)
+    with pytest.raises(corpus.ToolCallError) as err:
+        await corpus.full_text_search("x")
+    assert err.value.kind == "upstream_unavailable"
+    assert err.value.retriable is True
+
+
+@pytest.mark.asyncio
+async def test_graphql_permission_error_is_typed_and_backward_compatible(monkeypatch):
+    _patch(monkeypatch, {"errors": [{"message": "permission denied for table canonical"}]})
+    with pytest.raises(corpus.ToolCallError) as err:
+        await corpus.full_text_search("x")
+    assert err.value.kind == "permission_denied"
+    assert isinstance(err.value, RuntimeError)  # existing callers keep working
+
+
+@pytest.mark.asyncio
+async def test_graphql_invalid_input_classified_bad_input(monkeypatch):
+    _patch(monkeypatch, {"errors": [{"message": "invalid input syntax for type uuid"}]})
+    with pytest.raises(corpus.ToolCallError) as err:
+        await corpus.full_text_search("x")
+    assert err.value.kind == "bad_input"
+
+
+# --- capability not deployed (vision stack absent on the API host) ----------
+
+
+@pytest.mark.asyncio
+async def test_missing_vision_stack_classified_unsupported(monkeypatch):
+    _patch(
+        monkeypatch,
+        {
+            "errors": [
+                {
+                    "message": (
+                        "crossModalImageSearch is unavailable on this deployment: "
+                        "vision stack module(s) open_clip are not installed on the API host"
+                    )
+                }
+            ]
+        },
+    )
+    with pytest.raises(corpus.ToolCallError) as err:
+        await corpus.cross_modal_image_search("infographic with icons")
+    assert err.value.kind == "unsupported"
+    assert err.value.retriable is False
+    assert err.value.hint  # steers agents to text-side tools instead of retrying
+
+
+@pytest.mark.asyncio
+async def test_legacy_open_clip_import_leak_classified_unsupported(monkeypatch):
+    # Regression: API hosts predating the typed error leak the raw
+    # ModuleNotFoundError text straight through GraphQL.
+    _patch(monkeypatch, {"errors": [{"message": "No module named 'open_clip'"}]})
+    with pytest.raises(corpus.ToolCallError) as err:
+        await corpus.cross_modal_image_search("diagram")
+    assert err.value.kind == "unsupported"
+    assert err.value.retriable is False
+
+
+# --- pre-flight input validation --------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_malformed_document_id_rejected_before_network(monkeypatch):
+    client = _patch(monkeypatch, {"data": {"document": None}})
+    with pytest.raises(corpus.ToolCallError) as err:
+        await corpus.get_document("not-a-uuid")
+    assert err.value.kind == "bad_input"
+    assert client.calls == []  # rejected before any GraphQL round-trip
+
+
+@pytest.mark.asyncio
+async def test_optional_document_id_validated_when_present(monkeypatch):
+    client = _patch(monkeypatch, {"data": {"searchSentences": []}})
+    with pytest.raises(corpus.ToolCallError) as err:
+        await corpus.search_sentences("term", document_id="nope")
+    assert err.value.kind == "bad_input"
+    assert client.calls == []
+
+
+@pytest.mark.asyncio
+async def test_blank_term_rejected(monkeypatch):
+    client = _patch(monkeypatch, {"data": {"searchSentences": []}})
+    with pytest.raises(corpus.ToolCallError) as err:
+        await corpus.search_sentences("   ")
+    assert err.value.kind == "bad_input"
+    assert client.calls == []
 
 
 @pytest.mark.asyncio

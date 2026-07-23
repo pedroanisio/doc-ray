@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import contextvars
 import os
+import uuid
 from collections.abc import Callable
 from typing import Any
 
@@ -50,6 +51,79 @@ def _clip_windows(row: dict[str, Any], fields: tuple[str, ...]) -> dict[str, Any
     return row
 
 
+class ToolCallError(RuntimeError):
+    """Typed MCP tool failure: a stable ``kind``, retriability, and agent hint.
+
+    Kinds: ``bad_input`` (fix the arguments), ``permission_denied`` (fix the
+    token/scopes), ``not_found``, ``unsupported`` (this deployment cannot serve
+    the capability — never retriable), ``upstream_unavailable`` (retriable), and
+    ``upstream_error`` (unclassified upstream failure). Subclasses
+    ``RuntimeError`` so existing callers that caught the old raw errors keep
+    working.
+    """
+
+    def __init__(
+        self, kind: str, message: str, *, retriable: bool = False, hint: str | None = None
+    ) -> None:
+        """Render ``[kind] message (retriable) — hint`` as the exception text."""
+        self.kind = kind
+        self.retriable = retriable
+        self.hint = hint
+        rendered = f"[{kind}] {message}"
+        if retriable:
+            rendered += " (retriable)"
+        if hint:
+            rendered += f" — {hint}"
+        super().__init__(rendered)
+
+
+#: Agent-facing hints attached to classified GraphQL errors, by kind.
+_KIND_HINTS = {
+    "unsupported": (
+        "this deployment does not serve the capability — do not retry; "
+        "use text-side tools (full_text_search, search_sentences, visual_captions) instead"
+    ),
+}
+
+
+def _classify_graphql_error(message: str) -> str:
+    """Map a GraphQL error message onto a stable ToolCallError kind."""
+    lowered = message.lower()
+    if "permission denied" in lowered or "not authorized" in lowered or "forbidden" in lowered:
+        return "permission_denied"
+    # "not installed" is the API's typed vision-stack error (visual_query.py);
+    # "no module named" is the raw leak from API hosts predating that error.
+    if "not installed" in lowered or "no module named" in lowered:
+        return "unsupported"
+    if "not found" in lowered or "does not exist" in lowered:
+        return "not_found"
+    if any(marker in lowered for marker in ("invalid", "expected", "must be", "cannot represent")):
+        return "bad_input"
+    return "upstream_error"
+
+
+def _require_uuid(value: str | None, param: str) -> str | None:
+    """Reject a malformed document id before it costs a GraphQL round-trip."""
+    if value is None:
+        return None
+    try:
+        uuid.UUID(str(value))
+    except ValueError:
+        raise ToolCallError(
+            "bad_input",
+            f"{param} must be a document UUID, got {value!r}",
+            hint="take ids from list_documents or full_text_search",
+        ) from None
+    return value
+
+
+def _require_nonempty(value: str, param: str) -> str:
+    """Reject blank required strings before any network call."""
+    if not value or not value.strip():
+        raise ToolCallError("bad_input", f"{param} must be a non-empty string")
+    return value
+
+
 async def gql(query: str, variables: dict[str, Any]) -> dict[str, Any]:
     """Execute a GraphQL operation, forwarding the caller's bearer token.
 
@@ -61,20 +135,50 @@ async def gql(query: str, variables: dict[str, Any]) -> dict[str, Any]:
         The ``data`` payload of the response.
 
     Raises:
-        RuntimeError: If the response carries GraphQL ``errors`` (HTTP 200-wrapped).
+        ToolCallError: Typed failure — transport, HTTP status, and GraphQL
+            ``errors`` are all mapped onto a stable ``kind`` with a
+            retriability hint.
     """
     headers: dict[str, str] = {"content-type": "application/json"}
     token = caller_token.get()
     if token:
         headers["Authorization"] = f"Bearer {token}"
-    async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
-        response = await client.post(
-            API_URL, json={"query": query, "variables": variables}, headers=headers
-        )
-    response.raise_for_status()
+    try:
+        async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+            response = await client.post(
+                API_URL, json={"query": query, "variables": variables}, headers=headers
+            )
+    except httpx.TimeoutException as exc:
+        raise ToolCallError(
+            "upstream_unavailable",
+            f"GraphQL API timed out after {_TIMEOUT:g}s",
+            retriable=True,
+            hint="retry, or narrow the query",
+        ) from exc
+    except httpx.TransportError as exc:
+        raise ToolCallError(
+            "upstream_unavailable", "GraphQL API unreachable", retriable=True
+        ) from exc
+    try:
+        response.raise_for_status()
+    except httpx.HTTPStatusError as exc:
+        status = exc.response.status_code
+        if status in (401, 403):
+            raise ToolCallError(
+                "permission_denied",
+                f"GraphQL API returned HTTP {status}",
+                hint="check the bearer token and its scopes",
+            ) from exc
+        raise ToolCallError(
+            "upstream_unavailable" if status >= 500 else "upstream_error",
+            f"GraphQL API returned HTTP {status}",
+            retriable=status >= 500,
+        ) from exc
     body = response.json()
     if body.get("errors"):
-        raise RuntimeError(body["errors"][0].get("message", "GraphQL error"))
+        message = body["errors"][0].get("message", "GraphQL error")
+        kind = _classify_graphql_error(message)
+        raise ToolCallError(kind, message, hint=_KIND_HINTS.get(kind))
     data: dict[str, Any] = body["data"]
     return data
 
@@ -87,6 +191,8 @@ async def search_sentences(
     Pass a row's ``cursor`` as ``after`` to fetch the next page. Oversized windows
     are clipped with an explicit ``… [+N chars]`` marker.
     """
+    _require_nonempty(term, "term")
+    _require_uuid(document_id, "document_id")
     data = await gql(
         "query($t:String!,$d:ID,$l:Int!,$a:String)"
         "{searchSentences(term:$t,documentId:$d,limit:$l,after:$a)"
@@ -99,6 +205,7 @@ async def search_sentences(
 
 async def full_text_search(query: str, limit: int = 25) -> list[dict[str, Any]]:
     """Rank documents by full-text relevance to a query."""
+    _require_nonempty(query, "query")
     data = await gql(
         "query($q:String!,$l:Int!){fullTextSearch(query:$q,limit:$l){documentId title rank}}",
         {"q": query, "l": limit},
@@ -129,6 +236,7 @@ async def list_documents(
 
 async def get_document(document_id: str) -> dict[str, Any] | None:
     """Fetch one document's metadata and counts by id."""
+    _require_uuid(document_id, "document_id")
     data = await gql(
         "query($id:ID!){document(id:$id){id title docType status language pageCount charCount "
         "sentenceCount tokenCount authors tags createdAt}}",
@@ -142,6 +250,7 @@ async def entity_frequency(
     document_id: str | None = None, entity_type: str | None = None, limit: int = 50
 ) -> list[dict[str, Any]]:
     """Most frequent named entities across the corpus or one document."""
+    _require_uuid(document_id, "document_id")
     data = await gql(
         "query($d:ID,$e:String,$l:Int!){entityFrequency(documentId:$d,entityType:$e,limit:$l)"
         "{text entityType count}}",
@@ -158,6 +267,8 @@ async def lexeme_kwic(
 
     Oversized windows are clipped with an explicit ``… [+N chars]`` marker.
     """
+    _require_nonempty(uid, "uid")
+    _require_uuid(document_id, "document_id")
     data = await gql(
         "query($u:ID!,$d:ID,$l:Int!){lexeme(uid:$u){uid lemma pos "
         "occurrences(documentId:$d,limit:$l)"
@@ -177,6 +288,7 @@ async def document_images(
     Each row: page, source (embedded-raster / full-page), size, image class,
     saturation/value/contrast/edge-density, and the dominant colour palette.
     """
+    _require_uuid(document_id, "document_id")
     data = await gql(
         "query($d:ID!,$l:Int!,$a:String){documentImages(documentId:$d,limit:$l,after:$a)"
         "{id pageNumber source widthPx heightPx imageClass meanSaturation meanValue "
@@ -189,6 +301,7 @@ async def document_images(
 
 async def image_class_summary(document_id: str) -> list[dict[str, Any]]:
     """The ``(imageClass, count)`` distribution of a document's detected images."""
+    _require_uuid(document_id, "document_id")
     data = await gql(
         "query($d:ID!){imageClassSummary(documentId:$d){imageClass count}}",
         {"d": document_id},
@@ -202,7 +315,10 @@ async def cross_modal_image_search(query: str, limit: int = 25) -> list[dict[str
 
     Ranks the corpus's images by CLIP/SigLIP cosine similarity to *query*; returns
     document/page/class and a similarity score. RLS-scoped to readable images.
+    Requires the vision stack on the API host; without it the call fails with
+    kind ``unsupported`` — do not retry, use the text-side tools instead.
     """
+    _require_nonempty(query, "query")
     data = await gql(
         "query($q:String!,$l:Int!){crossModalImageSearch(query:$q,limit:$l)"
         "{id documentId pageNumber source imageClass similarity}}",
@@ -218,6 +334,7 @@ async def visual_captions(document_id: str, limit: int = 100) -> list[dict[str, 
     Only captions whose grounding cleared the gate are returned; low-confidence
     captions stay in human review and are never surfaced here.
     """
+    _require_uuid(document_id, "document_id")
     data = await gql(
         "query($d:ID!,$l:Int!){visualCaptions(documentId:$d,limit:$l)"
         "{id documentImageId pageNumber caption model groundingScore}}",

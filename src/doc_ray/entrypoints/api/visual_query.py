@@ -9,6 +9,7 @@ RLS-scoped like every other read.
 from __future__ import annotations
 
 import functools
+import importlib.util
 import os
 
 import anyio
@@ -25,6 +26,15 @@ from doc_ray.entrypoints.api.visual_types import (
 )
 from doc_ray.ports.vision_encoder import VisionEncoder
 
+#: Modules the query encoder needs at runtime. Probed with ``find_spec`` before
+#: any adapter import so a host without the vision stack fails typed and fast —
+#: never by leaking a raw ``ModuleNotFoundError`` through GraphQL mid-query.
+_VISION_STACK_MODULES = ("open_clip", "torch")
+
+
+class VisionStackUnavailableError(RuntimeError):
+    """Cross-modal search was queried on a host without the vision stack installed."""
+
 
 @functools.lru_cache(maxsize=1)
 def _query_vision_encoder() -> VisionEncoder:
@@ -33,7 +43,21 @@ def _query_vision_encoder() -> VisionEncoder:
     Loads the vision model on first cross-modal query only — the model is required
     only where cross-modal search runs. Isolated here so the schema builds without
     importing torch/open_clip.
+
+    Raises:
+        VisionStackUnavailableError: If ``open_clip``/``torch`` are not installed
+            on this host — the message is the wire contract downstream (MCP)
+            error classification matches on, so it must keep saying
+            "not installed".
     """
+    missing = [m for m in _VISION_STACK_MODULES if importlib.util.find_spec(m) is None]
+    if missing:
+        raise VisionStackUnavailableError(
+            "crossModalImageSearch is unavailable on this deployment: "
+            f"vision stack module(s) {', '.join(missing)} are not installed on the "
+            "API host. Install the vision stack (open_clip_torch, torch) in the API "
+            "image, or query a deployment that serves it."
+        )
     from doc_ray.adapters.vision_encoder_openclip import OpenClipVisionEncoder
 
     return OpenClipVisionEncoder(

@@ -22,6 +22,18 @@ doc-ray carries **one global version** covering both the application package
 ## [Unreleased]
 
 ### Fixed
+- **`crossModalImageSearch` no longer leaks `No module named 'open_clip'`**
+  (Claude Fable 5 via Claude Code). The GraphQL read path lazily imports the
+  Tier-2 vision encoder at query time, but `open_clip`/`torch` are deliberately
+  absent from the API image (they belong to the GPU worker), so MCP callers of
+  `cross_modal_image_search` got a raw `ModuleNotFoundError` straight through
+  GraphQL. The encoder factory now probes the vision stack with `find_spec`
+  before any import and raises a typed `VisionStackUnavailableError` naming
+  what is missing and how to deploy it; the MCP layer classifies both the typed
+  message and the legacy raw leak onto a new non-retriable `unsupported` error
+  kind with a hint steering agents to the text-side tools instead of retrying.
+  Regression tests cover the encoder factory, the GraphQL wire contract, and
+  the MCP classification of both message shapes.
 - **Database ERD & data dictionary caught up with the live schema** (Claude
   Fable 5 via Claude Code). `docs/DATABASE.md` had drifted to 1.22.0/73
   migrations because the generator's own curated inputs were stale: 16 live
