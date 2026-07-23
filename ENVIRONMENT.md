@@ -69,6 +69,11 @@ every credential; `.env` is the development file and must never be used to reach
 these services. Compose is always invoked with `--env-file .env.prod`, which
 *replaces* `.env` for interpolation — the make targets do this for you.
 
+Every variable is defined once in [`config/env.registry.yaml`](config/env.registry.yaml);
+`.env.prod` is built from the generated [`.env.prod.example`](.env.prod.example)
+template. Validate this host's file with `python scripts/check_env.py .env.prod --prod`.
+Full guide: [docs/environment-configuration.md](docs/environment-configuration.md).
+
 Overlays that compose the production stack:
 
 | File | Adds |

@@ -63,6 +63,13 @@ repos:
         pass_filenames: false
         always_run: true
 
+      - id: env-registry-drift
+        name: .env.example/.env.prod.example match config/env.registry.yaml
+        entry: python scripts/gen_env_samples.py --check
+        language: system
+        pass_filenames: false
+        always_run: true
+
       - id: coverage-gate
         name: pytest coverage >= 90% — D-013 (pre-push)
         entry: pytest --cov=doc_ray --cov-fail-under=90 tests src/doc_ray/tests -q

@@ -317,6 +317,7 @@ python -m doc_ray.entrypoints.evaluate --source fixture --json
 | `src/doc_ray/application/` | Use cases: `pipeline`, `reannotate`, `reextract`, `jobs` (dispatch + pipeline chaining), `term_scan`/`canonicalize`/`resolution`/`seed_suggest`/`canonical_seed` (entity canonicalization), `semantic_enrichment`, `evaluation`, `backup` (corpus snapshot/restore), `corpus_health`, `db_health` (instance health), `db_analyzer` (multi-engine structure + data profiling) |
 | `src/doc_ray/entrypoints/` | Driving adapters (`python -m doc_ray.entrypoints.<name>`): `cli`, `api` (GraphQL), `mcp` (Streamable-HTTP MCP server over the API, run via uvicorn), `worker`, `migrate`, `auth_admin` (principal/token admin), `backup_scheduler` (periodic backup enqueue + retention), `export`, `annotate`, `annotate_spacy`, `annotate_semantic`, `evaluate`, `reannotate`, `reextract`, `corpus_health`, `db_health`, `db_analyze` |
 | `src/doc_ray/config.py`    | Env-driven configuration                           |
+| `config/env.registry.yaml` | Canonical env-var registry (single source of truth); see [`docs/environment-configuration.md`](docs/environment-configuration.md) |
 | `webapp/`                  | Flask browser over the annotated corpus (frontend, kept **outside** `src/`) |
 | `scripts/`                 | Standalone text tools (`extract_phrases`, `docmodel`, `roundtrip`, `text_decomposer`) — independent of the pipeline; see `scripts/README.md` |
 | `docs/`                    | Design notes & specs; see [`docs/architecture.md`](docs/architecture.md) |
