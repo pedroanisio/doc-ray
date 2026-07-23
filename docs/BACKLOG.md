@@ -503,6 +503,7 @@ against.
 | BL-134 | Pipeline polish: janitor reap, attempt-relative started_at, reap progress hygiene | ops | tech-debt | done | S | high | shared |
 | BL-135 | Backup heartbeat starved: progress writes rode the handler's snapshot transaction | ops | bug | done | S | high | shared |
 | BL-136 | check_version_consistency gate red on main: package version left at 1.22.0 while schema moved to 1.24.0 | tooling | bug | done | XS | high | shared |
+| BL-137 | docs-in-sync gate red on main: DATABASE.md stops at migration 094 while db/migrations holds 101 | docs | bug | ready | S | high | shared |
 
 See [`backlog.yml`](backlog.yml) for each item's full description, rationale,
 acceptance criteria, dependencies, related decisions (`D-###`), and references.

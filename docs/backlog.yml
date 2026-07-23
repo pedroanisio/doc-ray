@@ -110,7 +110,7 @@ metadata:
   generated_by:     "Claude Sonnet 5 via Claude Code (merge of Claude Opus 4.8 backlog + OpenAI Codex improvement-proposal candidates)"
   generated_on:     "2026-07-05"
   system_of_record: "docs/backlog.yml"
-  total_items:      136
+  total_items:      137
 
 items:
 
@@ -4503,3 +4503,31 @@ items:
     owner:        "shared"
     source:       "Backlog-vs-codebase inspection 2026-07-13 (Claude Fable 5 via Claude Code): gate replayed with its true exit code after the tail-pipe masked it; fixed the same session."
     tags:         ["tooling", "gates", "versioning", "bug"]
+
+  - id:          "BL-137"
+    title:        "docs-in-sync gate red on main: DATABASE.md stops at migration 094 while db/migrations holds 101"
+    summary:      "tests/test_docs_in_sync.py fails on main: docs/DATABASE.md documents 94 applied migrations but db/migrations/ contains 101 (095_corpus_stats through 101_schema_version_1_33_0 are missing from the §9 migration-history table). The generator's curated MIGRATIONS list in scripts/_data_dictionary_content.py was not extended when those seven migrations landed — the same stale-curated-inputs failure mode the 1.24.0 catch-up fixed for 072-077. Found 2026-07-21 while running the landing checklist for the cross-modal vision-stack fix."
+    description: |
+      Re-run `python scripts/gen_data_dictionary.py` after adding hand-curated
+      entries for migrations 095-101 to scripts/_data_dictionary_content.py's
+      MIGRATIONS list, and rebuild docs/doc-ray-database-erd.svg if the new
+      tables changed the ERD scope. Both docs-in-sync tests
+      (migration count and migration-history completeness) must pass.
+    category:     "docs"
+    type:         "bug"
+    status:       "ready"
+    complexity:   "S"
+    priority:     "high"
+    rationale:    "A gate that is red on main stops gating (BL-129/BL-136's rationale, verbatim): every landing that runs tests learns to read past the docs-in-sync failures, and the database dictionary drifts further with each migration."
+    acceptance_criteria:
+      - "pytest tests/test_docs_in_sync.py exits 0 on main."
+      - "docs/DATABASE.md's §9 migration-history table lists every file in db/migrations/."
+    dependencies: []
+    references:
+      - "tests/test_docs_in_sync.py"
+      - "scripts/gen_data_dictionary.py"
+      - "scripts/_data_dictionary_content.py"
+      - "docs/DATABASE.md"
+    owner:        "shared"
+    source:       "Landing checklist for the crossModalImageSearch vision-stack fix, 2026-07-21 (Claude Fable 5 via Claude Code): pytest tests/test_docs_in_sync.py reports 94 documented vs 101 on-disk migrations, missing 095-101."
+    tags:         ["documentation", "gates", "database", "bug"]
