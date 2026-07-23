@@ -10,28 +10,79 @@ from starlette.applications import Starlette
 from doc_ray.entrypoints.mcp import corpus, server
 from doc_ray.entrypoints.mcp.auth import BearerAuthMiddleware
 
+_READ_TOOL_NAMES = {
+    # corpus read tools
+    "search_sentences",
+    "full_text_search",
+    "list_documents",
+    "get_document",
+    "get_job",
+    "entity_frequency",
+    "lexeme_kwic",
+    # Prism visual tools
+    "document_images",
+    "image_class_summary",
+    "cross_modal_image_search",
+    "visual_captions",
+    # composition-grounding tools
+    "briefing_pack",
+    "entity_dossier",
+    "document_evidence",
+}
 
-def test_build_server_registers_the_read_and_composition_tools():
+_WRITE_TOOL_NAMES = {
+    "reannotate",
+    "reextract_document",
+    "annotate_document",
+    "semantic_enrich_document",
+    "canonicalize_document",
+    "suggest_seeds",
+    "suggest_document_metadata",
+    "update_document_metadata",
+    "bulk_tag_documents",
+    "decide_seeds",
+    "decide_document_metadata_suggestions",
+    "seed_approved",
+}
+
+
+def test_build_server_registers_only_read_tools_by_default():
+    """Default posture is read-only: no write tool is even advertised in tools/list."""
     mcp = server.build_server()
     names = {tool.name for tool in anyio.run(mcp.list_tools)}
-    assert names == {
-        # corpus read tools
-        "search_sentences",
-        "full_text_search",
-        "list_documents",
-        "get_document",
-        "entity_frequency",
-        "lexeme_kwic",
-        # Prism visual tools
-        "document_images",
-        "image_class_summary",
-        "cross_modal_image_search",
-        "visual_captions",
-        # composition-grounding tools
-        "briefing_pack",
-        "entity_dossier",
-        "document_evidence",
-    }
+    assert names == _READ_TOOL_NAMES
+    assert not (names & _WRITE_TOOL_NAMES)
+
+
+def test_build_server_adds_write_tools_when_enabled():
+    mcp = server.build_server(enable_write=True)
+    names = {tool.name for tool in anyio.run(mcp.list_tools)}
+    assert names == _READ_TOOL_NAMES | _WRITE_TOOL_NAMES
+
+
+def test_create_app_threads_config_flag_into_registration(monkeypatch):
+    """create_app passes cfg.mcp_enable_write straight to build_server."""
+    import dataclasses
+
+    from doc_ray.config import Config
+
+    seen = {}
+    real_build = server.build_server
+
+    def _fake_build(enable_write=False):
+        seen["enable_write"] = enable_write
+        return real_build(enable_write=enable_write)
+
+    monkeypatch.setattr(server, "build_server", _fake_build)
+    cfg = dataclasses.replace(Config.from_env(), mcp_enable_write=True)
+    server.create_app(cfg)
+    assert seen["enable_write"] is True
+
+
+def test_config_default_keeps_mcp_read_only():
+    from doc_ray.config import Config
+
+    assert Config.from_env().mcp_enable_write is False
 
 
 def test_registered_tools_keep_their_input_schemas():

@@ -22,7 +22,7 @@ from mcp.server.transport_security import TransportSecuritySettings
 from starlette.applications import Starlette
 
 from doc_ray.config import Config
-from doc_ray.entrypoints.mcp import audit, compose, corpus
+from doc_ray.entrypoints.mcp import audit, compose, corpus, mutations
 from doc_ray.entrypoints.mcp.auth import BearerAuthMiddleware
 
 #: Loopback patterns the SDK trusts by default — kept so local dev still works.
@@ -60,17 +60,25 @@ def _transport_security() -> TransportSecuritySettings | None:
     return TransportSecuritySettings(allowed_hosts=allowed_hosts, allowed_origins=allowed_origins)
 
 
-def build_server() -> FastMCP:
+def build_server(enable_write: bool = False) -> FastMCP:
     """Create a FastMCP server with the corpus read + composition-grounding tools.
 
     Every tool is wrapped by :func:`~doc_ray.entrypoints.mcp.audit.audited`, so
     each call emits one audit log line (caller fingerprint, outcome, duration).
+
+    Args:
+        enable_write: When true, additionally register the reprocessing + curation
+            write tools (:data:`doc_ray.entrypoints.mcp.mutations.TOOLS`). Off by
+            default so the advertised surface is read-only unless an operator opts
+            in via ``DOCRAY_MCP_ENABLE_WRITE``; even when on, every write is still
+            gated by the API's ``write`` scope and per-document ACL guards.
     """
     mcp = FastMCP("doc-ray")
     if (security := _transport_security()) is not None:
         # Accept the public Host behind the tunnel — the localhost-only default 421s.
         mcp.settings.transport_security = security
-    for tool in (*corpus.TOOLS, *compose.TOOLS):
+    tools = (*corpus.TOOLS, *compose.TOOLS, *(mutations.TOOLS if enable_write else ()))
+    for tool in tools:
         mcp.tool()(audit.audited(tool))
     return mcp
 
@@ -85,7 +93,7 @@ def create_app(cfg: Config | None = None) -> Starlette:
         A Starlette app exposing the MCP endpoint behind :class:`BearerAuthMiddleware`.
     """
     cfg = cfg or Config.from_env()
-    app = build_server().streamable_http_app()
+    app = build_server(enable_write=cfg.mcp_enable_write).streamable_http_app()
     app.add_middleware(BearerAuthMiddleware, cfg=cfg)
     return app
 

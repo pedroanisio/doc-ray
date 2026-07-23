@@ -1,0 +1,117 @@
+"""Every GraphQL document the MCP tools send must validate against the API schema.
+
+The MCP read/write tools embed hand-written GraphQL operation strings. This test is
+the drift guard: it drives each tool with a fake transport, captures the exact
+document it would send, and validates it against the live Strawberry schema
+(fields, argument names, and types). If a resolver renames a field or changes an
+argument, this fails here instead of at runtime against a 401/GraphQL error.
+"""
+
+from __future__ import annotations
+
+from typing import Any
+
+import pytest
+from graphql import build_schema, parse, validate
+
+from doc_ray.entrypoints.api.schema import build_schema as build_strawberry_schema
+
+# Import the server eagerly so the `mcp` SDK is loaded before any test patches
+# httpx.AsyncClient — tokens._current_request() lazily imports it on first tool
+# call, and the SDK evaluates `httpx.AsyncClient | None` at import time.
+from doc_ray.entrypoints.mcp import corpus, mutations, server  # noqa: F401
+
+_GRAPHQL_SCHEMA = build_schema(build_strawberry_schema(debug=True).as_str())
+_DOC = "11111111-1111-1111-1111-111111111111"
+
+
+class _AutoData(dict):
+    """A ``data`` payload that yields a benign value for whatever field a tool reads."""
+
+    def __getitem__(self, key: str) -> Any:
+        return []
+
+
+class _CapturingClient:
+    def __init__(self, sink: dict[str, str]) -> None:
+        self._sink = sink
+
+    async def __aenter__(self) -> _CapturingClient:
+        return self
+
+    async def __aexit__(self, *exc: object) -> bool:
+        return False
+
+    async def post(self, url: str, json: dict[str, Any], headers: dict[str, str]) -> Any:
+        self._sink["query"] = json["query"]
+
+        class _Resp:
+            def raise_for_status(self) -> None:
+                return None
+
+            def json(self) -> dict[str, Any]:
+                return {"data": _AutoData()}
+
+        return _Resp()
+
+
+async def _capture(monkeypatch: pytest.MonkeyPatch, call) -> str:
+    sink: dict[str, str] = {}
+    monkeypatch.setattr(corpus.httpx, "AsyncClient", lambda **kw: _CapturingClient(sink))
+    await call()
+    return sink["query"]
+
+
+# (tool callable) pairs covering every read tool that hits GraphQL and every write tool.
+_READ_CALLS = [
+    lambda: corpus.search_sentences("x"),
+    lambda: corpus.full_text_search("x"),
+    lambda: corpus.list_documents(),
+    lambda: corpus.get_document(_DOC),
+    lambda: corpus.get_job("job-1"),
+    lambda: corpus.entity_frequency(),
+    lambda: corpus.lexeme_kwic("lex-1"),
+]
+
+_WRITE_CALLS = [
+    lambda: mutations.reannotate(_DOC),
+    lambda: mutations.reextract_document(_DOC),
+    lambda: mutations.annotate_document(_DOC),
+    lambda: mutations.semantic_enrich_document(_DOC),
+    lambda: mutations.canonicalize_document(_DOC, resolve=True),
+    lambda: mutations.suggest_seeds(_DOC),
+    lambda: mutations.suggest_document_metadata(_DOC),
+    lambda: mutations.update_document_metadata(_DOC, title="t", tags=["a"]),
+    lambda: mutations.bulk_tag_documents([_DOC], tags=["a"]),
+    lambda: mutations.decide_seeds(approve_ids=["s1"]),
+    lambda: mutations.decide_document_metadata_suggestions(approve_ids=["m1"]),
+    lambda: mutations.seed_approved(_DOC),
+]
+
+
+@pytest.mark.parametrize("call", _READ_CALLS + _WRITE_CALLS)
+@pytest.mark.asyncio
+async def test_mcp_document_validates_against_the_api_schema(monkeypatch, call) -> None:
+    document = await _capture(monkeypatch, call)
+    errors = validate(_GRAPHQL_SCHEMA, parse(document))
+    assert not errors, f"{document!r} -> {[str(e) for e in errors]}"
+
+
+@pytest.mark.asyncio
+async def test_every_write_tool_is_contract_checked() -> None:
+    """Guard against a new write tool being added without a schema-contract case."""
+    covered = {
+        "reannotate",
+        "reextract_document",
+        "annotate_document",
+        "semantic_enrich_document",
+        "canonicalize_document",
+        "suggest_seeds",
+        "suggest_document_metadata",
+        "update_document_metadata",
+        "bulk_tag_documents",
+        "decide_seeds",
+        "decide_document_metadata_suggestions",
+        "seed_approved",
+    }
+    assert {fn.__name__ for fn in mutations.TOOLS} == covered

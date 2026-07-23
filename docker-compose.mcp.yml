@@ -46,6 +46,9 @@ services:
       # External agentic surface: require a token by default even if the API
       # allows anonymous. Set DOCRAY_MCP_ALLOW_ANONYMOUS=true only for local dev.
       DOCRAY_API_ALLOW_ANONYMOUS: ${DOCRAY_MCP_ALLOW_ANONYMOUS:-false}
+      # Read-only by default. Set true to also register the reprocessing + curation
+      # write tools; the API's write scope + per-document ACL still gate every call.
+      DOCRAY_MCP_ENABLE_WRITE: ${DOCRAY_MCP_ENABLE_WRITE:-false}
       # Public host(s) to accept behind the tunnel — else the MCP SDK's
       # localhost-only DNS-rebind guard 421s "Invalid Host header: doc-ray.com".
       # Sourced from DOCRAY_PUBLIC_BASE_URL's host; add extras via DOCRAY_MCP_ALLOWED_HOSTS.

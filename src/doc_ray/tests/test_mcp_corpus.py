@@ -145,6 +145,24 @@ async def test_get_document_returns_none_when_null(monkeypatch):
     assert await corpus.get_document("00000000-0000-0000-0000-000000000000") is None
 
 
+@pytest.mark.asyncio
+async def test_get_job_forwards_and_maps(monkeypatch):
+    """A caller must be able to poll a job it enqueued via a write tool."""
+    job = {"id": "job-9", "kind": "reannotate", "status": "succeeded", "documentId": None}
+    client = _patch(monkeypatch, {"data": {"job": job}})
+    out = await corpus.get_job("job-9")
+    assert out == job
+    _url, body, _headers = client.calls[0]
+    assert "job(id:$id)" in body["query"]
+    assert body["variables"] == {"id": "job-9"}
+
+
+@pytest.mark.asyncio
+async def test_get_job_returns_none_when_unknown(monkeypatch):
+    _patch(monkeypatch, {"data": {"job": None}})
+    assert await corpus.get_job("nope") is None
+
+
 # --- typed errors -----------------------------------------------------------
 
 
@@ -344,6 +362,7 @@ def test_tools_tuple_is_the_read_tools():
         "full_text_search",
         "list_documents",
         "get_document",
+        "get_job",
         "entity_frequency",
         "lexeme_kwic",
         # Prism visual tools

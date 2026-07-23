@@ -87,7 +87,21 @@ _KIND_HINTS = {
 def _classify_graphql_error(message: str) -> str:
     """Map a GraphQL error message onto a stable ToolCallError kind."""
     lowered = message.lower()
-    if "permission denied" in lowered or "not authorized" in lowered or "forbidden" in lowered:
+    # The API's write guards raise these exact authz phrasings (mutation_guards.py:
+    # "requires an authenticated principal with write scope", "no write grant for
+    # document …", "cannot share document …") — all are permission failures the
+    # agent fixes by acquiring scope/grant, not by retrying.
+    if any(
+        marker in lowered
+        for marker in (
+            "permission denied",
+            "not authorized",
+            "forbidden",
+            "write scope",
+            "write grant",
+            "cannot share",
+        )
+    ):
         return "permission_denied"
     # "not installed" is the API's typed vision-stack error (visual_query.py);
     # "no module named" is the raw leak from API hosts predating that error.
@@ -232,6 +246,30 @@ async def list_documents(
     return docs
 
 
+#: The ``Job`` selection set shared by ``get_job`` and every write tool
+#: (``mutations.py``), so an enqueued job and a polled job return the same shape.
+JOB_FIELDS = (
+    "id kind status documentId createdAt startedAt finishedAt attempts maxAttempts "
+    "error progressStage progressCurrent progressTotal"
+)
+
+
+async def get_job(job_id: str) -> dict[str, Any] | None:
+    """Poll one background job's status by id (returns None if unknown/not visible).
+
+    Mutations (reannotate, annotate, canonicalize, …) enqueue work and return a
+    job whose ``status`` is ``queued``; call this to watch it progress to
+    ``running`` then ``succeeded``/``failed``.
+    """
+    _require_nonempty(job_id, "job_id")
+    data = await gql(
+        f"query($id:ID!){{job(id:$id){{{JOB_FIELDS}}}}}",
+        {"id": job_id},
+    )
+    job: dict[str, Any] | None = data["job"]
+    return job
+
+
 async def get_document(document_id: str) -> dict[str, Any] | None:
     """Fetch one document's metadata and counts by id."""
     _require_uuid(document_id, "document_id")
@@ -348,6 +386,7 @@ TOOLS: tuple[Callable[..., Any], ...] = (
     full_text_search,
     list_documents,
     get_document,
+    get_job,
     entity_frequency,
     lexeme_kwic,
     document_images,

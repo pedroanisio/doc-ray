@@ -19,17 +19,19 @@ Exposes the doc-ray corpus to agentic AI over the **Model Context Protocol
 (MCP)**, authenticating each caller to a doc-ray principal so Postgres RLS scopes
 what they can read.
 
-**Status: live in production and verified end-to-end.** The read-only server
-(now **9 tools** — 6 corpus readers + 3 composition-grounding tools from
-`entrypoints/mcp/compose.py`) is deployed via `make mcp-up`, routed at
-`https://doc-ray.com/mcp` behind the Cloudflare tunnel, and confirmed with a real
-MCP client (initialize → tools/list → RLS-scoped tools/call). The **OAuth 2.1
-Authorization Server** (originally Phase 4) shipped in commit `93c0e99`
-(`application/oauth_server.py`, `webapp/oauth_web.py`, migration
-`082_oauth_clients.sql`), so a connector like Claude Desktop obtains a token via
-Dynamic Client Registration + PKCE with no pre-shared secret. Sections marked
-**DONE** are as-built; unchecked items are roadmap. Remaining: Phase-3 ops polish
-(`/health`/`/readyz`) and Phase-4 write tools / optional gRPC.
+**Status: live in production and verified end-to-end.** The server ships **14
+read tools** (7 corpus readers incl. `get_job` + 3 composition-grounding tools
+from `entrypoints/mcp/compose.py`… see §3) always registered, plus **12 opt-in
+write tools** (reprocessing + curation mutations) registered only when
+`DOCRAY_MCP_ENABLE_WRITE=true` — the default surface stays read-only. It is
+deployed via `make mcp-up`, routed at `https://doc-ray.com/mcp` behind the
+Cloudflare tunnel, and confirmed with a real MCP client (initialize → tools/list
+→ RLS-scoped tools/call). The **OAuth 2.1 Authorization Server** (originally
+Phase 4) shipped in commit `93c0e99` (`application/oauth_server.py`,
+`webapp/oauth_web.py`, migration `082_oauth_clients.sql`), so a connector like
+Claude Desktop obtains a token via Dynamic Client Registration + PKCE with no
+pre-shared secret. Sections marked **DONE** are as-built; unchecked items are
+roadmap. Remaining: Phase-3 ops polish (`/health`/`/readyz`) and optional gRPC.
 
 **Deploying it (as-built).** `make mcp-up` layers `docker-compose.mcp.yml` on the
 managed stack; the `mcp` service front-ends `api:8000/graphql`, loopback-bound on
@@ -85,6 +87,7 @@ every other read rule.
 | `src/doc_ray/entrypoints/mcp/tokens.py` | starlette + `mcp` | Per-call bearer-token resolution: live request wins, `caller_token` contextvar is the stdio fallback |
 | `src/doc_ray/entrypoints/mcp/corpus.py` | httpx only | GraphQL-passthrough client + read-tool functions (SDK-independent) |
 | `src/doc_ray/entrypoints/mcp/auth.py` | starlette only | Bearer/JWT validation + `BearerAuthMiddleware` (reuses `tokens`) |
+| `src/doc_ray/entrypoints/mcp/mutations.py` | httpx only | Write tools (reprocessing + curation mutations); registered only when writes are enabled |
 | `src/doc_ray/entrypoints/mcp/server.py` | `mcp` (new dep) | Thin FastMCP glue: register tools, mount middleware, expose ASGI `app` |
 | `docker-compose.mcp.yml` | — | `mcp` service; dev forwards to `http://api:8000/graphql` (in-network), prod to `https://doc-ray.com/graphql` |
 
@@ -92,9 +95,11 @@ Splitting the substance (`corpus.py` + `auth.py`) away from the SDK glue
 (`server.py`) means the tools and auth are testable and committable **without** the
 new dependency; only `server.py` needs `mcp`.
 
-## 3. Tool inventory (read-only — 9 tools as-built)
+## 3. Tool inventory
 
-The 6 corpus readers below each map to one GraphQL read field
+### Read tools (always registered)
+
+The corpus readers below each map to one GraphQL read field
 ([query.py](../src/doc_ray/entrypoints/api/query.py)); a further **3
 composition-grounding tools** (`briefing_pack`, `document_evidence`,
 `entity_dossier`) shipped in [`entrypoints/mcp/compose.py`](../src/doc_ray/entrypoints/mcp/compose.py)
@@ -106,11 +111,63 @@ for cited-briefing workflows — see that module for their signatures.
 | `full_text_search(query, limit)` | `fullTextSearch` | ranked docs |
 | `list_documents(limit, doc_type?, status?)` | `documents` | keyset `cursor` |
 | `get_document(document_id)` | `document` | metadata + counts |
+| `get_job(job_id)` | `job` | poll a job enqueued by a write tool |
 | `entity_frequency(document_id?, entity_type?, limit)` | `entityFrequency` | top entities |
 | `lexeme_kwic(uid, document_id?, limit)` | `lexeme { occurrences }` | KWIC is a **nested** resolver, not a root field |
 
-Write tools (`ingestDocument`, `bulkTagDocuments`, `createCollection`, …) are
-deferred to Phase 4 behind the `write` scope.
+### Write tools (opt-in — `DOCRAY_MCP_ENABLE_WRITE=true`)
+
+Registered **only** when writes are enabled, so the default surface stays
+read-only (a disabled deployment does not even list these in `tools/list`). Each
+forwards the caller's token into the API, whose guards remain authoritative:
+`_require_write_audited` (authenticated principal **+ `write` scope** + billing
+entitlement, audited) and `_require_document_write` (per-document ACL, BL-064). A
+caller lacking scope/grant gets a typed `permission_denied`. Every tool here
+enqueues a **reversible** background job or a curation decision — no destructive
+or admin verb (`delete`/`archive`/`backup`/`restore`/`cancel_job`) is exposed.
+Job-returning tools return the `Job` shape (`id`, `status`, …); poll it with
+`get_job`. See [`mutations.py`](../src/doc_ray/entrypoints/mcp/mutations.py) and
+engineering decision **D-030**.
+
+| MCP tool | GraphQL mutation | Returns |
+|---|---|---|
+| `reannotate(document_id, lang="en")` | `reannotate` | `Job` |
+| `reextract_document(document_id)` | `reextractDocument` | `Job` |
+| `annotate_document(document_id, lang="en")` | `annotateDocument` | `Job` |
+| `semantic_enrich_document(document_id)` | `semanticEnrichDocument` | `Job` |
+| `canonicalize_document(document_id, resolve=False)` | `canonicalizeDocument` | `Job` (LLM only if `resolve`) |
+| `suggest_seeds(document_id, limit=40)` | `suggestSeeds` | `Job` |
+| `suggest_document_metadata(document_id)` | `suggestDocumentMetadata` | `Job` |
+| `update_document_metadata(document_id, title?, description?, tags?)` | `updateDocumentMetadata` | `Job` |
+| `bulk_tag_documents(document_ids, tags)` | `bulkTagDocuments` | `[Job]` |
+| `decide_seeds(approve_ids?, reject_ids?)` | `decideSeeds` | `Int` (rows updated) |
+| `decide_document_metadata_suggestions(approve_ids?, reject_ids?)` | `decideDocumentMetadataSuggestions` | `Int` |
+| `seed_approved(document_id)` | `seedApproved` | `Job` |
+
+**Example — enqueue re-annotation, then poll to completion:**
+
+```jsonc
+// tools/call → reannotate
+{"name": "reannotate", "arguments": {"document_id": "f0b3d10c-…", "lang": "en"}}
+// → {"id": "9d2…", "kind": "reannotate", "status": "queued", "documentId": "f0b3d10c-…"}
+
+// tools/call → get_job (repeat until status is "succeeded"/"failed")
+{"name": "get_job", "arguments": {"job_id": "9d2…"}}
+// → {"id": "9d2…", "status": "running", "progressStage": "annotate", "progressCurrent": 3, "progressTotal": 12}
+```
+
+**Example — curate metadata suggestions:**
+
+```jsonc
+{"name": "suggest_document_metadata", "arguments": {"document_id": "f0b3d10c-…"}}   // enqueues verification
+// … read the pending rows via GraphQL/webapp, then:
+{"name": "decide_document_metadata_suggestions", "arguments": {"approve_ids": ["m1", "m2"], "reject_ids": ["m3"]}}
+// → 3   (rows updated)
+```
+
+Not exposed via MCP: `ingestDocument` (multipart upload, not a plain mutation),
+`createCollection`/collection & sharing mutations, and every destructive/admin
+verb. These remain available on the GraphQL API directly.
 
 ## 4. Phased plan
 

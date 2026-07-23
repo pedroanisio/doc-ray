@@ -225,6 +225,11 @@ class Config:
     public_base_url: str | None = None
     stripe_api_base: str = "https://api.stripe.com/v1"
     billing_enforcement_enabled: bool = False
+    #: Expose the MCP write tools (reprocessing + curation mutations). Off by
+    #: default: the MCP surface stays read-only unless an operator opts in, and
+    #: even when on, every write is still gated by the API's ``write`` scope and
+    #: per-document ACL guards. See ``docs/mcp-service.md`` and D-030.
+    mcp_enable_write: bool = False
 
     @classmethod
     def from_env(cls) -> Config:
@@ -290,4 +295,5 @@ class Config:
             ).strip()
             or "https://api.stripe.com/v1",
             billing_enforcement_enabled=_env_bool("DOCRAY_BILLING_ENFORCEMENT_ENABLED", False),
+            mcp_enable_write=_env_bool("DOCRAY_MCP_ENABLE_WRITE", False),
         )
