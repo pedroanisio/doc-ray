@@ -19,6 +19,57 @@ doc-ray carries **one global version** covering both the application package
 (`docray_schema_version()`). They are kept in lockstep by
 `scripts/check_version_consistency.py`, which fails the build on any drift.
 
+## [1.37.0]
+
+### Added
+- **MCP write tools — reprocessing + curation mutations, opt-in and off by
+  default** (Claude Opus 4.8 (1M context) via Claude Code) — D-030. The MCP
+  server can now expose 12 write tools (`reannotate`, `reextract_document`,
+  `annotate_document`, `semantic_enrich_document`, `canonicalize_document`,
+  `suggest_seeds`, `suggest_document_metadata`, `update_document_metadata`,
+  `bulk_tag_documents`, `decide_seeds`, `decide_document_metadata_suggestions`,
+  `seed_approved`) plus a `get_job` read tool to poll enqueued jobs. They are
+  registered **only** when `DOCRAY_MCP_ENABLE_WRITE=true`; with the flag off the
+  MCP surface is provably read-only — the tools do not even appear in
+  `tools/list`. The new `entrypoints/mcp/mutations.py` forwards each caller's
+  bearer token into the existing GraphQL mutation and does **not** re-implement
+  authorization: the API's `_require_write_audited` (authenticated principal +
+  `write` scope + billing entitlement, audited) and `_require_document_write`
+  (per-document ACL) guards remain authoritative, and a caller lacking scope or
+  grant receives a typed `permission_denied`. Only reversible verbs are exposed —
+  destructive/admin mutations (delete, archive, backup/restore, cancel_job) and
+  `ingestDocument` are deliberately not registered. A schema-contract test
+  validates every hand-written MCP GraphQL document against the live API schema
+  so operation strings cannot silently drift from the resolvers. Enable it by
+  setting `DOCRAY_MCP_ENABLE_WRITE=true` on the `mcp` service; see
+  `docs/mcp-service.md` §3 for tool signatures and end-to-end examples.
+
+- **Owner-driven document sharing** (Claude Opus 4.8 via Claude Code) — Phase 3.
+  Per-owner isolation (1.34.0) gave each user a private corpus, but only the
+  admin CLI could write `document_acl` rows, so a user had no way to hand a
+  document to a colleague. New `shareDocument(documentId, email, permission)` and
+  `revokeDocumentShare(documentId, email, permission?)` GraphQL mutations, a
+  `documentShares(id)` query, and a webapp Share page (`/doc/<id>/sharing`, a new
+  self-contained `sharing_web` module) let an owner grant `read` or `annotate` to
+  a colleague by login email and revoke it later.
+
+  Authorization is enforced at the database, per Phase 2's rule: `document_acl`
+  becomes `FORCE ROW LEVEL SECURITY` (migration 108) with policies scoping every
+  grant/revoke to documents the caller **owns** (or, for an admin, any in the
+  tenant) — so granting `docray_client` the INSERT it now needs cannot become a
+  way to forge a grant on someone else's document. The mutation guard
+  (`_require_document_share`) is the clean-error layer on top; the RLS policy is
+  the backstop. `admin` and `redact` are never grantable this way, and `delete`
+  is excluded — sharing lends a document, it does not transfer control.
+
+  Sharing is by login email, resolved through tenant-scoped SECURITY DEFINER
+  helpers (`docray_principal_by_email`, `docray_email_for_principal`) rather than
+  a table grant, so the API role never gains blanket read on `principal_credentials`
+  (which also holds password hashes) and email lookups cannot cross tenants. Every
+  grant and revoke is written to the append-only audit log. The admin CLI's
+  `grant_document` is unaffected: `auth_admin` now assumes the `docray_batch`
+  role (BYPASSRLS), the same trusted-writer identity the worker uses (D-029).
+
 ## [1.36.0]
 
 ### Security

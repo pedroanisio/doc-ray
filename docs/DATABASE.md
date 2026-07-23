@@ -1,6 +1,6 @@
 # doc-ray — Database ERD & Data Dictionary
 
-**Schema version `1.36.0`** (SemVer) · 107 migrations applied
+**Schema version `1.37.0`** (SemVer) · 109 migrations applied
 
 > Generated from the live schema by `scripts/gen_data_dictionary.py`. Do not edit by hand — re-run the generator.
 
@@ -1204,6 +1204,7 @@ Tenant partition catalogue; the default tenant preserves existing deployments.
 - **FK:** FOREIGN KEY (principal_id) REFERENCES principals(id) ON DELETE CASCADE
 - **Index** `idx_document_acl_document`: public.document_acl USING btree (document_id)
 - **Index** `idx_document_acl_principal`: public.document_acl USING btree (principal_id)
+- **RLS:** enabled — read/write policies via *?* (FORCED)
 
 ### 5.13 Authentication & identity provisioning
 
@@ -1943,13 +1944,16 @@ SELECT a.document_id,
 | `docray_abac_document_write_allowed(target_document uuid)` | `TABLE(ok boolean, reason text)` | DEFINER | sql |
 | `docray_attach_rls(tbl regclass, tmpl text)` | `void` | invoker | plpgsql |
 | `docray_audit_tenant_for_principal(actor uuid)` | `uuid` | DEFINER | sql |
+| `docray_can_share_document(doc_id uuid)` | `boolean` | DEFINER | sql |
 | `docray_create_principal_login(principal uuid, role_name name, password text DEFAULT NULL::text)` | `name` | DEFINER | plpgsql |
 | `docray_current_principal()` | `uuid` | DEFINER | sql |
 | `docray_current_tenant()` | `uuid` | DEFINER | sql |
 | `docray_default_tenant_id()` | `uuid` | DEFINER | sql |
 | `docray_effective_actor()` | `name` | invoker | sql |
+| `docray_email_for_principal(pid uuid)` | `text` | DEFINER | sql |
 | `docray_is_admin()` | `boolean` | DEFINER | sql |
 | `docray_prevent_audit_event_mutation()` | `trigger` | invoker | plpgsql |
+| `docray_principal_by_email(email text)` | `uuid` | DEFINER | sql |
 | `docray_readable_documents()` | `SETOF uuid` | DEFINER | sql |
 | `docray_refresh_all_corpus_stats()` | `void` | DEFINER | plpgsql |
 | `docray_refresh_corpus_stats(tenant uuid)` | `void` | DEFINER | sql |
@@ -1985,7 +1989,7 @@ document-scoped table. A principal may **read** a same-tenant document iff it is
 *admin* or holds any `document_acl` row on it, and may **write** iff *admin* or
 holds an `annotate`/`delete`/`admin` grant.
 
-**Enforcement.** RLS is `ENABLE`d (not `FORCE`) on 55 tables (incl. `jobs` and
+**Enforcement.** RLS is `ENABLE`d (not `FORCE`) on 56 tables (incl. `jobs` and
 `backups` since migration 043 — BL-064). The `docray`
 role is a **superuser and table owner**, so it **bypasses RLS** — the ingest
 pipeline and admin tooling use it as the trusted batch writer. End-user / API
@@ -2132,3 +2136,5 @@ owner's bypass.
 | 105 | `105_schema_version_1_35_0.sql` | advance the schema SemVer to 1.35.0 |
 | 106 | `106_force_rls.sql` | FORCE ROW LEVEL SECURITY on every RLS table + the docray_batch writer role |
 | 107 | `107_schema_version_1_36_0.sql` | advance the schema SemVer to 1.36.0 |
+| 108 | `108_document_sharing.sql` | owner-driven document sharing: grants + FORCE RLS on document_acl |
+| 109 | `109_schema_version_1_37_0.sql` | advance the schema SemVer to 1.37.0 |

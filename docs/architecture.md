@@ -225,6 +225,22 @@ reserved for SCIM/OIDC- and admin-CLI-provisioned accounts. Granting members
 permission rows — only `docray_is_admin()` reads the permission tables — so a
 member's reach is exactly what they own or were granted.
 
+### Sharing
+
+An owner (or tenant admin) hands a document to a colleague with
+`shareDocument(documentId, email, permission)` — `read` or `annotate`, never
+`admin`/`redact`/`delete` — and takes it back with `revokeDocumentShare`
+(migration 108, D-029). Both write `document_acl`, which is itself
+`FORCE ROW LEVEL SECURITY`: its policies scope every grant to a document the
+caller owns (`docray_can_share_document`), so the INSERT grant the API role now
+holds cannot forge access to another document. `_require_document_share` is the
+clean-error layer; the RLS policy is the backstop. Sharing is by login email,
+resolved through tenant-scoped `SECURITY DEFINER` helpers so the API role never
+reads `principal_credentials` (which holds password hashes) and lookups cannot
+cross tenants. The admin CLI's arbitrary-permission `grant_document` is
+unaffected because `auth_admin` assumes `docray_batch` (BYPASSRLS), the same
+trusted-writer identity the worker uses.
+
 Note that corpus writes do not need table-level DML grants: `docray_client` holds
 `SELECT` on the corpus tables and `INSERT`/`UPDATE` on `jobs`, so a mutation
 *enqueues* work that the trusted batch writer executes. Authorization therefore

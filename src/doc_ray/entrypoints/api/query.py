@@ -31,6 +31,7 @@ from doc_ray.entrypoints.api.types import (
     Document,
     DocumentCollection,
     DocumentHit,
+    DocumentShare,
     EntityFrequency,
     EntityMention,
     Info,
@@ -96,6 +97,22 @@ class Query(VisualQueries):
                 outcome="success",
             )
         return Document.from_row(row) if row is not None else None
+
+    @strawberry.field
+    async def document_shares(self, info: Info, id: strawberry.ID) -> list[DocumentShare]:
+        """List who *id* is shared with (empty if the caller may not see the grants).
+
+        ``document_acl``'s RLS (migration 108) scopes the rows: a sharer sees the
+        grants they manage, a grantee sees their own. So a principal who can
+        neither share nor was granted the document gets an empty list rather than
+        an error, and the query never reveals another document's ACL.
+        """
+        doc_id = _clean_uuid(str(id))
+        if doc_id is None:
+            return []
+        ctx = info.context
+        rows = await read.list_document_shares(ctx.conn, doc_id)
+        return [DocumentShare.from_row(row) for row in rows]
 
     @strawberry.field
     async def collections(

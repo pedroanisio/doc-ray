@@ -86,6 +86,47 @@ async def _require_write_audited(ctx: RequestContext, *, action: str) -> None:
             raise PermissionError(str(exc)) from exc
 
 
+async def _require_document_share(
+    ctx: RequestContext, document_id: str, *, action: str
+) -> None:
+    """Require that the caller may change who *document_id* is shared with.
+
+    Stricter than :func:`_require_document_write`: an ``annotate`` grantee may
+    edit a document lent to them but must not be able to re-share it, so this
+    checks ``docray_can_share_document`` (owner or tenant admin) rather than
+    membership of the writable set. RLS on ``document_acl`` (migration 108) is
+    the authoritative backstop; checking here turns a raw policy violation into
+    a clean, audited error and avoids the failed write.
+    """
+    await _require_write_audited(ctx, action=action)
+    try:
+        uuid.UUID(document_id)
+    except ValueError as exc:
+        await _audit_mutation_event(
+            ctx,
+            action=action,
+            target_type="document",
+            target_id=document_id,
+            outcome="denied",
+            details={"reason": "malformed_document_id"},
+        )
+        raise PermissionError(f"cannot share document {document_id}") from exc
+    cur = await ctx.conn.execute(
+        "SELECT docray_can_share_document(%s::uuid) AS ok", (document_id,)
+    )
+    row = await cur.fetchone()
+    if not row or not row["ok"]:
+        await _audit_mutation_event(
+            ctx,
+            action=action,
+            target_type="document",
+            target_id=document_id,
+            outcome="denied",
+            details={"reason": "not_document_owner_or_admin"},
+        )
+        raise PermissionError(f"cannot share document {document_id}")
+
+
 async def _require_document_write(
     ctx: RequestContext, document_id: str, *, action: str = "mutation.document.write"
 ) -> None:

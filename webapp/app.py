@@ -47,6 +47,7 @@ try:
         document_web,
         oauth_web,
         overlay_web,
+        sharing_web,
     )
     from webapp.auth_session import (
         AuthenticatedWebPrincipal as AuthenticatedWebPrincipal,
@@ -70,6 +71,7 @@ except ModuleNotFoundError:  # pragma: no cover - direct ``python webapp/app.py`
     import document_web
     import oauth_web
     import overlay_web
+    import sharing_web
     from auth_session import (
         AuthenticatedWebPrincipal as AuthenticatedWebPrincipal,
     )
@@ -461,6 +463,7 @@ overlay_web.bind(_SELF)
 auth_web.register(app, _SELF)
 corpus_web.register(app, _SELF)
 document_web.register(app, _SELF)
+sharing_web.register(app, _SELF)
 collections_web.register(app, _SELF)
 admin_web.register(app, _SELF)
 account_web.register(app, _SELF)

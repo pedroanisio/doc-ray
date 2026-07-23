@@ -39,8 +39,18 @@ class PostgresAuthAdminRepository:
 
     @classmethod
     def from_database_url(cls, database_url: str) -> PostgresAuthAdminRepository:
-        """Open a repository connection from a database URL."""
+        """Open a repository connection from a database URL.
+
+        Assumes ``docray_batch`` (migration 106), the trusted operator identity
+        the RLS policies exempt. The admin CLI writes across principals and
+        tenants with no request principal — assigning roles, granting document
+        ACLs with arbitrary permissions — and since ``document_acl`` became FORCE
+        ROW LEVEL SECURITY (migration 108) the owning ``docray`` role is subject
+        to the sharing policy and could no longer do that. ``docray_batch``
+        carries ``BYPASSRLS``, so it can, exactly as the worker/CLI path does.
+        """
         conn = psycopg.connect(database_url, autocommit=True, row_factory=dict_row)
+        conn.execute("SET ROLE docray_batch")
         return cls(conn)
 
     def close(self) -> None:

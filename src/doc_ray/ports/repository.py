@@ -157,6 +157,12 @@ class ReadRepository(Protocol):
         """Return a document's title/description/tags edit history, oldest first."""
         ...
 
+    async def list_document_shares(
+        self, conn: psycopg.AsyncConnection[Row], document_id: str
+    ) -> list[Row]:
+        """Return the ``document_acl`` grants on a document the caller may see."""
+        ...
+
     async def list_collections(
         self,
         conn: psycopg.AsyncConnection[Row],

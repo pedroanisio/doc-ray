@@ -306,6 +306,7 @@
            data-tip="Domain seeding is the curation loop that approves exact knowledge-base identities."
            href="/doc/{{ doc.id }}/seeding">domain seeding &rarr;<span class="sr-only" role="tooltip">Domain seeding is the curation loop that approves exact knowledge-base identities.</span></a>
         <a class="pill" href="{{ url_for('document_download', doc_id=doc.id) }}">Download original</a>
+        <a class="pill" href="{{ url_for('document_sharing', doc_id=doc.id) }}">Share</a>
         {% if authors %}<span style="color:var(--ink-soft)">&nbsp; by {{ authors|join(", ") }}</span>{% endif %}
         {% for t in tags %}<span class="pill">{{ t }}</span>{% endfor %}
       </div>

@@ -252,3 +252,23 @@ class SeedSuggestion:
             entity_type=row.get("entity_type"),
             status=row["status"],
         )
+
+
+@strawberry.type
+class DocumentShare:
+    """One ``document_acl`` grant: a principal, the permission, and when it was made."""
+
+    principal_id: strawberry.ID
+    email: str | None
+    permission: str
+    granted_at: datetime
+
+    @classmethod
+    def from_row(cls, row: Row) -> DocumentShare:
+        """Build a ``DocumentShare`` from a joined ``document_acl`` row."""
+        return cls(
+            principal_id=strawberry.ID(str(row["principal_id"])),
+            email=row.get("email"),
+            permission=row["permission"],
+            granted_at=cast(datetime, row["granted_at"]),
+        )

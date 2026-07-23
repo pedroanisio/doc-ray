@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% block title %}Share · doc·ray{% endblock %}
+{% block body %}
+<p class="kicker"><a href="{{ url_for('document', doc_id=doc.id) }}">← {{ doc.title or 'Document' }}</a></p>
+<h1>Share this document</h1>
+<p class="lede" style="max-width:42rem">
+  Grant a colleague read or annotate access by their account email. They see the
+  document in their own corpus; you can revoke access at any time. Only the
+  document's owner (or an administrator) can change who it is shared with.
+</p>
+
+{% if error %}<div class="errbox">{{ error }}</div>{% endif %}
+{% if shared %}<div class="notice">Shared with {{ shared }}.</div>{% endif %}
+{% if revoked %}<div class="notice">Revoked access for {{ revoked }}.</div>{% endif %}
+
+<div class="collection-layout">
+  <section class="collection-list">
+    <h2 style="margin-top:0">Currently shared with</h2>
+    {% for s in shares %}
+      <article class="collection-card">
+        <div>
+          <h2 style="margin:0">{{ s.email or s.principalId }}</h2>
+          <p class="hint">Granted {{ s.grantedAt }}</p>
+        </div>
+        <div class="collection-meta">
+          <span class="pill">{{ s.permission }}</span>
+          {% if s.email %}
+          <form method="post" action="{{ url_for('document_share_revoke', doc_id=doc.id) }}"
+                style="display:inline">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="email" value="{{ s.email }}">
+            <button type="submit">Revoke</button>
+          </form>
+          {% endif %}
+        </div>
+      </article>
+    {% else %}
+      <div class="card">
+        <strong>Not shared yet.</strong>
+        <span class="hint">Only you (and administrators) can see this document.</span>
+      </div>
+    {% endfor %}
+  </section>
+
+  <aside class="card collection-create">
+    <h2 style="margin-top:0">Add a person</h2>
+    <form method="post" action="{{ url_for('document_share_submit', doc_id=doc.id) }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <label>Email <input type="email" name="email" required placeholder="colleague@example.com"></label>
+      <label>Access
+        <select name="permission">
+          <option value="read">read</option>
+          <option value="annotate">annotate</option>
+        </select>
+      </label>
+      <button type="submit">Share</button>
+    </form>
+  </aside>
+</div>
+{% endblock %}

@@ -272,6 +272,8 @@ MIGRATIONS = [
     ("105_schema_version_1_35_0", "advance the schema SemVer to 1.35.0"),
     ("106_force_rls", "FORCE ROW LEVEL SECURITY on every RLS table + the docray_batch writer role"),
     ("107_schema_version_1_36_0", "advance the schema SemVer to 1.36.0"),
+    ("108_document_sharing", "owner-driven document sharing: grants + FORCE RLS on document_acl"),
+    ("109_schema_version_1_37_0", "advance the schema SemVer to 1.37.0"),
 ]
 
 # ---------------------------------------------------------------------------

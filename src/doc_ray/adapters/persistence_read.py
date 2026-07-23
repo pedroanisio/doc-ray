@@ -758,3 +758,22 @@ async def fulltext_search(conn: _AConn, query: str, *, limit: int = 25) -> list[
         "WHERE c.fts @@ q ORDER BY rank DESC, d.title LIMIT %s",
         (query, limit),
     )
+
+
+async def list_document_shares(conn: _AConn, document_id: str) -> list[Row]:
+    """Return the ``document_acl`` grants on *document_id* the caller may see.
+
+    RLS scopes the rows (migration 108): a sharer sees the grants they manage, a
+    grantee sees their own — so a principal with neither returns an empty list.
+    The grantee's email is resolved through the tenant-scoped SECURITY DEFINER
+    helper, never a join to ``principal_credentials`` (which the read role cannot
+    select and which holds password hashes).
+    """
+    return await _rows(
+        conn,
+        "SELECT principal_id, permission, granted_at, "
+        "       docray_email_for_principal(principal_id) AS email "
+        "FROM document_acl WHERE document_id = %s "
+        "ORDER BY granted_at, permission",
+        (document_id,),
+    )

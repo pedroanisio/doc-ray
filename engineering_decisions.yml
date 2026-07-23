@@ -50,9 +50,9 @@ source_schema:         "db/migrations"
 # by tenant-scoped Stripe billing status (migration 085).
 # Kept in lockstep with doc_ray.__version__
 # by scripts/check_version_consistency.py.
-source_schema_version: "1.36.0"
+source_schema_version: "1.37.0"
 target_engine:         "PostgreSQL 16"
-total_decisions:       27
+total_decisions:       29
 
 decisions:
 
@@ -1587,5 +1587,164 @@ decisions:
             context:     "ci"
             side_effects: "reads"
             command:     "pytest src/doc_ray/tests/test_forced_rls.py"
+            expect:
+              exit:      0
+
+  - id:                 "D-029"
+    title:              "Document sharing is owner-scoped, DB-enforced, and by tenant-scoped email"
+    version_introduced: "1.37.0"
+    category:           "security"
+    decision: |
+      An owner (or tenant admin) may grant another principal read/annotate on a
+      document via shareDocument, and revoke it via revokeDocumentShare. The
+      grant is written to document_acl under the caller's own RLS connection.
+      document_acl is FORCE ROW LEVEL SECURITY (migration 108): its INSERT/DELETE
+      policies require docray_can_share_document (owner or admin, tenant-scoped)
+      and cap the grantable permission at read/annotate — admin/redact are never
+      shareable, delete is excluded. The mutation layer (_require_document_share)
+      is a clean-error convenience; the policy is authoritative. Sharing targets a
+      colleague by login email through the tenant-scoped SECURITY DEFINER helpers
+      docray_principal_by_email / docray_email_for_principal, so the API role
+      (docray_client) never gains SELECT on principal_credentials and email
+      lookups cannot cross tenants. The admin CLI (auth_admin) assumes docray_batch
+      (BYPASSRLS) so its arbitrary-permission grant_document is unaffected by the
+      new forced RLS. Every grant/revoke is audited.
+    rationale: |
+      Per-owner isolation (D-026) gave each user a private corpus but left them no
+      way to collaborate: only the admin CLI wrote document_acl. Sharing is the
+      other half. It had to be enforced by the database, not just the mutation
+      layer, because granting docray_client the INSERT it needs would otherwise
+      let any principal forge a grant on any document; the FORCE RLS policy makes
+      that impossible even if the resolver is wrong. Owner-or-admin (not merely
+      "writable") is required so an annotate-grantee cannot re-share a document
+      lent to them. Capping the shareable permissions at read/annotate stops
+      sharing from becoming a privilege-escalation path to admin/redact. Email
+      resolution goes through SECURITY DEFINER helpers rather than a table grant
+      because principal_credentials has no RLS and holds password hashes — a
+      direct grant or join would leak credentials and cross-tenant emails. The
+      admin CLI moves to docray_batch for the same reason adapters/persistence
+      does (D-028): it is a trusted cross-principal writer with no request
+      principal, and forced document_acl RLS would otherwise block it.
+    decision_status:    "accepted"
+    decision_date:      "2026-07-23"
+    owner:              ["pedroanisio@faz.ai"]
+    scope_path:
+      - "db/migrations/108_document_sharing.sql"
+      - "src/doc_ray/entrypoints/api/mutation_sharing.py"
+      - "src/doc_ray/entrypoints/api/mutation_guards.py"
+      - "src/doc_ray/entrypoints/api/query.py"
+      - "src/doc_ray/adapters/auth_admin_postgres.py"
+      - "webapp/sharing_web.py"
+    claims:
+      - claim_id:    "D-029.k1"
+        claim_text:  "An owner can share read/annotate by email and revoke it; a non-owner cannot; admin/redact are not shareable."
+        auditable:   true
+        status:      "populated"
+        declared_checks_count: 2
+        checks:
+          - check_id:    "D-029.k1.c1"
+            description: "The document_acl RLS sharing suite passes against the live schema."
+            check_kind:  "shell"
+            severity:    "error"
+            context:     "ci"
+            side_effects: "reads"
+            command:     "pytest src/doc_ray/tests/test_document_sharing.py"
+            expect:
+              exit:      0
+          - check_id:    "D-029.k1.c2"
+            description: "The GraphQL sharing mutations enforce owner-or-admin and reject admin/redact."
+            check_kind:  "shell"
+            severity:    "error"
+            context:     "ci"
+            side_effects: "reads"
+            command:     "pytest src/doc_ray/tests/test_mutations_sharing.py"
+            expect:
+              exit:      0
+
+  - id:                 "D-030"
+    title:              "MCP may expose writes, off by default, gated on the API's write scope and per-document ACL"
+    version_introduced: "1.37.0"
+    category:           "security"
+    decision: |
+      The MCP server may register write tools — the reprocessing mutations
+      (reannotate, reextractDocument, annotateDocument, semanticEnrichDocument,
+      canonicalizeDocument, suggestSeeds, suggestDocumentMetadata) and the
+      curation mutations (updateDocumentMetadata, bulkTagDocuments, decideSeeds,
+      decideDocumentMetadataSuggestions, seedApproved) — but only when
+      DOCRAY_MCP_ENABLE_WRITE is true. The default surface is read-only: with the
+      flag off the write tools are not registered at all, so they never appear in
+      tools/list. The MCP layer does NOT re-implement authorization: each write
+      tool forwards the caller's bearer token to the existing GraphQL mutation,
+      whose guards remain authoritative — _require_write_audited (authenticated
+      principal + write scope + billing entitlement, audited) and
+      _require_document_write (per-document document_acl grant, D-026/D-029). A
+      caller lacking scope or grant receives the API's permission-denied, mapped
+      to a typed permission_denied ToolCallError. Only reversible verbs are
+      exposed: destructive/admin mutations (delete, archive, restore, backup,
+      restore_backup, cancel_job, reextractDocuments) and ingestDocument (a
+      multipart upload) are deliberately not registered on MCP. Enqueued jobs are
+      polled with the get_job read tool. Every hand-written MCP GraphQL document
+      is validated against the live schema by a contract test.
+    rationale: |
+      The mutations, their write-scope check, per-document ACL, billing gate, and
+      audit trail already existed at the GraphQL layer and are exercised by the
+      webapp's write path; exposing them to agents is a surface question, not a
+      new-security-primitive question, so the API stays the single authorization
+      authority and MCP forwards into it (mirroring webapp/graphql_client.py).
+      Off-by-default with conditional registration — rather than
+      register-then-authorize — means a deployment that has not opted in is
+      provably read-only: the guarantee holds by absence of the tools, not merely
+      by a runtime check that could regress. Restricting the set to reversible
+      reprocessing/curation verbs bounds the blast radius of an LLM agent acting
+      on unverified reasoning (PALS's Law): every exposed write enqueues a
+      re-runnable job or a curation decision, never an irreversible delete. The
+      schema-contract test prevents the hand-written operation strings from
+      drifting from the resolvers as the schema evolves.
+    decision_status:    "accepted"
+    decision_date:      "2026-07-23"
+    owner:              ["pedroanisio@faz.ai"]
+    scope_path:
+      - "src/doc_ray/entrypoints/mcp/mutations.py"
+      - "src/doc_ray/entrypoints/mcp/server.py"
+      - "src/doc_ray/entrypoints/mcp/corpus.py"
+      - "src/doc_ray/config.py"
+    claims:
+      - claim_id:    "D-030.k1"
+        claim_text:  "Write tools are registered only when writes are enabled; the default MCP surface is read-only."
+        auditable:   true
+        status:      "populated"
+        declared_checks_count: 1
+        checks:
+          - check_id:    "D-030.k1.c1"
+            description: "The server registers no write tool by default and adds them only when enable_write is set."
+            check_kind:  "shell"
+            severity:    "error"
+            context:     "ci"
+            side_effects: "reads"
+            command:     "pytest src/doc_ray/tests/test_mcp_server.py"
+            expect:
+              exit:      0
+      - claim_id:    "D-030.k2"
+        claim_text:  "Every MCP read/write GraphQL document validates against the live API schema, and writes without scope map to permission_denied."
+        auditable:   true
+        status:      "populated"
+        declared_checks_count: 2
+        checks:
+          - check_id:    "D-030.k2.c1"
+            description: "The schema-contract test validates every MCP document against the API schema."
+            check_kind:  "shell"
+            severity:    "error"
+            context:     "ci"
+            side_effects: "reads"
+            command:     "pytest src/doc_ray/tests/test_mcp_schema_contract.py"
+            expect:
+              exit:      0
+          - check_id:    "D-030.k2.c2"
+            description: "The write tools forward mutations and map the API's permission-denied to a typed error."
+            check_kind:  "shell"
+            severity:    "error"
+            context:     "ci"
+            side_effects: "reads"
+            command:     "pytest src/doc_ray/tests/test_mcp_mutations.py"
             expect:
               exit:      0

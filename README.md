@@ -132,7 +132,8 @@ has a dedicated `/jobs/events` location with response buffering disabled; add
 `once=true` for a finite initial snapshot in diagnostics or smoke tests.
 
 Other query/mutation surface: `documents(docType:, status:, tags:)` /
-`document` / `documentMetadataHistory` / `searchSentences` / `fullTextSearch` /
+`document` / `documentShares` / `documentMetadataHistory` / `searchSentences` /
+`fullTextSearch` /
 `lexeme(s)` / `entities` / `entityFrequency` / `job` / `jobs` /
 `documentMetadataSuggestions` / `collections` / `collection` /
 `documentImages` / `imageClassSummary` / `visualCaptions` /
@@ -143,7 +144,8 @@ Other query/mutation surface: `documents(docType:, status:, tags:)` /
 `bulkArchiveDocuments` / `bulkTagDocuments` / `annotateDocument` /
 `reextractDocument` / `reextractDocuments` / `canonicalizeDocument(resolve:)` /
 `semanticEnrichDocument` / `updateDocumentMetadata` / `suggestDocumentMetadata`
-/ `decideDocumentMetadataSuggestions` / `cancelJob` /
+/ `decideDocumentMetadataSuggestions` / `shareDocument` /
+`revokeDocumentShare` / `cancelJob` /
 `createBillingCheckoutSession` / `createBillingPortalSession` /
 `retryBillingEvent` (pipeline
 writes — every mutation enqueues a worker job or records a curator decision;

@@ -51,6 +51,7 @@ from doc_ray.entrypoints.api.mutation_guards import (
     _require_document_write,
     _require_write_audited,
 )
+from doc_ray.entrypoints.api.mutation_sharing import SharingMutations
 from doc_ray.entrypoints.api.types import Info, Job
 
 #: The default post-ingest pipeline: Stage-1 annotation, deterministic semantic
@@ -63,8 +64,8 @@ _PIPELINE_CHAIN = [KIND_ANNOTATE, KIND_SEMANTIC_ENRICH, KIND_CANONICALIZE, KIND_
 
 
 @strawberry.type
-class Mutation(BillingMutations, CollectionMutations):
-    """Write operations, all of which enqueue background work."""
+class Mutation(BillingMutations, CollectionMutations, SharingMutations):
+    """Write operations: most enqueue background work; sharing writes ACLs directly."""
 
     @strawberry.mutation
     async def reannotate(self, info: Info, document_id: strawberry.ID, lang: str = "en") -> Job:

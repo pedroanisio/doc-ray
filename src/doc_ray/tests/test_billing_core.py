@@ -55,8 +55,10 @@ def test_paid_saas_mutations_cannot_drift_outside_billing_entitlement_guard() ->
         "remove_document_from_collection": "mutation.remove_document_from_collection",
         "restore_backup": "mutation.restore",
         "restore_document": "mutation.restore_document",
+        "revoke_document_share": "mutation.revoke_document_share",
         "seed_approved": "mutation.seed_approved",
         "semantic_enrich_document": "mutation.semantic_enrich",
+        "share_document": "mutation.share_document",
         "suggest_document_metadata": "mutation.suggest_document_metadata",
         "suggest_seeds": "mutation.seed_suggest",
         "update_document_metadata": "mutation.update_metadata",
@@ -71,6 +73,7 @@ def test_paid_saas_mutations_cannot_drift_outside_billing_entitlement_guard() ->
             for guard in (
                 "_require_admin",
                 "_require_document_write",
+                "_require_document_share",
                 "_require_write_audited",
             )
         ), mutation_name
