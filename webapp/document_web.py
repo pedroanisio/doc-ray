@@ -10,20 +10,20 @@ from __future__ import annotations
 
 from types import ModuleType
 
-from flask import Response, abort, current_app, redirect, request, stream_with_context, url_for
+from flask import abort, current_app, redirect, request, url_for
 
 try:
+    from webapp import document_assets_web
     from webapp.collections_web import available_manual_collections
     from webapp.document_metadata import submit_metadata_update
-    from webapp.graphql_client import API_URL, api_auth_headers
     from webapp.job_view import is_active_job, summarize_outcome, summarize_progress
     from webapp.overlay_web import original_markup, original_overlay
     from webapp.previews import document_preview
     from webapp.reader_blocks import attach_page_blocks, latest_annotation_state
 except ModuleNotFoundError:  # pragma: no cover - direct ``python webapp/app.py`` path.
+    import document_assets_web
     from collections_web import available_manual_collections
     from document_metadata import submit_metadata_update
-    from graphql_client import API_URL, api_auth_headers
     from job_view import is_active_job, summarize_outcome, summarize_progress
     from overlay_web import original_markup, original_overlay
     from previews import document_preview
@@ -502,86 +502,6 @@ def document_metadata_update(doc_id):
     return redirect(url_for("document", doc_id=doc_id, metadata_queued=1))
 
 
-def _stream_api_response(url: str, expected_statuses: tuple[int, ...]) -> tuple:
-    """Open a streaming GET against the API; abort on the expected error statuses."""
-    import httpx
-
-    client = httpx.Client(timeout=None)
-    upstream = client.send(
-        client.build_request("GET", url, headers=api_auth_headers()), stream=True
-    )
-    if upstream.status_code in expected_statuses:
-        status = upstream.status_code
-        upstream.close()
-        client.close()
-        abort(status)
-    upstream.raise_for_status()
-
-    def _pump():
-        try:
-            yield from upstream.iter_bytes(chunk_size=1 << 20)
-        finally:
-            upstream.close()
-            client.close()
-
-    return upstream, _pump
-
-
-def document_download(doc_id):
-    """Stream an original document download through the API boundary."""
-    base = API_URL.rsplit("/graphql", 1)[0]
-    upstream, pump = _stream_api_response(
-        f"{base}/documents/{doc_id}/download", (401, 403, 404, 409)
-    )
-    headers = {}
-    if upstream.headers.get("content-disposition"):
-        headers["Content-Disposition"] = upstream.headers["content-disposition"]
-    return Response(
-        stream_with_context(pump()),
-        mimetype=upstream.headers.get("content-type", "application/octet-stream"),
-        headers=headers,
-    )
-
-
-def document_page_image(doc_id, page_number):
-    """Stream a rendered original-PDF page PNG through the API boundary."""
-    base = API_URL.rsplit("/graphql", 1)[0]
-    upstream, pump = _stream_api_response(
-        f"{base}/documents/{doc_id}/pages/{page_number}.png", (401, 403, 404, 409, 415)
-    )
-    headers = {}
-    if upstream.headers.get("x-docray-cache"):
-        headers["X-DocRay-Cache"] = upstream.headers["x-docray-cache"]
-    return Response(
-        stream_with_context(pump()),
-        mimetype=upstream.headers.get("content-type", "image/png"),
-        headers=headers,
-    )
-
-
-def document_cover(doc_id):
-    """Stream a small WebP first-page cover through the API boundary.
-
-    Lets list surfaces render a ~15 KB thumbnail instead of proxying the full
-    144-DPI page PNG. ``w`` is forwarded and the API clamps it to its allowlist.
-    """
-    base = API_URL.rsplit("/graphql", 1)[0]
-    width = request.args.get("w", type=int)
-    query = f"?w={width}" if width else ""
-    upstream, pump = _stream_api_response(
-        f"{base}/documents/{doc_id}/cover.webp{query}", (401, 403, 404, 409, 415)
-    )
-    headers = {}
-    for header in ("cache-control", "x-docray-cache"):
-        if upstream.headers.get(header):
-            headers[header.title()] = upstream.headers[header]
-    return Response(
-        stream_with_context(pump()),
-        mimetype=upstream.headers.get("content-type", "image/webp"),
-        headers=headers,
-    )
-
-
 def register(app, core: ModuleType) -> None:
     """Attach the single-document routes to *app*, late-binding *core* (D-015 split)."""
     global _core
@@ -602,10 +522,6 @@ def register(app, core: ModuleType) -> None:
         document_metadata_update,
         methods=["POST"],
     )
-    app.add_url_rule("/doc/<uuid:doc_id>/download", "document_download", document_download)
-    app.add_url_rule(
-        "/doc/<uuid:doc_id>/page/<int:page_number>.png",
-        "document_page_image",
-        document_page_image,
-    )
-    app.add_url_rule("/doc/<uuid:doc_id>/cover.webp", "document_cover", document_cover)
+    # Original-asset streaming routes live in a sibling module (D-015); they proxy
+    # through the API's HTTP boundary and need no ``core`` late-binding.
+    document_assets_web.register(app)
