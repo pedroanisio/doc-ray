@@ -36,6 +36,28 @@ class PostgresLocalAuthRepository:
                 (email_normalized,),
             ).fetchone()
 
+    def permission_actions(self, principal_id: str) -> frozenset[str]:
+        """Return the permission actions carried by the principal's roles.
+
+        Drives the token's coarse ``write`` scope (see
+        :func:`~doc_ray.application.local_auth.scopes_for_actions`). Read
+        directly from the RBAC join rather than inferred from a role name, so
+        re-granting a role changes what its members may do without a code
+        change.
+        """
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT DISTINCT p.action
+                  FROM principal_roles pr
+                  JOIN role_permissions rp ON rp.role_id = pr.role_id
+                  JOIN permissions p       ON p.id = rp.permission_id
+                 WHERE pr.principal_id = %s
+                """,
+                (principal_id,),
+            ).fetchall()
+        return frozenset(str(row["action"]) for row in rows)
+
     def create_local_identity(
         self,
         *,

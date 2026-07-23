@@ -19,6 +19,46 @@ doc-ray carries **one global version** covering both the application package
 (`docray_schema_version()`). They are kept in lockstep by
 `scripts/check_version_consistency.py`, which fails the build on any drift.
 
+## [1.35.0]
+
+### Added
+- **The `member` role — a registered user who can own a corpus** (Claude Opus
+  4.8 via Claude Code). Per-owner isolation (1.34.0) exposed the other half of
+  the problem: the default signup role `reader` carries only the `read`
+  permission, and every local login minted `scopes={"read"}` while
+  `_require_write_audited` refuses any mutation without `write`. A
+  self-registered account could therefore never ingest anything, so isolation
+  handed new users a permanently *empty* corpus rather than a clean one.
+
+  Migration 104 adds `member` (read + annotate + delete), makes it the
+  registration default, and promotes the humans who already self-registered
+  under the old default — scoped to principals holding a local credential, so
+  SCIM/OIDC-provisioned readers and service principals keep the read-only role
+  they were deliberately given. `reader` stays genuinely read-only. Token
+  scopes are now *derived* from the principal's own RBAC permissions
+  (`scopes_for_actions`) instead of hard-coded, so re-granting a role changes
+  what its members may do with no code change, and admins get `write` for free.
+
+  This is not a privilege escalation: `annotate`/`delete` are consulted by no
+  read or write policy — only `docray_is_admin()` reads the permission tables —
+  so a member's reach stays exactly the documents they own or were granted,
+  enforced per document by `docray_writable_documents()`.
+
+### Fixed
+- **Email verification no longer downgrades a new member to read-only** (Claude
+  Opus 4.8 via Claude Code). `verify_local_email` hard-coded `frozenset({"read"})`
+  when minting the post-verification auto-login token, so a member's very first
+  session could not upload — the one thing a new account exists to do. The
+  verification result now carries the same derived scopes `login` produces.
+- **Ingest ownership wiring is now covered by tests** (Claude Opus 4.8 via
+  Claude Code). 1.34.0 threaded the uploader from `ingestDocument` through the
+  job payload to `insert_document` without a test on that path. Added: the
+  mutation stamps the request principal into the payload; the handler threads it
+  to the pipeline and coerces an absent owner to `None` rather than the string
+  `"None"`; and `ingest_file` stamps ownership on both the success path and
+  `record_failure`, so a failed extraction is not stranded where its uploader
+  cannot see it.
+
 ## [1.34.0]
 
 ### Security

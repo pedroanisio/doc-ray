@@ -196,3 +196,93 @@ def test_owner_may_write_their_own_document(pg) -> None:
         assert not _writable(conn, bob, doc_id), "a non-owner must not be able to write it"
     finally:
         conn.execute("DELETE FROM principals WHERE id IN (%s, %s)", (alice, bob))
+
+
+# ---------------------------------------------------------------------------
+# Phase 1 — the `member` role (migration 104). Ownership is only useful if a
+# registered user can put something into their own corpus.
+# ---------------------------------------------------------------------------
+
+_MIGRATION_104 = _ROOT / "db" / "migrations" / "104_member_role.sql"
+
+
+def test_migration_104_grants_member_write_actions_but_not_admin() -> None:
+    migration = _MIGRATION_104.read_text(encoding="utf-8")
+    assert "'member'" in migration
+    assert "'read', 'annotate', 'delete'" in migration
+    assert "'redact'" not in migration, "redact stays admin-only"
+    assert "p.action IN ('read', 'annotate', 'delete', 'redact', 'admin')" not in migration
+
+
+def _apply_migration_104(conn) -> None:
+    conn.execute(_MIGRATION_104.read_text(encoding="utf-8"))
+
+
+def _member(conn, label: str) -> str:
+    row = conn.execute(
+        "INSERT INTO principals (kind, display_name, tenant_id) "
+        "VALUES ('human', %s, docray_default_tenant_id()) RETURNING id",
+        (f"{label}-{uuid.uuid4()}",),
+    ).fetchone()
+    principal_id = str(row["id"])
+    conn.execute(
+        "INSERT INTO principal_roles (principal_id, role_id) "
+        "SELECT %s, id FROM roles WHERE name = 'member' ON CONFLICT DO NOTHING",
+        (principal_id,),
+    )
+    return principal_id
+
+
+def _actions(conn, principal_id: str) -> set[str]:
+    rows = conn.execute(
+        """
+        SELECT DISTINCT p.action FROM principal_roles pr
+          JOIN role_permissions rp ON rp.role_id = pr.role_id
+          JOIN permissions p       ON p.id = rp.permission_id
+         WHERE pr.principal_id = %s
+        """,
+        (principal_id,),
+    ).fetchall()
+    return {str(row["action"]) for row in rows}
+
+
+def test_member_carries_write_actions_and_reader_does_not(pg) -> None:
+    conn, _created = pg
+    _apply_migration_102(conn)
+    _apply_migration_104(conn)
+    member = _member(conn, "role-member")
+    reader = _reader(conn, "role-reader")
+    try:
+        assert "annotate" in _actions(conn, member)
+        assert "delete" in _actions(conn, member)
+        assert "admin" not in _actions(conn, member), "a member is not an admin"
+        assert _actions(conn, reader) == {"read"}, "reader must stay read-only"
+    finally:
+        conn.execute("DELETE FROM principals WHERE id IN (%s, %s)", (member, reader))
+
+
+def test_member_write_power_is_still_bounded_by_ownership(pg) -> None:
+    """The role grants the *capability*; RLS still decides which rows.
+
+    This is the guarantee that makes promoting every registered user to member
+    safe: 'annotate'/'delete' are not consulted by any read or write policy —
+    only docray_is_admin() reads the permission tables — so a member's reach is
+    exactly the documents they own or were granted.
+    """
+    import _itdb
+
+    conn, created = pg
+    _apply_migration_102(conn)
+    _apply_migration_104(conn)
+    doc_id = _itdb.make_doc(conn, "Member boundary probe.")
+    created.append(doc_id)
+    owner = _member(conn, "bound-owner")
+    stranger = _member(conn, "bound-stranger")
+    _own(conn, doc_id, owner)
+    try:
+        assert _visible(conn, owner, doc_id)
+        assert _writable(conn, owner, doc_id)
+        assert not _visible(conn, stranger, doc_id), "member role must not confer corpus-wide read"
+        assert not _writable(conn, stranger, doc_id)
+    finally:
+        conn.execute("DELETE FROM principals WHERE id IN (%s, %s)", (owner, stranger))

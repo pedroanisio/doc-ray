@@ -171,7 +171,61 @@ per-principal `LOGIN` roles created by `docray_create_principal_login()` and
 stored on `principals.db_role`; those roles inherit the RLS-limited
 `docray_client` capability but cannot impersonate another principal by setting
 `app.principal_id`. The `docray` owner remains the trusted batch/admin writer
-and bypasses RLS by design.
+and bypasses RLS by design — a bypass that is currently *implicit* rather than
+granted, because no table is `FORCE ROW LEVEL SECURITY`, so any code path that
+forgets to `SET ROLE` also bypasses RLS (tracked as BL-138).
+
+### What a principal may read
+
+The read boundary is document **ownership** (migration 102, D-026).
+`docray_readable_documents()` is the union of exactly three branches: documents
+in the caller's tenant when the caller is an admin, documents with an explicit
+`document_acl` grant to the caller, and documents whose `owner_principal_id` is
+the caller. `docray_writable_documents()` carries the same owner branch, so
+owning a document implies curating it.
+
+No role confers corpus-wide read on its own. Holding the `read` permission makes
+a principal *eligible* to read documents, never *entitled* to all of them — the
+distinction migration 076 lost, which let every registered user read the whole
+corpus until 102 restored it.
+
+`owner_principal_id IS NULL` means **unowned**, not public: admin-only, produced
+deliberately by operator CLI ingest, and reserved as the seam for the future
+organization corpus (BL-139). `tenant_id` stays the organization axis and
+`owner_principal_id` the user axis, so introducing organizations re-parents
+nothing.
+
+Ownership is resolved at the API boundary: `ingestDocument` stamps the request
+principal into the job payload, and the worker threads it to `insert_document`.
+The worker cannot derive ownership itself — by the time a job runs there is no
+request principal to consult.
+
+### What a principal may write
+
+Two independent gates, and both must pass (D-027):
+
+1. **Coarse scope.** `_require_write_audited` refuses any mutation from a token
+   without the `write` scope. Scope is *derived* from the principal's RBAC
+   permissions — `read` for everyone, plus `write` for anyone holding
+   `annotate`, `delete`, `redact`, or `admin` — never from a role-name
+   allowlist, so re-granting a role changes what its members may do with no code
+   change.
+2. **Per document.** `_require_document_write` checks membership of
+   `docray_writable_documents()`, so the scope says *whether* a principal may
+   mutate and RLS says *what*.
+
+`member` (read + annotate + delete) is the self-service registration role and
+what every self-registered human holds. `reader` is genuinely read-only and is
+reserved for SCIM/OIDC- and admin-CLI-provisioned accounts. Granting members
+`annotate`/`delete` is not an escalation: no read or write policy consults those
+permission rows — only `docray_is_admin()` reads the permission tables — so a
+member's reach is exactly what they own or were granted.
+
+Note that corpus writes do not need table-level DML grants: `docray_client` holds
+`SELECT` on the corpus tables and `INSERT`/`UPDATE` on `jobs`, so a mutation
+*enqueues* work that the trusted batch writer executes. Authorization therefore
+happens at enqueue time, under the caller's principal, which is why both gates
+above live in the mutation layer.
 
 ## Deployment guardrails
 

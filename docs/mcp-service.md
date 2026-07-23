@@ -70,6 +70,14 @@ managed stack; the `mcp` service front-ends `api:8000/graphql`, loopback-bound o
  validates → contextvar → FastMCP tools)  ──same Bearer──▶  /graphql → Principal → RLS → Postgres
 ```
 
+**Tool results are owner-scoped.** Since migration 102 (D-026) a document is
+readable by its owner, an explicit ACL grantee, or a tenant admin — no role
+grants corpus-wide read. An agent therefore sees exactly the corpus of the
+principal whose token it presents, which for a token minted against a regular
+user account is that user's own documents, not the tenant's. Nothing in the MCP
+layer enforces this; it inherits the boundary from the GraphQL API, as with
+every other read rule.
+
 ## 2. Module layout
 
 | Module | Depends on | Purpose |

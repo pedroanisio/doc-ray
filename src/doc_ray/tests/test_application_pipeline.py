@@ -168,3 +168,102 @@ def test_ingest_file_reports_inner_progress_stages(monkeypatch, store, tmp_path)
         (3, 5, "Storing original blob"),
         (4, 5, "Persisting extracted document"),
     ]
+
+
+def _extracted(full_text: str) -> SimpleNamespace:
+    """Minimal extractor result the persist path accepts."""
+    return SimpleNamespace(
+        doc_type="text",
+        title="owned",
+        author=None,
+        page_count=None,
+        full_text=full_text,
+        content_type="text/plain",
+        extractor="fake",
+        extractor_version="1",
+        metadata={},
+        page_runs=None,
+    )
+
+
+def test_ingest_file_stamps_the_owner_on_the_success_path(tmp_path, monkeypatch):
+    """A caller-supplied owner reaches insert_document (migration 102)."""
+    path = tmp_path / "owned.txt"
+    path.write_text("Alpha. Beta.", encoding="utf-8")
+    captured: dict[str, object] = {}
+
+    monkeypatch.setattr(pipeline.db, "find_by_sha256", lambda *_a: None)
+    monkeypatch.setattr(
+        pipeline.extract_mod, "extract", lambda *_a, **_k: _extracted("Alpha. Beta.")
+    )
+    monkeypatch.setattr(
+        pipeline.db,
+        "insert_document",
+        lambda *_a, **kwargs: captured.update(kwargs) or "doc-owned",
+    )
+
+    result = pipeline.ingest_file(
+        object(),  # type: ignore[arg-type]
+        FakeStore(),  # type: ignore[arg-type]
+        path,
+        owner_principal_id="22222222-2222-2222-2222-222222222222",
+    )
+
+    assert result.status == "ingested"
+    assert captured["owner_principal_id"] == "22222222-2222-2222-2222-222222222222"
+
+
+def test_ingest_file_stamps_the_owner_on_the_failure_path(tmp_path, monkeypatch):
+    """A failed extraction still records ownership.
+
+    record_failure persists a FAILED document row so the upload is not lost.
+    Leaving it unowned would strand the row where its uploader cannot see it —
+    the failure would be invisible to the only person who could act on it.
+    """
+    path = tmp_path / "broken.txt"
+    path.write_text("unreadable", encoding="utf-8")
+    captured: dict[str, object] = {}
+
+    monkeypatch.setattr(pipeline.db, "find_by_sha256", lambda *_a: None)
+
+    def _boom(*_a, **_k):
+        raise RuntimeError("extractor exploded")
+
+    monkeypatch.setattr(pipeline.extract_mod, "extract", _boom)
+    monkeypatch.setattr(
+        pipeline.db,
+        "insert_document",
+        lambda *_a, **kwargs: captured.update(kwargs) or "doc-failed",
+    )
+
+    result = pipeline.ingest_file(
+        object(),  # type: ignore[arg-type]
+        FakeStore(),  # type: ignore[arg-type]
+        path,
+        owner_principal_id="33333333-3333-3333-3333-333333333333",
+    )
+
+    assert result.status == "failed"
+    assert captured["status"] == "failed"
+    assert captured["owner_principal_id"] == "33333333-3333-3333-3333-333333333333"
+
+
+def test_ingest_file_defaults_to_unowned(tmp_path, monkeypatch):
+    """Operator CLI ingest passes no owner and must produce an unowned document."""
+    path = tmp_path / "cli.txt"
+    path.write_text("Gamma. Delta.", encoding="utf-8")
+    captured: dict[str, object] = {}
+
+    monkeypatch.setattr(pipeline.db, "find_by_sha256", lambda *_a: None)
+    monkeypatch.setattr(
+        pipeline.extract_mod, "extract", lambda *_a, **_k: _extracted("Gamma. Delta.")
+    )
+    monkeypatch.setattr(
+        pipeline.db,
+        "insert_document",
+        lambda *_a, **kwargs: captured.update(kwargs) or "doc-cli",
+    )
+
+    pipeline.ingest_file(object(), FakeStore(), path)  # type: ignore[arg-type]
+
+    assert captured["owner_principal_id"] is None

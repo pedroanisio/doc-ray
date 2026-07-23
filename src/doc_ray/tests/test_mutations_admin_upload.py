@@ -137,6 +137,66 @@ def test_ingest_document_accepts_upload_within_the_cap(pg, monkeypatch):
     asyncio.run(check())
 
 
+def test_ingest_document_payload_carries_the_uploader(pg, monkeypatch):
+    """The enqueued job must name the uploader (migration 102).
+
+    Ownership can only be resolved here: by the time the worker runs there is no
+    request principal to consult. If the payload loses this field the upload
+    still succeeds, but the document lands unowned — invisible to the very user
+    who uploaded it — so the wiring is asserted rather than assumed.
+    """
+    import io
+
+    from starlette.datastructures import Headers, UploadFile
+
+    from doc_ray.adapters.object_store import ObjectStore
+    from doc_ray.config import Config
+
+    try:  # skip when MinIO is not running — the blob PUT is real
+        ObjectStore(Config.from_env()).ensure_bucket()
+    except Exception as exc:
+        pytest.skip(f"object store unreachable: {exc}")
+
+    conn, _created = pg
+    # A real principal row, not the shared WRITE_PRINCIPAL constant: the mutation
+    # writes an audit event whose actor is a FK into principals.
+    uploader = _make_principal(conn, display_name=f"uploader-{new_ulid_str()}")
+    schema = build_schema()
+    upload = UploadFile(
+        io.BytesIO(b"Ownership is stamped at the API boundary."),
+        filename="owned-upload.txt",
+        headers=Headers({"content-type": "text/plain"}),
+    )
+
+    async def check():
+        aconn = await _aconn_as(str(uploader))
+        try:
+            await aconn.execute("CREATE TEMP TABLE jobs (LIKE public.jobs INCLUDING ALL)")
+            ctx = RequestContext(
+                conn=aconn,
+                principal=Principal(
+                    subject="uploader",
+                    principal_id=str(uploader),
+                    scopes=frozenset({"read", "write"}),
+                ),
+                loaders=Loaders(aconn),
+            )
+            result = await schema.execute(
+                "mutation($f: Upload!){ ingestDocument(file: $f, pipeline: false) { status } }",
+                variable_values={"f": upload},
+                context_value=ctx,
+            )
+            assert result.errors is None, result.errors
+            row = await (await aconn.execute("SELECT payload FROM jobs")).fetchone()
+            assert row is not None, "ingestDocument must enqueue a job"
+            assert row["payload"]["owner_principal_id"] == str(uploader)
+        finally:
+            await aconn.close()
+
+    asyncio.run(check())
+    conn.execute("DELETE FROM principals WHERE id = %s", (uploader,))
+
+
 # ---------------------------------------------------------------------------
 # BL-106 — the upload extension is client-controlled; it must be checked
 # against extraction.py's format allowlist before the blob is ever persisted

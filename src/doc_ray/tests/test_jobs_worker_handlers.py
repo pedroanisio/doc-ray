@@ -326,6 +326,64 @@ def test_handle_ingest_title_falls_back_to_original_filename(qconn):
     assert not row["title"].startswith("tmp")
 
 
+def test_handle_ingest_threads_the_payload_owner_to_the_pipeline(qconn, monkeypatch):
+    """The uploader in the payload reaches ``ingest_file`` unchanged (migration 102)."""
+    from doc_ray.application import pipeline as pipeline_mod
+
+    seen: dict[str, object] = {}
+
+    def _fake_ingest_file(_conn, _store, path, owner_principal_id=None):
+        seen["owner"] = owner_principal_id
+        return pipeline_mod.IngestResult(str(path), None, "duplicate")
+
+    monkeypatch.setattr(pipeline_mod, "ingest_file", _fake_ingest_file)
+    store = _BlobStore()
+    key = _seed_blob(store, b"Owned upload body.", ".txt")
+    job = Job(
+        id="0" * 26,
+        kind="ingest",
+        status="queued",  # type: ignore[arg-type]
+        payload={
+            "storage_key": key,
+            "extension": ".txt",
+            "original_filename": "owned.txt",
+            "owner_principal_id": "11111111-1111-1111-1111-111111111111",
+        },
+    )
+    jobs_mod.handle_ingest(qconn, store, job)
+    assert seen["owner"] == "11111111-1111-1111-1111-111111111111"
+
+
+def test_handle_ingest_without_an_owner_passes_none_not_the_string_none(qconn, monkeypatch):
+    """An ownerless payload must yield ``None``, never the text ``"None"``.
+
+    The handler coerces with ``str(owner) if owner else None``; dropping that
+    guard would stringify a missing owner and Postgres would reject (or worse,
+    a looser column would store) a literal ``"None"`` as the owning principal.
+    Operator CLI ingest legitimately produces ownerless documents, so this path
+    is normal traffic, not an edge case.
+    """
+    from doc_ray.application import pipeline as pipeline_mod
+
+    seen: dict[str, object] = {}
+
+    def _fake_ingest_file(_conn, _store, path, owner_principal_id=None):
+        seen["owner"] = owner_principal_id
+        return pipeline_mod.IngestResult(str(path), None, "duplicate")
+
+    monkeypatch.setattr(pipeline_mod, "ingest_file", _fake_ingest_file)
+    store = _BlobStore()
+    key = _seed_blob(store, b"Ownerless upload body.", ".txt")
+    job = Job(
+        id="0" * 26,
+        kind="ingest",
+        status="queued",  # type: ignore[arg-type]
+        payload={"storage_key": key, "extension": ".txt", "original_filename": "cli.txt"},
+    )
+    jobs_mod.handle_ingest(qconn, store, job)
+    assert seen["owner"] is None
+
+
 def test_handle_reannotate_runs_spacy(qconn, pg):
     conn, created = pg
     doc_id = _itdb.make_doc(conn, "Elena founded a startup in Berlin.")

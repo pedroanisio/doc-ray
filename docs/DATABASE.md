@@ -1,6 +1,6 @@
 # doc-ray — Database ERD & Data Dictionary
 
-**Schema version `1.34.0`** (SemVer) · 103 migrations applied
+**Schema version `1.35.0`** (SemVer) · 105 migrations applied
 
 > Generated from the live schema by `scripts/gen_data_dictionary.py`. Do not edit by hand — re-run the generator.
 
@@ -2126,5 +2126,7 @@ owner's bypass.
 | 099 | `099_schema_version_1_32_0.sql` | advance the schema SemVer to 1.32.0 |
 | 100 | `100_read_model_token_entity.sql` | extend the read-model rollups with token + entity counts |
 | 101 | `101_schema_version_1_33_0.sql` | advance the schema SemVer to 1.33.0 |
-| 102 | `102_document_ownership.sql` | documents.owner_principal_id becomes the read boundary (supersedes 076's role-read branch) |
+| 102 | `102_document_ownership.sql` | documents.owner_principal_id becomes the read boundary (supersedes 076) |
 | 103 | `103_schema_version_1_34_0.sql` | advance the schema SemVer to 1.34.0 |
+| 104 | `104_member_role.sql` | the `member` role — a registered user who can own and curate a corpus |
+| 105 | `105_schema_version_1_35_0.sql` | advance the schema SemVer to 1.35.0 |

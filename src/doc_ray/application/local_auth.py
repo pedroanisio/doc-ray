@@ -56,6 +56,7 @@ class VerificationResult:
 
     principal_id: str
     email_normalized: str
+    scopes: frozenset[str] = frozenset({"read"})
 
 
 @dataclass(frozen=True)
@@ -67,11 +68,37 @@ class LocalPrincipal:
     scopes: frozenset[str]
 
 
+#: Permission actions that imply the principal may mutate something. A token's
+#: coarse ``write`` scope is derived from these rather than from a role-name
+#: allowlist, so a new role carrying ``annotate`` works without touching this
+#: module — and ``reader`` stays genuinely read-only, which SCIM and the admin
+#: CLI both rely on when provisioning look-but-don't-touch accounts.
+WRITE_ACTIONS = frozenset({"annotate", "delete", "redact", "admin"})
+
+
+def scopes_for_actions(actions: frozenset[str]) -> frozenset[str]:
+    """Map RBAC permission actions onto the coarse API token scopes.
+
+    Every authenticated principal reads; only one holding a mutating permission
+    gets ``write``. Row-level authorization stays with RLS — this scope is the
+    coarse gate ``_require_write_audited`` gates mutations on, not the boundary
+    that decides *which* documents may be touched.
+    """
+    scopes = {"read"}
+    if actions & WRITE_ACTIONS:
+        scopes.add("write")
+    return frozenset(scopes)
+
+
 class LocalAuthRepository(Protocol):
     """Persistence surface required by :class:`LocalAuthService`."""
 
     def local_identity_by_email(self, email_normalized: str) -> dict[str, Any] | None:
         """Return local credential state for an email."""
+        ...
+
+    def permission_actions(self, principal_id: str) -> frozenset[str]:
+        """Return the permission actions the principal's roles carry."""
         ...
 
     def create_local_identity(
@@ -131,7 +158,7 @@ class LocalAuthService:
         token_factory: Callable[[], str] | None = None,
         password_hasher: PasswordHasher | None = None,
         verification_ttl: timedelta = timedelta(hours=24),
-        default_role: str = "reader",
+        default_role: str = "member",
         max_failed_logins: int = 10,
         lockout_seconds: int = 900,
     ) -> None:
@@ -219,9 +246,14 @@ class LocalAuthService:
         )
         if row is None:
             raise VerificationTokenInvalid("email verification token is invalid")
+        principal_id = str(row["principal_id"])
         return VerificationResult(
-            principal_id=str(row["principal_id"]),
+            principal_id=principal_id,
             email_normalized=str(row["email_normalized"]),
+            # The post-verification auto-login forwards these; deriving them the
+            # same way login does stops verification from silently handing back
+            # a read-only token to a member who may write.
+            scopes=scopes_for_actions(self._repo.permission_actions(principal_id)),
         )
 
     def login(self, *, email: str, password: str) -> LocalPrincipal:
@@ -257,7 +289,7 @@ class LocalAuthService:
         return LocalPrincipal(
             subject=f"local:{email_normalized}",
             principal_id=principal_id,
-            scopes=frozenset({"read"}),
+            scopes=scopes_for_actions(self._repo.permission_actions(principal_id)),
         )
 
     def _locked_out(self, row: dict[str, Any]) -> bool:

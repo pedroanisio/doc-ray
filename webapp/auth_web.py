@@ -300,12 +300,14 @@ def verify_local_email(token: str) -> AuthenticatedWebPrincipal:
     """Consume an email verification token and resolve a browser principal."""
     result = _local_auth_service().verify_email(token)
     subject = f"local:{result.email_normalized}"
-    # Registered users hold the reader role; mint a read-scoped forwardable token
-    # so the post-verification auto-login can render previews/originals too.
+    # Mint the same scopes login would (derived from the principal's own
+    # permissions). Hard-coding {"read"} here silently downgraded the
+    # post-verification auto-login, so a member's first session after signing up
+    # could not upload — the one thing a new account exists to do.
     return AuthenticatedWebPrincipal(
         principal_id=result.principal_id,
         subject=subject,
-        bearer_token=mint_forwardable_api_jwt(result.principal_id, subject, frozenset({"read"})),
+        bearer_token=mint_forwardable_api_jwt(result.principal_id, subject, result.scopes),
     )
 
 

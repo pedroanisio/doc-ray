@@ -24,10 +24,14 @@ class _FakeLocalAuthRepository:
         self.credentials: dict[str, dict[str, object]] = {}
         self.tokens: dict[str, dict[str, object]] = {}
         self.roles: dict[str, list[str]] = {}
+        self.actions: dict[str, list[str]] = {}
         self.created: list[dict[str, object]] = []
 
     def local_identity_by_email(self, email_normalized: str) -> dict[str, object] | None:
         return self.credentials.get(email_normalized)
+
+    def permission_actions(self, principal_id: str) -> frozenset[str]:
+        return frozenset(self.actions.get(principal_id, ["read"]))
 
     def create_local_identity(
         self,
@@ -107,7 +111,13 @@ class _FakeLocalAuthRepository:
                 row["consumed_at"] = now
 
 
-def test_register_user_creates_unverified_reader_principal_with_argon2id_hash() -> None:
+def test_register_user_creates_unverified_member_principal_with_argon2id_hash() -> None:
+    """Registration provisions a member: verified-email gated, never an admin.
+
+    The default role moved reader -> member in 1.35.0. A reader cannot mutate
+    anything, so under per-owner isolation (migration 102) a self-registered
+    account could never put a document into its own corpus.
+    """
     repo = _FakeLocalAuthRepository()
     service = LocalAuthService(
         repo,
@@ -128,7 +138,7 @@ def test_register_user_creates_unverified_reader_principal_with_argon2id_hash() 
     assert row["email_verified_at"] is None
     assert str(row["password_hash"]).startswith("$argon2")
     assert "correct horse battery staple" not in str(row["password_hash"])
-    assert repo.roles["principal-1"] == ["reader"]
+    assert repo.roles["principal-1"] == ["member"]
     assert "admin" not in repo.roles["principal-1"]
 
 
@@ -307,3 +317,75 @@ def test_expired_verification_token_does_not_verify_email() -> None:
 
     with pytest.raises(VerificationTokenExpired):
         service.verify_email(registration.verification_token)
+
+
+# ---------------------------------------------------------------------------
+# Phase 1 — a registered user must be able to own something.
+#
+# Every local login minted scopes={"read"}, and _require_write_audited refuses
+# any mutation without "write", so a self-registered account could never
+# ingest. Combined with per-owner isolation (migration 102) that left new users
+# with a permanently EMPTY corpus, not merely a clean one. Scope is now derived
+# from the principal's own permissions instead of hard-coded.
+# ---------------------------------------------------------------------------
+
+
+def _verified_login(repo, service, *, email: str, actions: list[str]):
+    """Register + verify *email*, stamp its permission actions, and log in."""
+    registration = service.register(email=email, password="correct horse battery staple")
+    service.verify_email(registration.verification_token)
+    repo.actions[registration.principal_id] = actions
+    return service.login(email=email, password="correct horse battery staple")
+
+
+def test_login_grants_write_scope_to_a_member() -> None:
+    """A principal holding 'annotate' can mutate — otherwise it can own nothing."""
+    repo = _FakeLocalAuthRepository()
+    service = LocalAuthService(repo, token_factory=lambda: "verify-token")
+    principal = _verified_login(
+        repo, service, email="member@example.com", actions=["read", "annotate", "delete"]
+    )
+    assert principal.scopes == frozenset({"read", "write"})
+
+
+def test_login_keeps_a_reader_read_only() -> None:
+    """'reader' stays a genuinely read-only role — SCIM/admin CLI provision it."""
+    repo = _FakeLocalAuthRepository()
+    service = LocalAuthService(repo, token_factory=lambda: "verify-token")
+    principal = _verified_login(repo, service, email="reader@example.com", actions=["read"])
+    assert principal.scopes == frozenset({"read"})
+
+
+def test_login_grants_write_scope_to_an_admin() -> None:
+    """Deriving from permissions (not a role-name allowlist) must cover admins."""
+    repo = _FakeLocalAuthRepository()
+    service = LocalAuthService(repo, token_factory=lambda: "verify-token")
+    principal = _verified_login(
+        repo,
+        service,
+        email="admin@example.com",
+        actions=["read", "annotate", "delete", "redact", "admin"],
+    )
+    assert principal.scopes == frozenset({"read", "write"})
+
+
+def test_registration_defaults_to_the_member_role() -> None:
+    """Open registration must produce a user who can upload into their own corpus."""
+    repo = _FakeLocalAuthRepository()
+    service = LocalAuthService(repo, token_factory=lambda: "verify-token")
+    registration = service.register(
+        email="newcomer@example.com", password="correct horse battery staple"
+    )
+    assert repo.roles[registration.principal_id] == ["member"]
+
+
+def test_verify_email_mints_the_same_scopes_as_login() -> None:
+    """The post-verification auto-login must not silently downgrade to read-only."""
+    repo = _FakeLocalAuthRepository()
+    service = LocalAuthService(repo, token_factory=lambda: "verify-token")
+    registration = service.register(
+        email="verify@example.com", password="correct horse battery staple"
+    )
+    repo.actions[registration.principal_id] = ["read", "annotate", "delete"]
+    verified = service.verify_email(registration.verification_token)
+    assert verified.scopes == frozenset({"read", "write"})

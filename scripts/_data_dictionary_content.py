@@ -268,6 +268,8 @@ MIGRATIONS = [
         "documents.owner_principal_id becomes the read boundary (supersedes 076)",
     ),
     ("103_schema_version_1_34_0", "advance the schema SemVer to 1.34.0"),
+    ("104_member_role", "the `member` role — a registered user who can own and curate a corpus"),
+    ("105_schema_version_1_35_0", "advance the schema SemVer to 1.35.0"),
 ]
 
 # ---------------------------------------------------------------------------
