@@ -40,13 +40,22 @@ def _sha256(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
-def ingest_file(conn: psycopg.Connection[Any], store: ObjectStore, path: Path) -> IngestResult:
+def ingest_file(
+    conn: psycopg.Connection[Any],
+    store: ObjectStore,
+    path: Path,
+    owner_principal_id: str | None = None,
+) -> IngestResult:
     """Ingest a single file: dedupe, store the blob, extract, and persist.
 
     Args:
         conn: Live database connection.
         store: Object store for the original bytes.
         path: File to ingest.
+        owner_principal_id: Principal the resulting document belongs to
+            (migration 102). An authenticated upload carries the uploader here
+            so the document lands in *their* corpus; operator CLI ingest leaves
+            it ``None`` (unowned — admin-only until org corpora ship).
 
     Returns:
         An ``IngestResult`` describing the outcome (ingested, duplicate, or
@@ -92,6 +101,7 @@ def ingest_file(conn: psycopg.Connection[Any], store: ObjectStore, path: Path) -
             status="failed",
             error=error,
             provenance=provenance,
+            owner_principal_id=owner_principal_id,
         )
         return IngestResult(str(path), doc_id, "failed", error)
 
@@ -151,6 +161,7 @@ def ingest_file(conn: psycopg.Connection[Any], store: ObjectStore, path: Path) -
         provenance=provenance,
         page_runs=extracted.page_runs,
         page_metrics=getattr(extracted, "page_metrics", None),
+        owner_principal_id=owner_principal_id,
     )
     return IngestResult(
         str(path),

@@ -1,14 +1,18 @@
-"""Reader-role corpus visibility (auth-audit MAJOR).
+"""Reader-role corpus visibility — migration 076 SUPERSEDED by 102.
 
-Before migration 076, ``docray_readable_documents()`` was admin ∪ per-document
-ACL only — a freshly registered reader (principal + reader role, zero ACL
-rows) saw an EMPTY corpus, and no granting flow existed. 076 adds a role-based
-branch: any principal whose role carries the ``read`` permission sees the
-tenant's corpus, EXCEPT documents marked ``sensitivity=sensitive`` (those stay
-ACL-gated per migration 064's ABAC policy).
+076 gave any principal holding the ``read`` permission visibility of the whole
+tenant corpus (minus ``sensitivity=sensitive`` documents) as a stopgap for the
+missing granting flow. On a SaaS with open registration that resolved to "every
+registered user reads every document", because one tenant, zero ``document_acl``
+rows and zero sensitivity tags left the branch unnarrowed.
 
-The RLS tests run against the live schema (skip locally without the isolated
-test DB, like every other DB-backed suite).
+Migration 102 replaced that branch with ownership (see
+``test_document_ownership.py``). What remains here is the anti-regression: the
+blanket role-read branch must never come back, and re-applying 076 in the
+shared test DB must not be how a sibling suite resurrects it.
+
+The RLS tests run against the live schema (skipped without the isolated test
+DB, like every other DB-backed suite).
 """
 
 from __future__ import annotations
@@ -18,19 +22,7 @@ import uuid
 from pathlib import Path
 
 _ROOT = Path(__file__).resolve().parents[3]
-
-
-def test_migration_076_adds_role_read_branch_without_leaking_sensitive() -> None:
-    migration = (_ROOT / "db" / "migrations" / "076_reader_corpus_read.sql").read_text(
-        encoding="utf-8"
-    )
-    assert "docray_readable_documents" in migration
-    assert "role_permissions" in migration
-    assert "p.action = 'read'" in migration
-    assert "sensitivity" in migration
-    assert "lower(dm.value) = 'sensitive'" in migration
-    # Writable documents stay ACL/admin-gated — 076 must not touch them.
-    assert "docray_writable_documents" not in migration
+_MIGRATION_102 = _ROOT / "db" / "migrations" / "102_document_ownership.sql"
 
 
 def test_migration_077_bumps_schema_version() -> None:
@@ -45,92 +37,59 @@ def test_migration_077_bumps_schema_version() -> None:
     assert re.search(r'^source_schema_version:\s*"\d+\.\d+\.\d+"', decisions, re.MULTILINE)
 
 
-def _ensure_migration_076(conn) -> None:
-    """Re-apply 076 before each RLS test.
+def test_no_migration_reintroduces_the_blanket_role_read_branch() -> None:
+    """076 is the last migration allowed to grant corpus-wide read by role.
 
-    Sibling RLS tests re-run migrations 061/064 inline, which re-create
-    docray_readable_documents() from their older definitions and drop this
-    migration's role-read branch in the shared test DB. Re-applying 076 here
-    makes each test self-contained regardless of run order (the same pattern
-    test_rbac/test_abac already use for their own migrations).
+    Ordering matters: a later migration re-creating ``docray_readable_documents()``
+    with the role-permission branch would silently restore the leak, exactly as
+    076 itself did to 061's definition.
     """
-    conn.execute((_ROOT / "db" / "migrations" / "076_reader_corpus_read.sql").read_text())
+    offenders = []
+    for path in sorted((_ROOT / "db" / "migrations").glob("*.sql")):
+        if path.name <= "102_document_ownership.sql":
+            continue
+        body = path.read_text(encoding="utf-8")
+        if "docray_readable_documents" in body and "p.action = 'read'" in body:
+            offenders.append(path.name)
+    assert not offenders, f"migrations reintroduce corpus-wide role read: {offenders}"
 
 
-def _reader_principal(conn, display_name: str) -> str:
+def _apply_migration_102(conn) -> None:
+    conn.execute(_MIGRATION_102.read_text(encoding="utf-8"))
+
+
+def test_read_permission_alone_no_longer_reveals_the_corpus(pg) -> None:
+    """The incident, as a standing regression test.
+
+    A freshly registered reader — ``read`` permission, no ACL row, owning
+    nothing — must see an empty corpus, not the tenant's documents.
+    """
+    import _itdb
+
+    conn, created = pg
+    _apply_migration_102(conn)
+    doc_id = _itdb.make_doc(conn, "Corpus leak regression probe.")
+    created.append(doc_id)
+    conn.execute("UPDATE documents SET owner_principal_id = NULL WHERE id = %s", (doc_id,))
     row = conn.execute(
         "INSERT INTO principals (kind, display_name, tenant_id) "
         "VALUES ('human', %s, docray_default_tenant_id()) RETURNING id",
-        (display_name,),
+        (f"reader-vis-{uuid.uuid4()}",),
     ).fetchone()
-    principal_id = str(row["id"])
+    reader = str(row["id"])
     conn.execute(
         "INSERT INTO principal_roles (principal_id, role_id) "
         "SELECT %s, id FROM roles WHERE name = 'reader' ON CONFLICT DO NOTHING",
-        (principal_id,),
+        (reader,),
     )
-    return principal_id
-
-
-def _visible(conn, principal_id: str, doc_id: str) -> bool:
-    # Mirror the API's apply_principal path exactly: docray_current_principal()
-    # only honors app.principal_id under the trusted docray_api role (migration
-    # 030); docray_client deliberately ignores it (anti-impersonation), so a
-    # logged-in browser/API read binds identity this way.
-    conn.execute("SET ROLE docray_api")
     try:
-        conn.execute("SELECT set_config('app.principal_id', %s, false)", (principal_id,))
-        row = conn.execute("SELECT id FROM documents WHERE id = %s", (doc_id,)).fetchone()
-        return row is not None
+        conn.execute("SET ROLE docray_api")
+        conn.execute("SELECT set_config('app.principal_id', %s, false)", (reader,))
+        visible = conn.execute("SELECT id FROM documents WHERE id = %s", (doc_id,)).fetchone()
+        conn.execute("SELECT set_config('app.principal_id', '', false)")
+        conn.execute("RESET ROLE")
+        assert visible is None, "the reader role must not confer corpus-wide read"
     finally:
         conn.execute("SELECT set_config('app.principal_id', '', false)")
         conn.execute("RESET ROLE")
-
-
-def test_reader_role_sees_the_tenant_corpus_without_acl_rows(pg) -> None:
-    import _itdb
-
-    conn, created = pg
-    _ensure_migration_076(conn)
-    doc_id = _itdb.make_doc(conn, "Reader visibility probe.")
-    created.append(doc_id)
-    reader = _reader_principal(conn, f"reader-vis-{uuid.uuid4()}")
-    nobody = conn.execute(
-        "INSERT INTO principals (kind, display_name, tenant_id) "
-        "VALUES ('human', %s, docray_default_tenant_id()) RETURNING id",
-        (f"roleless-vis-{uuid.uuid4()}",),
-    ).fetchone()
-    roleless = str(nobody["id"])
-    try:
-        assert _visible(conn, reader, doc_id), "reader role must see the tenant corpus"
-        assert not _visible(conn, roleless, doc_id), "a principal without roles sees nothing"
-    finally:
-        conn.execute("DELETE FROM principals WHERE id IN (%s, %s)", (reader, roleless))
-
-
-def test_reader_role_does_not_see_sensitive_documents(pg) -> None:
-    import _itdb
-
-    conn, created = pg
-    _ensure_migration_076(conn)
-    doc_id = _itdb.make_doc(conn, "Sensitive reader probe.")
-    created.append(doc_id)
-    conn.execute(
-        "INSERT INTO document_metadata (document_id, key, value) "
-        "VALUES (%s, 'sensitivity', 'sensitive') "
-        "ON CONFLICT (document_id, key) DO UPDATE SET value = EXCLUDED.value",
-        (doc_id,),
-    )
-    reader = _reader_principal(conn, f"reader-sens-{uuid.uuid4()}")
-    try:
-        assert not _visible(conn, reader, doc_id), (
-            "sensitivity=sensitive documents stay ACL-gated (migration 064)"
-        )
-        conn.execute(
-            "INSERT INTO document_acl (document_id, principal_id, permission) "
-            "VALUES (%s, %s, 'read') ON CONFLICT DO NOTHING",
-            (doc_id, reader),
-        )
-        assert _visible(conn, reader, doc_id), "an explicit ACL grant still works"
-    finally:
         conn.execute("DELETE FROM principals WHERE id = %s", (reader,))

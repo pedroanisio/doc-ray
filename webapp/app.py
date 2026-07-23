@@ -259,23 +259,29 @@ app.after_request(apply_security_headers)
 def _apply_principal(conn) -> None:
     """Enforce RLS on ``conn`` by dropping role and setting the request principal.
 
-    No-op when no principal is configured. Trust boundary: the principal comes
-    from server-side config (the trusted app tier), never from user input — the
-    GUC-based model is only safe under that assumption. Mapping an authenticated
-    end user to their principal, and per-principal LOGIN roles to defend against
-    hostile direct SQL, are the next steps (see the ``018_rbac.sql`` header).
+    Fails **closed**: the role is dropped even when no principal resolves, so a
+    principal-less request reads through RLS with an empty ``app.principal_id``
+    (seeing only what anonymous policies allow) instead of inheriting the
+    connection's owner privileges. That distinction is not academic —
+    ``DATABASE_URL`` connects as the table owner, and Postgres exempts the owner
+    from RLS unless the table is FORCE'd, so returning early here left the whole
+    corpus readable with no policy applied at all.
+
+    Trust boundary: the principal comes from server-side config or an
+    authenticated session (the trusted app tier), never from user input — the
+    GUC-based model is only safe under that assumption. Per-principal LOGIN
+    roles, to defend against hostile direct SQL, remain the next step (see the
+    ``018_rbac.sql`` header).
 
     Args:
         conn: The open ``psycopg`` connection to configure in place.
     """
     principal_id = _request_principal_id()
-    if not principal_id:
-        return
     with conn.cursor() as cur:
         # DB_ROLE is an operator-set identifier (never user input) — quote it safely.
         cur.execute(sql.SQL("SET ROLE {}").format(sql.Identifier(DB_ROLE)))
         # SET cannot bind a value, so use set_config to pass the principal safely.
-        cur.execute("SELECT set_config('app.principal_id', %s, false)", (principal_id,))
+        cur.execute("SELECT set_config('app.principal_id', %s, false)", (principal_id or "",))
 
 
 def get_conn():

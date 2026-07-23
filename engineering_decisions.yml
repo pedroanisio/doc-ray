@@ -50,7 +50,7 @@ source_schema:         "db/migrations"
 # by tenant-scoped Stripe billing status (migration 085).
 # Kept in lockstep with doc_ray.__version__
 # by scripts/check_version_consistency.py.
-source_schema_version: "1.33.0"
+source_schema_version: "1.34.0"
 target_engine:         "PostgreSQL 16"
 total_decisions:       25
 
@@ -1382,5 +1382,84 @@ decisions:
             context:     "ci"
             side_effects: "reads"
             command:     "python scripts/check_read_path_aggregates.py"
+            expect:
+              exit:      0
+
+  - id:                 "D-026"
+    title:              "Document ownership is the corpus read boundary; tenant stays the organization axis"
+    version_introduced: "1.34.0"
+    category:           "security"
+    decision: |
+      A document's read boundary is its owner. docray_readable_documents()
+      resolves to exactly three branches — tenant admin, explicit document_acl
+      grantee, and documents.owner_principal_id = the calling principal — and
+      docray_writable_documents() carries the same owner branch, so owning a
+      document implies curating it. No role, by itself, confers corpus-wide
+      read: holding the 'read' permission makes a principal eligible to read
+      documents, never entitled to all of them. owner_principal_id IS NULL
+      means UNOWNED, not public — admin-only, and reserved as the seam for a
+      future organization corpus. Ownership is resolved at the API boundary
+      (ingestDocument stamps the request principal into the job payload) and
+      never derived in the worker, which has no request principal by the time
+      it runs. Operator CLI ingest deliberately produces unowned documents.
+      Deployment-specific ownership data stays out of versioned migrations:
+      scripts/assign_document_owner.py performs the move by login email.
+    rationale: |
+      doc-ray runs open registration on the public internet, so a newly
+      registered user must land on a clean, private corpus. Migration 076
+      violated that: its role-permission branch granted every principal
+      carrying the 'read' action — i.e. every user, since 'reader' is the
+      default signup role — the whole tenant corpus minus documents tagged
+      sensitivity=sensitive. With one tenant, zero document_acl rows and zero
+      sensitivity tags in production, the predicate narrowed nothing and three
+      self-registered accounts could read all 192 operator-ingested documents.
+      076 itself described the branch as a stopgap for a granting flow that was
+      never built; ownership is that flow. Per-user TENANTS were rejected as
+      the isolation mechanism precisely because organizations are a stated
+      future direction: if tenant_id came to mean "one user", introducing orgs
+      would require re-parenting every principal and document. Keeping tenant_id
+      as the organization axis and owner_principal_id as the user axis makes the
+      org corpus an additive change (unowned/org-flagged rows become visible to
+      org members) rather than a migration of the whole corpus. ON DELETE SET
+      NULL releases a deleted account's documents to unowned rather than
+      cascading the corpus away with the account.
+    decision_status:    "accepted"
+    decision_date:      "2026-07-23"
+    owner:              ["pedroanisio@faz.ai"]
+    scope_path:
+      - "db/migrations/102_document_ownership.sql"
+      - "src/doc_ray/adapters/persistence.py"
+      - "src/doc_ray/application/pipeline.py"
+      - "src/doc_ray/entrypoints/api/mutation.py"
+      - "scripts/assign_document_owner.py"
+    claims:
+      - claim_id:    "D-026.k1"
+        claim_text:  "A registered reader sees neither another user's documents nor unowned ones."
+        auditable:   true
+        status:      "populated"
+        declared_checks_count: 1
+        checks:
+          - check_id:    "D-026.k1.c1"
+            description: "The per-owner RLS isolation suite passes against the live schema."
+            check_kind:  "shell"
+            severity:    "error"
+            context:     "ci"
+            side_effects: "reads"
+            command:     "pytest src/doc_ray/tests/test_document_ownership.py"
+            expect:
+              exit:      0
+      - claim_id:    "D-026.k2"
+        claim_text:  "No migration after 102 reintroduces a corpus-wide role-read branch."
+        auditable:   true
+        status:      "populated"
+        declared_checks_count: 1
+        checks:
+          - check_id:    "D-026.k2.c1"
+            description: "The anti-regression guard over db/migrations passes."
+            check_kind:  "shell"
+            severity:    "error"
+            context:     "ci"
+            side_effects: "reads"
+            command:     "pytest src/doc_ray/tests/test_reader_visibility.py"
             expect:
               exit:      0

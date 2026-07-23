@@ -110,7 +110,7 @@ metadata:
   generated_by:     "Claude Sonnet 5 via Claude Code (merge of Claude Opus 4.8 backlog + OpenAI Codex improvement-proposal candidates)"
   generated_on:     "2026-07-05"
   system_of_record: "docs/backlog.yml"
-  total_items:      137
+  total_items:      140
 
 items:
 
@@ -4531,3 +4531,136 @@ items:
     owner:        "shared"
     source:       "Landing checklist for the crossModalImageSearch vision-stack fix, 2026-07-21 (Claude Fable 5 via Claude Code): pytest tests/test_docs_in_sync.py reports 94 documented vs 101 on-disk migrations, missing 095-101."
     tags:         ["documentation", "gates", "database", "bug"]
+
+  - id:          "BL-138"
+    title:        "No table is FORCE ROW LEVEL SECURITY, so any owner-role connection bypasses RLS entirely"
+    summary:      "db/migrations/ enables ROW LEVEL SECURITY on the corpus tables but never FORCEs it, and both the API and webapp connect as `docray`, which owns those tables. Postgres exempts a table owner from its own RLS policies unless relforcerowsecurity is set (verified live: documents shows relrowsecurity=true, relforcerowsecurity=false). Every code path that fails to SET ROLE therefore reads with no policy applied at all — not merely as an anonymous principal. Found 2026-07-23 while root-causing the corpus-wide read incident fixed by migration 102."
+    description: |
+      Add FORCE ROW LEVEL SECURITY to every RLS-enabled table, then make the
+      owner-role connections legitimate rather than accidental. The sequencing
+      is the whole difficulty and is why this did not ship with 102: the worker
+      and the ingest path currently INSERT as `docray` with no app.principal_id
+      set, so FORCE alone makes docray_writable_documents() empty for them and
+      ingestion stops. Required order:
+        1. Inventory every write path that runs without SET ROLE (worker job
+           handlers, pipeline persistence, migrations tooling, CLIs).
+        2. Give the trusted batch writer an explicit identity — a service
+           principal bound at connection time, or a dedicated NOBYPASSRLS role
+           with targeted GRANTs — so its writes satisfy the policies instead of
+           evading them.
+        3. Apply FORCE ROW LEVEL SECURITY in a migration, with a DB-backed test
+           per table asserting the owner role no longer bypasses.
+      webapp/app.py::_apply_principal was already made to fail closed (always
+      SET ROLE) in 1.34.0; that closes the reachable path, not the class.
+    category:     "security"
+    type:         "bug"
+    status:       "ready"
+    complexity:   "L"
+    priority:     "high"
+    rationale:    "RLS that the application tier can silently opt out of is not an access-control boundary, it is a convention. The corpus-wide read incident was caused by a policy predicate, but the same tables would have leaked through any missing SET ROLE regardless of the policy — isolation must be enforced by the database, not by a Flask before_request guard."
+    acceptance_criteria:
+      - "Every table with relrowsecurity=true also has relforcerowsecurity=true."
+      - "Ingest, annotate, and reannotate jobs still complete end-to-end after the change."
+      - "A DB-backed test asserts the owner role cannot read another principal's documents."
+    dependencies: []
+    references:
+      - "db/migrations/018_rbac.sql"
+      - "db/migrations/102_document_ownership.sql"
+      - "webapp/app.py"
+      - "src/doc_ray/application/job_handlers.py"
+    owner:        "shared"
+    source:       "Root-cause investigation of the corpus-wide read incident, 2026-07-23 (Claude Opus 4.8 via Claude Code): pg_class shows relforcerowsecurity=false on documents while both API and webapp connect as the table owner `docray`."
+    tags:         ["security", "rls", "database", "bug"]
+
+  - id:          "BL-139"
+    title:        "Organization corpus: make unowned documents shareable within a tenant"
+    summary:      "Migration 102 made documents.owner_principal_id the read boundary and reserved NULL ownership as `unowned` — admin-only today. The product direction is an Org Corpus alongside each User Corpus, which is the case NULL ownership was designed to become. Nothing in the current schema lets a tenant member read an org-level document without an explicit per-document ACL row."
+    description: |
+      Extend the read model with an organization scope now that ownership
+      exists. tenant_id remains the organization axis and owner_principal_id
+      the user axis, so this is additive:
+        * Decide the org-visibility marker — treating NULL ownership as
+          org-readable is the cheapest option but conflates "shared with the
+          org" with "nobody has claimed it"; an explicit documents.visibility
+          (private | org) is more honest and is the recommended shape.
+        * Add the branch to docray_readable_documents() (and decide whether org
+          documents are org-writable or read-only to non-owners).
+        * Surface it in the upload flow and the webapp so a user can publish a
+          document to their organization and see which scope a document is in.
+      Membership already exists via principals.tenant_id; no new join table is
+      needed for the read path.
+    category:     "security"
+    type:         "feature"
+    status:       "ready"
+    complexity:   "M"
+    priority:     "medium"
+    rationale:    "The operator stated the target explicitly: each user gets a clean corpus now, and organizations later get an Org Corpus alongside the User Corpus. 102 deliberately left the seam open rather than guessing the sharing semantics, so this item is the other half of that decision (D-026)."
+    acceptance_criteria:
+      - "A document marked org-visible is readable by every principal in the tenant."
+      - "A private document remains invisible to other tenant members without an ACL grant."
+      - "The upload flow lets the uploader choose the scope, defaulting to private."
+    dependencies: ["BL-138"]
+    references:
+      - "db/migrations/102_document_ownership.sql"
+      - "engineering_decisions.yml"
+    owner:        "shared"
+    source:       "Operator direction during the corpus-isolation incident, 2026-07-23: 'each New user will have its own clean corpus. IF we extend this to an Org, we may have the Org Corpus AND the User Corpus, but this is not the case at this moment.'"
+    tags:         ["product", "rls", "multi-tenancy", "feature"]
+
+  - id:          "BL-140"
+    title:        "tests/test_webapp.py red on main: 16 tests fail on stale copy assertions and stale SQL stubs"
+    summary:      "pytest tests/test_webapp.py fails 16 of 139 on a clean checkout of main, with no database required — the suite's own stubs and expectations have drifted away from the templates and queries they cover. Found 2026-07-23 while compacting the /corpus page header; confirmed against a pristine HEAD worktree, so it is not caused by any in-flight working-tree change."
+    description: |
+      Two distinct failure families, both inside tests/test_webapp.py:
+
+      1. Copy drift — the assertion no longer matches template text that has
+         since been rewritten. Example: test_help_glossary_defines_core_terms
+         expects "one normalized vocabulary identity" while help.html renders
+         "One normalized vocabulary identity" (capitalised); the landing tests
+         expect "auditable research corpus" and the Extract/Annotate/Canonicalize
+         stage names, which landing.html no longer words that way.
+      2. Stub drift — fake_q / fake_q1 no longer recognise the SQL the app
+         issues, so the page renders empty and content assertions fail. Example:
+         test_lexemes_index_renders_and_filters gets a lexeme table with no
+         "say" row, and test_document_annotated_reader_highlights_words gets a
+         reader with no `class="w p-VERB"` spans at all.
+
+      Family 2 is the dangerous one: a stub that silently stops matching turns
+      a content test into a no-op long before it turns red, so the whole
+      reader/lexeme surface is effectively untested today. Fix by re-deriving
+      the stub dispatchers from the queries webapp/app.py actually runs, then
+      re-pointing each copy assertion at the current template text.
+
+      Full list: test_landing_is_served_at_root,
+      test_landing_shows_pipeline_stages, test_document_page_shows_pos_and_verbs,
+      test_document_annotated_reader_highlights_words,
+      test_document_annotated_reader_uses_non_color_pos_cues,
+      test_document_reader_renders_markdown_blocks_with_annotations,
+      test_document_original_overlay_can_toggle_to_entity_canonical_boxes,
+      test_document_reader_has_solo_pos_focus_controls,
+      test_lexemes_index_renders_and_filters,
+      test_lexemes_index_does_not_foreground_raw_identity,
+      test_search_discloses_literal_substring_semantics,
+      test_search_empty_state_explains_literal_match_and_alternative,
+      test_help_entry_is_reachable_from_every_page,
+      test_help_glossary_defines_core_terms,
+      test_seeding_screen_signposts_workflow_without_scare_popup,
+      test_operator_health_pills_and_pos_chips_expose_accessible_definitions.
+    category:     "testing"
+    type:         "bug"
+    status:       "ready"
+    complexity:   "M"
+    priority:     "high"
+    rationale:    "A gate that is red on main stops gating (BL-129/BL-136/BL-137's rationale, verbatim): every landing that runs the webapp suite learns to read past 16 failures, and family 2 means the reader and lexicon surfaces have no effective regression cover at all — a real break there would land silently."
+    acceptance_criteria:
+      - "pytest tests/test_webapp.py exits 0 on a clean checkout of main, with no database running."
+      - "Each repaired stub asserts it matched: a fake_q branch that no longer recognises its query fails the test instead of returning an empty result."
+    dependencies: []
+    references:
+      - "tests/test_webapp.py"
+      - "webapp/app.py"
+      - "webapp/templates/help.html"
+      - "webapp/templates/landing.html"
+    owner:        "shared"
+    source:       "Landing checklist for the /corpus header compaction, 2026-07-23 (Claude Opus 4.8 via Claude Code): baseline run in a detached HEAD worktree reports the same 16 failures as the working tree, isolating them from uncommitted work."
+    tags:         ["testing", "gates", "webapp", "bug"]

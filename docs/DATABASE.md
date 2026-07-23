@@ -1,6 +1,6 @@
 # doc-ray — Database ERD & Data Dictionary
 
-**Schema version `1.30.0`** (SemVer) · 94 migrations applied
+**Schema version `1.34.0`** (SemVer) · 103 migrations applied
 
 > Generated from the live schema by `scripts/gen_data_dictionary.py`. Do not edit by hand — re-run the generator.
 
@@ -214,14 +214,17 @@ format metadata) are decomposed to their own relations (4NF); blobs live in obje
 | `archived_at` | timestamp with time zone | yes |  |  |  |
 | `deleted_at` | timestamp with time zone | yes |  |  |  |
 | `tenant_id` | uuid |  | FK→tenants | `docray_default_tenant_id()` |  |
+| `owner_principal_id` | uuid | yes | FK→principals |  | Owning principal (the uploader). NULL = unowned: admin-only today, reserved for the org corpus. |
 
 - **Primary key:** (id)
 - **Unique:** UNIQUE (content_sha256)
 - **FK:** FOREIGN KEY (derived_from) REFERENCES documents(id) ON DELETE SET NULL
+- **FK:** FOREIGN KEY (owner_principal_id) REFERENCES principals(id) ON DELETE SET NULL
 - **FK:** FOREIGN KEY (tenant_id) REFERENCES tenants(id)
 - **Check:** CHECK ((lifecycle_state = ANY (ARRAY['active'::text, 'archived'::text, 'deleted'::text])))
 - **Check:** CHECK ((((lifecycle_state = 'active'::text) AND (archived_at IS NULL) AND (deleted_at IS NULL)) OR ((lifecycle_state = 'archived'::text) AND (archived_at IS NOT NULL) AND (deleted_at IS NULL)) OR ((lifecycle_state = 'deleted'::text) AND (deleted_at IS NOT NULL))))
 - **Index** `documents_content_sha256_key`: public.documents USING btree (content_sha256)
+- **Index** `documents_owner_principal_idx`: public.documents USING btree (owner_principal_id) WHERE (owner_principal_id IS NOT NULL)
 - **Index** `idx_documents_derived_from`: public.documents USING btree (derived_from)
 - **Index** `idx_documents_lifecycle_state`: public.documents USING btree (lifecycle_state, updated_at DESC)
 - **Index** `idx_documents_status`: public.documents USING btree (status)
@@ -1825,6 +1828,71 @@ low-confidence output.
 - **Index** `idx_visual_review_pending`: public.visual_review USING btree (document_id) WHERE (status = 'pending'::text)
 - **RLS:** enabled — read/write policies via *document_id*
 
+### 5.19 Read-model rollups (D-024)
+
+Derived aggregates over the large append-mostly fact tables, refreshed by the trusted batch writer
+at the pipeline job boundary and never computed on the request path (migrations 095/098/100). Each
+rollup carries its own RLS grain: `document_stats` is document-scoped and inherits the document read
+policy, while `corpus_stats`, `lexeme_stats`, and `entity_frequency_stats` are tenant-scoped — one
+row per tenant rather than one global row, which would leak vocabulary and entity magnitude across
+tenants.
+
+#### `document_stats`
+
+| Column | Type | Null | Key | Default | Notes |
+|---|---|---|---|---|---|
+| `document_id` | uuid |  | PK, FK→documents |  |  |
+| `n_sentences` | bigint |  |  | `0` |  |
+| `n_lexeme_occurrences` | bigint |  |  | `0` |  |
+| `updated_at` | timestamp with time zone |  |  | `now()` |  |
+| `pos_counts` | jsonb |  |  | `'[]'::jsonb` |  |
+| `top_verbs` | jsonb |  |  | `'[]'::jsonb` |  |
+| `n_tokens` | bigint |  |  | `0` |  |
+
+- **Primary key:** (document_id)
+- **FK:** FOREIGN KEY (document_id) REFERENCES documents(id) ON DELETE CASCADE
+- **RLS:** enabled — read/write policies via *?*
+
+#### `corpus_stats`
+
+| Column | Type | Null | Key | Default | Notes |
+|---|---|---|---|---|---|
+| `tenant_id` | uuid |  | PK, FK→tenants |  |  |
+| `n_distinct_lexemes` | bigint |  |  | `0` |  |
+| `computed_at` | timestamp with time zone |  |  | `now()` |  |
+
+- **Primary key:** (tenant_id)
+- **FK:** FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE
+- **RLS:** enabled — read/write policies via *?*
+
+#### `lexeme_stats`
+
+| Column | Type | Null | Key | Default | Notes |
+|---|---|---|---|---|---|
+| `tenant_id` | uuid |  | PK, FK→tenants |  |  |
+| `lexeme_uid` | text |  | PK, FK→lexemes |  |  |
+| `uses` | bigint |  |  | `0` |  |
+
+- **Primary key:** (tenant_id, lexeme_uid)
+- **FK:** FOREIGN KEY (lexeme_uid) REFERENCES lexemes(uid) ON DELETE CASCADE
+- **FK:** FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE
+- **Index** `idx_lexeme_stats_tenant_uses`: public.lexeme_stats USING btree (tenant_id, uses DESC)
+- **RLS:** enabled — read/write policies via *?*
+
+#### `entity_frequency_stats`
+
+| Column | Type | Null | Key | Default | Notes |
+|---|---|---|---|---|---|
+| `tenant_id` | uuid |  | PK, FK→tenants |  |  |
+| `entity_text` | text |  | PK |  |  |
+| `entity_type` | text |  | PK |  |  |
+| `uses` | bigint |  |  | `0` |  |
+
+- **Primary key:** (tenant_id, entity_text, entity_type)
+- **FK:** FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE
+- **Index** `idx_entity_freq_tenant_uses`: public.entity_frequency_stats USING btree (tenant_id, uses DESC)
+- **RLS:** enabled — read/write policies via *?*
+
 
 ## 6. Views
 
@@ -1883,6 +1951,12 @@ SELECT a.document_id,
 | `docray_is_admin()` | `boolean` | DEFINER | sql |
 | `docray_prevent_audit_event_mutation()` | `trigger` | invoker | plpgsql |
 | `docray_readable_documents()` | `SETOF uuid` | DEFINER | sql |
+| `docray_refresh_all_corpus_stats()` | `void` | DEFINER | plpgsql |
+| `docray_refresh_corpus_stats(tenant uuid)` | `void` | DEFINER | sql |
+| `docray_refresh_document_stats(doc uuid)` | `void` | DEFINER | sql |
+| `docray_refresh_entity_frequency_stats(tenant uuid)` | `void` | DEFINER | plpgsql |
+| `docray_refresh_lexeme_stats(tenant uuid)` | `void` | DEFINER | plpgsql |
+| `docray_refresh_stats_for_document(doc uuid, corpus_max_age interval DEFAULT '00:10:00'::interval)` | `void` | DEFINER | plpgsql |
 | `docray_reject_manual_scim_role_edit()` | `trigger` | DEFINER | plpgsql |
 | `docray_schema_version()` | `text` | invoker | sql |
 | `docray_ts_config(lang text)` | `regconfig` | invoker | sql |
@@ -1911,7 +1985,7 @@ document-scoped table. A principal may **read** a same-tenant document iff it is
 *admin* or holds any `document_acl` row on it, and may **write** iff *admin* or
 holds an `annotate`/`delete`/`admin` grant.
 
-**Enforcement.** RLS is `ENABLE`d (not `FORCE`) on 51 tables (incl. `jobs` and
+**Enforcement.** RLS is `ENABLE`d (not `FORCE`) on 55 tables (incl. `jobs` and
 `backups` since migration 043 — BL-064). The `docray`
 role is a **superuser and table owner**, so it **bypasses RLS** — the ingest
 pipeline and admin tooling use it as the trusted batch writer. End-user / API
@@ -2045,3 +2119,12 @@ owner's bypass.
 | 092 | `092_schema_version_1_29_0.sql` | advance the schema SemVer to 1.29.0 |
 | 093 | `093_visual_tier3.sql` | Prism Tier-3: visual_caption + visual_review (grounded VLM) |
 | 094 | `094_schema_version_1_30_0.sql` | advance the schema SemVer to 1.30.0 |
+| 095 | `095_corpus_stats.sql` | corpus stat-band rollups (D-024) — kill the 16s landing query |
+| 096 | `096_schema_version_1_31_0.sql` | advance the schema SemVer to 1.31.0 |
+| 097 | `097_canonical_client_read.sql` | grant the API/webapp role SELECT on the canonical registry |
+| 098 | `098_reader_stats.sql` | reader-page rollups — stop aggregating lexeme_occurrences on read |
+| 099 | `099_schema_version_1_32_0.sql` | advance the schema SemVer to 1.32.0 |
+| 100 | `100_read_model_token_entity.sql` | extend the read-model rollups with token + entity counts |
+| 101 | `101_schema_version_1_33_0.sql` | advance the schema SemVer to 1.33.0 |
+| 102 | `102_document_ownership.sql` | documents.owner_principal_id becomes the read boundary (supersedes 076's role-read branch) |
+| 103 | `103_schema_version_1_34_0.sql` | advance the schema SemVer to 1.34.0 |

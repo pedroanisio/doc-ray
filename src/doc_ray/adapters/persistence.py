@@ -288,6 +288,7 @@ def insert_document(
     provenance: list[dict[str, Any]] | None = None,
     page_runs: list[dict[str, Any]] | None = None,
     page_metrics: list[dict[str, Any]] | None = None,
+    owner_principal_id: str | None = None,
 ) -> str:
     """Insert a document and all its normalized (4NF) satellites in one txn.
 
@@ -317,6 +318,9 @@ def insert_document(
         provenance: Provenance event records, each with optional ``params``.
         page_runs: Extracted layout rows with page and bbox data, when available.
         page_metrics: Extracted per-page geometry, including pages without text.
+        owner_principal_id: Principal the document belongs to (migration 102).
+            ``None`` leaves it unowned — admin-only, and reserved for the org
+            corpus — which is what operator CLI ingest deliberately produces.
 
     Returns:
         The id of the newly inserted document.
@@ -327,8 +331,8 @@ def insert_document(
             INSERT INTO documents
                 (title, doc_type, mime_type, original_filename, source_uri,
                  content_sha256, byte_size, page_count, char_count, text_sha256,
-                 status, error)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                 status, error, owner_principal_id)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             RETURNING id
             """,
             (
@@ -344,6 +348,7 @@ def insert_document(
                 text_sha256,
                 status,
                 error,
+                owner_principal_id,
             ),
         ).fetchone()
         assert row is not None  # RETURNING guarantees a row

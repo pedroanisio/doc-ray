@@ -473,6 +473,10 @@ class Mutation(BillingMutations, CollectionMutations):
             "extension": ext,
             "original_filename": filename,
             "title": title,
+            # Ownership is resolved here, not in the worker: this is the only
+            # point where a request principal exists (migration 102). An upload
+            # therefore lands in the uploader's own corpus.
+            "owner_principal_id": ctx.principal.principal_id,
         }
         if pipeline:
             payload["chain"] = list(_PIPELINE_CHAIN)

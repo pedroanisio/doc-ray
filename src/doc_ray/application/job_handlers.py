@@ -197,6 +197,10 @@ def handle_ingest(
     only — never a caller-controlled path) so the pipeline derives the document's
     title/filename from the *uploaded* name, not a random temp name. An explicit
     payload ``title`` overrides whatever the extractor derived.
+
+    The payload's ``owner_principal_id`` is the uploader the API resolved at
+    mutation time (migration 102) — the worker never derives ownership itself,
+    because by the time the job runs there is no request principal to consult.
     """
     from doc_ray.application.integrity import verify_bytes
     from doc_ray.application.pipeline import ingest_file
@@ -220,7 +224,13 @@ def handle_ingest(
         tmp_path.write_bytes(data)
         # store is the concrete S3 adapter at runtime; the pipeline is typed against it.
         report_progress(2, 3, "Extracting and storing document")
-        result = ingest_file(conn, cast("S3ObjectStore", store), tmp_path)
+        owner = job.payload.get("owner_principal_id")
+        result = ingest_file(
+            conn,
+            cast("S3ObjectStore", store),
+            tmp_path,
+            owner_principal_id=str(owner) if owner else None,
+        )
 
     title = job.payload.get("title")
     if title and result.status == "ingested" and result.document_id is not None:

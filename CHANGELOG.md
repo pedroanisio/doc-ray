@@ -19,7 +19,43 @@ doc-ray carries **one global version** covering both the application package
 (`docray_schema_version()`). They are kept in lockstep by
 `scripts/check_version_consistency.py`, which fails the build on any drift.
 
-## [Unreleased]
+## [1.34.0]
+
+### Security
+- **Every registered user could read the entire corpus** (Claude Opus 4.8 via
+  Claude Code). doc-ray runs open registration, but migration 076's
+  role-permission branch granted any principal holding the `read` action —
+  which is every `reader`, the default signup role — visibility of the whole
+  tenant corpus minus documents tagged `sensitivity=sensitive`. With one
+  tenant, zero `document_acl` rows and zero sensitivity tags, that predicate
+  narrowed nothing: three self-registered accounts could read all 192
+  operator-ingested documents. 076 described itself as a stopgap for a granting
+  flow that was never built.
+
+  Migration 102 replaces the blanket branch with ownership.
+  `documents.owner_principal_id` is now the read boundary — a document is
+  readable by its owner, an explicit ACL grantee, or a tenant admin — and the
+  same owner branch joins `docray_writable_documents()` so owning implies
+  curating. `NULL` ownership means *unowned*: admin-only, and deliberately
+  reserved as the seam for the future org corpus, so `tenant_id` stays free to
+  mean "organization" and introducing orgs re-parents nothing. Uploads carry
+  the uploader from `ingestDocument` through the job payload to
+  `insert_document`, because the worker has no request principal to consult by
+  the time it runs; operator CLI ingest leaves documents unowned on purpose.
+  `scripts/assign_document_owner.py` moves existing documents into a user's
+  corpus by login email (dry-run by default), keeping deployment-specific data
+  out of a versioned migration.
+- **The webapp no longer runs principal-less requests with owner privileges**
+  (Claude Opus 4.8 via Claude Code). `_apply_principal` returned early when no
+  principal resolved, leaving the connection on `DATABASE_URL`'s role — which
+  owns the tables. No table in `db/migrations/` is `FORCE ROW LEVEL SECURITY`,
+  and Postgres exempts the owner from RLS without it, so that path read the
+  corpus with no policy applied at all. The role is now dropped unconditionally
+  and the principal set to empty, so such a request fails closed. Reachability
+  was limited to auth-exempt endpoints (`DOCRAY_WEBAPP_REQUIRE_AUTH=true`
+  blocks anonymous corpus reads), which is why this is a hardening fix rather
+  than a second incident; the missing `FORCE ROW LEVEL SECURITY` itself is
+  tracked as BL-138.
 
 ### Fixed
 - **`crossModalImageSearch` no longer leaks `No module named 'open_clip'`**

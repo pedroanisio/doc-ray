@@ -396,7 +396,7 @@ def test_home_renders_file_type_preview_fallback_and_status(client, monkeypatch)
     assert f"/doc/{failed_id}/page/1.png" not in html
 
 
-def test_home_lede_uses_live_document_count(client, monkeypatch):
+def test_corpus_header_carries_live_totals_on_one_rail(client, monkeypatch):
     def totals_41(sql, params=()):
         if "FROM documents) docs" in _norm(sql):
             return {"docs": 41, "sents": 15200, "lexemes": 30013, "occ": 283809}
@@ -405,9 +405,15 @@ def test_home_lede_uses_live_document_count(client, monkeypatch):
     monkeypatch.setattr(webapp, "q1", totals_41)
 
     html = client.get("/corpus").get_data(as_text=True)
+    normalized = _norm(html)
 
-    assert "41 documents, decomposed" in _norm(html)
-    assert "Five documents" not in html
+    # Counters sit beside the title on a dense rail — not in a full-width band
+    # of display-size numbers that pushes the table below the fold.
+    assert 'class="stat-rail"' in html
+    assert "stats-band" not in html
+    assert "<b>41</b> documents" in normalized
+    assert "<b>15,200</b> sentences" in normalized
+    assert "<b>283,809</b> occurrences" in normalized
 
 
 def test_home_empty_corpus_shows_upload_call_to_action(client, monkeypatch):
@@ -431,12 +437,21 @@ def test_home_empty_corpus_shows_upload_call_to_action(client, monkeypatch):
     assert 'href="/upload"' in html
 
 
-def test_home_states_product_value_proposition(client):
+def test_corpus_page_leads_with_the_work_surface_not_a_hero(client):
+    # /corpus is the daily working screen. The product pitch belongs on the
+    # landing page and in /help; here it only costs the operator a scroll.
     html = client.get("/corpus").get_data(as_text=True)
     normalized = _norm(html)
 
-    assert "Ingest documents, annotate text, and curate domain entities" in normalized
-    assert "auditable research corpus" in normalized
+    assert "Your living library" not in normalized
+    assert "decomposed to sentences" not in normalized
+    assert "Ingest &rarr; annotate" not in html
+
+    # Nothing prose-shaped between the top of the page body and the table.
+    above_table, sep, _ = normalized.partition('action="/documents/bulk"')
+    assert sep, "the bulk-action form must still be on the page"
+    assert "lede" not in above_table
+    assert "kicker" not in above_table
 
 
 def test_home_paginates_and_shows_next_link(client, monkeypatch):
@@ -2321,7 +2336,13 @@ def test_expired_auth_session_revokes_without_env_fallback(monkeypatch):
         assert "_auth_sid" not in session
 
     assert webapp.auth_sessions.get(sid) is None
-    assert fake.calls == []
+    # The invariant is "no fallback to the env principal", not "no SQL": the
+    # connection still drops to the RLS role and binds an empty principal, so
+    # an expired session reads as nobody rather than as the table owner.
+    assert not any(
+        params == ("11111111-1111-1111-1111-111111111111",) for _query, params in fake.calls
+    )
+    assert fake.calls[-1][1] == ("",)
 
 
 def test_logout_revokes_server_side_session(monkeypatch):
@@ -2353,13 +2374,26 @@ def test_logout_revokes_server_side_session(monkeypatch):
         assert "_auth_sid" not in sess
 
 
-def test_get_conn_is_superuser_passthrough_without_principal(monkeypatch):
+def test_get_conn_fails_closed_without_a_principal(monkeypatch):
+    """A principal-less request must still drop to the RLS role.
+
+    This previously asserted the opposite — that no principal meant no SET ROLE
+    — which left the connection on ``DATABASE_URL``'s role. That role owns the
+    corpus tables, and Postgres exempts a table owner from RLS unless the table
+    is FORCE'd (no migration does), so the "passthrough" read the whole corpus
+    with no policy applied at all rather than as an anonymous caller.
+    """
     fake = _RecordingConn()
     monkeypatch.setattr(webapp.psycopg, "connect", lambda *a, **k: fake)
     monkeypatch.setattr(webapp, "PRINCIPAL_ID", None)
     with webapp.app.test_request_context():
         webapp.get_conn()
-    assert fake.calls == []  # no SET ROLE / set_config
+    statements = [str(call[0]) for call in fake.calls]
+    assert any("SET ROLE" in statement for statement in statements), (
+        "the role must be dropped even with no principal"
+    )
+    assert any("app.principal_id" in statement for statement in statements)
+    assert fake.calls[-1][1] == ("",), "an absent principal binds empty, not the owner's authority"
 
 
 # ---------------------------------------------------------------------------
