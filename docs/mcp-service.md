@@ -82,8 +82,9 @@ every other read rule.
 
 | Module | Depends on | Purpose |
 |---|---|---|
+| `src/doc_ray/entrypoints/mcp/tokens.py` | starlette + `mcp` | Per-call bearer-token resolution: live request wins, `caller_token` contextvar is the stdio fallback |
 | `src/doc_ray/entrypoints/mcp/corpus.py` | httpx only | GraphQL-passthrough client + read-tool functions (SDK-independent) |
-| `src/doc_ray/entrypoints/mcp/auth.py` | starlette only | Bearer/JWT validation + `caller_token` contextvar + `BearerAuthMiddleware` |
+| `src/doc_ray/entrypoints/mcp/auth.py` | starlette only | Bearer/JWT validation + `BearerAuthMiddleware` (reuses `tokens`) |
 | `src/doc_ray/entrypoints/mcp/server.py` | `mcp` (new dep) | Thin FastMCP glue: register tools, mount middleware, expose ASGI `app` |
 | `docker-compose.mcp.yml` | — | `mcp` service; dev forwards to `http://api:8000/graphql` (in-network), prod to `https://doc-ray.com/graphql` |
 
@@ -122,9 +123,12 @@ deferred to Phase 4 behind the `write` scope.
 - **Acceptance:** decisions realized in code (commit `7cd2c4a`).
 
 ### Phase 1 — SDK-independent core (no new dependency)  ·  size: M  ·  **DONE**
-- [x] `corpus.py` — `gql()` async passthrough (forwards `caller_token`) + the 6 tool functions.
-- [x] `auth.py` — `_extract_bearer`, token/JWT validation reusing `cfg.api_tokens` +
-      `verify_access_jwt`, `caller_token` contextvar, `BearerAuthMiddleware`.
+- [x] `corpus.py` — `gql()` async passthrough (forwards `tokens.current_token()`, which
+      reads the live request so a mid-session token refresh keeps reaching GraphQL) + the
+      6 tool functions.
+- [x] `auth.py` — `bearer_from_request`, token/JWT validation reusing `cfg.api_tokens` +
+      `verify_access_jwt`, `BearerAuthMiddleware`; the caller token now lives in
+      `tokens.py` (`caller_token` contextvar as the stdio fallback).
 - [x] **TDD** — `test_mcp_corpus.py` (token forwarded on auth'd calls, absent when
       anonymous, GraphQL error → `RuntimeError`, variable mapping) and
       `test_mcp_auth.py` (valid token passes + sets contextvar; unknown → 401; no

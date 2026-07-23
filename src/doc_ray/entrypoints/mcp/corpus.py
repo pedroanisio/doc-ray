@@ -1,15 +1,14 @@
 """Corpus read tools backed by the doc-ray GraphQL API, RLS-scoped by the forwarded token.
 
-Each tool forwards the MCP caller's bearer token (stashed in :data:`caller_token` by the
-auth middleware) to ``DOCRAY_API_URL /graphql`` — the exact pattern of
-``webapp/graphql_client.py`` — so the API's ``HeaderTokenAuthenticator`` resolves the same
-principal and Postgres RLS scopes exactly what that principal may read. The MCP layer holds
-no database pool and grants nothing the GraphQL API wouldn't.
+Each tool forwards the MCP caller's bearer token (resolved per call by
+:func:`~doc_ray.entrypoints.mcp.tokens.current_token`) to ``DOCRAY_API_URL /graphql`` — the
+exact pattern of ``webapp/graphql_client.py`` — so the API's ``HeaderTokenAuthenticator``
+resolves the same principal and Postgres RLS scopes exactly what that principal may read.
+The MCP layer holds no database pool and grants nothing the GraphQL API wouldn't.
 """
 
 from __future__ import annotations
 
-import contextvars
 import os
 import uuid
 from collections.abc import Callable
@@ -17,16 +16,15 @@ from typing import Any
 
 import httpx
 
+from doc_ray.entrypoints.mcp.tokens import caller_token, current_token
+
 #: GraphQL endpoint to forward to (mirrors webapp/graphql_client.py).
 API_URL = os.environ.get("DOCRAY_API_URL", "http://localhost:8000/graphql")
 _TIMEOUT = float(os.environ.get("DOCRAY_MCP_TIMEOUT_SECONDS", "30"))
 
-#: The caller's bearer token for the current request, set by BearerAuthMiddleware and
-#: forwarded on every GraphQL call so the API applies that principal's RLS. Empty =
-#: anonymous (no Authorization header sent).
-caller_token: contextvars.ContextVar[str] = contextvars.ContextVar(
-    "docray_mcp_caller_token", default=""
-)
+#: Re-exported for callers and tests; the request-aware resolver is
+#: :func:`~doc_ray.entrypoints.mcp.tokens.current_token`.
+__all__ = ["caller_token", "current_token"]
 
 #: Per-window character cap for KWIC text fields. Upstream sentence segmentation
 #: can produce mega-sentences (e.g. a whole table of contents extracted as one
@@ -140,7 +138,7 @@ async def gql(query: str, variables: dict[str, Any]) -> dict[str, Any]:
             retriability hint.
     """
     headers: dict[str, str] = {"content-type": "application/json"}
-    token = caller_token.get()
+    token = current_token()
     if token:
         headers["Authorization"] = f"Bearer {token}"
     try:

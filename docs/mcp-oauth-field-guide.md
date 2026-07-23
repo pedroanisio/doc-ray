@@ -281,6 +281,7 @@ principal_id`; verified: refused unprovisioned, works once provisioned.]*
 | Concept | Where |
 |---|---|
 | RS token validation + RLS binding | `mcp/auth.py` `BearerAuthMiddleware`; `verify_access_jwt` |
+| Per-call token forwarding (survives mid-session refresh) | `mcp/tokens.py` `current_token()` — reads the live request, not a session-frozen contextvar |
 | 401 discovery pointer | `mcp/auth.py` `_www_authenticate_challenge()` |
 | PRM + AS metadata | `webapp/oauth_web.py` `oauth_protected_resource_metadata`, `oauth_authorization_server_metadata` |
 | DCR | `oauth_web.py` `oauth_register` → `OAuthServerService.register_client` |

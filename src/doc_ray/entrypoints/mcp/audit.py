@@ -17,7 +17,7 @@ import time
 from collections.abc import Awaitable, Callable
 from typing import Any  # noqa: F401 — used in the public alias below
 
-from doc_ray.entrypoints.mcp import corpus
+from doc_ray.entrypoints.mcp import corpus, tokens
 
 #: Signature of an async MCP tool as registered on the server.
 Tool = Callable[..., Awaitable[Any]]
@@ -31,7 +31,7 @@ _MAX_ARG_CHARS = 80
 
 def _caller() -> str:
     """A stable, non-reversible fingerprint of the caller's bearer token."""
-    token = corpus.caller_token.get()
+    token = tokens.current_token()
     if not token:
         return "anonymous"
     return hashlib.sha256(token.encode("utf-8")).hexdigest()[:12]

@@ -3,9 +3,11 @@
 Every MCP request is authenticated exactly like a GraphQL API request: a known static
 token (``DOCRAY_API_TOKENS``) or a valid HS256 access JWT. Rejecting junk here returns a
 clean 401 before any GraphQL round-trip; a valid token is stashed in
-:data:`~doc_ray.entrypoints.mcp.corpus.caller_token` so the tools re-present it to
-``/graphql`` (which re-validates and binds RLS). Unknown-token semantics and the anonymous
-path mirror ``HeaderTokenAuthenticator``.
+:data:`~doc_ray.entrypoints.mcp.tokens.caller_token` as the fallback for transports with no
+per-call HTTP request. On Streamable-HTTP the tools re-read the credential from the live
+request via :func:`~doc_ray.entrypoints.mcp.tokens.current_token` so a mid-session token
+refresh keeps reaching ``/graphql`` (which re-validates and binds RLS). Unknown-token
+semantics and the anonymous path mirror ``HeaderTokenAuthenticator``.
 """
 
 from __future__ import annotations
@@ -19,7 +21,7 @@ from starlette.types import ASGIApp
 
 from doc_ray.config import Config
 from doc_ray.entrypoints.api.security import verify_access_jwt
-from doc_ray.entrypoints.mcp.corpus import caller_token
+from doc_ray.entrypoints.mcp.tokens import bearer_from_request, caller_token
 
 
 def _www_authenticate_challenge() -> str:
@@ -35,14 +37,6 @@ def _www_authenticate_challenge() -> str:
         if base:
             url = f"{base}/.well-known/oauth-protected-resource"
     return f'Bearer resource_metadata="{url}"' if url else "Bearer"
-
-
-def _extract_bearer(request: Request) -> str | None:
-    """Return the token from ``Authorization: Bearer`` or ``X-DocRay-API-Token``, else None."""
-    auth = request.headers.get("authorization", "")
-    if auth[:7].lower() == "bearer " and auth[7:].strip():
-        return auth[7:].strip()
-    return request.headers.get("x-docray-api-token") or None
 
 
 class BearerAuthMiddleware(BaseHTTPMiddleware):
@@ -74,7 +68,7 @@ class BearerAuthMiddleware(BaseHTTPMiddleware):
 
     async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
         """Reject bad credentials with 401; stash a valid token for the tools to forward."""
-        token = _extract_bearer(request)
+        token = bearer_from_request(request)
         if token is None:
             if not self._allow_anonymous:
                 return JSONResponse(
