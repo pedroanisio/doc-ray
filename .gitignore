@@ -32,3 +32,14 @@ pgadmin/servers.json
 .ingest-state/doc-ray-dev.json
 .mypy_cache/
 out/logotype-composition-guide.yaml
+out/
+_ephemeral/
+static/faz-ai-bp.md
+static/faz-ai-bp-attachments.md
+static/faz-ai-pivot.md
+static/images/faz-ai-asset-01.png
+static/images/faz-ai-asset-03.png
+static/images/faz-ai-asset-05.jpeg
+static/images/faz-ai-asset-04.png
+static/images/faz-ai-asset-02.png
+logotype_composition_guide.yaml
