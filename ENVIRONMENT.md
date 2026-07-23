@@ -65,9 +65,13 @@ Schema version is authoritative in the database itself — read it, never assume
 ## Configuration
 
 `.env.prod` is the only production config file. It is **gitignored** and holds
-every credential; `.env` is the development file and must never be used to reach
-these services. Compose is always invoked with `--env-file .env.prod`, which
-*replaces* `.env` for interpolation — the make targets do this for you.
+every credential. On this production host `.env` is a **symlink to `.env.prod`**
+(`ln -sf .env.prod .env`), so tooling that reads `.env` directly — bare
+`docker compose`, scripts that `source .env` — targets production too, with no
+divergent second file to drift. The `make prod-*` targets still pass
+`--env-file .env.prod` explicitly, which *replaces* `.env` for interpolation
+regardless. (On a development box the symlink points the other way, at that
+host's dev file.)
 
 Every variable is defined once in [`config/env.registry.yaml`](config/env.registry.yaml);
 `.env.prod` is built from the generated [`.env.prod.example`](.env.prod.example)

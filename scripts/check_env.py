@@ -104,13 +104,16 @@ def main(argv: list[str] | None = None) -> int:
             # No code default and not required: an opt-in feature, simply off.
             optional_off.append(key)
 
-    # Dev file that reaches production infrastructure.
+    # Dev file that reaches production infrastructure. A `.env` that is an
+    # intentional symlink to `.env.prod` (the per-host prod convention) is not
+    # the footgun this guards against — skip it.
+    symlinked_to_prod = path.is_symlink() and path.resolve().name == ".env.prod"
     prod_hits = []
     for key in ("DATABASE_URL", "S3_ENDPOINT", "S3_BUCKET"):
         val = present.get(key, "")
         if any(marker in val for marker in _PROD_MARKERS):
             prod_hits.append(key)
-    if prod_hits and not args.prod:
+    if prod_hits and not args.prod and not symlinked_to_prod:
         errors.append(
             f"{path.name} targets PRODUCTION via {prod_hits} but is not the prod file. "
             "Tooling that sources this file (e.g. `make truncate-db`) would act on the live "
