@@ -4,8 +4,12 @@
 {% block body %}
 <style>
   /* This page reads wide: give the text room, park the stats in a rail. */
-  main { max-width:1320px; }
-  .doc-head { margin-bottom:1.4rem; }
+  main { max-width:1320px; padding-top:var(--space-5); }
+  /* The header identifies the document; it is not a title page. Kept to one
+     compact strip so the text — the object of the page — starts high. */
+  .doc-head { margin-bottom:.8rem; }
+  .doc-head h1 { font-size:clamp(1.1rem,1.6vw,1.4rem); line-height:1.3; overflow-wrap:anywhere; }
+  .doc-head .kicker { margin:0 0 .35rem; }
 
   .docgrid { display:grid; grid-template-columns:minmax(0,1fr) 16.5rem; gap:2.8rem;
              align-items:start; }
@@ -18,8 +22,29 @@
   .posrow .lab { font-family:var(--mono); font-size:.68rem; color:var(--ink-soft); }
   .posrow .num { font-size:.72rem; }
 
-  .reader-controls { display:flex; align-items:center; gap:.9rem 1.2rem; flex-wrap:wrap;
-    margin:.4rem 0 1.5rem; padding-bottom:1rem; border-bottom:2px solid var(--line); }
+  /* The control bar sticks under the masthead: in a 940-page document the
+     pager and the view switches have to stay reachable from anywhere in the
+     text, not only from its two ends. The legend scrolls away with the page —
+     it is a reference, not a control you reach for mid-paragraph. */
+  .reader-bar { position:sticky; top:60px; z-index:20;
+    display:flex; align-items:center; gap:.55rem .9rem; flex-wrap:wrap;
+    margin:0 0 .6rem; padding:.55rem 0;
+    background:var(--bg); border-bottom:2px solid var(--line); }
+  .reader-bar .pager { margin-top:0; }
+  .reader-pager { margin-left:auto; }
+  .legend { margin:0 0 1rem; }
+  /* Phone: wrapping the bar would pin ~150px of controls to an 844px screen.
+     Keep it one row that scrolls sideways, with the pager — the control that
+     is actually used while reading — first and always visible. */
+  @media (max-width:920px){
+    .reader-bar { flex-wrap:nowrap; overflow-x:auto; gap:.5rem; }
+    .reader-bar > * { flex:0 0 auto; }
+    .reader-pager { order:-2; margin-left:0; }
+    .spread-leaf { order:-1; }
+  }
+  /* Landing target for a page turn: clears the masthead and the sticky bar so
+     the first line of the new page is not hidden underneath them. */
+  .reader-anchor { display:block; scroll-margin-top:8rem; }
   .seg { display:inline-flex; border:2px solid var(--line); border-radius:0; overflow:hidden; }
   .seg a { font-family:var(--mono); font-size:.68rem; letter-spacing:.1em; text-transform:uppercase;
     padding:.42rem .85rem; color:var(--ink-soft); }
@@ -35,17 +60,95 @@
   .chip:hover { border-color:var(--c); color:var(--ink); }
   .chip.muted { opacity:.38; text-decoration:line-through; }
 
-  /* THE TEXT — the primary object. 88–110 column measure. */
-  .reader { max-width:96ch; font-family:var(--serif); font-size:1.24rem; line-height:1.9;
+  /* THE TEXT — the primary object. The measure is capped for reading, not to
+     fill the column: past ~80 characters the eye loses the line it is
+     returning to. The 3rem ordinal gutter sits inside this width. */
+  .reader { max-width:78ch; font-family:var(--reading-sans); font-size:1.24rem; line-height:1.9;
             font-optical-sizing:auto; }
+
+  /* --- reading options ------------------------------------------------- */
+  /* Type scale and face are the two settings that decide whether a given
+     reader can read comfortably at all; both are page-level classes so they
+     apply equally to the scrolling column and to the spread. */
+  .reader.r-size-compact { font-size:1.06rem; line-height:1.72; }
+  .reader.r-size-comfortable { font-size:1.24rem; line-height:1.9; }
+  .reader.r-size-large { font-size:1.46rem; line-height:1.95; }
+  .reader.r-face-sans { font-family:var(--reading-sans); }
+  .reader.r-face-serif { font-family:var(--reading-serif); letter-spacing:0; }
+
+  /* Spread: two pages side by side, sized to the viewport, turned rather than
+     scrolled. The CSS is applied only once the script has measured the
+     viewport (.spread-ready) — without JavaScript the reader stays a plain
+     scrolling column instead of a box that clips its own text.
+
+     "Fits without scrolling" only holds if nothing else on the page is taller
+     than the window, so the spread is a focus mode: the stats rail, the site
+     footer, and the header's cover/pills step aside for the duration. Scroll
+     layout brings them all back. */
+  .docgrid-spread { grid-template-columns:minmax(0,1fr); gap:0; }
+  .docgrid-spread aside.rail { display:none; }
+  body:has(.docgrid-spread) .site-footer { display:none; }
+  body:has(.docgrid-spread) main { padding-bottom:var(--space-4); }
+  .doc-head-slim { margin-bottom:.4rem; }
+  .doc-head-slim .doc-preview,
+  .doc-head-slim .doc-title-main > div,
+  .doc-head-slim .lede,
+  .doc-head-slim > details { display:none; }
+  .doc-head-slim h1 { font-size:1rem; white-space:nowrap; overflow:hidden;
+    text-overflow:ellipsis; }
+  .spread-window { position:relative; }
+  .spread-window.spread-ready { overflow:hidden; }
+  .spread-window.spread-ready .reader {
+    max-width:none; column-gap:var(--spread-gap,3rem); column-fill:auto;
+    transform:translateX(calc(-1 * var(--spread-offset, 0px)));
+    transition:transform .18s var(--ease-out);
+  }
+  /* A page of a book carries no sentence ordinals in its margin: the spread
+     drops the gutter and reads edge to edge. Scroll layout keeps them — that
+     is where the corpus is being inspected rather than read. */
+  .spread-window.spread-ready .ord { display:none; }
+  .spread-window.spread-ready .reader p,
+  .spread-window.spread-ready .reader-heading { padding-left:0; }
+  .spread-window.spread-ready .reader-list li { padding-left:1.2rem; }
+  .spread-window.spread-ready .reader-list li::before { left:.1rem; }
+  .spread-window.spread-ready .reader { line-height:1.62; }
+  .spread-window.spread-ready .reader p { margin:0 0 .9em; text-align:justify;
+    hyphens:auto; }
+  .spread-window.spread-ready .reader-heading { margin:1.1em 0 .5em; }
+  /* A column break mid-heading reads as two headings; keep blocks whole. */
+  .spread-window.spread-ready .reader-heading { break-inside:avoid; break-after:avoid; }
+  .spread-window.spread-ready .reader p { break-inside:auto; }
+  .spread-gutter { position:absolute; top:0; bottom:0; left:50%; width:1px;
+    background:var(--line); pointer-events:none; }
+  .spread-window:not(.spread-ready) .spread-gutter,
+  .spread-window.spread-single .spread-gutter { display:none; }
+  .spread-leaf { font-family:var(--mono); font-size:.68rem; color:var(--ink-faint);
+    letter-spacing:.06em; text-transform:uppercase; }
+  .reading-options { position:relative; }
+  .reading-options > summary { list-style:none; cursor:pointer; padding:.42rem .7rem;
+    border:2px solid var(--line); font-family:var(--mono); font-size:.68rem;
+    letter-spacing:.1em; text-transform:uppercase; color:var(--ink-soft); }
+  .reading-options > summary::-webkit-details-marker { display:none; }
+  .reading-options[open] > summary { border-color:var(--accent); color:var(--ink); }
+  .reading-panel { position:absolute; z-index:40; top:calc(100% + .4rem); left:0;
+    display:grid; gap:.55rem; min-width:19rem; padding:.8rem;
+    background:var(--panel); border:2px solid var(--line); box-shadow:var(--shadow-md); }
+  .reading-panel .row { display:flex; align-items:center; gap:.6rem; }
+  .reading-panel .row > .lab { flex:0 0 4.4rem; font-family:var(--mono); font-size:.64rem;
+    letter-spacing:.06em; text-transform:uppercase; color:var(--ink-faint); }
   .reader p { margin:0 0 .5rem; position:relative; padding-left:3rem; }
   .reader p:hover .ord,
   .reader-heading:hover .ord,
   .reader-list li:hover .ord { color:var(--accent); }
   .reader .ord { position:absolute; left:0; top:.62em; font-family:var(--mono); font-size:.58rem;
     color:var(--ink-faint); font-variant-numeric:tabular-nums; }
-  .reader-heading { position:relative; padding-left:3rem; margin:1.7rem 0 .7rem;
-    font-family:var(--serif); line-height:1.25; color:var(--ink); }
+  /* Reader headings are book headings, not the admin section labels the global
+     h2/h3/h4 rules describe — reset the uppercase, the mono face, the rule
+     underneath and the faint colour those inherit. */
+  .reader-heading { position:relative; padding:0 0 0 3rem; margin:1.7rem 0 .7rem;
+    font-family:inherit; font-weight:600; line-height:1.25; color:var(--ink);
+    text-transform:none; letter-spacing:-0.01em; border-bottom:0; }
+  .reader-empty { padding:2rem 0; color:var(--ink-faint); font-size:.95rem; font-style:italic; }
   .reader-heading.h1 { font-size:1.7rem; font-weight:600; margin-top:2.3rem; }
   .reader-heading.h2 { font-size:1.45rem; font-weight:600; margin-top:1.5rem; }
   .reader-heading.h3 { font-size:1.25rem; font-weight:600; color:var(--ink-soft);
@@ -108,6 +211,16 @@
   .original-overlay { position:relative; width:100%; background:var(--panel);
     border:2px solid var(--line); box-shadow:none; }
   .original-overlay img { display:block; width:100%; height:auto; }
+  /* Original view as a book: the rendered page image is sized to the window
+     height (via --fit-h set by the script) so a whole page fits without
+     scrolling, and the spread lays two facing pages side by side. Boxes are
+     percentage-positioned inside each page, so they scale with it for free. */
+  .original-shell.original-fit { max-width:none; display:flex; gap:var(--space-5);
+    justify-content:center; align-items:flex-start; }
+  .original-fit .original-overlay { width:auto; height:var(--fit-h,auto);
+    max-height:var(--fit-h,none); flex:0 1 auto; }
+  .original-fit .original-overlay img { width:auto; height:100%; max-height:var(--fit-h,none); }
+  @media (max-width:700px){ .original-fit { flex-direction:column; align-items:center; } }
   .overlay-box { position:absolute; display:block; border:2px solid var(--c);
     background:color-mix(in srgb, var(--c) 20%, transparent); border-radius:0;
     box-sizing:border-box; transition:background .12s, box-shadow .12s; }
@@ -134,8 +247,41 @@
   .markup-original .w:hover { background:color-mix(in srgb, var(--c) 22%, transparent); }
 </style>
 
-<p class="kicker"><a href="{{ url_for('documents') }}">← Corpus</a></p>
-<div class="doc-head">
+{# One pager definition drives both copies (control bar and end of page) so the
+   two can never disagree about where "next" goes. Pager links land on #text:
+   turning a page must not put the reader back at the top of the header it
+   already read past. #}
+{% if original_view %}
+  {% set pager_on = overlay and overlay.kind == 'pdf' and pages and pages > 1 %}
+{% else %}
+  {% set pager_on = (not full_view) and pages and pages > 1 %}
+{% endif %}
+{% set spread_view = layout == 'spread' and not original_view %}
+{# Chrome is hidden in either spread — text or original page images. #}
+{% set focus_spread = layout == 'spread' and (spread_view or original_spread) %}
+{# The original-view spread turns two facing pages at once. #}
+{% set pager_step = 2 if original_spread and overlay_facing else 1 %}
+{% macro pager(cur, last, class_name='pager', step=1) -%}
+<div class="{{ class_name }}">
+  {% if cur > 1 %}<a rel="prev" href="{{ reader_url(page=[cur - step, 1]|max) }}#text">&larr; prev</a>{% endif %}
+  <span>{{ cur }} / {{ last }}</span>
+  {% if cur < last %}<a rel="next" href="{{ reader_url(page=cur + step) }}#text">next &rarr;</a>{% endif %}
+</div>
+{%- endmacro %}
+
+{% macro pdf_page(ov, num) -%}
+<div class="original-overlay">
+  <img src="{{ ov.image_src }}" alt="Rendered original PDF page {{ num }}" loading="lazy">
+  {% for b in ov.boxes %}
+    <a href="{{ b.href }}" class="overlay-box {{ b.class_name }}"
+       style="{{ b.style }}" data-t="{{ b.tip }}"
+       aria-label="{{ b.aria_label }}"><span class="sr-only">{{ b.tip }}</span></a>
+  {% endfor %}
+</div>
+{%- endmacro %}
+
+<div class="doc-head{{ ' doc-head-slim' if focus_spread }}">
+  <p class="kicker"><a href="{{ url_for('documents') }}">← Corpus</a></p>
   <div class="doc-title-strip">
     {% if preview.kind == "image" %}
       <a class="doc-preview doc-preview-image doc-preview-large" href="{{ preview.full_src }}" aria-label="{{ preview.label }}">
@@ -197,52 +343,83 @@
   </details>
 </div>
 
-<div class="docgrid">
+<div class="docgrid{{ ' docgrid-spread' if focus_spread }}">
   <!-- PRIMARY: the text -->
   <section class="main">
-    <div class="reader-controls">
+    <div class="reader-bar">
       <div class="seg">
-        <a href="?page={{ page }}&view={{ 'all' if full_view else 'page' }}&annotate=1" class="{{ 'on' if annotate and not original_view }}">Annotated</a>
-        <a href="?page={{ page }}&view={{ 'all' if full_view else 'page' }}&annotate=0" class="{{ 'on' if (not annotate) and not original_view }}">Plain</a>
-        <a href="?page={{ page }}&view=original" class="{{ 'on' if original_view }}">Original</a>
+        <a href="{{ reader_url(annotate=1, view='all' if full_view else None) }}" class="{{ 'on' if annotate and not original_view }}">Annotated</a>
+        <a href="{{ reader_url(annotate=0, view='all' if full_view else None) }}" class="{{ 'on' if (not annotate) and not original_view }}">Plain</a>
+        <a href="{{ reader_url(view='original') }}" class="{{ 'on' if original_view }}">Original</a>
       </div>
       {% if not original_view %}
       <div class="seg">
-        <a href="?page={{ page }}&annotate={{ 1 if annotate else 0 }}" class="{{ 'on' if not full_view }}">Pages</a>
-        <a href="?view=all&annotate={{ 1 if annotate else 0 }}" class="{{ 'on' if full_view }}">Full document</a>
+        <a href="{{ reader_url(view=None) }}" class="{{ 'on' if not full_view }}">Pages</a>
+        <a href="{{ reader_url(view='all', page=None) }}" class="{{ 'on' if full_view }}">Full document</a>
       </div>
+      <details class="reading-options">
+        <summary aria-label="Reading options: layout, type size, typeface">Aa Reading</summary>
+        <div class="reading-panel">
+          <div class="row">
+            <span class="lab">Layout</span>
+            <div class="seg">
+              <a href="{{ reader_url(layout='scroll', page=scroll_page) }}" class="{{ 'on' if layout == 'scroll' }}">Scroll</a>
+              <a href="{{ reader_url(layout='spread', page=spread_page) }}" class="{{ 'on' if layout == 'spread' }}">Spread</a>
+            </div>
+          </div>
+          <div class="row">
+            <span class="lab">Size</span>
+            <div class="seg">
+              <a href="{{ reader_url(size='compact') }}" class="{{ 'on' if size == 'compact' }}">S</a>
+              <a href="{{ reader_url(size='comfortable') }}" class="{{ 'on' if size == 'comfortable' }}">M</a>
+              <a href="{{ reader_url(size='large') }}" class="{{ 'on' if size == 'large' }}">L</a>
+            </div>
+          </div>
+          <div class="row">
+            <span class="lab">Face</span>
+            <div class="seg">
+              <a href="{{ reader_url(face='sans') }}" class="{{ 'on' if face == 'sans' }}">Sans</a>
+              <a href="{{ reader_url(face='serif') }}" class="{{ 'on' if face == 'serif' }}">Serif</a>
+            </div>
+          </div>
+          <p class="hint" style="margin:0">
+            Spread lays the text out as two facing pages sized to the window —
+            turn them with ← and →; nothing scrolls.
+          </p>
+        </div>
+      </details>
       {% else %}
       <div class="seg">
-        <a href="?page={{ page }}&view=original&overlay=grammar" class="{{ 'on' if overlay_mode == 'grammar' }}">Grammar</a>
-        <a href="?page={{ page }}&view=original&overlay=entities" class="{{ 'on' if overlay_mode == 'entities' }}">Entities</a>
+        <a href="{{ reader_url(overlay='grammar') }}" class="{{ 'on' if overlay_mode == 'grammar' }}">Grammar</a>
+        <a href="{{ reader_url(overlay='entities') }}" class="{{ 'on' if overlay_mode == 'entities' }}">Entities</a>
       </div>
       {% endif %}
       {% if annotate and not original_view %}
-      <select id="pos-focus" aria-label="Focus one part of speech">
+      <select id="pos-focus" aria-label="Focus one part of speech; the tag chips below mute a class">
         <option value="">All POS</option>
         {% for p in pos %}<option value="{{ p.pos }}">{{ p.pos }}</option>{% endfor %}
       </select>
-      <div class="legend" id="legend">
-        {% for p in pos %}
-          {{ terms.pos_pill(p.pos, 'chip') }}
-        {% endfor %}
-      </div>
-      <span class="kicker">focus one tag, click tags to mute · hover a word for its lemma</span>
       {% endif %}
+      {% if spread_view %}<span class="spread-leaf" id="spread-leaf" aria-live="polite"></span>{% endif %}
+      {% if pager_on %}{{ pager(page, pages, 'pager reader-pager', pager_step) }}{% endif %}
     </div>
+    {% if annotate and not original_view %}
+    <div class="legend" id="legend" aria-label="Part-of-speech tags — click one to mute it in the text">
+      {% for p in pos %}
+        {{ terms.pos_pill(p.pos, 'chip') }}
+      {% endfor %}
+    </div>
+    {% endif %}
+    <span id="text" class="reader-anchor" tabindex="-1"></span>
 
     {% if original_view %}
-      <div class="original-shell">
-        {% if overlay and overlay.available and overlay.kind == "pdf" %}
-          <div class="original-overlay">
-            <img src="{{ overlay.image_src }}" alt="Rendered original PDF page {{ page }}" loading="lazy">
-            {% for b in overlay.boxes %}
-              <a href="{{ b.href }}" class="overlay-box {{ b.class_name }}"
-                 style="{{ b.style }}" data-t="{{ b.tip }}"
-                 aria-label="{{ b.aria_label }}"><span class="sr-only">{{ b.tip }}</span></a>
-            {% endfor %}
-          </div>
-          {% if overlay.message %}<div class="reader-note">{{ overlay.message }}</div>{% endif %}
+      {% set fit = overlay and overlay.available and overlay.kind == "pdf" %}
+      <div class="original-shell{{ ' original-fit' if fit }}"{{ ' id=fit-shell'|safe if fit }}>
+        {% if fit %}
+          {{ pdf_page(overlay, page) }}
+          {% if overlay_facing and overlay_facing.available and overlay_facing.kind == "pdf" %}
+            {{ pdf_page(overlay_facing, page + 1) }}
+          {% endif %}
         {% elif overlay and overlay.available and overlay.kind == "markup" %}
           <div class="markup-original">{{ overlay.html|safe }}</div>
         {% else %}
@@ -263,22 +440,29 @@
             {% endfor %}
           {% endif %}
         {% endif %}
-        {% if overlay and overlay.kind == "pdf" %}
-        <div class="pager">
-          {% if page > 1 %}<a href="?view=original&overlay={{ overlay_mode }}&page={{ page-1 }}">← prev</a>{% endif %}
-          <span>{{ page }} / {{ pages }}</span>
-          {% if page < pages %}<a href="?view=original&overlay={{ overlay_mode }}&page={{ page+1 }}">next →</a>{% endif %}
-        </div>
-        {% endif %}
       </div>
+      {% if fit and overlay.message %}<div class="reader-note">{{ overlay.message }}</div>{% endif %}
+      {# A fit page has no bottom to scroll to; the sticky-bar pager turns it. #}
+      {% if pager_on and not fit %}{{ pager(page, pages, 'pager', pager_step) }}{% endif %}
     {% else %}
-    <div class="reader {{ 'plain' if not annotate }}" id="reader">
-      {% if annotate and n_sent and not pos %}
-        <div class="reader-note">
-          This document has extracted text, but annotation has
-          {% if annotation_state in ['queued', 'running'] %}not finished yet. The annotation job is {{ annotation_state }}.{% else %}not run yet.{% endif %}
-          The plain text is readable now; the POS overlay appears after annotation completes.
-        </div>
+    {# Status about the document, not part of it: kept out of the reading flow
+       so it never takes up a page of the text it is describing. #}
+    {% if annotate and n_sent and not pos %}
+      <div class="reader-note">
+        This document has extracted text, but annotation has
+        {% if annotation_state in ['queued', 'running'] %}not finished yet. The annotation job is {{ annotation_state }}.{% else %}not run yet.{% endif %}
+        The plain text is readable now; the POS overlay appears after annotation completes.
+      </div>
+    {% endif %}
+    <div class="spread-window" id="spread-window">
+    {% if spread_view %}<span class="spread-gutter" aria-hidden="true"></span>{% endif %}
+    <div class="reader r-size-{{ size }} r-face-{{ face }} {{ 'plain' if not annotate }}"
+         id="reader" data-layout="{{ 'spread' if spread_view else 'scroll' }}">
+      {% if not sentences %}
+        <p class="reader-empty">
+          No extracted text on this page{% if not spread_view and pages > 1 %} — it may be a plate, a
+          cover, or an intentionally blank page. Use next / prev to keep reading{% endif %}.
+        </p>
       {% endif %}
       {% for s in sentences %}
         {% set ns = namespace(first=true) %}
@@ -298,13 +482,9 @@
           {% set ns.first = false %}
         {% endfor %}
       {% endfor %}
-      {% if not full_view %}
-        <div class="pager">
-          {% if page > 1 %}<a href="?page={{ page-1 }}&annotate={{ 1 if annotate else 0 }}">← prev</a>{% endif %}
-          <span>{{ page }} / {{ pages }}</span>
-          {% if page < pages %}<a href="?page={{ page+1 }}&annotate={{ 1 if annotate else 0 }}">next →</a>{% endif %}
-        </div>
-      {% endif %}
+      {# The spread has no bottom: its pages are turned, never scrolled to. #}
+      {% if pager_on and not spread_view %}{{ pager(page, pages) }}{% endif %}
+    </div>
     </div>
     {% endif %}
   </section>
@@ -450,10 +630,37 @@
     </div>
   </aside>
 </div>
+{% endblock %}
 
+{# Declared outside `body`: a block nested inside another renders in both
+   places, which ran this script twice — every listener bound twice, so each
+   legend chip toggled itself straight back off. #}
 {% block script %}
 <script>
   var reader = document.getElementById('reader');
+
+  /* Original view: size the rendered page image(s) to the window height so a
+     whole page fits without scrolling — the image-based twin of the text
+     spread. Percentage-positioned overlay boxes scale with it automatically. */
+  (function () {
+    var shell = document.getElementById('fit-shell');
+    if (!shell) { return; }
+    function fit() {
+      var room = window.innerHeight - shell.getBoundingClientRect().top - 24;
+      shell.style.setProperty('--fit-h', Math.max(240, room) + 'px');
+    }
+    var frame;
+    window.addEventListener('resize', function () {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(fit);
+    });
+    fit();
+    // Re-fit once each page image has real dimensions.
+    shell.querySelectorAll('img').forEach(function (img) {
+      if (!img.complete) { img.addEventListener('load', fit, { once: true }); }
+    });
+  })();
+
   var FUNC = ['DET','ADP','CCONJ','SCONJ','PART','AUX','PUNCT','SYM','X','INTJ'];
   document.querySelectorAll('#legend .chip').forEach(function (chip) {
     chip.addEventListener('click', function () {
@@ -463,6 +670,94 @@
       reader.classList.toggle('off-' + key);
     });
   });
+  /* Spread layout: lay the text out in viewport-height columns and turn them
+     sideways, so a "page" is what fits on screen and nothing scrolls. The CSS
+     that clips the flow is only applied once this runs (.spread-ready), so
+     without JavaScript the reader stays a scrolling column. */
+  var spread = (function () {
+    var win = document.getElementById('spread-window');
+    if (!win || !reader || reader.dataset.layout !== 'spread') { return null; }
+    var label = document.getElementById('spread-leaf');
+    var leaf = 0, leaves = 1, step = 0;
+
+    function measure() {
+      var style = getComputedStyle(reader);
+      var gap = parseFloat(style.columnGap) || 48;
+      /* Snap the page height to whole lines: an arbitrary height slices the
+         last line of every column in half. */
+      var line = parseFloat(style.lineHeight) || 24;
+      var room = window.innerHeight - win.getBoundingClientRect().top - 24;
+      var height = Math.max(line * 6, Math.floor(room / line) * line);
+      var width = win.clientWidth;
+      /* Two facing pages need room for two readable measures; below that a
+         phone gets one page-height page, turned the same way. */
+      var perLeaf = width < 700 ? 1 : 2;
+      var column = Math.max(180, (width - gap * (perLeaf - 1)) / perLeaf);
+      win.classList.add('spread-ready');
+      win.classList.toggle('spread-single', perLeaf === 1);
+      reader.style.height = height + 'px';
+      reader.style.columnWidth = column + 'px';
+      step = perLeaf * (column + gap);
+      // scrollWidth counts the trailing gap of the last column pair.
+      leaves = Math.max(1, Math.ceil((reader.scrollWidth + gap) / step));
+      leaf = Math.min(leaf, leaves - 1);
+      apply();
+    }
+
+    function apply() {
+      reader.style.setProperty('--spread-offset', (leaf * step) + 'px');
+      if (label) { label.textContent = 'leaf ' + (leaf + 1) + ' / ' + leaves; }
+    }
+
+    var frame;
+    window.addEventListener('resize', function () {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(measure);
+    });
+    measure();
+    // Late webfont/image work can change the flow's length.
+    if (document.fonts && document.fonts.ready) { document.fonts.ready.then(measure); }
+
+    return {
+      /* Returns true when the turn happened here; false means "this is the
+         edge of the server page — follow the pager link instead". */
+      turn: function (delta) {
+        var next = leaf + delta;
+        if (next < 0 || next >= leaves) { return false; }
+        leaf = next;
+        apply();
+        return true;
+      },
+    };
+  })();
+
+  /* Left/right turn the page: a leaf in the spread, a server page otherwise
+     (and at the spread's edges). Horizontal arrows do not scroll the reader,
+     so this costs nothing and removes the trip to a pager entirely. */
+  function turnPage(rel) {
+    if (spread && spread.turn(rel === 'next' ? 1 : -1)) { return; }
+    var link = document.querySelector('.reader-bar a[rel="' + rel + '"]');
+    if (link) { window.location.href = link.href; }
+  }
+
+  document.addEventListener('keydown', function (e) {
+    if (e.metaKey || e.ctrlKey || e.altKey) { return; }
+    var t = e.target;
+    if (t && (t.matches('input, select, textarea') || t.isContentEditable)) { return; }
+    var rel = e.key === 'ArrowRight' ? 'next' : (e.key === 'ArrowLeft' ? 'prev' : null);
+    if (!rel) { return; }
+    e.preventDefault();
+    turnPage(rel);
+  });
+
+  /* In the spread the bar's prev/next turn leaves first, then pages — one
+     control for both, so the reader never has to think about which is which. */
+  document.querySelectorAll('.reader-pager a[rel]').forEach(function (link) {
+    link.addEventListener('click', function (e) {
+      if (spread && spread.turn(link.rel === 'next' ? 1 : -1)) { e.preventDefault(); }
+    });
+  });
+
   var focusControl = document.getElementById('pos-focus');
   if (focusControl) {
     focusControl.addEventListener('change', function () {
@@ -474,5 +769,4 @@
     });
   }
 </script>
-{% endblock %}
 {% endblock %}

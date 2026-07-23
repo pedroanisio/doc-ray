@@ -780,6 +780,244 @@ def test_document_page_can_add_document_to_manual_collection(client, monkeypatch
 # --- document page ---------------------------------------------------------
 
 
+def test_document_reader_pages_from_the_control_bar_without_scrolling(client):
+    # Reading a 940-page document meant scrolling a full page of text to reach
+    # the only pager. The control bar carries one too, and it sticks.
+    html = client.get(f"/doc/{DOC_ID}").get_data(as_text=True)
+
+    assert 'class="reader-bar"' in html
+    bar = html.index('class="reader-bar"')
+    top_pager = html.index('class="pager reader-pager"')
+    text = html.index('id="reader"')
+    assert bar < top_pager < text
+
+    # The end-of-page pager stays where a finished page ends.
+    assert html.count('rel="next"') == 2
+    # A page turn lands on the text, not back at the top of the header.
+    assert f'href="/doc/{DOC_ID}?page=2#text"' in html
+    assert 'id="text"' in html
+
+
+def test_document_reader_pages_with_the_arrow_keys(client):
+    html = client.get(f"/doc/{DOC_ID}").get_data(as_text=True)
+
+    assert 'rel="next"' in html
+    assert "ArrowRight" in html
+    assert "ArrowLeft" in html
+
+
+def _reader_links(html):
+    """Every reader link on the page, as {href: parsed query params}."""
+    from urllib.parse import parse_qs, urlsplit
+
+    hrefs = re.findall(r'href="(/doc/[^"]+)"', html)
+    return {h: parse_qs(urlsplit(h.replace("&amp;", "&")).query) for h in hrefs}
+
+
+def test_document_reader_defaults_to_the_scrolling_single_column(client):
+    html = client.get(f"/doc/{DOC_ID}").get_data(as_text=True)
+
+    assert 'data-layout="scroll"' in html
+    assert "r-size-comfortable" in html
+    assert "r-face-sans" in html
+
+
+def test_document_reader_renders_the_requested_reading_options(client):
+    html = client.get(f"/doc/{DOC_ID}?layout=spread&size=large&face=serif").get_data(as_text=True)
+
+    assert 'data-layout="spread"' in html
+    assert "r-size-large" in html
+    assert "r-face-serif" in html
+
+
+def test_document_reader_falls_back_when_a_reading_option_is_unknown(client):
+    html = client.get(f"/doc/{DOC_ID}?layout=hologram&size=enormous&face=comic").get_data(
+        as_text=True
+    )
+
+    assert 'data-layout="scroll"' in html
+    assert "r-size-comfortable" in html
+    assert "r-face-sans" in html
+
+
+def test_document_reader_options_survive_a_page_turn(client):
+    html = client.get(
+        f"/doc/{DOC_ID}?page=1&annotate=0&layout=spread&size=large&face=serif"
+    ).get_data(as_text=True)
+
+    links = _reader_links(html)
+    nxt = next(q for h, q in links.items() if "#text" in h and "page=2" in h.replace("&amp;", "&"))
+    assert nxt["layout"] == ["spread"]
+    assert nxt["size"] == ["large"]
+    assert nxt["face"] == ["serif"]
+    assert nxt["annotate"] == ["0"]
+
+
+def test_document_reader_layout_switch_carries_the_reading_position(client, monkeypatch):
+    # The layouts count pages differently — a source page vs a run of
+    # sentences — so the switch maps the position instead of resetting it.
+    def sentences_from_ordinal_300(sql, params=()):
+        s = _norm(sql)
+        if "FROM sentences sen" in s and "ORDER BY sen.ordinal" in s:
+            return [{"ordinal": 300, "text": "He said hello", "ss": 0, "se": 13, "page_number": 17}]
+        return fake_q(sql, params)
+
+    monkeypatch.setattr(webapp, "q", sentences_from_ordinal_300)
+
+    scrolling = _reader_links(
+        client.get(f"/doc/{DOC_ID}?page=17&size=large").get_data(as_text=True)
+    )
+    to_spread = next(q for q in scrolling.values() if q.get("layout") == ["spread"])
+    assert to_spread["page"] == ["6"]  # sentence 300 sits in the 6th run of 60
+    assert to_spread["size"] == ["large"]
+
+    spread = _reader_links(client.get(f"/doc/{DOC_ID}?page=6&layout=spread").get_data(as_text=True))
+    to_scroll = next(q for q in spread.values() if q.get("layout") == ["scroll"])
+    assert to_scroll["page"] == ["17"]  # back to the source page that run starts on
+
+
+def test_document_spread_does_not_paginate_onto_blank_source_pages(client, monkeypatch):
+    # A PDF page can hold no extracted text at all; paginating the spread by
+    # source page rendered those as a blank screen.
+    seen = {}
+
+    def capture(sql, params=()):
+        s = _norm(sql)
+        if "FROM sentences sen" in s and "ORDER BY sen.ordinal" in s:
+            seen["sql"] = s
+            seen["params"] = params
+        return fake_q(sql, params)
+
+    monkeypatch.setattr(webapp, "q", capture)
+    client.get(f"/doc/{DOC_ID}?layout=spread&page=2")
+
+    assert "sp.page_number = %s" not in seen["sql"]
+    assert "LIMIT" in seen["sql"]
+    assert seen["params"] == (DOC_ID, 60, 60)  # second run of 60 sentences
+
+
+def test_document_page_without_text_says_so_instead_of_rendering_blank(client, monkeypatch):
+    def no_sentences(sql, params=()):
+        s = _norm(sql)
+        if "FROM sentences sen" in s and "ORDER BY sen.ordinal" in s:
+            return []
+        return fake_q(sql, params)
+
+    monkeypatch.setattr(webapp, "q", no_sentences)
+
+    html = client.get(f"/doc/{DOC_ID}?page=2").get_data(as_text=True)
+
+    assert "No extracted text on this page" in html
+
+
+def _original_pdf_q():
+    """A fake_q that serves a two-page PDF with a rendered-page overlay."""
+
+    def q(sql, params=()):
+        s = _norm(sql)
+        if "DISTINCT sp.page_number" in s:
+            return [{"page_number": 1}, {"page_number": 2}]
+        if "document_pages" in s and "page_width" in s:
+            return [
+                {"page_width": 200.0, "page_height": 300.0, "has_text": True, "text_run_count": 5}
+            ]
+        if "FROM lexeme_occurrences o" in s and "sp.char_start >=" in s:
+            return [
+                {
+                    "uid": "u1",
+                    "lemma": "brother",
+                    "pos": "NOUN",
+                    "bbox_x0": 10.0,
+                    "bbox_y0": 20.0,
+                    "bbox_x1": 90.0,
+                    "bbox_y1": 40.0,
+                }
+            ]
+        return fake_q(sql, params)
+
+    return q
+
+
+def test_original_view_fits_page_images_to_the_window(client, monkeypatch):
+    monkeypatch.setattr(webapp, "q", _original_pdf_q())
+
+    html = client.get(f"/doc/{DOC_ID}?view=original").get_data(as_text=True)
+
+    # The page image is sized to the viewport (the script sets --fit-h on the
+    # shell) rather than rendered at full width in a narrow column.
+    assert 'class="original-shell original-fit"' in html
+    assert "id=fit-shell" in html
+    assert (
+        "--fit-h" in client.get("/static/design-system.css").get_data(as_text=True)
+        or "--fit-h" in html
+    )
+
+
+def test_original_spread_shows_two_facing_pages_and_turns_by_two(client, monkeypatch):
+    monkeypatch.setattr(webapp, "q", _original_pdf_q())
+
+    html = client.get(f"/doc/{DOC_ID}?view=original&layout=spread&page=1").get_data(as_text=True)
+
+    assert 'alt="Rendered original PDF page 1"' in html
+    assert 'alt="Rendered original PDF page 2"' in html
+    # A spread turn advances by two pages, and the focus chrome is hidden.
+    links = _reader_links(html)
+    assert any(q.get("page") == ["3"] and q.get("layout") == ["spread"] for q in links.values())
+    assert 'rel="next"' in html
+    assert 'class="docgrid docgrid-spread"' in html
+
+
+def test_original_spread_has_no_facing_page_on_the_last_leaf(client, monkeypatch):
+    monkeypatch.setattr(webapp, "q", _original_pdf_q())
+
+    # _DOC.page_count is the last page; there is nothing after it to face.
+    last = _DOC["page_count"]
+    html = client.get(f"/doc/{DOC_ID}?view=original&layout=spread&page={last}").get_data(
+        as_text=True
+    )
+
+    assert f'alt="Rendered original PDF page {last}"' in html
+    assert f'alt="Rendered original PDF page {last + 1}"' not in html
+
+
+def test_document_reader_headings_are_not_styled_as_admin_labels(client):
+    # `.reader-heading` renders as h2/h3/h4, which the global rules style as
+    # uppercase mono section labels with a rule underneath.
+    css = client.get("/static/design-system.css").get_data(as_text=True)
+    html = client.get(f"/doc/{DOC_ID}").get_data(as_text=True)
+
+    assert "text-transform: uppercase" in css  # the global h2 rule still exists
+    rules = re.findall(r"\.reader-heading \{([^}]*)\}", html)
+    assert any("text-transform:none" in r and "border-bottom:0" in r for r in rules), rules
+
+
+def test_document_spread_has_no_second_pager_because_it_does_not_scroll(client):
+    scrolling = client.get(f"/doc/{DOC_ID}").get_data(as_text=True)
+    spread = client.get(f"/doc/{DOC_ID}?layout=spread").get_data(as_text=True)
+
+    assert scrolling.count('rel="next"') == 2  # control bar + end of page
+    assert spread.count('rel="next"') == 1  # the page has no end to scroll to
+
+
+def test_document_reader_script_is_emitted_once(client):
+    # `{% block script %}` used to sit inside `{% block body %}`, so Jinja
+    # rendered it in both places: every listener bound twice, and each legend
+    # chip toggled itself straight back off.
+    html = client.get(f"/doc/{DOC_ID}").get_data(as_text=True)
+
+    assert html.count("addEventListener('keydown'") == 1
+    assert html.count("#legend .chip") == 1
+
+
+def test_document_reader_drops_the_permanent_usage_hint(client):
+    # Static instructions cost a line of the reading surface on every visit;
+    # the chips and the focus control carry their own accessible labels.
+    html = client.get(f"/doc/{DOC_ID}").get_data(as_text=True)
+
+    assert "click tags to mute" not in html
+    assert "hover a word for its lemma" not in html
+
+
 def test_document_page_shows_pos_and_verbs(client):
     html = client.get(f"/doc/{DOC_ID}").get_data(as_text=True)
     assert "Parts of speech" in html
@@ -1403,8 +1641,8 @@ def test_document_original_overlay_can_toggle_to_entity_canonical_boxes(client, 
 
     html = client.get(f"/doc/{DOC_ID}?view=original&page=2&overlay=entities").get_data(as_text=True)
 
-    assert 'href="?page=2&view=original&overlay=grammar"' in html
-    assert 'href="?page=2&view=original&overlay=entities"' in html
+    assert f'href="/doc/{DOC_ID}?view=original&amp;page=2&amp;overlay=grammar"' in html
+    assert f'href="/doc/{DOC_ID}?view=original&amp;page=2&amp;overlay=entities"' in html
     assert 'class="overlay-box entity-box e-ORG"' in html
     assert 'href="#entity-m1"' in html
     assert "Big Brother · ORG · canonical:7" in html

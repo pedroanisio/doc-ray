@@ -112,23 +112,31 @@ reference remains available as row metadata without dominating the page. Note
 the table lists *all* of the document's jobs, so later re-runs and seeding jobs
 appear here too.
 
-### 2.2 Documents (`/`)
+### 2.2 Corpus (`/corpus`)
 
-The landing page states the product flow — ingest documents, annotate text, and
-curate domain entities into an auditable research corpus — then shows the
-current document count, lists every document in the corpus (title, type,
-language, size, sentence count, and which annotation tools have run), and shows
-corpus-wide totals (documents, sentences, lexemes, occurrences). Click a title
-to open the reader. If the corpus is empty, the page shows an upload
-call-to-action instead of an unexplained empty table.
+The corpus browser is the daily working screen, so it opens straight onto the
+work. A single header row carries the page title on the left and the
+corpus-wide totals (documents, sentences, lexemes, occurrences) on the right;
+everything below it is the document table — title, type, language, size,
+sentence count, and which annotation tools have run — under its bulk-action
+toolbar. Click a title to open the reader. If the corpus is empty, the table
+shows an upload call-to-action instead of an unexplained empty grid. What the
+corpus *is* is stated on the public landing page (`/`) and in the in-app guide
+(`/help`), not restated on every visit here.
 
 ### 2.3 Document reader (`/doc/<id>`)
 
 The reader shows the document either 40 sentences per page or as one continuous
 full-document scroll view, with its lexical annotation overlaid:
 
-- **Header pills** — language, type, character count, pages, status, and the
-  **domain seeding →** link to the curation screen (§3).
+- **Header strip** — cover, title, and the metadata pills: language, type,
+  character count, pages, status, and the **domain seeding →** link to the
+  curation screen (§3). Kept to one compact strip so the text starts high.
+- **Control bar** — the view switches, the POS focus control, and a page
+  counter, pinned under the masthead while you scroll. Paging never requires
+  scrolling back: use the counter's **prev / next**, or the **←** and **→**
+  arrow keys anywhere outside a form field. Either way the new page lands on
+  the first line of text rather than at the top of the header.
 - **Structured text** — Markdown heading markers (`#`, `##`, `###`) and bullet
   markers (`-`) render as reader headings and lists instead of raw extraction
   syntax.
@@ -138,9 +146,35 @@ full-document scroll view, with its lexical annotation overlaid:
   open that lexeme's page. Sentence ordinals appear in the margin.
 - **Legend chips** — click a POS chip (NOUN, VERB, …) to mute/unmute that class
   in the overlay. Use the POS focus control to highlight exactly one selected
-  part of speech while dimming the rest.
+  part of speech while dimming the rest. The chips sit below the control bar
+  and scroll away with the page: they are a reference, not a control you reach
+  for mid-paragraph.
 - **Pages / Full document** — switch between the default paginated reader and a
   continuous `?view=all` scroll with no sentence pager.
+- **Reading options** (`Aa Reading`) — three settings, all carried in the URL so
+  a reading setup can be shared and survives a page turn:
+  - **Layout** — `?layout=scroll` (default) is the single scrolling column.
+    `?layout=spread` lays the text out as two facing pages sized to the window
+    and turned rather than scrolled; the leaf counter in the bar shows where
+    you are within the current run of text. Because "fits without scrolling"
+    only holds if nothing else on the page is taller than the window, the
+    spread is a focus mode: the stats rail, the site footer, the header's cover
+    and metadata pills, and the sentence ordinals in the margin all step aside,
+    and return in scroll layout. Below 700 px wide the spread becomes a single
+    window-height page, turned the same way. It needs JavaScript; without it
+    the reader stays a scrolling column.
+
+    The spread also **paginates by sentences, not by source page** (60 per
+    request). A PDF page routinely holds little or no extracted text — front
+    matter, plates, "this page intentionally left blank" — and a page-sized
+    spread of one of those is a blank screen. Switching layout maps your
+    position between the two counts, so `page` means a source page in scroll
+    layout and a run of sentences in the spread, and neither switch loses your
+    place. In scroll layout a source page with no extracted text now says so
+    instead of rendering as an empty column.
+  - **Size** — `?size=compact` / `comfortable` (default) / `large`.
+  - **Face** — `?face=sans` (default) or `?face=serif`. Both resolve to locally
+    installed families, so neither adds a webfont to a text-heavy page.
 - **Plain mode** — the annotate/plain toggle (`?annotate=0`) renders the text
   without the overlay.
 - **Rail** — POS distribution for the document and its 15 most frequent verbs,

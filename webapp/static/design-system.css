@@ -11,6 +11,11 @@
   --display: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   --serif: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   --sans: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  /* Long-form reading faces, offered as a reader setting. Both resolve locally
+     — no extra webfont on the critical path for a page that is mostly text. */
+  --reading-sans: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --reading-serif: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia,
+    "Times New Roman", serif;
   --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 
   /* Spacing scale (4px base). Additive — safe for any component to adopt. */
@@ -677,49 +682,47 @@ mark { background: var(--sel); color: inherit; padding: 0 .12em; border-radius: 
 .auth-panel .muted { margin-top: var(--space-4); text-align: center; }
 .auth-panel .muted a { font-weight: 600; }
 
-.stat {
-  display: inline-grid;
-  gap: .15rem;
-  min-width: 9rem;
-  padding: var(--space-4) var(--space-5) var(--space-4) 0;
-  margin: 0 var(--space-5) 0 0;
-  border-right: 1px solid var(--line);
+/* Work head — the header band of a working screen (distinct from `.page-head`,
+   which centres the narrow auth cards). Title and counters share a single row
+   so the surface below — a table, a result list — starts inside the first
+   viewport instead of behind a hero. */
+.work-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2) var(--space-5);
+  margin-bottom: var(--space-4);
+  padding-bottom: var(--space-3);
+  border-bottom: 1px solid var(--line);
 }
-.stats-band {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 0;
-  margin-top: var(--space-5);
-  padding: 0;
-  border: 1px solid var(--line);
-  border-radius: var(--r);
-  overflow: hidden;
-  background: var(--panel);
-  box-shadow: var(--shadow-sm);
-}
-.stats-band .stat {
-  min-width: 0;
+.work-head h1 { margin: 0; }
+/* A working screen opens at the top of the viewport: the hero-scale breathing
+   room above the fold buys nothing once the header is a single row. */
+main:has(.work-head) { padding-top: var(--space-5); }
+/* Corpus counters as a dense rail: readable at a glance, cheap in vertical
+   space. Replaces the full-width card of display-size numbers. */
+.stat-rail {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .2rem var(--space-4);
   margin: 0;
-  padding: var(--space-4) var(--space-5);
-}
-.stats-band .stat:last-child { border-right: 0; }
-.stat b {
-  display: block;
-  color: var(--ink);
-  font-family: var(--display);
-  font-size: clamp(1.7rem, 3.4vw, 2.5rem);
-  font-weight: 700;
-  line-height: 1.05;
-  letter-spacing: -0.02em;
-  font-variant-numeric: tabular-nums;
-}
-.stat span {
   color: var(--ink-faint);
   font-family: var(--mono);
-  font-size: .68rem;
+  font-size: .7rem;
   font-weight: 500;
   letter-spacing: .05em;
   text-transform: uppercase;
+  white-space: nowrap;
+}
+.stat-rail b {
+  margin-right: .3rem;
+  color: var(--ink);
+  font-family: var(--display);
+  font-size: 1.05rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  font-variant-numeric: tabular-nums;
 }
 
 .hint, .muted { margin-top: .2rem; color: var(--ink-faint); font-size: .82rem; }
@@ -822,7 +825,10 @@ table.jobs td, table.seed td, .compact td {
   box-shadow: var(--shadow-sm);
 }
 .doc-preview:hover { border-color: var(--accent); text-decoration: none; box-shadow: var(--shadow-md); }
-.doc-preview-large { width: 7.5rem; flex: 0 0 auto; }
+/* Reader cover: enough to recognise the document at a glance. It sets the
+   header strip's minimum height, so it stays close to the list thumbnail
+   rather than reaching title-page scale. */
+.doc-preview-large { width: 4.6rem; flex: 0 0 auto; }
 .doc-preview img {
   width: 100%;
   height: 100%;
@@ -971,9 +977,9 @@ dialog.confirm p { margin: 0 0 var(--space-5); color: var(--ink-soft); font-size
   header nav a.nav-action { margin: .35rem 0 0; }
   .nav-inline-form, .nav-inline-form .nav-link-button { width: 100%; }
   main { padding-top: var(--space-5); }
-  .stats-band { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .stats-band .stat:nth-child(2n) { border-right: 0; }
-  .stats-band .stat:nth-child(n + 3) { border-top: 1px solid var(--line); }
+  /* Phone: the rail sits under the title rather than beside it. */
+  .work-head { gap: var(--space-2); }
+  .stat-rail { gap: .2rem var(--space-3); font-size: .66rem; }
   .collection-layout { grid-template-columns: 1fr; }
   th, td { padding: .6rem .55rem; }
 }

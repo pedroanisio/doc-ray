@@ -31,6 +31,45 @@ except ModuleNotFoundError:  # pragma: no cover - direct ``python webapp/app.py`
 
 _core: ModuleType
 
+# Reading options are resolved server-side and travel in the URL: a reading
+# setup is then shareable, survives a page turn, and needs no client-side
+# restore that would flash the default layout first. Each option falls back to
+# its first value, so an unknown or hand-edited parameter degrades instead of
+# raising.
+READER_LAYOUTS = ("scroll", "spread")
+READER_SIZES = ("comfortable", "compact", "large")
+READER_FACES = ("sans", "serif")
+# Parameters a reader link carries forward. Transient ones (metadata_queued,
+# errors) are deliberately absent — they belong to the request that set them.
+READER_PARAMS = ("view", "page", "annotate", "overlay", "layout", "size", "face")
+# The spread paginates by sentences, not by source page. A PDF page routinely
+# holds little or no extracted text — front matter, plates, "intentionally left
+# blank" — and a fixed-height spread of such a page renders as a blank screen.
+# Sentence-run pagination guarantees every spread has content to lay out.
+SPREAD_PER_PAGE = 60
+
+
+def _reader_option(name: str, allowed: tuple[str, ...]) -> str:
+    """Read one reading option from the query string, falling back to its default."""
+    value = request.args.get(name, allowed[0])
+    return value if value in allowed else allowed[0]
+
+
+def reader_url(doc_id: str, **overrides: object) -> str:
+    """Build a reader URL that carries the current reading options forward.
+
+    Keyword arguments override single parameters; passing ``None`` drops one
+    (``view=None`` returns to the paginated text view).
+    """
+    args = {name: request.args[name] for name in READER_PARAMS if name in request.args}
+    for name, value in overrides.items():
+        if value is None:
+            args.pop(name, None)
+        else:
+            args[name] = value
+    return url_for("document", doc_id=doc_id, **args)
+
+
 _REPROCESS_CONFIG = {
     "reextract": {
         "label": "Re-extract",
@@ -167,6 +206,50 @@ def reprocess_steps(doc: dict, doc_id: str) -> list[dict]:
     return steps
 
 
+def _paginate_sentences(
+    doc,
+    doc_id,
+    page,
+    page_numbers,
+    n_sent,
+    full_view,
+    spread,
+    per_page,
+    sentence_sql,
+    sentence_base_sql,
+):
+    """Select the sentences for one reader page and report (rows, page, pages).
+
+    Three pagination modes: the whole document (full_view), fixed runs of
+    sentences (the spread — see SPREAD_PER_PAGE for why it does not page by
+    source page), and per-source-page for the default text reader (falling back
+    to sentence chunks when the document carries no page geometry).
+    """
+    if full_view:
+        return _core.q(sentence_sql, (str(doc_id),)), 1, 1
+    if spread:
+        pages = max(1, -(-n_sent // SPREAD_PER_PAGE))
+        page = min(page, pages)
+        rows = _core.q(
+            f"{sentence_sql} LIMIT %s OFFSET %s",
+            (str(doc_id), SPREAD_PER_PAGE, (page - 1) * SPREAD_PER_PAGE),
+        )
+        return rows, page, pages
+    if page_numbers:
+        pages = max(page_numbers + [int(doc.get("page_count") or 0)])
+        page = min(page, pages)
+        rows = _core.q(
+            f"{sentence_base_sql} AND sp.page_number = %s ORDER BY sen.ordinal",
+            (str(doc_id), page),
+        )
+        return rows, page, pages
+    rows = _core.q(
+        f"{sentence_sql} LIMIT %s OFFSET %s",
+        (str(doc_id), per_page, (page - 1) * per_page),
+    )
+    return rows, page, max(1, -(-n_sent // per_page))
+
+
 def document(doc_id):
     """Render a single document with metadata, POS stats, and annotated sentences."""
     doc = _core.q1("SELECT * FROM documents WHERE id = %s", (str(doc_id),))
@@ -217,6 +300,14 @@ def document(doc_id):
     # ?annotate= query param always wins when present.
     default_annotate = "1" if _core.current_preferences().annotated_by_default else "0"
     annotate = request.args.get("annotate", default_annotate) != "0"
+    layout = _reader_option("layout", READER_LAYOUTS)
+    size = _reader_option("size", READER_SIZES)
+    face = _reader_option("face", READER_FACES)
+    # "spread" is the shared reading intent: two facing pages, full-viewport,
+    # turned not scrolled. Text builds it from CSS columns over a run of
+    # sentences; the original view builds it from two rendered page images.
+    spread = layout == "spread" and not original_view
+    original_spread = layout == "spread" and original_view
     n_sent = _core.q1("SELECT count(*) n FROM sentences WHERE document_id = %s", (str(doc_id),))[
         "n"
     ]
@@ -229,7 +320,7 @@ def document(doc_id):
     sentence_sql = f"{sentence_base_sql} ORDER BY sen.ordinal"
     page_rows = []
     page_numbers: list[int] = []
-    if not full_view:
+    if not full_view and not spread:
         page_rows = _core.q(
             """
             SELECT page_number
@@ -248,24 +339,18 @@ def document(doc_id):
         )
         page_numbers = [int(row["page_number"]) for row in page_rows]
 
-    if full_view:
-        sentences = _core.q(sentence_sql, (str(doc_id),))
-        page = 1
-        pages = 1
-    else:
-        if page_numbers:
-            pages = max(page_numbers + [int(doc.get("page_count") or 0)])
-            page = min(page, pages)
-            sentences = _core.q(
-                f"{sentence_base_sql} AND sp.page_number = %s ORDER BY sen.ordinal",
-                (str(doc_id), page),
-            )
-        else:
-            sentences = _core.q(
-                f"{sentence_sql} LIMIT %s OFFSET %s",
-                (str(doc_id), per_page, (page - 1) * per_page),
-            )
-            pages = max(1, -(-n_sent // per_page))
+    sentences, page, pages = _paginate_sentences(
+        doc,
+        doc_id,
+        page,
+        page_numbers,
+        n_sent,
+        full_view,
+        spread,
+        per_page,
+        sentence_sql,
+        sentence_base_sql,
+    )
 
     # Sentence blocks are rendered only in the reading views (annotated/plain),
     # never in the original-image overlay view — so skip the per-page block
@@ -274,12 +359,29 @@ def document(doc_id):
     if not original_view:
         attach_page_blocks(_core.q, _core.q1, sentences, doc_id, annotate=annotate)
     overlay = None
+    overlay_facing = None
     if original_view:
         overlay = (
             original_overlay(doc, doc_id, page, page_numbers, overlay_mode)
             if doc.get("doc_type") == "pdf"
             else original_markup(doc, doc_id, overlay_mode)
         )
+        # Facing page: the right leaf of an original-view spread. Only PDFs page
+        # image-by-image, and only when there is a next page to show.
+        if original_spread and overlay.get("kind") == "pdf" and page < (pages or 1):
+            overlay_facing = original_overlay(doc, doc_id, page + 1, page_numbers, overlay_mode)
+
+    # The two text layouts count pages differently (a source page vs a run of
+    # sentences), so each layout switch carries the other's equivalent of where
+    # the reader is now instead of dropping them at page 1. The original view
+    # counts source pages in both layouts, so its position is unchanged.
+    first_ordinal = int((sentences[0] if sentences else {}).get("ordinal") or 0)
+    first_source_page = next((int(s["page_number"]) for s in sentences if s.get("page_number")), 0)
+    if original_view:
+        scroll_page = spread_page = page
+    else:
+        scroll_page = (first_source_page or 1) if spread else page
+        spread_page = page if spread else first_ordinal // SPREAD_PER_PAGE + 1
 
     metadata_history = _core.q(
         "SELECT field, old_value, new_value, changed_at, actor "
@@ -316,9 +418,17 @@ def document(doc_id):
         full_view=full_view,
         original_view=original_view,
         overlay=overlay,
+        overlay_facing=overlay_facing,
+        original_spread=original_spread,
         overlay_mode=overlay_mode,
         n_sent=n_sent,
         annotate=annotate,
+        layout=layout,
+        size=size,
+        face=face,
+        scroll_page=scroll_page,
+        spread_page=spread_page,
+        reader_url=lambda **overrides: reader_url(str(doc_id), **overrides),
         annotation_state=latest_annotation_state(_core.q, doc_id),
         metadata_history=metadata_history,
         metadata_suggestions=metadata_suggestions,
