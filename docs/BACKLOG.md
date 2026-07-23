@@ -504,7 +504,7 @@ against.
 | BL-135 | Backup heartbeat starved: progress writes rode the handler's snapshot transaction | ops | bug | done | S | high | shared |
 | BL-136 | check_version_consistency gate red on main: package version left at 1.22.0 while schema moved to 1.24.0 | tooling | bug | done | XS | high | shared |
 | BL-137 | docs-in-sync gate red on main: DATABASE.md stops at migration 094 while db/migrations holds 101 | docs | bug | ready | S | high | shared |
-| BL-138 | No table is FORCE ROW LEVEL SECURITY, so any owner-role connection bypasses RLS entirely | security | bug | ready | L | high | shared |
+| BL-138 | No table is FORCE ROW LEVEL SECURITY, so any owner-role connection bypasses RLS entirely | security | bug | done | L | high | shared |
 | BL-139 | Organization corpus: make unowned documents shareable within a tenant | security | feature | ready | M | medium | shared |
 | BL-140 | tests/test_webapp.py red on main: 16 tests fail on stale copy assertions and stale SQL stubs | testing | bug | ready | M | high | shared |
 

@@ -270,6 +270,8 @@ MIGRATIONS = [
     ("103_schema_version_1_34_0", "advance the schema SemVer to 1.34.0"),
     ("104_member_role", "the `member` role — a registered user who can own and curate a corpus"),
     ("105_schema_version_1_35_0", "advance the schema SemVer to 1.35.0"),
+    ("106_force_rls", "FORCE ROW LEVEL SECURITY on every RLS table + the docray_batch writer role"),
+    ("107_schema_version_1_36_0", "advance the schema SemVer to 1.36.0"),
 ]
 
 # ---------------------------------------------------------------------------

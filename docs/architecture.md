@@ -170,10 +170,14 @@ not inherit the superuser bypass. Hostile direct-SQL access is bound to
 per-principal `LOGIN` roles created by `docray_create_principal_login()` and
 stored on `principals.db_role`; those roles inherit the RLS-limited
 `docray_client` capability but cannot impersonate another principal by setting
-`app.principal_id`. The `docray` owner remains the trusted batch/admin writer
-and bypasses RLS by design — a bypass that is currently *implicit* rather than
-granted, because no table is `FORCE ROW LEVEL SECURITY`, so any code path that
-forgets to `SET ROLE` also bypasses RLS (tracked as BL-138).
+`app.principal_id`. Every RLS-enabled table is `FORCE ROW LEVEL SECURITY`
+(migration 106, D-028), so the owning `docray` role is subject to its own
+policies and a code path that forgets to `SET ROLE` fails closed instead of
+reading the whole corpus. The trusted batch writer — the worker and CLIs, which
+annotate across every tenant with no request principal — holds its exemption as
+an explicit `docray_batch` role carrying `BYPASSRLS`, assumed by
+`adapters/persistence.connect()`. The deployment must connect as a
+**non-superuser**: a superuser bypasses RLS regardless of `FORCE`.
 
 ### What a principal may read
 

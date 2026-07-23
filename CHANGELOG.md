@@ -19,6 +19,56 @@ doc-ray carries **one global version** covering both the application package
 (`docray_schema_version()`). They are kept in lockstep by
 `scripts/check_version_consistency.py`, which fails the build on any drift.
 
+## [1.36.0]
+
+### Security
+- **RLS is now enforced by the database, not by the application tier** (Claude
+  Opus 4.8 via Claude Code) — BL-138. Every corpus table had `ENABLE ROW LEVEL
+  SECURITY`; none had `FORCE`. Both the API and the webapp connect as `docray`,
+  which *owns* those tables, and Postgres exempts a table owner from its own
+  policies unless the table is forced — so any code path that failed to
+  `SET ROLE` read the corpus with no policy applied at all, not merely as an
+  anonymous caller. Ownership (1.34.0) fixed the policy that leaked; it did not
+  change the fact that a missing `SET ROLE` bypassed *every* policy.
+
+  Migration 106 forces RLS on all 55 RLS-enabled tables and gives the trusted
+  batch writer (worker, CLIs — which annotate across every tenant with no
+  request principal) an *explicit* exemption: a named `docray_batch` role
+  carrying `BYPASSRLS`, which `adapters/persistence.connect()` assumes. The
+  exemption used to be incidental — whoever happened to own the table — and is
+  now a role attribute an audit can see.
+
+  A batch-writer *policy branch* was built and rejected on evidence: the write
+  predicates are `id IN (SELECT … FROM documents)`, which a brand-new row can
+  never satisfy (INSERT); `INSERT … RETURNING` re-applies the SELECT policy to a
+  row not yet in the policy's snapshot; and the permissive SELECT policy needed
+  to fix that OR-combines into the read path and defeats the semi-join pullup
+  migration 018 documents as load-bearing on the ~29M-row annotation tables. A
+  role attribute expresses "trusted writer" exactly, with no read-path cost.
+
+  **Operator action required on the managed cluster:** `BYPASSRLS` can only be
+  granted by a superuser, and the migration runner (`docray`) is not one. The
+  migration deliberately RAISES rather than forcing RLS without a working batch
+  writer (a half-applied state stops every ingest job). If it raises, run once
+  as the cluster superuser and re-run migrations: `ALTER ROLE docray_batch
+  BYPASSRLS;` (see `db/migrations/106_force_rls.sql` and production-setup.md).
+
+### Fixed
+- **MCP tools no longer forward a stale bearer token after a mid-session refresh**
+  (Claude Opus 4.8 (1M context) via Claude Code). On stateful Streamable-HTTP,
+  a tool coroutine runs in the session task created at `initialize`, not the POST
+  task the auth middleware ran in — so the `caller_token` contextvar the
+  middleware set never reached the tool, and whichever token opened the session
+  was frozen for the tool's lifetime. Because OAuth access tokens live 15 min
+  (`DOCRAY_API_JWT_TTL_SECONDS=900`) while the MCP session outlives them, every
+  tool call after the client's first silent refresh forwarded the expired token:
+  the MCP hop stayed `200` while the MCP→GraphQL hop `401`'d, so agents saw the
+  corpus "expire the session" ~15 minutes in. Token resolution moved to a new
+  `entrypoints/mcp/tokens.py` that reads the credential from the request the SDK
+  is currently dispatching (`request_ctx`), falling back to the contextvar only
+  for transports with no per-call HTTP request (stdio). The middleware still
+  authenticates every POST before dispatch, so validation is unchanged.
+
 ## [1.35.0]
 
 ### Added

@@ -1,6 +1,6 @@
 # doc-ray — Database ERD & Data Dictionary
 
-**Schema version `1.35.0`** (SemVer) · 105 migrations applied
+**Schema version `1.36.0`** (SemVer) · 107 migrations applied
 
 > Generated from the live schema by `scripts/gen_data_dictionary.py`. Do not edit by hand — re-run the generator.
 
@@ -230,7 +230,7 @@ format metadata) are decomposed to their own relations (4NF); blobs live in obje
 - **Index** `idx_documents_status`: public.documents USING btree (status)
 - **Index** `idx_documents_tenant`: public.documents USING btree (tenant_id)
 - **Index** `idx_documents_type_created`: public.documents USING btree (doc_type, created_at DESC)
-- **RLS:** enabled — read/write policies via *id (self)*
+- **RLS:** enabled — read/write policies via *id (self)* (FORCED)
 
 #### `document_content`
 
@@ -243,7 +243,7 @@ format metadata) are decomposed to their own relations (4NF); blobs live in obje
 - **Primary key:** (document_id)
 - **FK:** FOREIGN KEY (document_id) REFERENCES documents(id) ON DELETE CASCADE
 - **Index** `idx_content_fts`: public.document_content USING gin (fts)
-- **RLS:** enabled — read/write policies via *document_id*
+- **RLS:** enabled — read/write policies via *document_id* (FORCED)
 
 #### `authors`
 
@@ -268,7 +268,7 @@ format metadata) are decomposed to their own relations (4NF); blobs live in obje
 - **FK:** FOREIGN KEY (author_id) REFERENCES authors(id)
 - **FK:** FOREIGN KEY (document_id) REFERENCES documents(id) ON DELETE CASCADE
 - **Index** `idx_document_authors_author`: public.document_authors USING btree (author_id)
-- **RLS:** enabled — read/write policies via *document_id*
+- **RLS:** enabled — read/write policies via *document_id* (FORCED)
 
 #### `tags`
 
@@ -292,7 +292,7 @@ format metadata) are decomposed to their own relations (4NF); blobs live in obje
 - **FK:** FOREIGN KEY (document_id) REFERENCES documents(id) ON DELETE CASCADE
 - **FK:** FOREIGN KEY (tag_id) REFERENCES tags(id)
 - **Index** `idx_document_tags_tag`: public.document_tags USING btree (tag_id)
-- **RLS:** enabled — read/write policies via *document_id*
+- **RLS:** enabled — read/write policies via *document_id* (FORCED)
 
 #### `document_identifiers`
 
@@ -304,7 +304,7 @@ format metadata) are decomposed to their own relations (4NF); blobs live in obje
 
 - **Primary key:** (document_id, scheme, value)
 - **FK:** FOREIGN KEY (document_id) REFERENCES documents(id) ON DELETE CASCADE
-- **RLS:** enabled — read/write policies via *document_id*
+- **RLS:** enabled — read/write policies via *document_id* (FORCED)
 
 #### `document_metadata`
 
@@ -316,7 +316,7 @@ format metadata) are decomposed to their own relations (4NF); blobs live in obje
 
 - **Primary key:** (document_id, key)
 - **FK:** FOREIGN KEY (document_id) REFERENCES documents(id) ON DELETE CASCADE
-- **RLS:** enabled — read/write policies via *document_id*
+- **RLS:** enabled — read/write policies via *document_id* (FORCED)
 
 #### `document_pages`
 
@@ -341,7 +341,7 @@ format metadata) are decomposed to their own relations (4NF); blobs live in obje
 - **Check:** CHECK ((text_run_count >= 0))
 - **Index** `document_pages_document_id_page_number_key`: public.document_pages USING btree (document_id, page_number)
 - **Index** `idx_document_pages_document_page`: public.document_pages USING btree (document_id, page_number)
-- **RLS:** enabled — read/write policies via *document_id*
+- **RLS:** enabled — read/write policies via *document_id* (FORCED)
 
 #### `document_layout_runs`
 
@@ -373,7 +373,7 @@ format metadata) are decomposed to their own relations (4NF); blobs live in obje
 - **Index** `document_layout_runs_document_id_ordinal_key`: public.document_layout_runs USING btree (document_id, ordinal)
 - **Index** `idx_document_layout_runs_document_page`: public.document_layout_runs USING btree (document_id, page_number, ordinal)
 - **Index** `idx_document_layout_runs_document_range`: public.document_layout_runs USING btree (document_id, char_start, char_end)
-- **RLS:** enabled — read/write policies via *document_id*
+- **RLS:** enabled — read/write policies via *document_id* (FORCED)
 
 ### 5.2 Provenance (append-only lineage)
 
@@ -403,7 +403,7 @@ and read-granted the same way.
 - **FK:** FOREIGN KEY (document_id) REFERENCES documents(id) ON DELETE CASCADE
 - **Index** `idx_provenance_doc`: public.document_provenance USING btree (document_id, id)
 - **Index** `idx_provenance_kind`: public.document_provenance USING btree (kind)
-- **RLS:** enabled — read/write policies via *document_id*
+- **RLS:** enabled — read/write policies via *document_id* (FORCED)
 
 #### `provenance_params`
 
@@ -415,7 +415,7 @@ and read-granted the same way.
 
 - **Primary key:** (event_id, key)
 - **FK:** FOREIGN KEY (event_id) REFERENCES document_provenance(id) ON DELETE CASCADE
-- **RLS:** enabled — read/write policies via *event_id → document_provenance*
+- **RLS:** enabled — read/write policies via *event_id → document_provenance* (FORCED)
 
 #### `document_metadata_history`
 
@@ -435,7 +435,7 @@ and read-granted the same way.
 - **FK:** FOREIGN KEY (document_id) REFERENCES documents(id) ON DELETE CASCADE
 - **Check:** CHECK ((field = ANY (ARRAY['title'::text, 'description'::text, 'tags'::text, 'lifecycle_state'::text])))
 - **Index** `idx_metadata_history_doc`: public.document_metadata_history USING btree (document_id, id)
-- **RLS:** enabled — read/write policies via *document_id*
+- **RLS:** enabled — read/write policies via *document_id* (FORCED)
 
 ### 5.3 Segmentation & the span registry
 
@@ -464,7 +464,7 @@ a span.
 - **Check:** CHECK ((((page_number IS NULL) AND (bbox_x0 IS NULL) AND (bbox_y0 IS NULL) AND (bbox_x1 IS NULL) AND (bbox_y1 IS NULL)) OR ((page_number > 0) AND (bbox_x0 IS NOT NULL) AND (bbox_y0 IS NOT NULL) AND (bbox_x1 IS NOT NULL) AND (bbox_y1 IS NOT NULL) AND (bbox_x1 >= bbox_x0) AND (bbox_y1 >= bbox_y0)))) NOT VALID
 - **Index** `idx_spans_document_page`: public.spans USING btree (document_id, page_number, char_start) WHERE (page_number IS NOT NULL)
 - **Index** `spans_document_id_char_start_char_end_key`: public.spans USING btree (document_id, char_start, char_end)
-- **RLS:** enabled — read/write policies via *document_id*
+- **RLS:** enabled — read/write policies via *document_id* (FORCED)
 
 #### `sentences`
 
@@ -485,7 +485,7 @@ a span.
 - **Index** `idx_sentences_span`: public.sentences USING btree (span_id)
 - **Index** `idx_sentences_text_trgm`: public.sentences USING gin (text gin_trgm_ops)
 - **Index** `sentences_document_id_ordinal_key`: public.sentences USING btree (document_id, ordinal)
-- **RLS:** enabled — read/write policies via *document_id*
+- **RLS:** enabled — read/write policies via *document_id* (FORCED)
 
 ### 5.4 Lexeme & annotation backbone
 
@@ -523,7 +523,7 @@ links that the webapp/API render for lexeme and KWIC reads.
 - **Unique:** UNIQUE (document_id, layer, tool)
 - **FK:** FOREIGN KEY (document_id) REFERENCES documents(id) ON DELETE CASCADE
 - **Index** `annotations_doc_layer_tool_key`: public.annotations USING btree (document_id, layer, tool)
-- **RLS:** enabled — read/write policies via *document_id*
+- **RLS:** enabled — read/write policies via *document_id* (FORCED)
 
 #### `lexeme_occurrences`
 
@@ -539,7 +539,7 @@ links that the webapp/API render for lexeme and KWIC reads.
 - **FK:** FOREIGN KEY (span_id) REFERENCES spans(id) ON DELETE CASCADE
 - **Index** `idx_lexeme_occurrences_span`: public.lexeme_occurrences USING btree (span_id)
 - **Index** `idx_occ_lexeme`: public.lexeme_occurrences USING btree (lexeme_uid)
-- **RLS:** enabled — read/write policies via *annotation_id → annotations*
+- **RLS:** enabled — read/write policies via *annotation_id → annotations* (FORCED)
 
 ### 5.5 Tokens, morphology & subwords (NLP layers 3–7)
 
@@ -570,7 +570,7 @@ decompose into child relations (no arrays, no pipe-strings).
 - **Index** `idx_tokens_sentence`: public.tokens USING btree (sentence_id)
 - **Index** `idx_tokens_span`: public.tokens USING btree (span_id)
 - **Index** `tokens_annotation_id_span_id_key`: public.tokens USING btree (annotation_id, span_id)
-- **RLS:** enabled — read/write policies via *annotation_id → annotations*
+- **RLS:** enabled — read/write policies via *annotation_id → annotations* (FORCED)
 
 #### `token_feature`
 
@@ -582,7 +582,7 @@ decompose into child relations (no arrays, no pipe-strings).
 
 - **Primary key:** (token_id, feature)
 - **FK:** FOREIGN KEY (token_id) REFERENCES tokens(id) ON DELETE CASCADE
-- **RLS:** enabled — read/write policies via *token_id → tokens → annotations*
+- **RLS:** enabled — read/write policies via *token_id → tokens → annotations* (FORCED)
 
 #### `subword`
 
@@ -594,7 +594,7 @@ decompose into child relations (no arrays, no pipe-strings).
 
 - **Primary key:** (token_id, "position")
 - **FK:** FOREIGN KEY (token_id) REFERENCES tokens(id) ON DELETE CASCADE
-- **RLS:** enabled — read/write policies via *token_id → tokens → annotations*
+- **RLS:** enabled — read/write policies via *token_id → tokens → annotations* (FORCED)
 
 ### 5.6 Syntax — shallow & deep (layers 8–10)
 
@@ -616,7 +616,7 @@ has exactly one head → a function).
 - **FK:** FOREIGN KEY (span_id) REFERENCES spans(id) ON DELETE CASCADE
 - **Index** `idx_chunk_annotation`: public.chunk USING btree (annotation_id)
 - **Index** `idx_chunk_span`: public.chunk USING btree (span_id)
-- **RLS:** enabled — read/write policies via *annotation_id → annotations*
+- **RLS:** enabled — read/write policies via *annotation_id → annotations* (FORCED)
 
 #### `constituent`
 
@@ -635,7 +635,7 @@ has exactly one head → a function).
 - **Index** `idx_constituent_annotation`: public.constituent USING btree (annotation_id)
 - **Index** `idx_constituent_parent`: public.constituent USING btree (parent_id)
 - **Index** `idx_constituent_span`: public.constituent USING btree (span_id)
-- **RLS:** enabled — read/write policies via *annotation_id → annotations*
+- **RLS:** enabled — read/write policies via *annotation_id → annotations* (FORCED)
 
 #### `dependency`
 
@@ -652,7 +652,7 @@ has exactly one head → a function).
 - **FK:** FOREIGN KEY (head_token_id) REFERENCES tokens(id) ON DELETE SET NULL
 - **Index** `idx_dependency_dependent`: public.dependency USING btree (dependent_token_id)
 - **Index** `idx_dependency_head`: public.dependency USING btree (head_token_id)
-- **RLS:** enabled — read/write policies via *annotation_id → annotations*
+- **RLS:** enabled — read/write policies via *annotation_id → annotations* (FORCED)
 
 ### 5.7 Entities & reference (layers 11–13)
 
@@ -674,7 +674,7 @@ Named-entity mentions, entity linking to a KB, and coreference chains.
 - **Index** `idx_entity_mention_annotation`: public.entity_mention USING btree (annotation_id)
 - **Index** `idx_entity_mention_span`: public.entity_mention USING btree (span_id)
 - **Index** `idx_entity_mention_type_surface`: public.entity_mention USING btree (entity_type, surface)
-- **RLS:** enabled — read/write policies via *annotation_id → annotations*
+- **RLS:** enabled — read/write policies via *annotation_id → annotations* (FORCED)
 
 #### `entity_link`
 
@@ -687,7 +687,7 @@ Named-entity mentions, entity linking to a KB, and coreference chains.
 
 - **Primary key:** (mention_id, scheme)
 - **FK:** FOREIGN KEY (mention_id) REFERENCES entity_mention(id) ON DELETE CASCADE
-- **RLS:** enabled — read/write policies via *mention_id → entity_mention → annotations*
+- **RLS:** enabled — read/write policies via *mention_id → entity_mention → annotations* (FORCED)
 
 #### `coref_chain`
 
@@ -702,7 +702,7 @@ Named-entity mentions, entity linking to a KB, and coreference chains.
 - **FK:** FOREIGN KEY (document_id) REFERENCES documents(id) ON DELETE CASCADE
 - **Index** `idx_coref_chain_annotation`: public.coref_chain USING btree (annotation_id)
 - **Index** `idx_coref_chain_document`: public.coref_chain USING btree (document_id)
-- **RLS:** enabled — read/write policies via *document_id*
+- **RLS:** enabled — read/write policies via *document_id* (FORCED)
 
 #### `coref_mention`
 
@@ -715,7 +715,7 @@ Named-entity mentions, entity linking to a KB, and coreference chains.
 - **FK:** FOREIGN KEY (chain_id) REFERENCES coref_chain(id) ON DELETE CASCADE
 - **FK:** FOREIGN KEY (span_id) REFERENCES spans(id) ON DELETE CASCADE
 - **Index** `idx_coref_mention_span`: public.coref_mention USING btree (span_id)
-- **RLS:** enabled — read/write policies via *span_id → spans*
+- **RLS:** enabled — read/write policies via *span_id → spans* (FORCED)
 
 ### 5.8 Canonical entities & resolution
 
@@ -800,7 +800,7 @@ operator workflow queues for seeding and ambiguous-link review.
 - **Check:** CHECK ((status = ANY (ARRAY['pending'::text, 'approved'::text, 'rejected'::text, 'seeded'::text])))
 - **Index** `idx_seed_suggestion_doc`: public.seed_suggestion USING btree (document_id, status)
 - **Index** `seed_suggestion_document_id_term_key`: public.seed_suggestion USING btree (document_id, term)
-- **RLS:** enabled — read/write policies via *document_id*
+- **RLS:** enabled — read/write policies via *document_id* (FORCED)
 
 #### `resolution_review`
 
@@ -845,7 +845,7 @@ TimeML (TIMEX/EVENT/TLINK), and sentiment.
 - **FK:** FOREIGN KEY (token_id) REFERENCES tokens(id) ON DELETE CASCADE
 - **Index** `idx_srl_predicate_annotation`: public.srl_predicate USING btree (annotation_id)
 - **Index** `idx_srl_predicate_token`: public.srl_predicate USING btree (token_id)
-- **RLS:** enabled — read/write policies via *annotation_id → annotations*
+- **RLS:** enabled — read/write policies via *annotation_id → annotations* (FORCED)
 
 #### `srl_argument`
 
@@ -859,7 +859,7 @@ TimeML (TIMEX/EVENT/TLINK), and sentiment.
 - **FK:** FOREIGN KEY (predicate_id) REFERENCES srl_predicate(id) ON DELETE CASCADE
 - **FK:** FOREIGN KEY (span_id) REFERENCES spans(id) ON DELETE CASCADE
 - **Index** `idx_srl_argument_span`: public.srl_argument USING btree (span_id)
-- **RLS:** enabled — read/write policies via *span_id → spans*
+- **RLS:** enabled — read/write policies via *span_id → spans* (FORCED)
 
 #### `word_sense`
 
@@ -873,7 +873,7 @@ TimeML (TIMEX/EVENT/TLINK), and sentiment.
 - **FK:** FOREIGN KEY (annotation_id) REFERENCES annotations(id) ON DELETE CASCADE
 - **FK:** FOREIGN KEY (token_id) REFERENCES tokens(id) ON DELETE CASCADE
 - **Index** `idx_word_sense_annotation`: public.word_sense USING btree (annotation_id)
-- **RLS:** enabled — read/write policies via *annotation_id → annotations*
+- **RLS:** enabled — read/write policies via *annotation_id → annotations* (FORCED)
 
 #### `amr_node`
 
@@ -889,7 +889,7 @@ TimeML (TIMEX/EVENT/TLINK), and sentiment.
 - **FK:** FOREIGN KEY (sentence_id) REFERENCES sentences(id) ON DELETE SET NULL
 - **Index** `idx_amr_node_annotation`: public.amr_node USING btree (annotation_id)
 - **Index** `idx_amr_node_sentence`: public.amr_node USING btree (sentence_id)
-- **RLS:** enabled — read/write policies via *annotation_id → annotations*
+- **RLS:** enabled — read/write policies via *annotation_id → annotations* (FORCED)
 
 #### `amr_edge`
 
@@ -904,7 +904,7 @@ TimeML (TIMEX/EVENT/TLINK), and sentiment.
 - **FK:** FOREIGN KEY (child_node_id) REFERENCES amr_node(id) ON DELETE CASCADE
 - **FK:** FOREIGN KEY (parent_node_id) REFERENCES amr_node(id) ON DELETE CASCADE
 - **Index** `idx_amr_edge_child`: public.amr_edge USING btree (child_node_id)
-- **RLS:** enabled — read/write policies via *parent_node_id → amr_node → annotations*
+- **RLS:** enabled — read/write policies via *parent_node_id → amr_node → annotations* (FORCED)
 
 #### `discourse_relation`
 
@@ -926,7 +926,7 @@ TimeML (TIMEX/EVENT/TLINK), and sentiment.
 - **Index** `idx_discourse_relation_arg1_span`: public.discourse_relation USING btree (arg1_span_id)
 - **Index** `idx_discourse_relation_arg2_span`: public.discourse_relation USING btree (arg2_span_id)
 - **Index** `idx_discourse_relation_connective_span`: public.discourse_relation USING btree (connective_span_id)
-- **RLS:** enabled — read/write policies via *annotation_id → annotations*
+- **RLS:** enabled — read/write policies via *annotation_id → annotations* (FORCED)
 
 #### `timex`
 
@@ -943,7 +943,7 @@ TimeML (TIMEX/EVENT/TLINK), and sentiment.
 - **FK:** FOREIGN KEY (span_id) REFERENCES spans(id) ON DELETE CASCADE
 - **Index** `idx_timex_annotation`: public.timex USING btree (annotation_id)
 - **Index** `idx_timex_span`: public.timex USING btree (span_id)
-- **RLS:** enabled — read/write policies via *annotation_id → annotations*
+- **RLS:** enabled — read/write policies via *annotation_id → annotations* (FORCED)
 
 #### `event`
 
@@ -959,7 +959,7 @@ TimeML (TIMEX/EVENT/TLINK), and sentiment.
 - **FK:** FOREIGN KEY (token_id) REFERENCES tokens(id) ON DELETE CASCADE
 - **Index** `idx_event_annotation`: public.event USING btree (annotation_id)
 - **Index** `idx_event_token`: public.event USING btree (token_id)
-- **RLS:** enabled — read/write policies via *annotation_id → annotations*
+- **RLS:** enabled — read/write policies via *annotation_id → annotations* (FORCED)
 
 #### `tlink`
 
@@ -986,7 +986,7 @@ TimeML (TIMEX/EVENT/TLINK), and sentiment.
 - **Index** `idx_tlink_source_timex`: public.tlink USING btree (source_timex_id)
 - **Index** `idx_tlink_target_event`: public.tlink USING btree (target_event_id)
 - **Index** `idx_tlink_target_timex`: public.tlink USING btree (target_timex_id)
-- **RLS:** enabled — read/write policies via *annotation_id → annotations*
+- **RLS:** enabled — read/write policies via *annotation_id → annotations* (FORCED)
 
 #### `sentiment`
 
@@ -1006,7 +1006,7 @@ TimeML (TIMEX/EVENT/TLINK), and sentiment.
 - **Index** `idx_sentiment_annotation`: public.sentiment USING btree (annotation_id)
 - **Index** `idx_sentiment_span`: public.sentiment USING btree (span_id)
 - **Index** `idx_sentiment_target_span`: public.sentiment USING btree (target_span_id)
-- **RLS:** enabled — read/write policies via *annotation_id → annotations*
+- **RLS:** enabled — read/write policies via *annotation_id → annotations* (FORCED)
 
 ### 5.10 Distributed representations (layer 20)
 
@@ -1023,7 +1023,7 @@ pgvector embeddings over spans, ANN-indexed with HNSW (cosine).
 - **Primary key:** (span_id, model)
 - **FK:** FOREIGN KEY (span_id) REFERENCES spans(id) ON DELETE CASCADE
 - **Index** `idx_embedding_hnsw`: public.embedding USING hnsw (vector vector_cosine_ops)
-- **RLS:** enabled — read/write policies via *span_id → spans*
+- **RLS:** enabled — read/write policies via *span_id → spans* (FORCED)
 
 ### 5.11 Collections & curation
 
@@ -1063,7 +1063,7 @@ reviewed-suggestion queue for LLM/heuristic metadata proposals (BL-058).
 - **FK:** FOREIGN KEY (document_id) REFERENCES documents(id) ON DELETE CASCADE
 - **Index** `idx_collection_members_collection_added`: public.document_collection_members USING btree (collection_id, added_at DESC)
 - **Index** `idx_collection_members_document`: public.document_collection_members USING btree (document_id, collection_id)
-- **RLS:** enabled — read/write policies via *document_id*
+- **RLS:** enabled — read/write policies via *document_id* (FORCED)
 
 #### `document_metadata_suggestion`
 
@@ -1091,7 +1091,7 @@ reviewed-suggestion queue for LLM/heuristic metadata proposals (BL-058).
 - **Check:** CHECK ((length(btrim(suggested_value)) > 0))
 - **Index** `document_metadata_suggestion_document_id_field_suggested_va_key`: public.document_metadata_suggestion USING btree (document_id, field, suggested_value)
 - **Index** `idx_document_metadata_suggestion_doc`: public.document_metadata_suggestion USING btree (document_id, status, confidence DESC)
-- **RLS:** enabled — read/write policies via *document_id*
+- **RLS:** enabled — read/write policies via *document_id* (FORCED)
 
 ### 5.12 Access control — RBAC & row-level security
 
@@ -1423,7 +1423,7 @@ ledger that backs Checkout, Portal, entitlement decisions, and payment audit vie
 - **FK:** FOREIGN KEY (created_by_principal_id) REFERENCES principals(id) ON DELETE SET NULL
 - **FK:** FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE
 - **Index** `tenant_billing_accounts_stripe_customer_id_key`: public.tenant_billing_accounts USING btree (stripe_customer_id)
-- **RLS:** enabled — read/write policies via *tenant_id = docray_current_tenant() and docray_is_admin()*
+- **RLS:** enabled — read/write policies via *tenant_id = docray_current_tenant() and docray_is_admin()* (FORCED)
 
 #### `tenant_subscriptions`
 
@@ -1447,7 +1447,7 @@ ledger that backs Checkout, Portal, entitlement decisions, and payment audit vie
 - **Index** `idx_tenant_subscriptions_customer`: public.tenant_subscriptions USING btree (stripe_customer_id)
 - **Index** `idx_tenant_subscriptions_status`: public.tenant_subscriptions USING btree (status)
 - **Index** `tenant_subscriptions_stripe_subscription_id_key`: public.tenant_subscriptions USING btree (stripe_subscription_id)
-- **RLS:** enabled — read/write policies via *tenant_id = docray_current_tenant() and docray_is_admin()*
+- **RLS:** enabled — read/write policies via *tenant_id = docray_current_tenant() and docray_is_admin()* (FORCED)
 
 #### `stripe_webhook_events`
 
@@ -1465,7 +1465,7 @@ ledger that backs Checkout, Portal, entitlement decisions, and payment audit vie
 - **Index** `idx_stripe_webhook_events_object_customer_time`: public.stripe_webhook_events USING btree (((payload #>> '{data,object,customer}'::text[])), created_at DESC)
 - **Index** `idx_stripe_webhook_events_object_tenant_time`: public.stripe_webhook_events USING btree (((payload #>> '{data,object,metadata,tenant_id}'::text[])), created_at DESC)
 - **Index** `idx_stripe_webhook_events_type_time`: public.stripe_webhook_events USING btree (event_type, created_at DESC)
-- **RLS:** enabled — read/write policies via *signed Stripe webhook ledger, app-owned*
+- **RLS:** enabled — read/write policies via *signed Stripe webhook ledger, app-owned* (FORCED)
 
 ### 5.15 Security audit trail
 
@@ -1499,7 +1499,7 @@ address, and whether it succeeded or was denied.
 - **Index** `idx_audit_events_target`: public.audit_events USING btree (target_type, target_id, occurred_at DESC)
 - **Index** `idx_audit_events_tenant`: public.audit_events USING btree (tenant_id, occurred_at DESC)
 - **Index** `idx_audit_events_time`: public.audit_events USING btree (occurred_at DESC)
-- **RLS:** enabled — read/write policies via *insert-only security audit log*
+- **RLS:** enabled — read/write policies via *insert-only security audit log* (FORCED)
 
 ### 5.16 Evaluation & drift artifacts
 
@@ -1626,7 +1626,7 @@ clobbers the queue or the archive index it is reading from.
 - **Index** `idx_jobs_document`: public.jobs USING btree (document_id, id)
 - **Index** `idx_jobs_running_heartbeat`: public.jobs USING btree (heartbeat_at) WHERE (status = 'running'::text)
 - **Index** `idx_jobs_status`: public.jobs USING btree (status, id)
-- **RLS:** enabled — read/write policies via *document_id (admin-only when NULL)*
+- **RLS:** enabled — read/write policies via *document_id (admin-only when NULL)* (FORCED)
 
 #### `schema_migrations`
 
@@ -1670,7 +1670,7 @@ clobbers the queue or the archive index it is reading from.
 - **Primary key:** (id)
 - **Check:** CHECK ((status = ANY (ARRAY['creating'::text, 'available'::text, 'restoring'::text, 'failed'::text])))
 - **Index** `idx_backups_created`: public.backups USING btree (created_at DESC)
-- **RLS:** enabled — read/write policies via *docray_is_admin()*
+- **RLS:** enabled — read/write policies via *docray_is_admin()* (FORCED)
 
 ### 5.18 Prism visual layer
 
@@ -1711,7 +1711,7 @@ low-confidence output.
 - **Check:** CHECK ((width_px > 0))
 - **Index** `document_image_document_id_page_number_source_sha256_key`: public.document_image USING btree (document_id, page_number, source, sha256)
 - **Index** `idx_document_image_doc_page`: public.document_image USING btree (document_id, page_number)
-- **RLS:** enabled — read/write policies via *document_id*
+- **RLS:** enabled — read/write policies via *document_id* (FORCED)
 
 #### `image_tier1_features`
 
@@ -1742,7 +1742,7 @@ low-confidence output.
 - **Check:** CHECK ((image_class = ANY (ARRAY['photo'::text, 'diagram'::text, 'screenshot'::text, 'line-art'::text, 'chart'::text])))
 - **Index** `idx_image_tier1_features_doc`: public.image_tier1_features USING btree (document_id)
 - **Index** `image_tier1_features_document_image_id_tool_key`: public.image_tier1_features USING btree (document_image_id, tool)
-- **RLS:** enabled — read/write policies via *document_id*
+- **RLS:** enabled — read/write policies via *document_id* (FORCED)
 
 #### `image_embedding`
 
@@ -1760,7 +1760,7 @@ low-confidence output.
 - **FK:** FOREIGN KEY (document_image_id) REFERENCES document_image(id) ON DELETE CASCADE
 - **Index** `idx_image_embedding_doc`: public.image_embedding USING btree (document_id)
 - **Index** `idx_image_embedding_hnsw`: public.image_embedding USING hnsw (vector vector_cosine_ops)
-- **RLS:** enabled — read/write policies via *document_id*
+- **RLS:** enabled — read/write policies via *document_id* (FORCED)
 
 #### `sentence_vision_embedding`
 
@@ -1777,7 +1777,7 @@ low-confidence output.
 - **FK:** FOREIGN KEY (sentence_id) REFERENCES sentences(id) ON DELETE CASCADE
 - **Index** `idx_sentence_vision_embedding_doc`: public.sentence_vision_embedding USING btree (document_id)
 - **Index** `idx_sentence_vision_embedding_hnsw`: public.sentence_vision_embedding USING hnsw (vector vector_cosine_ops)
-- **RLS:** enabled — read/write policies via *document_id*
+- **RLS:** enabled — read/write policies via *document_id* (FORCED)
 
 #### `visual_caption`
 
@@ -1803,7 +1803,7 @@ low-confidence output.
 - **Index** `idx_visual_caption_committed`: public.visual_caption USING btree (document_id) WHERE (status = 'committed'::text)
 - **Index** `idx_visual_caption_doc`: public.visual_caption USING btree (document_id)
 - **Index** `visual_caption_document_image_id_model_key`: public.visual_caption USING btree (document_image_id, model)
-- **RLS:** enabled — read/write policies via *document_id*
+- **RLS:** enabled — read/write policies via *document_id* (FORCED)
 
 #### `visual_review`
 
@@ -1826,7 +1826,7 @@ low-confidence output.
 - **FK:** FOREIGN KEY (reviewer) REFERENCES principals(id)
 - **Check:** CHECK ((status = ANY (ARRAY['pending'::text, 'approved'::text, 'rejected'::text])))
 - **Index** `idx_visual_review_pending`: public.visual_review USING btree (document_id) WHERE (status = 'pending'::text)
-- **RLS:** enabled — read/write policies via *document_id*
+- **RLS:** enabled — read/write policies via *document_id* (FORCED)
 
 ### 5.19 Read-model rollups (D-024)
 
@@ -1851,7 +1851,7 @@ tenants.
 
 - **Primary key:** (document_id)
 - **FK:** FOREIGN KEY (document_id) REFERENCES documents(id) ON DELETE CASCADE
-- **RLS:** enabled — read/write policies via *?*
+- **RLS:** enabled — read/write policies via *?* (FORCED)
 
 #### `corpus_stats`
 
@@ -1863,7 +1863,7 @@ tenants.
 
 - **Primary key:** (tenant_id)
 - **FK:** FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE
-- **RLS:** enabled — read/write policies via *?*
+- **RLS:** enabled — read/write policies via *?* (FORCED)
 
 #### `lexeme_stats`
 
@@ -1877,7 +1877,7 @@ tenants.
 - **FK:** FOREIGN KEY (lexeme_uid) REFERENCES lexemes(uid) ON DELETE CASCADE
 - **FK:** FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE
 - **Index** `idx_lexeme_stats_tenant_uses`: public.lexeme_stats USING btree (tenant_id, uses DESC)
-- **RLS:** enabled — read/write policies via *?*
+- **RLS:** enabled — read/write policies via *?* (FORCED)
 
 #### `entity_frequency_stats`
 
@@ -1891,7 +1891,7 @@ tenants.
 - **Primary key:** (tenant_id, entity_text, entity_type)
 - **FK:** FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE
 - **Index** `idx_entity_freq_tenant_uses`: public.entity_frequency_stats USING btree (tenant_id, uses DESC)
-- **RLS:** enabled — read/write policies via *?*
+- **RLS:** enabled — read/write policies via *?* (FORCED)
 
 
 ## 6. Views
@@ -2130,3 +2130,5 @@ owner's bypass.
 | 103 | `103_schema_version_1_34_0.sql` | advance the schema SemVer to 1.34.0 |
 | 104 | `104_member_role.sql` | the `member` role — a registered user who can own and curate a corpus |
 | 105 | `105_schema_version_1_35_0.sql` | advance the schema SemVer to 1.35.0 |
+| 106 | `106_force_rls.sql` | FORCE ROW LEVEL SECURITY on every RLS table + the docray_batch writer role |
+| 107 | `107_schema_version_1_36_0.sql` | advance the schema SemVer to 1.36.0 |

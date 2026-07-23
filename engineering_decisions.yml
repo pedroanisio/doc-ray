@@ -50,9 +50,9 @@ source_schema:         "db/migrations"
 # by tenant-scoped Stripe billing status (migration 085).
 # Kept in lockstep with doc_ray.__version__
 # by scripts/check_version_consistency.py.
-source_schema_version: "1.35.0"
+source_schema_version: "1.36.0"
 target_engine:         "PostgreSQL 16"
-total_decisions:       26
+total_decisions:       27
 
 decisions:
 
@@ -1530,5 +1530,62 @@ decisions:
             context:     "ci"
             side_effects: "reads"
             command:     "pytest src/doc_ray/tests/test_document_ownership.py"
+            expect:
+              exit:      0
+
+  - id:                 "D-028"
+    title:              "RLS is enforced by the database (FORCE) with an explicit BYPASSRLS batch writer"
+    version_introduced: "1.36.0"
+    category:           "security"
+    decision: |
+      Every RLS-enabled table is FORCE ROW LEVEL SECURITY, so the table owner
+      (the application user `docray`) is subject to its own policies. The trusted
+      batch writer — the worker and CLIs, which annotate and roll up across every
+      tenant with no request principal — holds its exemption as an explicit role
+      attribute: a NOLOGIN `docray_batch` role carrying BYPASSRLS, assumed by
+      adapters/persistence.connect() via SET ROLE. The API/webapp request path is
+      unchanged (SET ROLE docray_api + app.principal_id). The deployment must
+      connect as a NON-superuser, because a superuser bypasses RLS regardless of
+      FORCE; the RLS test models this with a dedicated NOSUPERUSER probe role
+      rather than the test database's own superuser.
+    rationale: |
+      Before this, RLS was ENABLEd but never FORCEd, and both the API and webapp
+      connect as `docray`, which owns the corpus tables. Postgres exempts a table
+      owner from its own policies unless the table is forced, so any code path
+      that failed to SET ROLE read the corpus with NO policy applied — the leak
+      was one missing SET ROLE away, independent of whether the policy itself was
+      correct (BL-138). A batch-writer policy BRANCH was implemented and rejected
+      on three findings: (1) the write predicate id IN (SELECT ... FROM documents)
+      is unsatisfiable for a new row, so INSERT is inexpressible as a policy;
+      (2) INSERT ... RETURNING re-applies the SELECT policy to a row absent from
+      the policy subquery's snapshot; (3) the permissive SELECT policy needed to
+      fix (2) OR-combines into the read path and defeats the semi-join pullup
+      migration 018 documents as load-bearing on lexeme_occurrences (~17.5M),
+      spans (~29M) and tokens (~25M). A BYPASSRLS role attribute expresses
+      "trusted writer" exactly, at no read-path cost. BYPASSRLS requires a
+      superuser to grant, which the managed migration runner is not, so the
+      migration RAISES rather than force RLS without a working writer — a
+      half-applied state would stop every ingest job — leaving the operator one
+      superuser statement (ALTER ROLE docray_batch BYPASSRLS) to run.
+    decision_status:    "accepted"
+    decision_date:      "2026-07-23"
+    owner:              ["pedroanisio@faz.ai"]
+    scope_path:
+      - "db/migrations/106_force_rls.sql"
+      - "src/doc_ray/adapters/persistence.py"
+    claims:
+      - claim_id:    "D-028.k1"
+        claim_text:  "Every RLS-enabled table is forced, and a non-superuser app role with no principal reads nothing."
+        auditable:   true
+        status:      "populated"
+        declared_checks_count: 1
+        checks:
+          - check_id:    "D-028.k1.c1"
+            description: "The forced-RLS suite passes against the live schema."
+            check_kind:  "shell"
+            severity:    "error"
+            context:     "ci"
+            side_effects: "reads"
+            command:     "pytest src/doc_ray/tests/test_forced_rls.py"
             expect:
               exit:      0

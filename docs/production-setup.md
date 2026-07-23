@@ -116,6 +116,27 @@ psql "postgresql://doadmin:<ADMIN_PW>@<CLUSTER_HOST>:25060/docray?sslmode=requir
 > DO Managed PostgreSQL ships the `vector` extension at no extra cost. If
 > `CREATE EXTENSION vector` errors, enable it from **Settings → Extensions** first.
 
+> ⚠ **`docray` must NOT be a superuser.** RLS is forced on every corpus table
+> (migration 106, schema 1.36.0), and PostgreSQL exempts a superuser from RLS no
+> matter what — so an app connecting as a superuser would silently bypass the
+> isolation the whole model depends on. The role above is a plain `LOGIN` role,
+> which is correct; do not grant it `SUPERUSER`.
+
+**Grant the batch-writer role its RLS exemption (one superuser statement).**
+Migration 106 creates a `docray_batch` role for the worker/CLIs and needs it to
+carry `BYPASSRLS`, which only a superuser can set. The migration runs as `docray`
+(not a superuser), so it **raises and stops** until you run this once as
+`doadmin` — before or after the first migrate; re-running migrate then succeeds:
+
+```bash
+psql "postgresql://doadmin:<ADMIN_PW>@<CLUSTER_HOST>:25060/docray?sslmode=require" \
+  -c "ALTER ROLE docray_batch BYPASSRLS;"
+```
+
+If `docray_batch` does not exist yet (first migrate hasn't created it), run one
+migrate first — it will create the role, raise on the missing `BYPASSRLS`, then
+this statement plus a second migrate completes the schema.
+
 **Trusted sources (firewall).** In **Settings → Trusted Sources**, restrict
 inbound to the Droplet (or its VPC). Prefer the **VPC endpoint** when the Droplet
 shares the cluster's VPC — traffic stays private. If the Droplet is in a

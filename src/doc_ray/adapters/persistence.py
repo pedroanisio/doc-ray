@@ -57,6 +57,15 @@ def connect(cfg: Config) -> Iterator[DictConnection]:
     earlier ``SELECT`` opens an implicit transaction and ``transaction()`` would
     only create a savepoint — the insert would roll back silently on close.
 
+    The connection drops to ``docray_batch``, the trusted batch-writer role the
+    RLS policies name (migration 106). Every caller of this helper is
+    batch/CLI work — the worker, ingest, reannotation, export, health — running
+    with no request principal on whose behalf it could act, and spanning every
+    tenant. Before 106 those writes worked only because the connection happened
+    to own the tables and Postgres exempts an owner from unforced RLS; now the
+    exemption is granted explicitly, so a path that forgets to assume a role
+    fails closed instead of silently reading everything.
+
     Args:
         cfg: Runtime configuration carrying the database URL.
 
@@ -65,6 +74,7 @@ def connect(cfg: Config) -> Iterator[DictConnection]:
     """
     conn = psycopg.connect(cfg.database_url, row_factory=dict_row, autocommit=True)
     try:
+        conn.execute("SET ROLE docray_batch")
         yield conn
     finally:
         conn.close()
