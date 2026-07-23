@@ -31,7 +31,7 @@ COMPOSE_PROD_OLLAMA := $(COMPOSE_PROD) -f docker-compose.ollama.yml -f docker-co
 # :8080; a Cloudflare public-hostname rule routes doc-ray.com/mcp -> mcp:8080.
 COMPOSE_PROD_MCP := $(COMPOSE_PROD_OLLAMA) -f docker-compose.mcp.yml
 
-.PHONY: help check check-static db-dump truncate-db workers-up workers-status \
+.PHONY: help check check-static prod-check db-dump truncate-db workers-up workers-status \
         prod-migrate prod-migrate-host prod-up prod-web prod-admin-console-up \
         prod-admin-console-down prod-tunnel prod-down gpu-up prod-ollama-up \
         prod-refresh-ui prod-restart-ui mcp-up pgadmin-up
@@ -74,6 +74,17 @@ check: ## Run ALL landing-checklist gates (static gates + pytest); mirrors CLAUD
 	  $(PYTHON) -m pytest tests src/doc_ray/tests || fail=1; \
 	if [ $$fail -ne 0 ]; then echo; echo "make check: FAILED"; exit 1; fi; \
 	echo; echo "make check: PASSED"
+
+# Runtime verification of a live deployment — the counterpart to `check`, which
+# only proves the source tree is sound. Reads .env.prod itself (the file wins over
+# the ambient shell, same rule as COMPOSE_PROD's --env-file) and probes the real
+# dependencies, ending with a REAL message handed to the SMTP2GO relay: nothing
+# else in the stack exercises outbound mail, and a silently broken relay turns
+# every registration into a 503.
+prod-check: ## Verify the live prod deployment (config, managed DB, Spaces, API, webapp, MCP + public /mcp, Cloudflare tunnel, public URL, SMTP2GO send). TO=<email> picks the recipient; NO_SEND=1 checks the relay without delivering; JSON=1 for machine output; ENV_FILE=.env.uat to target another deployment
+	@PYTHONPATH=src $(PYTHON) scripts/prod_check.py \
+	  --env-file $(if $(ENV_FILE),$(ENV_FILE),.env.prod) \
+	  $(if $(TO),--to $(TO)) $(if $(NO_SEND),--no-send) $(if $(JSON),--json)
 
 workers-up: ## Start/reconcile the worker pool (DOCRAY_WORKERS=3 by default)
 	docker compose up -d --scale worker=$(DOCRAY_WORKERS) worker

@@ -37,6 +37,10 @@ class _RecordingSMTP:
         self.calls.append(("send_message", ()))
         self.message = message
 
+    def noop(self) -> tuple[int, bytes]:
+        self.calls.append(("noop", ()))
+        return 250, b"OK"
+
 
 class _RecordingSMTPSSL(_RecordingSMTP):
     """Stands in for smtplib.SMTP_SSL (implicit TLS); shares the instance log."""
@@ -129,6 +133,58 @@ def test_send_wraps_smtp_failures_in_mailer_error(monkeypatch) -> None:
 
     with pytest.raises(MailerError):
         mailer.send(to="alice@example.com", subject="Verify", body="body")
+
+
+def test_verify_opens_an_authenticated_session_and_delivers_nothing(monkeypatch) -> None:
+    """verify() exercises the same TLS+AUTH path as send() without sending mail."""
+    _RecordingSMTP.instances.clear()
+    monkeypatch.setattr(mailer_smtp.smtplib, "SMTP", _RecordingSMTP)
+    mailer = mailer_smtp.SmtpMailer(
+        host="mail.smtp2go.com",
+        port=587,
+        sender="noreply@example.com",
+        username="mailer",
+        password="s3cret",
+    )
+
+    mailer.verify()
+
+    smtp = _RecordingSMTP.instances[-1]
+    assert ("starttls", ()) in smtp.calls
+    assert ("login", ("mailer", "s3cret")) in smtp.calls
+    assert ("noop", ()) in smtp.calls
+    assert ("send_message", ()) not in smtp.calls
+
+
+def test_verify_wraps_authentication_failures_in_mailer_error(monkeypatch) -> None:
+    class _RejectingSMTP(_RecordingSMTP):
+        def login(self, username: str, password: str) -> None:
+            raise smtplib.SMTPAuthenticationError(535, b"Authentication failed")
+
+    monkeypatch.setattr(mailer_smtp.smtplib, "SMTP", _RejectingSMTP)
+    mailer = mailer_smtp.SmtpMailer(
+        host="mail.smtp2go.com", port=587, sender="noreply@example.com", username="u", password="p"
+    )
+
+    with pytest.raises(MailerError, match="535"):
+        mailer.verify()
+
+
+def test_describe_reports_the_transport_without_leaking_the_password() -> None:
+    mailer = mailer_smtp.SmtpMailer(
+        host="mail.smtp2go.com",
+        port=587,
+        sender="noreply@doc-ray.com",
+        username="doc-ray.com",
+        password="s3cret",
+    )
+
+    described = mailer.describe()
+
+    assert "mail.smtp2go.com:587" in described
+    assert "starttls" in described
+    assert "doc-ray.com" in described
+    assert "s3cret" not in described
 
 
 def test_verification_email_body_contains_the_link_and_expiry() -> None:

@@ -10,14 +10,14 @@
 #   docker compose -f docker-compose.yml -f docker-compose.mcp.yml up -d \
 #     postgres minio createbucket migrate api mcp
 #
-# Production: the API is already public at https://doc-ray.com (no :8000). Run
-# the mcp container on its own and forward to the public endpoint — do NOT layer
-# it on the base compose (there is no local `api` service to depend on):
-#   docker run -d --name docray-mcp -p 8080:8080 \
-#     -e DOCRAY_API_URL=https://doc-ray.com/graphql \
-#     -e DOCRAY_API_TOKENS="$DOCRAY_API_TOKENS" \
-#     -e DOCRAY_API_ALLOW_ANONYMOUS=false \
-#     <image> uvicorn doc_ray.entrypoints.mcp.server:app --host 0.0.0.0 --port 8080
+# Production (as-built): `make mcp-up`. This overlay declares only the `mcp`
+# service, and its `depends_on: api` resolves in the BASE compose — so running
+#   docker compose -f docker-compose.mcp.yml up -d
+# alone fails with `service "mcp" depends on undefined service "api"`. The make
+# target layers base + prod + ollama + this file with --env-file .env.prod, so
+# `mcp` reaches the managed-stack API in-network at api:8000/graphql and binds
+# loopback :8080. Verify afterwards with `make prod-check` (the `mcp` and
+# `mcp_public` probes expect an HTTP 401 auth challenge, never a 200).
 #
 # Point an MCP client at  https://<host>/mcp  (dev: http://localhost:${MCP_PORT:-8080}/mcp)
 # with an Authorization: Bearer <token> header (a DOCRAY_API_TOKENS entry or an

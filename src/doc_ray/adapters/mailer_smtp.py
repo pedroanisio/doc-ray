@@ -17,7 +17,8 @@ from __future__ import annotations
 
 import os
 import smtplib
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
+from contextlib import contextmanager
 from email.message import EmailMessage
 
 from doc_ray.ports.mailer import MailerError
@@ -114,6 +115,28 @@ class SmtpMailer:
             timeout=float(source.get("DOCRAY_SMTP_TIMEOUT_SECONDS", "10")),
         )
 
+    def describe(self) -> str:
+        """Summarize the transport for operator output; never includes the password."""
+        transport = "smtps" if self._use_ssl else ("starttls" if self._starttls else "plaintext")
+        auth = self._username or "anonymous"
+        return f"{self._host}:{self._port} {transport} user={auth} from={self._sender}"
+
+    @contextmanager
+    def _session(self) -> Iterator[smtplib.SMTP]:
+        """Yield a connected, TLS-negotiated, authenticated SMTP session.
+
+        Implicit TLS opens an already-encrypted socket (SMTP_SSL); STARTTLS
+        upgrades a plaintext one. They are mutually exclusive — never STARTTLS
+        over an SMTPS connection.
+        """
+        smtp_factory = smtplib.SMTP_SSL if self._use_ssl else smtplib.SMTP
+        with smtp_factory(self._host, self._port, timeout=self._timeout) as smtp:
+            if self._starttls and not self._use_ssl:
+                smtp.starttls()
+            if self._username and self._password:
+                smtp.login(self._username, self._password)
+            yield smtp
+
     def send(self, *, to: str, subject: str, body: str) -> None:
         """Deliver one plain-text message; raise :class:`MailerError` on failure."""
         message = EmailMessage()
@@ -121,16 +144,21 @@ class SmtpMailer:
         message["To"] = to
         message["Subject"] = subject
         message.set_content(body)
-        # Implicit TLS opens an already-encrypted socket (SMTP_SSL); STARTTLS
-        # upgrades a plaintext one. They are mutually exclusive — never STARTTLS
-        # over an SMTPS connection.
-        smtp_factory = smtplib.SMTP_SSL if self._use_ssl else smtplib.SMTP
         try:
-            with smtp_factory(self._host, self._port, timeout=self._timeout) as smtp:
-                if self._starttls and not self._use_ssl:
-                    smtp.starttls()
-                if self._username and self._password:
-                    smtp.login(self._username, self._password)
+            with self._session() as smtp:
                 smtp.send_message(message)
         except (OSError, smtplib.SMTPException) as exc:
             raise MailerError(f"verification email delivery failed: {exc}") from exc
+
+    def verify(self) -> None:
+        """Open an authenticated session and issue NOOP, delivering no message.
+
+        Confirms reachability, TLS negotiation, and credential acceptance — the
+        failure modes that silently turn registration into a 503 — without
+        putting a message on the relay. Raises :class:`MailerError` on failure.
+        """
+        try:
+            with self._session() as smtp:
+                smtp.noop()
+        except (OSError, smtplib.SMTPException) as exc:
+            raise MailerError(f"SMTP connection check failed: {exc}") from exc

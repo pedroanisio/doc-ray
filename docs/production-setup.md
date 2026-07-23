@@ -190,7 +190,7 @@ DOCRAY_PUBLIC_BASE_URL=https://doc-ray.com        # verification-email links
 # SMTP — required for registration (else /auth/register fail-closes 503).
 # The mailer speaks STARTTLS only (no implicit-TLS/465). Example below: SMTP2GO.
 DOCRAY_SMTP_HOST=mail.smtp2go.com     # region variants: mail-us / mail-eu / mail-au .smtp2go.com
-DOCRAY_SMTP_PORT=587                  # STARTTLS port; fallbacks 2525 / 8025. Never 465/8465.
+DOCRAY_SMTP_PORT=2525                 # STARTTLS. DO droplets block 25/465/587 — use 2525/8025.
 DOCRAY_SMTP_STARTTLS=true
 DOCRAY_SMTP_FROM=noreply@doc-ray.com  # must be a sender/domain the relay has verified
 DOCRAY_SMTP_USERNAME=<relay SMTP user>      # SMTP2GO: Sending → SMTP Users (not your account login)
@@ -221,15 +221,23 @@ Notes:
   `DOCRAY_SMTP_PASSWORD` together enable AUTH; `DOCRAY_SMTP_FROM` must be a sender
   the relay has verified, or the message is rejected and registration returns
   **202** with `verification_email_sent:false` (logged as `verification email
-  delivery failed`). Confirm the relay from inside the container before trusting
-  the flow — this surfaces the real error instead of the swallowed `false`:
+  delivery failed`). Confirm the relay before trusting the flow — this surfaces
+  the real error instead of the swallowed `false`:
   ```bash
-  docker compose --env-file .env.prod exec api python - <<'PY'
-  from doc_ray.adapters.mailer_smtp import SmtpMailer
-  m = SmtpMailer.from_env()            # None ⇒ DOCRAY_SMTP_HOST is unset/blank
-  m.send(to="you@example.com", subject="doc-ray smtp test", body="ok")
-  PY
+  make prod-check TO=you@example.com    # full check, ending in a real delivery
+  make prod-check NO_SEND=1             # connect + STARTTLS + AUTH only
   ```
+- **Port 587 is blocked on DigitalOcean droplets.** DO blocks outbound SMTP
+  (25/465/587) by default, so a correct SMTP2GO configuration still fails with a
+  bare `timed out` — the failure looks like bad credentials but is egress. Verify
+  before debugging the relay:
+  ```bash
+  for p in 587 2525 8025; do timeout 5 bash -c "exec 3<>/dev/tcp/mail.smtp2go.com/$p" \
+    && echo "$p open" || echo "$p blocked"; done
+  ```
+  SMTP2GO serves STARTTLS on **2525** and **8025**, which are not blocked — set
+  `DOCRAY_SMTP_PORT=2525`. Changing it requires recreating the containers
+  (`make prod-refresh-ui`), since env is read at process start.
 
 ## Step 4 — Apply the schema
 
@@ -366,7 +374,23 @@ make prod-up          # re-apply with the tokens set
 printf 'Store this API token in your password manager: %s\n' "$API_TOKEN"
 ```
 
-Verify end-to-end:
+Verify end-to-end — one command covers config, the managed cluster and its
+migration lockstep, Spaces, the API's readiness contract, the webapp, the MCP
+surface (loopback and public `/mcp`), the Cloudflare Tunnel, the public URL, and
+a **real** message through the SMTP relay:
+
+```bash
+make prod-check                          # sends the mail test to DOCRAY_SMTP_CHECK_TO
+make prod-check TO=you@example.com       # …or an explicit recipient
+make prod-check NO_SEND=1                # relay reachability + AUTH only, nothing delivered
+```
+
+Exit codes: `0` all green, `1` warnings only, `2` at least one failed check. The
+SMTP probe is the only one that writes anything anywhere, and it is the only
+check that exercises outbound mail at all — a broken relay is otherwise invisible
+until a real user's registration returns 503.
+
+The individual probes, if you want them by hand:
 
 ```bash
 curl -fsS http://127.0.0.1:8000/readyz            # "ready":true (DB + Spaces reachable)
@@ -394,6 +418,7 @@ the landing page renders, not that auth is enforced.)
 
 | Target | Action |
 | --- | --- |
+| `make prod-check` | Verify the live deployment: config, DB + migration lockstep, Spaces, API `/readyz`, webapp, MCP (local + public `/mcp`), Cloudflare Tunnel, public URL, and a real SMTP delivery (`TO=`, `NO_SEND=1`, `JSON=1`) |
 | `make prod-migrate` | Apply migrations to the managed cluster |
 | `make prod-up` | Migrate, then start api + webapp + workers + backups |
 | `make prod-admin-console-up` | Build/start the loopback-only React admin console and Stripe Billing panel |
