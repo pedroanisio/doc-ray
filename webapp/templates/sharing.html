@@ -12,6 +12,27 @@
 {% if error %}<div class="errbox">{{ error }}</div>{% endif %}
 {% if shared %}<div class="notice">Shared with {{ shared }}.</div>{% endif %}
 {% if revoked %}<div class="notice">Revoked access for {{ revoked }}.</div>{% endif %}
+{% if visibility_set %}<div class="notice">Visibility set to {{ visibility_set }}.</div>{% endif %}
+
+<div class="card" style="max-width:42rem">
+  <h2 style="margin-top:0">Organization visibility</h2>
+  {% if doc.visibility == 'org' %}
+    <p class="hint">This document is <strong>visible to everyone in your organization</strong>.</p>
+    <form method="post" action="{{ url_for('document_set_visibility', doc_id=doc.id) }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="visibility" value="private">
+      <button type="submit">Make private</button>
+    </form>
+  {% else %}
+    <p class="hint">This document is <strong>private</strong> — only you, people you
+      share it with, and administrators can see it.</p>
+    <form method="post" action="{{ url_for('document_set_visibility', doc_id=doc.id) }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="visibility" value="org">
+      <button type="submit">Publish to my organization</button>
+    </form>
+  {% endif %}
+</div>
 
 <div class="collection-layout">
   <section class="collection-list">

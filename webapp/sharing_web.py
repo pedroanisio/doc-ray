@@ -35,10 +35,16 @@ mutation RevokeDocumentShare($id: ID!, $email: String!) {
 }
 """
 
+_SET_VISIBILITY = """
+mutation SetDocumentVisibility($id: ID!, $visibility: String!) {
+  setDocumentVisibility(documentId: $id, visibility: $visibility)
+}
+"""
+
 
 def document_sharing(doc_id):
-    """Render the sharing panel: current grants plus a grant/revoke form."""
-    doc = _core.q1("SELECT id, title FROM documents WHERE id = %s", (str(doc_id),))
+    """Render the sharing panel: org visibility, current grants, and a grant form."""
+    doc = _core.q1("SELECT id, title, visibility FROM documents WHERE id = %s", (str(doc_id),))
     if doc is None:
         abort(404, "Document not found.")
     shares: list[dict] = []
@@ -56,7 +62,20 @@ def document_sharing(doc_id):
         error=error,
         shared=request.args.get("shared"),
         revoked=request.args.get("revoked"),
+        visibility_set=request.args.get("visibility"),
     )
+
+
+def document_set_visibility(doc_id):
+    """Publish the document to the tenant (org) or make it private again."""
+    visibility = (request.form.get("visibility") or "").strip().lower()
+    if visibility not in ("private", "org"):
+        return redirect(url_for("document_sharing", doc_id=doc_id, error="invalid visibility"))
+    try:
+        _core.gql(_SET_VISIBILITY, {"id": str(doc_id), "visibility": visibility})
+    except Exception as exc:
+        return redirect(url_for("document_sharing", doc_id=doc_id, error=str(exc)))
+    return redirect(url_for("document_sharing", doc_id=doc_id, visibility=visibility))
 
 
 def document_share_submit(doc_id):
@@ -90,6 +109,12 @@ def register(app, core: ModuleType) -> None:
     global _core
     _core = core
     app.add_url_rule("/doc/<uuid:doc_id>/sharing", "document_sharing", document_sharing)
+    app.add_url_rule(
+        "/doc/<uuid:doc_id>/sharing/visibility",
+        "document_set_visibility",
+        document_set_visibility,
+        methods=["POST"],
+    )
     app.add_url_rule(
         "/doc/<uuid:doc_id>/sharing/grant",
         "document_share_submit",

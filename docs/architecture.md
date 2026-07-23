@@ -241,6 +241,23 @@ cross tenants. The admin CLI's arbitrary-permission `grant_document` is
 unaffected because `auth_admin` assumes `docray_batch` (BYPASSRLS), the same
 trusted-writer identity the worker uses.
 
+### Organization corpus
+
+Beyond person-to-person sharing, an owner (or tenant admin) publishes a document
+to their whole organization by setting `documents.visibility = 'org'`
+(migration 110, D-031) — via `setDocumentVisibility` or the Share page's
+"Publish to my organization" control. `docray_readable_documents()` gains a
+branch admitting any org-visible document in the caller's tenant, so the tenant
+boundary is the organization boundary and org visibility never crosses tenants.
+Documents default to `private`; this is the safe inverse of the migration-076
+leak (default-visible-minus-exceptions), and the org branch is gated on
+`visibility = 'org'` rather than the read permission, so it is structurally
+incapable of that failure. The column's only write path is
+`docray_set_document_visibility`, a `SECURITY DEFINER` function that re-checks
+owner-or-admin authority in the database — so `docray_client` needs no `UPDATE`
+grant on `documents` and an annotate-grantee cannot publish a document lent to
+them.
+
 Note that corpus writes do not need table-level DML grants: `docray_client` holds
 `SELECT` on the corpus tables and `INSERT`/`UPDATE` on `jobs`, so a mutation
 *enqueues* work that the trusted batch writer executes. Authorization therefore

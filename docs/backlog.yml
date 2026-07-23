@@ -4587,6 +4587,21 @@ items:
     title:        "Organization corpus: make unowned documents shareable within a tenant"
     summary:      "Migration 102 made documents.owner_principal_id the read boundary and reserved NULL ownership as `unowned` — admin-only today. The product direction is an Org Corpus alongside each User Corpus, which is the case NULL ownership was designed to become. Nothing in the current schema lets a tenant member read an org-level document without an explicit per-document ACL row."
     description: |
+      DONE (schema 1.38.0, migration 110, D-031): added documents.visibility
+      (private | org, default private) and an org-read branch to
+      docray_readable_documents() scoped to tenant_id. Publishing goes through
+      the owner-or-admin setDocumentVisibility mutation and the Share page's
+      "Publish to my organization" control; the DB write path is the
+      SECURITY DEFINER docray_set_document_visibility (re-checks owner-or-admin,
+      so no UPDATE grant and no annotate-grantee escalation). Chose the explicit
+      visibility column over overloading NULL ownership, as the plan recommended.
+      Note on the "upload flow lets the uploader choose the scope" criterion:
+      documents default to private at ingest (criterion's default met) and the
+      owner sets org afterward on the Share page rather than in the upload form —
+      a deliberate simplification, since ownership is not resolved until the
+      ingest job runs. Covered by test_org_corpus.py and test_mutations_sharing.py.
+      Original plan follows.
+
       Extend the read model with an organization scope now that ownership
       exists. tenant_id remains the organization axis and owner_principal_id
       the user axis, so this is additive:
@@ -4602,7 +4617,7 @@ items:
       needed for the read path.
     category:     "security"
     type:         "feature"
-    status:       "ready"
+    status:       "done"
     complexity:   "M"
     priority:     "medium"
     rationale:    "The operator stated the target explicitly: each user gets a clean corpus now, and organizations later get an Org Corpus alongside the User Corpus. 102 deliberately left the seam open rather than guessing the sharing semantics, so this item is the other half of that decision (D-026)."

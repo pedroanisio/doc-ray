@@ -28,6 +28,10 @@ from doc_ray.entrypoints.api.types import DocumentShare, Info
 #: document, it does not transfer control of it.
 _SHAREABLE_PERMISSIONS = ("read", "annotate")
 
+#: Document-visibility scopes (migration 110). ``private`` = owner/ACL/admin
+#: only; ``org`` = readable by every principal in the tenant.
+_VISIBILITIES = ("private", "org")
+
 
 async def _resolve_share_target(ctx: object, email: str) -> str:
     """Resolve *email* to a principal id in the caller's tenant, or raise.
@@ -95,6 +99,37 @@ class SharingMutations:
             details={"grantee": target, "permission": clean_permission},
         )
         return DocumentShare.from_row(row)
+
+    @strawberry.mutation
+    async def set_document_visibility(
+        self, info: Info, document_id: strawberry.ID, visibility: str
+    ) -> str:
+        """Publish a document to the whole tenant (``org``) or make it ``private``.
+
+        Owner-or-admin only, like sharing — publishing to the organization is a
+        share-class act. The write goes through ``docray_set_document_visibility``,
+        which re-checks that authority in the database, so this cannot be used to
+        publish a document the caller does not own.
+        """
+        ctx = info.context
+        clean = visibility.strip().lower()
+        if clean not in _VISIBILITIES:
+            raise ValueError(f"visibility must be one of {', '.join(_VISIBILITIES)}")
+        await _require_document_share(
+            ctx, str(document_id), action="mutation.set_document_visibility"
+        )
+        await ctx.conn.execute(
+            "SELECT docray_set_document_visibility(%s::uuid, %s)", (str(document_id), clean)
+        )
+        await _audit_mutation_event(
+            ctx,
+            action="mutation.set_document_visibility",
+            target_type="document",
+            target_id=str(document_id),
+            outcome="success",
+            details={"visibility": clean},
+        )
+        return clean
 
     @strawberry.mutation
     async def revoke_document_share(

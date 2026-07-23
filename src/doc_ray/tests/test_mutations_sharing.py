@@ -259,3 +259,96 @@ def test_share_emits_an_audit_event(pg) -> None:
     conn.execute("SET ROLE docray_batch")
     conn.execute("DELETE FROM principals WHERE id IN (%s, %s)", (owner, colleague))
     conn.execute("RESET ROLE")
+
+
+def test_owner_publishes_a_document_to_the_org(pg) -> None:
+    import _itdb
+
+    conn, created = pg
+    doc_id = _itdb.make_doc(conn, "Publish to the org.")
+    created.append(doc_id)
+    owner = _make_principal(conn, display_name=f"owner-{uuid.uuid4()}")
+    conn.execute("UPDATE documents SET owner_principal_id = %s WHERE id = %s", (owner, doc_id))
+    schema = build_schema()
+
+    async def check():
+        oc = await _aconn_as(str(owner))
+        try:
+            result = await schema.execute(
+                'mutation($d: ID!) { setDocumentVisibility(documentId: $d, visibility: "org") }',
+                variable_values={"d": doc_id},
+                context_value=_ctx_for(str(owner), oc),
+            )
+            assert result.errors is None, result.errors
+            assert result.data["setDocumentVisibility"] == "org"
+            doc = await schema.execute(
+                "query($d: ID!) { document(id: $d) { visibility } }",
+                variable_values={"d": doc_id},
+                context_value=_ctx_for(str(owner), oc),
+            )
+            assert doc.data["document"]["visibility"] == "org"
+        finally:
+            await oc.close()
+
+    asyncio.run(check())
+    conn.execute("SET ROLE docray_batch")
+    conn.execute("DELETE FROM principals WHERE id = %s", (owner,))
+    conn.execute("RESET ROLE")
+
+
+def test_non_owner_cannot_publish_to_the_org(pg) -> None:
+    import _itdb
+
+    conn, created = pg
+    doc_id = _itdb.make_doc(conn, "Not the stranger's to publish.")
+    created.append(doc_id)
+    owner = _make_principal(conn, display_name=f"owner-{uuid.uuid4()}")
+    conn.execute("UPDATE documents SET owner_principal_id = %s WHERE id = %s", (owner, doc_id))
+    stranger = _make_principal(conn, display_name=f"stranger-{uuid.uuid4()}")
+    schema = build_schema()
+
+    async def check():
+        sc = await _aconn_as(str(stranger))
+        try:
+            result = await schema.execute(
+                'mutation($d: ID!) { setDocumentVisibility(documentId: $d, visibility: "org") }',
+                variable_values={"d": doc_id},
+                context_value=_ctx_for(str(stranger), sc),
+            )
+            assert result.errors is not None
+        finally:
+            await sc.close()
+
+    asyncio.run(check())
+    conn.execute("SET ROLE docray_batch")
+    conn.execute("DELETE FROM principals WHERE id IN (%s, %s)", (owner, stranger))
+    conn.execute("RESET ROLE")
+
+
+def test_invalid_visibility_is_rejected(pg) -> None:
+    import _itdb
+
+    conn, created = pg
+    doc_id = _itdb.make_doc(conn, "Bad visibility value.")
+    created.append(doc_id)
+    owner = _make_principal(conn, display_name=f"owner-{uuid.uuid4()}")
+    conn.execute("UPDATE documents SET owner_principal_id = %s WHERE id = %s", (owner, doc_id))
+    schema = build_schema()
+
+    async def check():
+        oc = await _aconn_as(str(owner))
+        try:
+            result = await schema.execute(
+                'mutation($d: ID!) { setDocumentVisibility(documentId: $d, visibility: "public") }',
+                variable_values={"d": doc_id},
+                context_value=_ctx_for(str(owner), oc),
+            )
+            assert result.errors is not None
+            assert "visibility" in str(result.errors[0]).lower()
+        finally:
+            await oc.close()
+
+    asyncio.run(check())
+    conn.execute("SET ROLE docray_batch")
+    conn.execute("DELETE FROM principals WHERE id = %s", (owner,))
+    conn.execute("RESET ROLE")

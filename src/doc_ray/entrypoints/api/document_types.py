@@ -217,6 +217,7 @@ class Document:
     license: str | None
     created_at: datetime
     updated_at: datetime | None
+    visibility: str
     cursor: str
 
     @classmethod
@@ -249,6 +250,7 @@ class Document:
             license=row.get("license"),
             created_at=row["created_at"],
             updated_at=row.get("updated_at"),
+            visibility=row.get("visibility") or "private",
             cursor=row.get("cursor") or str(row["id"]),
         )
 

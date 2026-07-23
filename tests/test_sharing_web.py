@@ -14,7 +14,9 @@ _DOC = "11111111-1111-1111-1111-111111111111"
 
 
 def _client(monkeypatch, *, gql):
-    monkeypatch.setattr(webapp, "q1", lambda sql, params=(): {"id": _DOC, "title": "Doc"})
+    monkeypatch.setattr(
+        webapp, "q1", lambda sql, params=(): {"id": _DOC, "title": "Doc", "visibility": "private"}
+    )
     monkeypatch.setattr(webapp, "gql", gql)
     webapp.app.config.update(TESTING=True)
     client = webapp.app.test_client()
@@ -95,3 +97,32 @@ def test_grant_without_email_is_rejected_before_the_api(monkeypatch):
     resp = client.post(f"/doc/{_DOC}/sharing/grant", data={"csrf_token": "t", "email": ""})
     assert resp.status_code == 302
     assert "error=enter+an+email" in resp.headers["Location"]
+
+
+def test_publish_to_org_sends_the_visibility_mutation(monkeypatch):
+    calls = {}
+
+    def gql(query, variables=None):
+        assert "setDocumentVisibility" in query
+        calls["vis"] = variables
+        return {"setDocumentVisibility": "org"}
+
+    client = _client(monkeypatch, gql=gql)
+    resp = client.post(
+        f"/doc/{_DOC}/sharing/visibility", data={"csrf_token": "t", "visibility": "org"}
+    )
+    assert resp.status_code == 302
+    assert calls["vis"] == {"id": _DOC, "visibility": "org"}
+    assert "visibility=org" in resp.headers["Location"]
+
+
+def test_invalid_visibility_never_reaches_the_api(monkeypatch):
+    def gql(query, variables=None):
+        raise AssertionError("must not call the API with an invalid visibility")
+
+    client = _client(monkeypatch, gql=gql)
+    resp = client.post(
+        f"/doc/{_DOC}/sharing/visibility", data={"csrf_token": "t", "visibility": "public"}
+    )
+    assert resp.status_code == 302
+    assert "error=invalid" in resp.headers["Location"]

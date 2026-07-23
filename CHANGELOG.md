@@ -19,6 +19,34 @@ doc-ray carries **one global version** covering both the application package
 (`docray_schema_version()`). They are kept in lockstep by
 `scripts/check_version_consistency.py`, which fails the build on any drift.
 
+## [1.38.0]
+
+### Added
+- **Organization corpus — opt-in tenant-wide document visibility** (Claude Opus
+  4.8 via Claude Code) — BL-139. Per-owner isolation (1.34.0) and sharing
+  (1.37.0) covered private documents and person-to-person grants; this adds the
+  third scope. `documents.visibility` (migration 110) is `private` by default;
+  an owner (or tenant admin) publishes a document to their whole organization
+  with the new `setDocumentVisibility(documentId, visibility)` mutation and the
+  Share page's "Publish to my organization" control. Every principal in the
+  tenant can then read it — and nobody outside it, because the org-read branch
+  in `docray_readable_documents()` is scoped to `tenant_id`.
+
+  This is the **safe inverse** of the migration-076 leak that started this whole
+  line of work: 076 defaulted every document to visible and subtracted
+  exceptions (so one tenant with no exceptions saw everything); here documents
+  default to private and only a deliberate, owner-authorized flip to `org`
+  widens them. The org-read branch is gated on `visibility = 'org'`, not on
+  merely holding the read permission, so it cannot regress into 076 — the
+  anti-regression guard in `test_reader_visibility.py` still passes.
+
+  The visibility write goes through `docray_set_document_visibility`, a
+  SECURITY DEFINER function that re-checks owner-or-admin authority
+  (`docray_can_share_document`) in the database and is the column's only write
+  path — so `docray_client` needs no UPDATE grant on `documents` and an
+  annotate-grantee cannot publish a document lent to them. `visibility` is
+  exposed on the GraphQL `Document` type; every change is audited (D-030).
+
 ## [1.37.0]
 
 ### Added

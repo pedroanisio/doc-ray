@@ -1,6 +1,6 @@
 # doc-ray — Database ERD & Data Dictionary
 
-**Schema version `1.37.0`** (SemVer) · 109 migrations applied
+**Schema version `1.38.0`** (SemVer) · 111 migrations applied
 
 > Generated from the live schema by `scripts/gen_data_dictionary.py`. Do not edit by hand — re-run the generator.
 
@@ -215,6 +215,7 @@ format metadata) are decomposed to their own relations (4NF); blobs live in obje
 | `deleted_at` | timestamp with time zone | yes |  |  |  |
 | `tenant_id` | uuid |  | FK→tenants | `docray_default_tenant_id()` |  |
 | `owner_principal_id` | uuid | yes | FK→principals |  | Owning principal (the uploader). NULL = unowned: admin-only today, reserved for the org corpus. |
+| `visibility` | text |  |  | `'private'::text` | private = owner/ACL/admin only; org = readable by every principal in the tenant. Default private. |
 
 - **Primary key:** (id)
 - **Unique:** UNIQUE (content_sha256)
@@ -223,6 +224,7 @@ format metadata) are decomposed to their own relations (4NF); blobs live in obje
 - **FK:** FOREIGN KEY (tenant_id) REFERENCES tenants(id)
 - **Check:** CHECK ((lifecycle_state = ANY (ARRAY['active'::text, 'archived'::text, 'deleted'::text])))
 - **Check:** CHECK ((((lifecycle_state = 'active'::text) AND (archived_at IS NULL) AND (deleted_at IS NULL)) OR ((lifecycle_state = 'archived'::text) AND (archived_at IS NOT NULL) AND (deleted_at IS NULL)) OR ((lifecycle_state = 'deleted'::text) AND (deleted_at IS NOT NULL))))
+- **Check:** CHECK ((visibility = ANY (ARRAY['private'::text, 'org'::text])))
 - **Index** `documents_content_sha256_key`: public.documents USING btree (content_sha256)
 - **Index** `documents_owner_principal_idx`: public.documents USING btree (owner_principal_id) WHERE (owner_principal_id IS NOT NULL)
 - **Index** `idx_documents_derived_from`: public.documents USING btree (derived_from)
@@ -1963,6 +1965,7 @@ SELECT a.document_id,
 | `docray_refresh_stats_for_document(doc uuid, corpus_max_age interval DEFAULT '00:10:00'::interval)` | `void` | DEFINER | plpgsql |
 | `docray_reject_manual_scim_role_edit()` | `trigger` | DEFINER | plpgsql |
 | `docray_schema_version()` | `text` | invoker | sql |
+| `docray_set_document_visibility(doc_id uuid, vis text)` | `void` | DEFINER | plpgsql |
 | `docray_ts_config(lang text)` | `regconfig` | invoker | sql |
 | `docray_writable_documents()` | `SETOF uuid` | DEFINER | sql |
 | `refresh_content_fts_on_language()` | `trigger` | invoker | plpgsql |
@@ -2138,3 +2141,5 @@ owner's bypass.
 | 107 | `107_schema_version_1_36_0.sql` | advance the schema SemVer to 1.36.0 |
 | 108 | `108_document_sharing.sql` | owner-driven document sharing: grants + FORCE RLS on document_acl |
 | 109 | `109_schema_version_1_37_0.sql` | advance the schema SemVer to 1.37.0 |
+| 110 | `110_org_corpus.sql` | organization corpus: documents.visibility + org-read branch |
+| 111 | `111_schema_version_1_38_0.sql` | advance the schema SemVer to 1.38.0 |

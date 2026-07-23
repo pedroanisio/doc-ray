@@ -145,7 +145,7 @@ Other query/mutation surface: `documents(docType:, status:, tags:)` /
 `reextractDocument` / `reextractDocuments` / `canonicalizeDocument(resolve:)` /
 `semanticEnrichDocument` / `updateDocumentMetadata` / `suggestDocumentMetadata`
 / `decideDocumentMetadataSuggestions` / `shareDocument` /
-`revokeDocumentShare` / `cancelJob` /
+`revokeDocumentShare` / `setDocumentVisibility` / `cancelJob` /
 `createBillingCheckoutSession` / `createBillingPortalSession` /
 `retryBillingEvent` (pipeline
 writes — every mutation enqueues a worker job or records a curator decision;

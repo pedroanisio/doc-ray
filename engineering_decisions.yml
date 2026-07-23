@@ -50,9 +50,9 @@ source_schema:         "db/migrations"
 # by tenant-scoped Stripe billing status (migration 085).
 # Kept in lockstep with doc_ray.__version__
 # by scripts/check_version_consistency.py.
-source_schema_version: "1.37.0"
+source_schema_version: "1.38.0"
 target_engine:         "PostgreSQL 16"
-total_decisions:       29
+total_decisions:       30
 
 decisions:
 
@@ -1746,5 +1746,65 @@ decisions:
             context:     "ci"
             side_effects: "reads"
             command:     "pytest src/doc_ray/tests/test_mcp_mutations.py"
+            expect:
+              exit:      0
+
+  - id:                 "D-031"
+    title:              "Organization corpus: opt-in tenant-wide visibility, the safe inverse of the 076 leak"
+    version_introduced: "1.38.0"
+    category:           "security"
+    decision: |
+      documents.visibility (private | org) is the third read scope, alongside
+      per-owner (D-026) and per-principal ACL sharing (D-029). It defaults to
+      private. An owner or tenant admin publishes a document to the whole tenant
+      by setting visibility='org', which adds an org-read branch to
+      docray_readable_documents(): a document with visibility='org' is readable
+      by every principal whose tenant_id matches — the tenant IS the organization
+      boundary, so org visibility never crosses tenants. The column's only write
+      path is docray_set_document_visibility, a SECURITY DEFINER function that
+      re-checks owner-or-admin authority (docray_can_share_document) in the
+      database; docray_client gets EXECUTE on it and no UPDATE grant on documents,
+      so an annotate-grantee cannot publish a document lent to them. The
+      setDocumentVisibility GraphQL mutation is the owner-or-admin-guarded,
+      audited caller; visibility is exposed on the Document type.
+    rationale: |
+      Per-owner isolation left no way to share a document with a whole team; the
+      ACL path (D-029) is person-by-person. Organizations need a document that is
+      broadly readable within the org, which is exactly the case the migration-102
+      NULL-ownership seam was reserved for. An explicit visibility column was
+      chosen over overloading NULL ownership because NULL conflates "shared with
+      the org" with "nobody has claimed it" — the honest model names the intent.
+      Critically, this is the SAFE inverse of the 076 corpus-wide leak that began
+      this work: 076 was default-visible minus exceptions; org visibility is
+      default-private plus a deliberate opt-in, and the branch is gated on
+      visibility='org' rather than on the read permission, so it is structurally
+      incapable of the 076 failure (the anti-regression guard confirms no
+      migration reintroduces the role-read shape). Routing the write through a
+      SECURITY DEFINER owner-or-admin function rather than a column UPDATE grant
+      keeps the annotate-grantee escalation closed at the database, consistent
+      with D-028/D-029 — the mutation layer is convenience, the function is the
+      boundary.
+    decision_status:    "accepted"
+    decision_date:      "2026-07-23"
+    owner:              ["pedroanisio@faz.ai"]
+    scope_path:
+      - "db/migrations/110_org_corpus.sql"
+      - "src/doc_ray/entrypoints/api/mutation_sharing.py"
+      - "src/doc_ray/entrypoints/api/document_types.py"
+      - "webapp/sharing_web.py"
+    claims:
+      - claim_id:    "D-031.k1"
+        claim_text:  "An org-visible document is readable across the tenant but never across tenants, and only an owner/admin can publish it."
+        auditable:   true
+        status:      "populated"
+        declared_checks_count: 1
+        checks:
+          - check_id:    "D-031.k1.c1"
+            description: "The organization-corpus RLS suite passes against the live schema."
+            check_kind:  "shell"
+            severity:    "error"
+            context:     "ci"
+            side_effects: "reads"
+            command:     "pytest src/doc_ray/tests/test_org_corpus.py"
             expect:
               exit:      0

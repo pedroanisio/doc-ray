@@ -58,6 +58,7 @@ def test_paid_saas_mutations_cannot_drift_outside_billing_entitlement_guard() ->
         "revoke_document_share": "mutation.revoke_document_share",
         "seed_approved": "mutation.seed_approved",
         "semantic_enrich_document": "mutation.semantic_enrich",
+        "set_document_visibility": "mutation.set_document_visibility",
         "share_document": "mutation.share_document",
         "suggest_document_metadata": "mutation.suggest_document_metadata",
         "suggest_seeds": "mutation.seed_suggest",

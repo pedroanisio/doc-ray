@@ -274,6 +274,8 @@ MIGRATIONS = [
     ("107_schema_version_1_36_0", "advance the schema SemVer to 1.36.0"),
     ("108_document_sharing", "owner-driven document sharing: grants + FORCE RLS on document_acl"),
     ("109_schema_version_1_37_0", "advance the schema SemVer to 1.37.0"),
+    ("110_org_corpus", "organization corpus: documents.visibility + org-read branch"),
+    ("111_schema_version_1_38_0", "advance the schema SemVer to 1.38.0"),
 ]
 
 # ---------------------------------------------------------------------------
