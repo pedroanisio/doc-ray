@@ -22,7 +22,7 @@ from mcp.server.transport_security import TransportSecuritySettings
 from starlette.applications import Starlette
 
 from doc_ray.config import Config
-from doc_ray.entrypoints.mcp import compose, corpus
+from doc_ray.entrypoints.mcp import audit, compose, corpus
 from doc_ray.entrypoints.mcp.auth import BearerAuthMiddleware
 
 #: Loopback patterns the SDK trusts by default — kept so local dev still works.
@@ -61,13 +61,17 @@ def _transport_security() -> TransportSecuritySettings | None:
 
 
 def build_server() -> FastMCP:
-    """Create a FastMCP server with the corpus read + composition-grounding tools."""
+    """Create a FastMCP server with the corpus read + composition-grounding tools.
+
+    Every tool is wrapped by :func:`~doc_ray.entrypoints.mcp.audit.audited`, so
+    each call emits one audit log line (caller fingerprint, outcome, duration).
+    """
     mcp = FastMCP("doc-ray")
     if (security := _transport_security()) is not None:
         # Accept the public Host behind the tunnel — the localhost-only default 421s.
         mcp.settings.transport_security = security
     for tool in (*corpus.TOOLS, *compose.TOOLS):
-        mcp.tool()(tool)
+        mcp.tool()(audit.audited(tool))
     return mcp
 
 
