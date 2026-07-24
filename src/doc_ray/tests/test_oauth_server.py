@@ -189,8 +189,93 @@ def test_authorize_valid_request_narrows_scope():
             "resource": "https://doc-ray.com/mcp",
         }
     )
-    assert req.scope == "read"  # unknown scopes dropped
+    assert req.scope == "read write"  # 'admin' dropped; 'write' is now supported
     assert req.state == "xyz" and req.resource == "https://doc-ray.com/mcp"
+
+
+# -- Scope grant is bounded by the consenting principal's RBAC ----------------
+
+
+def test_supported_scopes_include_read_and_write():
+    from doc_ray.application.oauth_server import SUPPORTED_SCOPES
+
+    assert set(SUPPORTED_SCOPES) == {"read", "write"}
+
+
+def _authorized_with(principal_scopes, requested="read write"):
+    """Issue a code for a request, bounding the grant by *principal_scopes*."""
+    svc = _service()
+    client = _register(svc)
+    verifier, challenge = _pkce()
+    req = svc.validate_authorization_request(
+        {
+            "client_id": client.client_id,
+            "redirect_uri": client.redirect_uris[0],
+            "response_type": "code",
+            "code_challenge": challenge,
+            "code_challenge_method": "S256",
+            "scope": requested,
+            "resource": "https://doc-ray.com/mcp",
+        }
+    )
+    code = svc.issue_code(
+        req, principal_id="prin-1", subject="local:ada@example.com", principal_scopes=principal_scopes
+    )
+    grant = svc.exchange_authorization_code(
+        {
+            "client_id": client.client_id,
+            "redirect_uri": client.redirect_uris[0],
+            "code": code,
+            "code_verifier": verifier,
+            "grant_type": "authorization_code",
+        }
+    )
+    return grant
+
+
+def test_write_capable_principal_gets_write_scope():
+    grant = _authorized_with(frozenset({"read", "write"}))
+    assert grant.scopes == frozenset({"read", "write"})
+
+
+def test_read_only_principal_never_gets_write_even_if_requested():
+    grant = _authorized_with(frozenset({"read"}), requested="read write")
+    assert grant.scopes == frozenset({"read"})
+
+
+def test_grant_is_capped_at_supported_scopes():
+    # An over-broad principal capability is still bounded by SUPPORTED_SCOPES.
+    grant = _authorized_with(frozenset({"read", "write", "admin"}))
+    assert grant.scopes == frozenset({"read", "write"})
+
+
+def test_issue_code_without_principal_scopes_preserves_request_scope():
+    # Backward compatibility: callers that pass no RBAC context keep old behavior.
+    svc = _service()
+    client = _register(svc)
+    verifier, challenge = _pkce()
+    req = svc.validate_authorization_request(
+        {
+            "client_id": client.client_id,
+            "redirect_uri": client.redirect_uris[0],
+            "response_type": "code",
+            "code_challenge": challenge,
+            "code_challenge_method": "S256",
+            "scope": "read write",
+            "resource": "https://doc-ray.com/mcp",
+        }
+    )
+    code = svc.issue_code(req, principal_id="p", subject="s")  # no principal_scopes
+    grant = svc.exchange_authorization_code(
+        {
+            "client_id": client.client_id,
+            "redirect_uri": client.redirect_uris[0],
+            "code": code,
+            "code_verifier": verifier,
+            "grant_type": "authorization_code",
+        }
+    )
+    assert grant.scopes == frozenset({"read", "write"})  # == req.scope, unbounded
 
 
 # -- Full code issue + PKCE redemption ---------------------------------------

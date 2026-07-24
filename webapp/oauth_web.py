@@ -24,7 +24,7 @@ import os
 from types import ModuleType
 from urllib.parse import quote, urlparse
 
-from flask import Response, redirect, request, url_for
+from flask import Response, current_app, redirect, request, url_for
 
 from doc_ray.adapters.oauth_store_postgres import (
     PostgresAuthorizationCodeStore,
@@ -234,6 +234,26 @@ def _authorize_error(exc: OAuthError, params: dict[str, str]) -> Response | tupl
     )
 
 
+def _principal_scopes(principal_id: str) -> frozenset[str]:
+    """The RBAC-derived scopes the logged-in user may grant to a connector.
+
+    Bounds an issued OAuth token to the user's real capability (D-027) so ``write``
+    reaches only a principal whose permissions carry it; a ``reader`` — or any
+    principal we cannot resolve (misconfig, non-local identity with no RBAC row) —
+    degrades safely to read-only.
+    """
+    try:
+        return auth_web._local_auth_service().scopes_for_principal(principal_id)
+    except Exception:  # pragma: no cover - defensive: never fail-open to write
+        current_app.logger.exception("OAuth: could not resolve principal scopes")
+        return frozenset({"read"})
+
+
+def _grantable_scopes(principal_id: str) -> list[str]:
+    """The scopes the consent screen shows and the code will actually carry."""
+    return sorted(_principal_scopes(principal_id) & set(SUPPORTED_SCOPES))
+
+
 def oauth_authorize() -> Response | tuple[str, int]:
     """Validate the request, require login, then render the consent screen."""
     params = request.args.to_dict()
@@ -251,7 +271,9 @@ def oauth_authorize() -> Response | tuple[str, int]:
     return _core.render_template(
         "oauth_consent.html",
         req=req,
-        scopes=req.scope.split(),
+        # Show what will actually be granted (the user's capability), not merely
+        # what the client requested — so consent is truthful about write access.
+        scopes=_grantable_scopes(record.principal_id),
         subject=record.subject,
         passthrough={key: params.get(key, "") for key in _PASSTHROUGH_PARAMS},
     )
@@ -273,7 +295,12 @@ def oauth_authorize_submit() -> Response | tuple[str, int]:
 
     if request.form.get("decision") != "approve":
         return _redirect_with_query(req.redirect_uri, error="access_denied", state=req.state)
-    code = _service().issue_code(req, principal_id=record.principal_id, subject=record.subject)
+    code = _service().issue_code(
+        req,
+        principal_id=record.principal_id,
+        subject=record.subject,
+        principal_scopes=_principal_scopes(record.principal_id),
+    )
     return _redirect_with_query(req.redirect_uri, code=code, state=req.state)
 
 

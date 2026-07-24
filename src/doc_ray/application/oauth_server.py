@@ -36,8 +36,11 @@ from typing import Any, Protocol
 from urllib.parse import urlparse
 
 #: Scopes doc-ray understands. Requests may ask for a subset; unknown scopes are
-#: dropped rather than rejected (OAuth 2.1 lets the AS narrow the grant).
-SUPPORTED_SCOPES = ("read",)
+#: dropped rather than rejected (OAuth 2.1 lets the AS narrow the grant). ``write``
+#: is granted only to a consenting principal whose RBAC actually carries it
+#: (see :meth:`OAuthServerService.issue_code`); the row-level ``document_acl``
+#: gate still decides *which* documents may be written.
+SUPPORTED_SCOPES = ("read", "write")
 DEFAULT_SCOPE = "read"
 
 #: Authorization codes are exchanged immediately; keep the window tight.
@@ -248,8 +251,25 @@ class OAuthServerService:
             client_name=client.client_name,
         )
 
-    def issue_code(self, request: AuthorizationRequest, *, principal_id: str, subject: str) -> str:
-        """Issue an authorization code for a consented request; returns the raw code."""
+    def issue_code(
+        self,
+        request: AuthorizationRequest,
+        *,
+        principal_id: str,
+        subject: str,
+        principal_scopes: frozenset[str] | None = None,
+    ) -> str:
+        """Issue an authorization code for a consented request; returns the raw code.
+
+        When *principal_scopes* is provided (the interactive consent path passes
+        the logged-in user's RBAC-derived scopes), the grant is bounded to that
+        capability within :data:`SUPPORTED_SCOPES` — so a ``member``/admin obtains
+        ``write`` and a ``reader`` stays read-only regardless of what the client
+        requested. When it is ``None`` (callers with no RBAC context), the
+        request's already-narrowed scope is used unchanged. Row-level authority
+        (which documents) remains with ``document_acl``, not this coarse scope.
+        """
+        scope = request.scope if principal_scopes is None else _bound_scope(principal_scopes)
         raw_code = self._code_factory()
         now = self._now()
         self._codes.store_code(
@@ -261,7 +281,7 @@ class OAuthServerService:
                 "code_challenge_method": request.code_challenge_method,
                 "principal_id": principal_id,
                 "subject": subject,
-                "scope": request.scope,
+                "scope": scope,
                 "resource": request.resource,
                 "expires_at": now + AUTHORIZATION_CODE_TTL,
             },
@@ -367,6 +387,16 @@ def _narrow_scope(requested: object) -> str:
         return DEFAULT_SCOPE
     granted = [s for s in str(requested).split() if s in SUPPORTED_SCOPES]
     return " ".join(granted) if granted else DEFAULT_SCOPE
+
+
+def _bound_scope(principal_scopes: frozenset[str]) -> str:
+    """The scope granted to a consenting user: their RBAC capability ∩ SUPPORTED.
+
+    Every authenticated principal keeps ``read``; ``write`` appears only when the
+    principal's own permissions carry it. Empty input degrades to ``read``.
+    """
+    granted = sorted(set(principal_scopes) & set(SUPPORTED_SCOPES))
+    return " ".join(granted) or DEFAULT_SCOPE
 
 
 def _verify_pkce(verifier: str, challenge: str) -> bool:

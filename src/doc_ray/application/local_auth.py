@@ -292,6 +292,17 @@ class LocalAuthService:
             scopes=scopes_for_actions(self._repo.permission_actions(principal_id)),
         )
 
+    def scopes_for_principal(self, principal_id: str) -> frozenset[str]:
+        """Return the coarse API scopes a principal is entitled to, from its RBAC.
+
+        The same derivation ``login`` uses (:func:`scopes_for_actions` over the
+        principal's own permission actions), exposed so the OAuth consent path can
+        bound an issued token to the user's real capability rather than blanket-
+        granting ``write``. Works for any principal id (local, OIDC, SAML): one
+        with no RBAC actions resolves to read-only.
+        """
+        return scopes_for_actions(self._repo.permission_actions(principal_id))
+
     def _locked_out(self, row: dict[str, Any]) -> bool:
         """Return whether the credential is inside its brute-force lockout window."""
         failures = int(row.get("failed_login_count") or 0)

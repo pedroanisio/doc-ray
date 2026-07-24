@@ -122,7 +122,15 @@ read-only (a disabled deployment does not even list these in `tools/list`). Each
 forwards the caller's token into the API, whose guards remain authoritative:
 `_require_write_audited` (authenticated principal **+ `write` scope** + billing
 entitlement, audited) and `_require_document_write` (per-document ACL, BL-064). A
-caller lacking scope/grant gets a typed `permission_denied`. Every tool here
+caller lacking scope/grant gets a typed `permission_denied`.
+
+**Getting a write-scoped token.** A static `DOCRAY_API_TOKENS` entry can carry
+`:read+write`. For OAuth connectors (Claude Desktop et al.), the Authorization
+Server now issues `write` too — but only bound to the consenting user's RBAC
+(`member`/admin get it, `reader` does not; see the OAuth field guide §5.4 and
+D-032). So enabling `DOCRAY_MCP_ENABLE_WRITE` is necessary but not sufficient:
+the connecting principal must also hold write-capable RBAC **and** own (or have a
+grant on) the target documents. Every tool here
 enqueues a **reversible** background job or a curation decision — no destructive
 or admin verb (`delete`/`archive`/`backup`/`restore`/`cancel_job`) is exposed.
 Job-returning tools return the `Job` shape (`id`, `status`, …); poll it with

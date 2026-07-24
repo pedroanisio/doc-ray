@@ -75,7 +75,7 @@ def test_protected_resource_metadata(client, svc):
     body = resp.get_json()
     assert body["resource"] == "https://doc-ray.com/mcp"
     assert body["authorization_servers"] == ["https://doc-ray.com"]
-    assert body["scopes_supported"] == ["read"]
+    assert body["scopes_supported"] == ["read", "write"]
     # Path-scoped variant resolves to the same metadata.
     assert client.get("/.well-known/oauth-protected-resource/mcp").status_code == 200
 
@@ -125,6 +125,90 @@ def test_authorize_redirects_anonymous_to_login(client, svc):
     )
     assert resp.status_code == 302
     assert "/login" in resp.headers["Location"]
+
+
+class _Record:
+    def __init__(self, principal_id, subject):
+        self.principal_id = principal_id
+        self.subject = subject
+
+
+class _FakeLocalAuth:
+    def __init__(self, scopes):
+        self._scopes = scopes
+
+    def scopes_for_principal(self, principal_id):
+        return self._scopes
+
+
+def _login_as(monkeypatch, *, principal_id="p-1", subject="local:ada@example.com", scopes):
+    """Mock a logged-in web session whose RBAC yields *scopes*."""
+    monkeypatch.setattr(
+        oauth_web.auth_web, "_current_auth_session", lambda: _Record(principal_id, subject)
+    )
+    monkeypatch.setattr(
+        oauth_web.auth_web, "_local_auth_service", lambda: _FakeLocalAuth(frozenset(scopes))
+    )
+
+
+def _approve(client, *, extra=None):
+    client.set_cookie("session", "x")  # ensure a session exists for CSRF
+    with client.session_transaction() as sess:
+        sess["_csrf_token"] = "csrf-1"
+    form = {
+        "csrf_token": "csrf-1",
+        "client_id": "cid-test",
+        "redirect_uri": "https://claude.ai/cb",
+        "response_type": "code",
+        "code_challenge": "challenge-abc",
+        "code_challenge_method": "S256",
+        "scope": "read write",
+        "state": "s1",
+        "resource": "https://doc-ray.com/mcp",
+        "decision": "approve",
+    }
+    form.update(extra or {})
+    return client.post("/oauth/authorize", data=form)
+
+
+def _stored_scope(svc):
+    (record,) = list(svc._codes.codes.values())
+    return record["scope"]
+
+
+def test_authorize_submit_grants_write_to_a_write_capable_user(client, svc, monkeypatch):
+    svc.register_client({"redirect_uris": ["https://claude.ai/cb"], "client_name": "Claude"})
+    _login_as(monkeypatch, scopes={"read", "write"})
+    resp = _approve(client)
+    assert resp.status_code == 302 and "code=" in resp.headers["Location"]
+    assert _stored_scope(svc) == "read write"  # RBAC carries write -> granted
+
+
+def test_authorize_submit_bounds_a_reader_to_read(client, svc, monkeypatch):
+    svc.register_client({"redirect_uris": ["https://claude.ai/cb"], "client_name": "Claude"})
+    _login_as(monkeypatch, scopes={"read"})
+    resp = _approve(client)
+    assert resp.status_code == 302 and "code=" in resp.headers["Location"]
+    assert _stored_scope(svc) == "read"  # no write in RBAC -> read-only even though requested
+
+
+def test_consent_screen_shows_write_for_a_write_capable_user(client, svc, monkeypatch):
+    svc.register_client({"redirect_uris": ["https://claude.ai/cb"], "client_name": "Claude"})
+    _login_as(monkeypatch, scopes={"read", "write"})
+    resp = client.get(
+        "/oauth/authorize",
+        query_string={
+            "client_id": "cid-test",
+            "redirect_uri": "https://claude.ai/cb",
+            "response_type": "code",
+            "code_challenge": "challenge-abc",
+            "code_challenge_method": "S256",
+            "state": "s1",
+            "resource": "https://doc-ray.com/mcp",
+        },
+    )
+    assert resp.status_code == 200
+    assert b"write" in resp.data
 
 
 def test_authorize_unknown_client_is_error_not_redirect(client, svc):

@@ -1823,3 +1823,69 @@ decisions:
             command:     "pytest src/doc_ray/tests/test_org_corpus.py"
             expect:
               exit:      0
+
+  - id:                 "D-032"
+    title:              "OAuth issues `write` bounded by the consenting user's RBAC, never the client's request"
+    version_introduced: "1.38.0"
+    category:           "security"
+    decision: |
+      The OAuth 2.1 Authorization Server may issue the `write` scope, not only
+      `read`: SUPPORTED_SCOPES is ("read", "write"). On the interactive
+      authorization_code grant, the granted scope is NOT the client's requested
+      scope — it is the consenting principal's own RBAC capability, intersected
+      with SUPPORTED_SCOPES. OAuthServerService.issue_code takes principal_scopes
+      and binds the code to _bound_scope(principal_scopes); webapp/oauth_web.py
+      derives those scopes with LocalAuthService.scopes_for_principal (the same
+      scopes_for_actions derivation login uses, D-027), and the consent screen
+      shows what will actually be granted. A `member`/admin connector therefore
+      obtains `write`; a `reader` stays read-only however the client's request is
+      framed. client_credentials keeps its provisioned client.scope (no RBAC
+      context). `write` remains only the coarse "may mutate anything" gate; which
+      rows a token may write stays with _require_document_write / document_acl.
+    rationale: |
+      Exposing the MCP write tools (D-030) is inert for external agents while the
+      AS only mints `read` — every mutation 401s on _require_write_audited's scope
+      check before ownership is ever consulted, so an OAuth-connected assistant
+      cannot rename a title even for documents its user owns. Adding `write` to
+      SUPPORTED_SCOPES alone would over-grant: a client requesting write, or an AS
+      that echoes the request, would hand write to a `reader`. Binding the grant
+      to the user's RBAC rather than the client's request keeps least privilege
+      where it belongs — the human who consents can grant no more than they
+      themselves hold — and reuses the D-027 permission→scope derivation so a new
+      write-carrying role needs no change here. Deriving at consent time (not
+      storing scopes on the session) means the token reflects current RBAC, and a
+      principal we cannot resolve degrades to read-only (never fail-open). The
+      row-level document_acl gate is unchanged, so a wrongly-broad scope still
+      cannot write a document the principal does not own.
+    decision_status:    "accepted"
+    decision_date:      "2026-07-24"
+    owner:              ["pedroanisio@faz.ai"]
+    scope_path:
+      - "src/doc_ray/application/oauth_server.py"
+      - "src/doc_ray/application/local_auth.py"
+      - "webapp/oauth_web.py"
+    claims:
+      - claim_id:    "D-032.k1"
+        claim_text:  "OAuth grants write only to a principal whose RBAC carries it; a reader stays read-only even when write is requested."
+        auditable:   true
+        status:      "populated"
+        declared_checks_count: 2
+        checks:
+          - check_id:    "D-032.k1.c1"
+            description: "The OAuth server bounds the issued scope by the principal's RBAC capability."
+            check_kind:  "shell"
+            severity:    "error"
+            context:     "ci"
+            side_effects: "reads"
+            command:     "pytest src/doc_ray/tests/test_oauth_server.py"
+            expect:
+              exit:      0
+          - check_id:    "D-032.k1.c2"
+            description: "The authorize flow derives RBAC scopes and shows/grants them on consent."
+            check_kind:  "shell"
+            severity:    "error"
+            context:     "ci"
+            side_effects: "reads"
+            command:     "pytest src/doc_ray/tests/test_oauth_web.py"
+            expect:
+              exit:      0

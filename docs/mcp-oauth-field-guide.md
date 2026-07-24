@@ -195,6 +195,18 @@ these documents, so this section is spec-only.]*
 - **`client_credentials`** — for non-interactive service clients (§8). *[KB —
   "Model Context Protocol for LLMs" shows `grant_type=client_credentials`.]*
 
+**Scopes: `read` and `write`, RBAC-bounded.** *[DR — doc-ray specific.]* The AS
+advertises `scopes_supported: ["read", "write"]`. On the interactive
+`authorization_code` grant, the issued token does **not** simply echo what the
+client asked for — `issue_code` bounds it to the *consenting user's* own RBAC
+capability (`OAuthServerService.issue_code(..., principal_scopes=...)`, derived
+via `LocalAuthService.scopes_for_principal` → `scopes_for_actions`, D-027). So a
+`member`/admin connector obtains `write`; a `reader` stays read-only no matter
+what the client requests; and the consent screen shows the scopes that will
+actually be granted. `write` is only the coarse "may mutate anything" gate — the
+row-level `document_acl` still decides *which* documents (§enforcement stays at
+the data layer, per the checklist below).
+
 ### 5.5 Self-host vs external IdP — how to choose
 | | External IdP (Auth0/Keycloak/Entra) | Self-hosted AS |
 |---|---|---|
@@ -287,6 +299,7 @@ principal_id`; verified: refused unprovisioned, works once provisioned.]*
 | DCR | `oauth_web.py` `oauth_register` → `OAuthServerService.register_client` |
 | Authorize + consent (PKCE) | `oauth_web.py` `oauth_authorize(_submit)`; `oauth_consent.html` |
 | Token (code / refresh / client_credentials) | `oauth_web.py` `oauth_token`; `_issue_tokens(..., resource)` |
+| Scope bounded to the user's RBAC | `oauth_server.py` `issue_code(..., principal_scopes)` + `_bound_scope`; `oauth_web.py` `_principal_scopes` → `LocalAuthService.scopes_for_principal` |
 | PKCE / single-use codes / redirect match | `application/oauth_server.py` |
 | Audience binding (RFC 8707) | `oauth_web.py` `_resolve_resource` + `aud=resource` |
 | Service-client gate | `oauth_clients.principal_id` (migration `087`) |
