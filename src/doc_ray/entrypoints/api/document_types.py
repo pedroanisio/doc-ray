@@ -314,12 +314,32 @@ class Document:
 
     @strawberry.field
     async def sentences(
-        self, info: Info, limit: int = 40, after: str | None = None
+        self,
+        info: Info,
+        limit: int = 40,
+        after: str | None = None,
+        from_ordinal: int | None = None,
+        to_ordinal: int | None = None,
+        page: int | None = None,
     ) -> list[Sentence]:
-        """Resolve a bounded page of the document's sentences."""
+        """Resolve a page of the document's sentences, in ordinal order.
+
+        The default is the sequential walk (page via ``after``). ``fromOrdinal``/
+        ``toOrdinal`` (inclusive) give random access to a slice without walking
+        from the start, and ``page`` restricts to one source page — every row
+        still carries ``ordinal``/``charStart``/``charEnd`` so slices stay citable.
+        """
+        if from_ordinal is not None and to_ordinal is not None and from_ordinal > to_ordinal:
+            raise ValueError("fromOrdinal must be <= toOrdinal")
         ctx = info.context
         rows = await read.list_sentences(
-            ctx.conn, str(self.id), limit=ctx.page_size(limit), after=after
+            ctx.conn,
+            str(self.id),
+            limit=ctx.page_size(limit),
+            after=after,
+            from_ordinal=from_ordinal,
+            to_ordinal=to_ordinal,
+            page=page,
         )
         return [Sentence.from_row(r) for r in rows]
 

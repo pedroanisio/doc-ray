@@ -70,6 +70,7 @@ _READ_CALLS = [
     lambda: corpus.list_documents(),
     lambda: corpus.get_document(_DOC),
     lambda: corpus.read_document_sentences(_DOC),
+    lambda: corpus.read_document_sentences(_DOC, from_ordinal=10, to_ordinal=20, page=3),
     lambda: corpus.get_job("job-1"),
     lambda: corpus.list_collections(),
     lambda: corpus.get_collection(_DOC),
@@ -130,6 +131,18 @@ def test_api_schema_exposes_corpus_sharding() -> None:
     assert "corpusShard(shardIndex: Int!, shardCount: Int!" in query
     assert query.count("corpusShard") == 1 and "): [Document!]!" in query
     assert "type CorpusManifest {" in sdl and "type CorpusShardInfo {" in sdl
+
+
+def test_api_schema_exposes_ranged_sentence_read() -> None:
+    """Block 3a: Document.sentences gains random-access range/page arguments."""
+    from doc_ray.entrypoints.api.schema import build_schema as _bs
+
+    sdl = _bs(debug=True).as_str()
+    doc = re.search(r"type Document \{(.*?)\n\}", sdl, re.S).group(1)
+    sentences = re.search(r"sentences\(([^)]*)\)", doc).group(1)
+    assert "fromOrdinal: Int" in sentences
+    assert "toOrdinal: Int" in sentences
+    assert "page: Int" in sentences
 
 
 @pytest.mark.asyncio

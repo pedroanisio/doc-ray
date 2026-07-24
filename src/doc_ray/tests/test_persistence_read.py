@@ -71,6 +71,58 @@ def test_document_reads(pg):
     asyncio.run(check())
 
 
+def test_list_sentences_ordinal_range_matches_the_full_walk_slice(pg):
+    doc_id = _seed(pg)  # _TEXT segments into 2 sentences (ordinals 0, 1)
+
+    async def check():
+        aconn = await _aconn()
+        try:
+            full = await read.list_sentences(aconn, doc_id)
+            assert [r["ordinal"] for r in full] == [0, 1]
+
+            # A range read returns exactly the same rows as slicing the full walk.
+            upper = await read.list_sentences(aconn, doc_id, from_ordinal=1)
+            assert upper == [r for r in full if r["ordinal"] >= 1]
+
+            lower = await read.list_sentences(aconn, doc_id, to_ordinal=0)
+            assert lower == [r for r in full if r["ordinal"] <= 0]
+
+            exact = await read.list_sentences(aconn, doc_id, from_ordinal=1, to_ordinal=1)
+            assert [r["ordinal"] for r in exact] == [1]
+
+            # An inverted range yields nothing (the resolver rejects it earlier;
+            # the read layer degrades to empty rather than erroring).
+            assert await read.list_sentences(aconn, doc_id, from_ordinal=1, to_ordinal=0) == []
+        finally:
+            await aconn.close()
+
+    asyncio.run(check())
+
+
+def test_list_sentences_page_filter_restricts_to_one_source_page(pg):
+    conn, _created = pg
+    doc_id = _seed(pg)
+    # Put the two sentences on different source pages via their spans.
+    conn.execute(
+        "UPDATE spans SET page_number = s.ordinal + 1 "
+        "FROM sentences s WHERE s.span_id = spans.id AND s.document_id = %s",
+        (doc_id,),
+    )
+
+    async def check():
+        aconn = await _aconn()
+        try:
+            page1 = await read.list_sentences(aconn, doc_id, page=1)
+            assert [r["ordinal"] for r in page1] == [0]  # ordinal 0 -> page 1
+            page2 = await read.list_sentences(aconn, doc_id, page=2)
+            assert [r["ordinal"] for r in page2] == [1]
+            assert await read.list_sentences(aconn, doc_id, page=999) == []
+        finally:
+            await aconn.close()
+
+    asyncio.run(check())
+
+
 def test_corpus_shard_partition_is_complete_disjoint_and_deterministic(pg):
     conn, created = pg
     import _itdb

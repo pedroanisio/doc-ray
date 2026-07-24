@@ -221,7 +221,14 @@ async def corpus_shard_counts(conn: _AConn, shard_count: int) -> list[Row]:
 
 
 async def list_sentences(
-    conn: _AConn, document_id: str, *, limit: int | None = None, after: str | None = None
+    conn: _AConn,
+    document_id: str,
+    *,
+    limit: int | None = None,
+    after: str | None = None,
+    from_ordinal: int | None = None,
+    to_ordinal: int | None = None,
+    page: int | None = None,
 ) -> list[Row]:
     """Return a document's sentences (with span offsets) in ordinal order.
 
@@ -230,6 +237,11 @@ async def list_sentences(
         document_id: UUID of the owning document.
         limit: Optional cap on the number of sentences returned.
         after: Optional keyset cursor returned by the previous page.
+        from_ordinal: Optional inclusive lower bound on ``ordinal`` — random
+            access to a slice without walking from the start.
+        to_ordinal: Optional inclusive upper bound on ``ordinal``.
+        page: Optional source-page filter (``spans.page_number``), for reading
+            one page's sentences directly.
 
     Returns:
         Rows of ``{id, ordinal, text, char_start, char_end}``.
@@ -241,12 +253,18 @@ async def list_sentences(
         "WHERE s.document_id = %(doc)s "
         "AND (%(after_ord)s::int IS NULL OR s.ordinal > %(after_ord)s::int "
         "     OR (s.ordinal = %(after_ord)s::int AND s.id > %(after_id)s::ulid)) "
+        "AND (%(from_ordinal)s::int IS NULL OR s.ordinal >= %(from_ordinal)s::int) "
+        "AND (%(to_ordinal)s::int IS NULL OR s.ordinal <= %(to_ordinal)s::int) "
+        "AND (%(page)s::int IS NULL OR sp.page_number = %(page)s::int) "
         "ORDER BY s.ordinal, s.id"
     )
     params: dict[str, Any] = {
         "doc": document_id,
         "after_ord": cursor["ordinal"] if cursor else None,
         "after_id": cursor["id"] if cursor else None,
+        "from_ordinal": from_ordinal,
+        "to_ordinal": to_ordinal,
+        "page": page,
     }
     if limit is not None:
         sql += " LIMIT %(limit)s"

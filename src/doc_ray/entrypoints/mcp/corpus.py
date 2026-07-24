@@ -216,29 +216,48 @@ async def search_sentences(
 
 
 async def read_document_sentences(
-    document_id: str, limit: int = 200, after: str | None = None
+    document_id: str,
+    limit: int = 200,
+    after: str | None = None,
+    from_ordinal: int | None = None,
+    to_ordinal: int | None = None,
+    page: int | None = None,
 ) -> list[dict[str, Any]]:
-    """Read a document's sentences in order — the exhaustive, sequential text walk.
+    """Read a document's sentences in order — sequential walk or a random-access slice.
 
     Unlike ``search_sentences`` (which returns only sentences matching a term),
-    this returns every sentence in ``ordinal`` order, so paging it to exhaustion
-    covers 100% of the text with no gaps and no keyword flooding. Start with
-    ``after=None``; pass the last row's ``cursor`` as ``after`` to fetch the next
-    page; stop when a page comes back empty.
+    this returns every sentence in ``ordinal`` order. Two modes:
+
+    - **Sequential (default):** page to exhaustion for 100% coverage — start with
+      ``after=None``, pass the last row's ``cursor`` as ``after``, stop on ``[]``.
+    - **Random access:** ``from_ordinal``/``to_ordinal`` (inclusive) jump straight
+      to a slice (e.g. ``from_ordinal=4000, to_ordinal=4200``) without walking from
+      the start; ``page`` reads one source page directly. These compose with
+      ``limit``/``after`` for paging inside a range.
 
     Each sentence carries its citation handles — ``ordinal`` and the absolute
-    ``charStart``/``charEnd`` offsets into the document — so a claim drawn from
-    any slice stays attributable to the same span whether read here or in the
-    whole document. Text is returned **verbatim** (never clipped): exhaustive
-    delivery is the contract, and payload is bounded by ``limit``, not by
-    truncating content. Returns ``[]`` for an unknown or unreadable document.
+    ``charStart``/``charEnd`` offsets — so a claim drawn from any slice stays
+    attributable to the same span whether read here or in the whole document. Text
+    is returned **verbatim** (never clipped): payload is bounded by ``limit``, not
+    by truncating content. Returns ``[]`` for an unknown or unreadable document.
     """
     _require_uuid(document_id, "document_id")
+    if from_ordinal is not None and to_ordinal is not None and from_ordinal > to_ordinal:
+        raise ToolCallError(
+            "bad_input", f"from_ordinal ({from_ordinal}) must be <= to_ordinal ({to_ordinal})"
+        )
     data = await gql(
-        "query($id:ID!,$l:Int!,$a:String)"
-        "{document(id:$id){sentences(limit:$l,after:$a)"
+        "query($id:ID!,$l:Int!,$a:String,$fo:Int,$to:Int,$pg:Int)"
+        "{document(id:$id){sentences(limit:$l,after:$a,fromOrdinal:$fo,toOrdinal:$to,page:$pg)"
         "{id ordinal text charStart charEnd cursor}}}",
-        {"id": document_id, "l": limit, "a": after},
+        {
+            "id": document_id,
+            "l": limit,
+            "a": after,
+            "fo": from_ordinal,
+            "to": to_ordinal,
+            "pg": page,
+        },
     )
     doc = data.get("document")
     if doc is None:

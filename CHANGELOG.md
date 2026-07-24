@@ -22,6 +22,22 @@ doc-ray carries **one global version** covering both the application package
 ## [1.39.0]
 
 ### Added
+- **Random-access sentence reads — ordinal range + page (Block 3a)** (Claude Opus
+  4.8 (1M context) via Claude Code). `read_document_sentences` / `Document.sentences`
+  were sequential-only (cursor walk): reaching a mid-document slice meant paging
+  from ordinal 0. They now accept `fromOrdinal`/`toOrdinal` (inclusive ordinal
+  range) and `page` (a source-page filter via `spans.page_number`, migration 049),
+  so an agent can jump straight to sentences 4000–4200 or "page 50" in one call —
+  the one genuinely-new capability behind the MCP-resource discussion (the
+  resource/template layer is addressing ergonomics on top of this; a later block).
+  The args are a `WHERE` extension on the existing `list_sentences` keyset query
+  (the spans join and ordinal ordering already existed) — no schema-version change,
+  no new tables. Citation handles (`ordinal`/`charStart`/`charEnd`) and verbatim
+  text are unchanged; the sequential walk is still the default. A DB-backed test
+  proves a range read returns exactly the same rows as slicing the full walk, and
+  the page filter isolates one source page; `fromOrdinal > toOrdinal` is rejected
+  (resolver + MCP tool). See `docs/mcp-service.md` §3 for the random-access example.
+
 - **Durable NER corrections — Block A (P0)** (Claude Opus 4.8 (1M context) via
   Claude Code). The verification layer PURPOSE.md mandates ("AI proposes,
   verification decides") for named-entity recognition: a human (or a reviewing

@@ -86,11 +86,31 @@ async def test_read_document_sentences_forwards_and_maps(monkeypatch):
     url, body, headers = client.calls[0]
     assert headers["Authorization"] == "Bearer tok-read"  # RLS travels with the token
     assert "document(id:$id)" in body["query"]
-    assert "sentences(limit:$l,after:$a)" in body["query"]
+    assert "sentences(limit:$l,after:$a,fromOrdinal:$fo,toOrdinal:$to,page:$pg)" in body["query"]
     # every citation handle is selected so slices stay attributable
     for field in ("ordinal", "text", "charStart", "charEnd", "cursor"):
         assert field in body["query"]
-    assert body["variables"] == {"id": _DOC, "l": 2, "a": None}
+    # range/page args default to null (a plain sequential walk) when unset
+    assert body["variables"] == {"id": _DOC, "l": 2, "a": None, "fo": None, "to": None, "pg": None}
+
+
+@pytest.mark.asyncio
+async def test_read_document_sentences_forwards_ordinal_range_and_page(monkeypatch):
+    client = _patch(monkeypatch, {"data": {"document": {"sentences": []}}})
+    await corpus.read_document_sentences(_DOC, from_ordinal=4000, to_ordinal=4200, page=50)
+    _, body, _ = client.calls[0]
+    assert body["variables"]["fo"] == 4000
+    assert body["variables"]["to"] == 4200
+    assert body["variables"]["pg"] == 50
+
+
+@pytest.mark.asyncio
+async def test_read_document_sentences_rejects_inverted_ordinal_range(monkeypatch):
+    client = _patch(monkeypatch, {"data": {"document": {"sentences": []}}})
+    with pytest.raises(corpus.ToolCallError) as err:
+        await corpus.read_document_sentences(_DOC, from_ordinal=4200, to_ordinal=4000)
+    assert err.value.kind == "bad_input"
+    assert client.calls == []  # rejected before any GraphQL round-trip
 
 
 @pytest.mark.asyncio

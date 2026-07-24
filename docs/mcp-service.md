@@ -110,7 +110,7 @@ for cited-briefing workflows — see that module for their signatures.
 | MCP tool | GraphQL field | Notes |
 |---|---|---|
 | `search_sentences(term, document_id?, limit)` | `searchSentences` | KWIC pre/hit/post; term-filtered |
-| `read_document_sentences(document_id, limit, after?)` | `document { sentences }` | **sequential** in-order walk of a whole document; verbatim text + citation offsets |
+| `read_document_sentences(document_id, limit, after?, from_ordinal?, to_ordinal?, page?)` | `document { sentences }` | in-order read: **sequential** walk *or* **random-access** ordinal/page slice; verbatim text + citation offsets |
 | `full_text_search(query, limit)` | `fullTextSearch` | ranked docs |
 | `list_documents(limit, doc_type?, status?)` | `documents` | keyset `cursor` |
 | `get_document(document_id)` | `document` | metadata + counts |
@@ -132,12 +132,18 @@ bound payload with `limit`), and each sentence carries `ordinal` +
 absolute `charStart`/`charEnd` offsets so any excerpt stays citable.
 
 ```jsonc
-// Walk a document start-to-finish: call with after=null, then feed the last
-// row's cursor back as `after`, until a page comes back empty.
+// Sequential — walk a document start-to-finish: call with after=null, then feed
+// the last row's cursor back as `after`, until a page comes back empty.
 {"name": "read_document_sentences", "arguments": {"document_id": "9f14ccff-…", "limit": 200}}
 // → [{"ordinal": 0, "text": "…", "charStart": 0, "charEnd": 47, "cursor": "eyJ…"}, …]
 {"name": "read_document_sentences", "arguments": {"document_id": "9f14ccff-…", "limit": 200, "after": "eyJ…"}}
 // → next 200 sentences … repeat until the result is []
+
+// Random access — jump straight to a slice (no walking from the start):
+{"name": "read_document_sentences", "arguments": {"document_id": "9f14ccff-…", "from_ordinal": 4000, "to_ordinal": 4200}}
+// → sentences with ordinal 4000..4200 (inclusive)
+// …or read one source page directly:
+{"name": "read_document_sentences", "arguments": {"document_id": "9f14ccff-…", "page": 50}}
 ```
 
 **Sweeping the whole corpus with N workers (map-reduce).** `corpus_manifest`
