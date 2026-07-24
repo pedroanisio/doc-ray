@@ -16,6 +16,15 @@ _REPO = Path(__file__).resolve().parent.parent.parent
 if str(_REPO) not in sys.path:
     sys.path.insert(0, str(_REPO))
 
+# Import the MCP SDK's streamable_http transport EAGERLY, at collection time
+# (BL-144). Its module body evaluates annotations like ``httpx.AsyncClient | None``
+# at import; the MCP tool tests monkeypatch ``httpx.AsyncClient`` to a stub
+# callable, so a *lazy* import landing inside a patched test evaluates
+# ``<lambda> | None`` and dies with "unsupported operand type(s) for |". Importing
+# it here — before any test can patch httpx — makes the suite order-independent.
+with contextlib.suppress(Exception):  # optional dep: the MCP extra may be absent
+    import mcp.client.streamable_http  # noqa: F401
+
 
 def pytest_sessionstart(session):
     """Refuse DB integration tests when DATABASE_URL points at live corpus data."""

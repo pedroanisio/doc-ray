@@ -54,6 +54,66 @@ doc-ray carries **one global version** covering both the application package
   and reversible. Design: `docs/proposals/entity-fabric-substrate-lens-projection.md`.
   *This release ships the domain core + substrate (schema, RLS, persistence);
   the GraphQL/MCP write surfaces are the following slice.*
+- **A self-teaching MCP surface — server instructions, search coverage, steered
+  errors (BL-145)** (Claude Opus 4.8 (1M context) via Claude Code). A user
+  summarizing a full novel through the MCP server lost most of their effort to
+  friction the server could have removed: high-frequency search terms flooded one
+  region of the text and starved the rest, which *read as missing content* rather
+  than as a bad query; the retrieval-not-reading model had to be re-derived
+  mid-task; and a `search_sentences` cursor handed to `read_document_sentences`
+  failed with an opaque rejection. The server now teaches all three. `FastMCP` is
+  constructed with `SERVER_INSTRUCTIONS`, advertised at initialization, stating
+  the retrieval model and the recommended path (`list_documents` → ranged
+  `read_document_sentences` → rare-term `search_sentences`). Cursor errors now
+  carry an actionable hint that cursors are per-tool and name the ordinal
+  alternative. Five thin tool docstrings (`full_text_search`, `get_document`,
+  `get_collection`, `entity_frequency`, `image_class_summary`) were expanded to
+  teach their use, and `list_documents` now also returns `language` and
+  `sentenceCount` so a document can be sized before it is read. No schema change.
+- **Drift protection for new MCP surface** (Claude Opus 4.8 (1M context) via
+  Claude Code). `src/doc_ray/tests/test_mcp_p0.py` holds every *future* tool to
+  the same bar: one test fails the build if any registered MCP tool carries a
+  description under 80 characters, another fails if a tool taking a `document_id`
+  does not validate it locally (`_require_uuid`) before spending a network
+  round-trip. Guidance that is only documented decays; these are enforced.
+
+### Changed
+- **BREAKING (MCP tool contract): `search_sentences` returns an object, not a
+  list** (Claude Opus 4.8 (1M context) via Claude Code). The tool previously
+  returned a bare list of KWIC hits, which made a truncated result
+  indistinguishable from a genuinely sparse one — the exact failure that cost the
+  novel-summarization run its coverage. It now returns:
+
+  ```jsonc
+  {
+    "hits": [ /* unchanged KWIC rows: id, documentId, ordinal, pre, hit, post */ ],
+    "coverage": {"hit_count": 200, "ordinal_min": 5, "ordinal_max": 1904,
+                 "limit": 200, "limit_reached": true},
+    "note": "Hit the limit — a common term can flood one region of the text …"
+  }
+  ```
+
+  **Migration.** Callers that iterated the result directly must index `["hits"]`:
+  `for s in await search_sentences(...)` → `for s in (await search_sentences(...))["hits"]`.
+  The hit rows themselves are byte-for-byte unchanged, so nothing downstream of the
+  loop needs touching. In-tree callers (`briefing_pack`, `entity_dossier`,
+  `document_evidence` in `entrypoints/mcp/compose.py`) are already updated.
+  `coverage.limit_reached` is the signal to act on: when true, the result is
+  capped, not complete — narrow the term or read the range with
+  `read_document_sentences(from_ordinal=…, to_ordinal=…)`. The GraphQL
+  `searchSentences` field is **unchanged**; this affects the MCP tool only.
+
+### Fixed
+- **MCP tests were order-dependent and red after the webapp suite (BL-144)**
+  (Claude Opus 4.8 (1M context) via Claude Code). `test_mcp_corpus.py` passed
+  30/30 alone and failed en masse in the full run — originally misfiled as a
+  pinned-SDK breakage. The real cause: the MCP tool tests monkeypatch
+  `httpx.AsyncClient` to a stub callable, and the SDK's `mcp.client.streamable_http`
+  module evaluates `httpx.AsyncClient | None` in its body at import time. Any
+  *lazy* import of that transport landing inside a patched test therefore
+  evaluated `<lambda> | None` and raised `TypeError: unsupported operand type(s)`.
+  Fixed by importing the transport eagerly in `src/doc_ray/tests/conftest.py`,
+  before any test can patch `httpx` — the suite is now order-independent.
 
 ## [1.38.0]
 

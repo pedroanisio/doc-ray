@@ -49,6 +49,42 @@ def _clip_windows(row: dict[str, Any], fields: tuple[str, ...]) -> dict[str, Any
     return row
 
 
+def _search_coverage(hits: list[dict[str, Any]], limit: int) -> tuple[dict[str, Any], str | None]:
+    """Summarise where *hits* fall in the text, and steer when the cap was reached.
+
+    The failure mode this addresses (BL-145): a high-frequency term floods one
+    region and starves the rest, so a sparse-looking result reads as *missing
+    content* when it is really a *retrieval* problem. Reporting the ordinal span
+    and flagging a maxed-out result turns that into a legible query diagnosis the
+    agent can act on — narrow the term, or read the untouched ordinal ranges.
+    """
+    ordinals = [h["ordinal"] for h in hits if isinstance(h.get("ordinal"), int)]
+    limit_reached = len(hits) >= limit
+    coverage: dict[str, Any] = {
+        "hit_count": len(hits),
+        "ordinal_min": min(ordinals) if ordinals else None,
+        "ordinal_max": max(ordinals) if ordinals else None,
+        "limit": limit,
+        "limit_reached": limit_reached,
+    }
+    if not limit_reached:
+        return coverage, None
+    if ordinals:
+        note = (
+            f"Returned the maximum {limit} hits, spanning ordinals "
+            f"{coverage['ordinal_min']}–{coverage['ordinal_max']}. A common term can flood one "
+            f"region and hide the rest — narrow with a rarer, scene-specific term, or use "
+            f"read_document_sentences by ordinal range (e.g. beyond {coverage['ordinal_max']}) "
+            f"to cover the untouched text."
+        )
+    else:
+        note = (
+            f"Returned the maximum {limit} hits. A common term can flood results — narrow with "
+            f"a rarer, scene-specific term, or use read_document_sentences by ordinal range."
+        )
+    return coverage, note
+
+
 class ToolCallError(RuntimeError):
     """Typed MCP tool failure: a stable ``kind``, retriability, and agent hint.
 
@@ -190,18 +226,37 @@ async def gql(query: str, variables: dict[str, Any]) -> dict[str, Any]:
     if body.get("errors"):
         message = body["errors"][0].get("message", "GraphQL error")
         kind = _classify_graphql_error(message)
-        raise ToolCallError(kind, message, hint=_KIND_HINTS.get(kind))
+        hint = _KIND_HINTS.get(kind)
+        # Cursors are opaque and per-tool: a search_sentences cursor handed to the
+        # document reader is rejected. Steer instead of surfacing the bare error
+        # (BL-145) — the reviewer lost a call to exactly this dead end.
+        if "cursor" in message.lower():
+            hint = (
+                "cursors are not interchangeable between tools — a search_sentences cursor is "
+                "not valid here. Page read_document_sentences with its own cursor, or address a "
+                "slice directly with from_ordinal/to_ordinal."
+            )
+        raise ToolCallError(kind, message, hint=hint)
     data: dict[str, Any] = body["data"]
     return data
 
 
 async def search_sentences(
     term: str, document_id: str | None = None, limit: int = 20, after: str | None = None
-) -> list[dict[str, Any]]:
+) -> dict[str, Any]:
     """Keyword-in-context search across the corpus you can read (pre/hit/post windows).
 
-    Pass a row's ``cursor`` as ``after`` to fetch the next page. Oversized windows
-    are clipped with an explicit ``… [+N chars]`` marker.
+    Use RARE, scene-specific terms. A common, high-frequency word floods one region
+    of a document and starves coverage of the rest — the returned ``coverage`` and
+    ``note`` tell you when that happened, so a sparse result reads as a *query*
+    problem, not missing content. To reach untouched text, read the ordinal ranges
+    beyond ``coverage.ordinal_max`` with ``read_document_sentences``.
+
+    Returns ``{hits, coverage, note}``: ``hits`` is the keyword-in-context rows
+    (pass a row's ``cursor`` as ``after`` for the next page; oversized windows are
+    clipped with an explicit ``… [+N chars]`` marker); ``coverage`` reports the
+    hit count and ordinal span; ``note`` is a steer (or ``null``) when the result
+    may be flooded.
     """
     _require_nonempty(term, "term")
     _require_uuid(document_id, "document_id")
@@ -211,8 +266,9 @@ async def search_sentences(
         "{id documentId title ordinal pre hit post cursor}}",
         {"t": term, "d": document_id, "l": limit, "a": after},
     )
-    hits: list[dict[str, Any]] = data["searchSentences"]
-    return [_clip_windows(hit, ("pre", "hit", "post")) for hit in hits]
+    hits = [_clip_windows(hit, ("pre", "hit", "post")) for hit in data["searchSentences"]]
+    coverage, note = _search_coverage(hits, limit)
+    return {"hits": hits, "coverage": coverage, "note": note}
 
 
 async def read_document_sentences(
@@ -267,7 +323,14 @@ async def read_document_sentences(
 
 
 async def full_text_search(query: str, limit: int = 25) -> list[dict[str, Any]]:
-    """Rank documents by full-text relevance to a query."""
+    """Rank whole DOCUMENTS by full-text relevance — the "which document?" tool.
+
+    Use this to pick a document out of the corpus, not to find passages inside one:
+    it returns one ranked row per document (``documentId``, ``title``, ``rank``),
+    with no sentence text or citation handles. Once you have the document id, use
+    ``search_sentences`` to locate specific passages, or ``read_document_sentences``
+    with ``from_ordinal``/``to_ordinal`` to read a range verbatim.
+    """
     _require_nonempty(query, "query")
     data = await gql(
         "query($q:String!,$l:Int!){fullTextSearch(query:$q,limit:$l){documentId title rank}}",
@@ -346,7 +409,13 @@ async def list_collections(
 
 
 async def get_collection(collection_id: str, document_limit: int = 50) -> dict[str, Any] | None:
-    """Fetch one collection with its member documents (None if unknown/not visible)."""
+    """Fetch one collection with its member documents.
+
+    Use it to work a curated set (a series, a source batch) as a unit: the member
+    rows carry the document ids you then read or search individually. ``document_limit``
+    bounds the members returned. Returns ``None`` when the collection is unknown or
+    not visible to your token.
+    """
     _require_uuid(collection_id, "collection_id")
     data = await gql(
         "query($id:ID!,$dl:Int!){collection(id:$id)"
@@ -410,7 +479,13 @@ async def corpus_shard(
 
 
 async def get_document(document_id: str) -> dict[str, Any] | None:
-    """Fetch one document's metadata and counts by id."""
+    """Fetch one document's metadata and counts by id — the orientation call.
+
+    Returns title, type, language, status, page/char counts and sentence count, but
+    NO text: use it to size a document before reading it (the sentence count is the
+    upper bound for ``read_document_sentences`` ordinals). Returns ``None`` when the
+    id is unknown or not visible to your token.
+    """
     _require_uuid(document_id, "document_id")
     data = await gql(
         "query($id:ID!){document(id:$id){id title docType status language pageCount charCount "
@@ -424,7 +499,14 @@ async def get_document(document_id: str) -> dict[str, Any] | None:
 async def entity_frequency(
     document_id: str | None = None, entity_type: str | None = None, limit: int = 50
 ) -> list[dict[str, Any]]:
-    """Most frequent named entities across the corpus or one document."""
+    """Most frequent named entities across the corpus, or within one document.
+
+    Good for structure and cast — who and what a document is about — before reading
+    it. Scope with ``document_id`` and narrow with ``entity_type``. Note the counts
+    come from automated NER: the same real-world entity can appear under more than
+    one type, so treat the rows as evidence to corroborate (with ``search_sentences``
+    or ``lexeme_kwic``), not as a settled roster.
+    """
     _require_uuid(document_id, "document_id")
     data = await gql(
         "query($d:ID,$e:String,$l:Int!){entityFrequency(documentId:$d,entityType:$e,limit:$l)"
@@ -475,7 +557,12 @@ async def document_images(
 
 
 async def image_class_summary(document_id: str) -> list[dict[str, Any]]:
-    """The ``(imageClass, count)`` distribution of a document's detected images."""
+    """The ``(imageClass, count)`` distribution of a document's detected images.
+
+    A cheap shape-of-the-visuals call — how many diagrams vs photos vs tables were
+    detected — to decide whether the visual layer is worth querying at all before
+    spending calls on ``document_images`` or ``visual_captions``.
+    """
     _require_uuid(document_id, "document_id")
     data = await gql(
         "query($d:ID!){imageClassSummary(documentId:$d){imageClass count}}",
@@ -519,6 +606,27 @@ async def visual_captions(document_id: str, limit: int = 100) -> list[dict[str, 
     return rows
 
 
+async def entity_mention_corrections(document_id: str) -> list[dict[str, Any]]:
+    """A document's durable human NER corrections, oldest first (the audit log).
+
+    Each row shows the corrective ``action`` (reclassify / reject / add /
+    adjust_span), the target span (``charStart`` / ``charEnd``), the corrected
+    ``entityType`` (and ``newCharStart`` / ``newCharEnd`` for adjust_span), what
+    the model originally said (``originalType``), and the reviewer's
+    ``rationale``. Use it to see what has already been fixed before recording a
+    new ``correct_entity_mention``. RLS-scoped to documents your token may read.
+    """
+    _require_uuid(document_id, "document_id")
+    data = await gql(
+        "query($d:ID!){entityMentionCorrections(documentId:$d)"
+        "{action charStart charEnd entityType surface newCharStart newCharEnd "
+        "originalType rationale createdAt}}",
+        {"d": document_id},
+    )
+    rows: list[dict[str, Any]] = data["entityMentionCorrections"]
+    return rows
+
+
 #: The read tools registered on the MCP server (see server.py).
 TOOLS: tuple[Callable[..., Any], ...] = (
     search_sentences,
@@ -537,4 +645,5 @@ TOOLS: tuple[Callable[..., Any], ...] = (
     image_class_summary,
     cross_modal_image_search,
     visual_captions,
+    entity_mention_corrections,
 )

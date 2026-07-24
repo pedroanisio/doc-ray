@@ -60,6 +60,30 @@ def _transport_security() -> TransportSecuritySettings | None:
     return TransportSecuritySettings(allowed_hosts=allowed_hosts, allowed_origins=allowed_origins)
 
 
+#: Advertised to the model as "how to use this server" (BL-145). The friction in
+#: practice was not a missing capability — it was the agent re-learning the
+#: retrieval model mid-task. Front-load it here, once, per Anthropic's finding
+#: that tool/description guidance is load-bearing.
+SERVER_INSTRUCTIONS = (
+    "doc-ray is RETRIEVAL, not reading: it returns cited slices of documents, "
+    "never a whole document, and every result carries a citation handle "
+    "(ordinal + character offsets) back to an exact sentence.\n\n"
+    "To cover a document completely and cheaply, prefer this path:\n"
+    "1. list_documents to find the document id.\n"
+    "2. read_document_sentences with from_ordinal/to_ordinal for random access to "
+    "any section verbatim — it also pages sequentially (start after=None, follow "
+    "the returned cursor, stop on []) for exhaustive 100% coverage.\n"
+    "3. search_sentences with RARE, scene-specific terms to locate particular "
+    "beats. Common, high-frequency words flood one region of the text and starve "
+    "coverage of the rest; its `coverage` field and `note` tell you when that has "
+    "happened, so a sparse-looking result is a query problem, not missing content.\n\n"
+    "Reach for the ranged reader early rather than grinding keyword searches. "
+    "Cursors are per-tool and NOT interchangeable — a search_sentences cursor is "
+    "not valid for read_document_sentences (use ordinals there). Entity results "
+    "are canonicalized with a confidence; treat low-confidence rows as untrusted."
+)
+
+
 def build_server(enable_write: bool = False) -> FastMCP:
     """Create a FastMCP server with the corpus read + composition-grounding tools.
 
@@ -73,7 +97,7 @@ def build_server(enable_write: bool = False) -> FastMCP:
             in via ``DOCRAY_MCP_ENABLE_WRITE``; even when on, every write is still
             gated by the API's ``write`` scope and per-document ACL guards.
     """
-    mcp = FastMCP("doc-ray")
+    mcp = FastMCP("doc-ray", instructions=SERVER_INSTRUCTIONS)
     if (security := _transport_security()) is not None:
         # Accept the public Host behind the tunnel — the localhost-only default 421s.
         mcp.settings.transport_security = security

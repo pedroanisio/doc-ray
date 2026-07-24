@@ -109,7 +109,7 @@ for cited-briefing workflows — see that module for their signatures.
 
 | MCP tool | GraphQL field | Notes |
 |---|---|---|
-| `search_sentences(term, document_id?, limit)` | `searchSentences` | KWIC pre/hit/post; term-filtered |
+| `search_sentences(term, document_id?, limit)` | `searchSentences` | KWIC pre/hit/post; term-filtered. Returns `{hits, coverage, note}` — see §3.1 |
 | `read_document_sentences(document_id, limit, after?, from_ordinal?, to_ordinal?, page?)` | `document { sentences }` | in-order read: **sequential** walk *or* **random-access** ordinal/page slice; verbatim text + citation offsets |
 | `full_text_search(query, limit)` | `fullTextSearch` | ranked docs |
 | `list_documents(limit, doc_type?, status?)` | `documents` | keyset `cursor` |
@@ -166,6 +166,54 @@ can *prove* full coverage rather than assume it.
 ```
 A shard is the intersection of `hash mod N` and the caller's RLS scope, so
 "the whole corpus" always means "the whole corpus this token may read."
+
+### 3.1 Self-teaching surface — instructions, coverage, cursors (BL-145)
+
+The observed failure mode of this server was never a missing capability. It was
+an agent re-deriving the retrieval model mid-task: searching with common words,
+reading the flooded result as *missing content*, and reaching for the ranged
+reader only after the budget was spent. Three mechanisms move those lessons out
+of the user's session and into the server, where they are paid once.
+
+**1. Server instructions.** `server.SERVER_INSTRUCTIONS` is passed to `FastMCP`
+and advertised in the `initialize` response, so a client sees it before the first
+tool call. It states the model (retrieval, not reading; every result is citable),
+the recommended path (`list_documents` → ranged `read_document_sentences` →
+rare-term `search_sentences`), and the two traps below. Edit it in
+[`server.py`](../src/doc_ray/entrypoints/mcp/server.py) — it is the cheapest
+place in the system to fix an agent-behaviour problem.
+
+**2. Search coverage.** `search_sentences` returns an object, not a bare list:
+
+```jsonc
+{"name": "search_sentences", "arguments": {"term": "Paul", "document_id": "9f14…", "limit": 200}}
+// → {
+//   "hits": [{"ordinal": 5, "pre": "…", "hit": "Paul", "post": "…"}, …],
+//   "coverage": {"hit_count": 200, "ordinal_min": 5, "ordinal_max": 1904,
+//                "limit": 200, "limit_reached": true},
+//   "note": "Hit the limit — a common term can flood one region of the text …"
+// }
+```
+
+`coverage.limit_reached` is the load-bearing field: when true the result is
+**capped, not complete**, and `ordinal_min`/`ordinal_max` show which stretch of
+the document the hits actually came from. A run that returns 200 hits all below
+ordinal 400 in a 4,000-sentence book has not found "little about the ending" — it
+has found too much about the beginning. `note` says so in words, and names the
+fix: narrow the term, or read the range with
+`read_document_sentences(from_ordinal=…, to_ordinal=…)`.
+
+**3. Cursors are per-tool.** A `search_sentences` cursor is not valid for
+`read_document_sentences`, and vice versa; they encode different keysets. Any
+GraphQL error mentioning a cursor is now translated into a typed `bad_input`
+carrying that fact plus the ordinal alternative, instead of an opaque rejection
+that costs a call to interpret.
+
+**Holding new tools to the same bar.** [`test_mcp_p0.py`](../src/doc_ray/tests/test_mcp_p0.py)
+fails the build if any registered tool has a description under 80 characters, or
+if a tool taking a `document_id` does not validate it locally (`_require_uuid`)
+before spending a round-trip. Adding a tool means writing a description that
+teaches its use — the gate is mechanical, not a review convention.
 
 ### Write tools (opt-in — `DOCRAY_MCP_ENABLE_WRITE=true`)
 

@@ -240,8 +240,10 @@ async def _ranked_passages(
         *(corpus.search_sentences(query, document_id=document_id, limit=limit) for query in queries)
     )
     merged: dict[Any, dict[str, Any]] = {}
-    for query, hits in zip(queries, batches, strict=True):
-        for sentence in hits:
+    # search_sentences returns {hits, coverage, note} (BL-145); compose ranks the
+    # hits and surfaces its own gap reporting, so unwrap to the rows here.
+    for query, batch in zip(queries, batches, strict=True):
+        for sentence in batch["hits"]:
             key = sentence.get("id") or (sentence.get("documentId"), sentence.get("ordinal"))
             entry = merged.setdefault(key, {"sentence": sentence, "matched_terms": []})
             if query not in entry["matched_terms"]:
@@ -456,7 +458,7 @@ async def entity_dossier(name: str, max_mentions: int = 40) -> dict[str, Any]:
         A dict with `entity`, `total_mentions`, `documents`, `mentions`, `gaps`,
         and `guidance`.
     """
-    mentions = await corpus.search_sentences(name, limit=max_mentions)
+    mentions = (await corpus.search_sentences(name, limit=max_mentions))["hits"]
     by_document: dict[str, dict[str, Any]] = {}
     cited: list[dict[str, Any]] = []
     for sentence in mentions:

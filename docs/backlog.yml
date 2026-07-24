@@ -110,7 +110,7 @@ metadata:
   generated_by:     "Claude Sonnet 5 via Claude Code (merge of Claude Opus 4.8 backlog + OpenAI Codex improvement-proposal candidates)"
   generated_on:     "2026-07-05"
   system_of_record: "docs/backlog.yml"
-  total_items:      144
+  total_items:      145
 
 items:
 
@@ -4820,8 +4820,8 @@ items:
     tags:         ["webapp", "corpus", "ui", "views", "feature"]
 
   - id:          "BL-144"
-    title:        "test_mcp_corpus.py red on main: pinned mcp==1.28.* raises a runtime TypeError, failing all MCP client tests"
-    summary:      "The full MCP client test suite (25 tests in test_mcp_corpus.py) fails on a clean build: the pinned mcp==1.28.* SDK raises TypeError: unsupported operand type(s) for |: 'function' and 'NoneType' from mcp/client/streamable_http.py while evaluating a `X | None` runtime annotation. Unrelated to any corpus/webapp change — the whole suite errors on import of the SDK client path."
+    title:        "MCP tests are order-dependent: a lazy mcp streamable_http import inside an httpx-patched test dies on annotation eval"
+    summary:      "CORRECTED DIAGNOSIS: not an SDK breakage. test_mcp_corpus.py passes 30/30 in isolation. The MCP tool tests monkeypatch httpx.AsyncClient to a stub callable; if the mcp SDK streamable_http module is imported lazily *during* such a test, its module-level annotation evaluates <lambda> | None and raises TypeError. Purely an ordering/isolation defect, so the suite passed alone and failed after the webapp suite. Fixed by importing the transport eagerly in conftest, before any test can patch httpx."
     description: |
       Observed 2026-07-24 in the canonical Docker test runner: 25 of the MCP
       client tests fail identically with a SDK-level TypeError in
@@ -4832,7 +4832,7 @@ items:
       the httpx/typing incompatibility), then re-run test_mcp_corpus.py.
     category:     "tooling"
     type:         "bug"
-    status:       "ready"
+    status:       "done"
     complexity:   "S"
     priority:     "high"
     rationale:    "A gate red on main stops gating (same rationale as BL-129/BL-137/BL-140): every landing that runs the MCP suite learns to read past 25 failures, so a real MCP regression would land silently. It also blocks validating any MCP client change (e.g. BL-143's list_documents field additions)."
@@ -4846,3 +4846,45 @@ items:
     owner:        "shared"
     source:       "Canonical Docker test run during BL-143, 2026-07-24 (Claude Opus 4.8 (1M context) via Claude Code): 25 MCP tests fail on the mcp SDK import, independent of the change under test."
     tags:         ["tooling", "gates", "mcp", "dependencies", "bug"]
+
+  - id:          "BL-145"
+    title:        "MCP layer is not self-teaching: no server instructions, no search coverage signal, opaque cursor rejections"
+    summary:      "A user summarizing a novel through the MCP server hit a real learning curve: high-frequency search terms flooded one region and starved the rest, which read as MISSING CONTENT rather than a retrieval failure; a search_sentences cursor rejected by read_document_sentences cost a failed call; and the methodology (outline -> ranged read -> rare terms) lived only in the user's head. Fixed by making the server teach the model."
+    description: |
+      Grounded in Anthropic's "Writing effective tools for AI agents": tool
+      descriptions, return shapes, and error messages are load-bearing, and the
+      fix for "the agent queried badly" is a tool that steers it. P0 changes:
+        - server.SERVER_INSTRUCTIONS, passed to FastMCP, teaching the
+          retrieval-not-reading model and the recommended tool order once.
+        - search_sentences now returns {hits, coverage, note}: coverage reports
+          the hit count and ordinal span; note steers when the cap was reached
+          ("a common term can flood one region — narrow it, or read by ordinal
+          range"). BREAKING: the tool previously returned a bare list.
+        - Any GraphQL error mentioning a cursor now carries a hint that cursors
+          are per-tool and not interchangeable, naming from_ordinal/to_ordinal.
+        - Thin tool docstrings (full_text_search, get_document, get_collection,
+          entity_frequency, image_class_summary) expanded to teach their use.
+      Drift protection: test_mcp_p0.py asserts every registered MCP tool carries
+      a substantive (>=80 char) description and that every document_id tool
+      validates locally before spending a round-trip, so new surface gets the
+      same treatment.
+    category:     "api"
+    type:         "feature"
+    status:       "done"
+    complexity:   "M"
+    priority:     "high"
+    rationale:    "The reviewer's own conclusion was that most of the friction was theirs, not the tool's — which is precisely the friction a server can remove. Every item here moves a lesson out of the user's session and into the server's descriptions, where it is paid once. The drift guard keeps it true as the surface grows."
+    acceptance_criteria:
+      - "The server advertises instructions teaching the retrieval model and tool order."
+      - "search_sentences returns a coverage signal and steers when the result may be flooded."
+      - "A cursor error carries an actionable hint naming from_ordinal/to_ordinal."
+      - "Every registered MCP tool has a substantive description (enforced by a test)."
+    dependencies: ["BL-144"]
+    references:
+      - "src/doc_ray/entrypoints/mcp/server.py"
+      - "src/doc_ray/entrypoints/mcp/corpus.py"
+      - "src/doc_ray/tests/test_mcp_p0.py"
+      - "docs/proposals/mcp-layer-improvements.md"
+    owner:        "shared"
+    source:       "User write-up of a full-novel summarization via MCP, 2026-07-24, analysed against MCP strategy research (Claude Opus 4.8 (1M context) via Claude Code)."
+    tags:         ["api", "mcp", "agent-experience", "retrieval", "feature"]
