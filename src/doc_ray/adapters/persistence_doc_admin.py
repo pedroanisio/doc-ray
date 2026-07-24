@@ -9,6 +9,23 @@ from __future__ import annotations
 
 from doc_ray.adapters.persistence_geometry import DictConnection
 
+#: Every ``document_metadata_history.field`` value this module can write.
+#:
+#: This is the code side of a two-sided contract: the table carries a CHECK
+#: constraint listing the same vocabulary, so a field recorded here that the
+#: constraint does not admit aborts the whole metadata job. That is exactly how
+#: ``authors`` broke in production — it was added to the writer while the CHECK
+#: (migration 053) still listed four fields. Widening one side now requires
+#: widening the other; ``test_metadata_history_contract.py`` fails the build if
+#: they ever drift again. Keep in sync with the CHECK in migration 118.
+HISTORY_FIELDS: tuple[str, ...] = (
+    "title",
+    "description",
+    "tags",
+    "authors",
+    "lifecycle_state",
+)
+
 
 def _author_id(conn: DictConnection, name: str) -> int:
     """Upsert an author by name and return its id."""

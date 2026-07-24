@@ -283,6 +283,9 @@ MIGRATIONS = [
     ("115_ner_corrections", "durable human NER corrections keyed by a stable span (Block A)"),
     ("116_schema_version_1_39_0", "advance the schema SemVer to 1.39.0"),
     ("117_form_index_client_read", "grant docray_client SELECT on form_index (BL-146 fix)"),
+    ("118_metadata_history_authors_field", "document metadata history admits the authors field"),
+    ("119_backup_role_default_grants", "docray_batch default-privilege grants for backups"),
+    ("120_schema_version_1_40_0", "advance the schema SemVer to 1.40.0"),
 ]
 
 # ---------------------------------------------------------------------------

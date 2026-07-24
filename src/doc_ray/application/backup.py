@@ -85,6 +85,31 @@ def _covered_tables(conn: psycopg.Connection[Any]) -> list[str]:
     return [r[0] for r in rows if r[0] not in EXCLUDED_TABLES]
 
 
+def unreadable_tables(
+    conn: psycopg.Connection[Any], tables: list[str], *, role: str = "docray_batch"
+) -> list[str]:
+    """Return the covered tables *role* cannot ``SELECT`` — the backup would fail on these.
+
+    A backup COPYs every covered table elevated to the trusted writer
+    ``docray_batch``. A table that role cannot read aborts the whole COPY with a
+    raw ``permission denied`` and a half-written archive (production, 2026-07-24:
+    ``web_auth_sessions`` had no grant because migration 106's one-time
+    ``GRANT ALL`` never covered a table added later). Checking up front turns that
+    into a clear, early failure that names the offending tables. Returns them
+    sorted; empty means every table is readable.
+    """
+    if not tables:
+        return []
+    rows = _q(
+        conn,
+        "SELECT t AS name, "
+        "  has_table_privilege(%s, ('public.' || quote_ident(t))::regclass, 'SELECT') AS ok "
+        "FROM unnest(%s::text[]) AS t",
+        (role, tables),
+    )
+    return sorted(r[0] for r in rows if not r[1])
+
+
 def _columns(conn: psycopg.Connection[Any], table: str) -> list[str]:
     """Return a table's non-generated column names, in ordinal order.
 
@@ -161,6 +186,18 @@ def create_backup(
         ``archive_bytes``, ``table_rows``, ``blob_count``, ``blob_bytes``,
         ``doc_count``, ``tables`` (per-table row counts).
     """
+    # Preflight: a backup that cannot read a table must fail loudly and early,
+    # naming it — not die on a raw COPY partway through with a half-written
+    # archive. A missing grant means an incomplete backup, which is data loss on
+    # restore, so this is a hard error, never a silent skip.
+    blocked = unreadable_tables(conn, _covered_tables(conn))
+    if blocked:
+        raise RuntimeError(
+            "backup writer (docray_batch) lacks SELECT on: "
+            + ", ".join(blocked)
+            + " — grant it (see migration 119) before backing up; refusing to write "
+            "an incomplete archive"
+        )
     backup_id = new_ulid_str()
     conn.execute(
         "INSERT INTO backups (id, status, note) VALUES (%s, 'creating', %s)",

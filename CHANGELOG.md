@@ -19,6 +19,47 @@ doc-ray carries **one global version** covering both the application package
 (`docray_schema_version()`). They are kept in lockstep by
 `scripts/check_version_consistency.py`, which fails the build on any drift.
 
+## [1.40.0]
+
+### Fixed
+- **Editing a document's authors failed every metadata job** (Claude Opus 4.8 via
+  Claude Code). `document_metadata_history` records one row per changed field,
+  gated by a CHECK listing the editable vocabulary. Migration 045 created it
+  (title/description/tags) and 053 widened it for `lifecycle_state`; the
+  authors-edit capability was later added to the writer
+  (`persistence_doc_admin.update_document_metadata` calls `_record("authors", …)`)
+  and to the GraphQL/MCP surfaces, but no migration widened the CHECK. So every
+  `updateDocumentMetadata` that changed an author aborted its whole job with
+  `CheckViolation: document_metadata_history_field_check` — 29 failed jobs in
+  production before it was traced, and the two DB-backed tests that cover author
+  edits had been red on `main`, which let a real defect hide among tolerated
+  failures.
+
+  Migration 118 admits `authors`. The deeper fix is the binding that was missing:
+  the vocabulary now has one source of truth in code
+  (`persistence_doc_admin.HISTORY_FIELDS`) and a drift guard
+  (`tests/test_metadata_history_contract.py`) that reads the live constraint out
+  of the catalog and fails the build if the two ever diverge again — including the
+  reverse direction, an orphan value in the constraint that the code never writes.
+  A parametrized test additionally proves each declared field is genuinely
+  insertable, so the contract is asserted against real behavior, not just string
+  equality.
+
+- **Every backup failed on a table the backup role could not read** (Claude Opus
+  4.8 via Claude Code). A backup COPYs every public base table elevated to the
+  trusted writer `docray_batch`. Migration 106 granted that role access with a
+  one-time `GRANT ALL ON ALL TABLES` and no `ALTER DEFAULT PRIVILEGES`, so
+  `web_auth_sessions` (migration 112) — and any table added later — was invisible
+  to it, and the whole backup aborted mid-COPY with `permission denied`. 24
+  backups failed; the corpus had no recoverable snapshot. Migration 119 re-grants
+  over all current tables/sequences and adds default privileges so every future
+  table is auto-granted to `docray_batch`, closing the latent trap that re-armed
+  on each `CREATE TABLE`. The backup path is also hardened
+  (`application.backup.unreadable_tables` + a `create_backup` preflight): a
+  missing grant now fails loudly, naming the offending tables, before any archive
+  bytes are written — an incomplete backup is data loss on restore, never a silent
+  skip. Regression: `tests/test_backup_grants.py`.
+
 ## [1.39.0]
 
 ### Added

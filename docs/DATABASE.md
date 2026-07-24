@@ -1,6 +1,6 @@
 # doc-ray — Database ERD & Data Dictionary
 
-**Schema version `1.39.0`** (SemVer) · 117 migrations applied
+**Schema version `1.40.0`** (SemVer) · 120 migrations applied
 
 > Generated from the live schema by `scripts/gen_data_dictionary.py`. Do not edit by hand — re-run the generator.
 
@@ -435,7 +435,7 @@ and read-granted the same way.
 - **Primary key:** (id)
 - **FK:** FOREIGN KEY (actor_principal_id) REFERENCES principals(id) ON DELETE SET NULL
 - **FK:** FOREIGN KEY (document_id) REFERENCES documents(id) ON DELETE CASCADE
-- **Check:** CHECK ((field = ANY (ARRAY['title'::text, 'description'::text, 'tags'::text, 'lifecycle_state'::text])))
+- **Check:** CHECK ((field = ANY (ARRAY['title'::text, 'description'::text, 'tags'::text, 'authors'::text, 'lifecycle_state'::text])))
 - **Index** `idx_metadata_history_doc`: public.document_metadata_history USING btree (document_id, id)
 - **RLS:** enabled — read/write policies via *document_id* (FORCED)
 
@@ -2198,3 +2198,6 @@ owner's bypass.
 | 115 | `115_ner_corrections.sql` | durable human NER corrections keyed by a stable span (Block A) |
 | 116 | `116_schema_version_1_39_0.sql` | advance the schema SemVer to 1.39.0 |
 | 117 | `117_form_index_client_read.sql` | grant docray_client SELECT on form_index (BL-146 fix) |
+| 118 | `118_metadata_history_authors_field.sql` | document metadata history admits the authors field |
+| 119 | `119_backup_role_default_grants.sql` | docray_batch default-privilege grants for backups |
+| 120 | `120_schema_version_1_40_0.sql` | advance the schema SemVer to 1.40.0 |
