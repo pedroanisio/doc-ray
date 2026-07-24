@@ -19,10 +19,11 @@ Exposes the doc-ray corpus to agentic AI over the **Model Context Protocol
 (MCP)**, authenticating each caller to a doc-ray principal so Postgres RLS scopes
 what they can read.
 
-**Status: live in production and verified end-to-end.** The server ships **16
-read tools** (9 corpus readers incl. `get_job`, `list_collections`,
-`get_collection` + 3 composition-grounding tools from `entrypoints/mcp/compose.py`
-+ 4 Prism visual tools… see §3) always registered, plus **17 opt-in write tools**
+**Status: live in production and verified end-to-end.** The server ships **17
+read tools** (10 corpus readers incl. `read_document_sentences`, `get_job`,
+`list_collections`, `get_collection` + 3 composition-grounding tools from
+`entrypoints/mcp/compose.py` + 4 Prism visual tools… see §3) always registered,
+plus **17 opt-in write tools**
 (reprocessing + curation + full collection lifecycle) registered only when
 `DOCRAY_MCP_ENABLE_WRITE=true` — the default surface stays read-only. It is
 deployed via `make mcp-up`, routed at `https://doc-ray.com/mcp` behind the
@@ -108,7 +109,8 @@ for cited-briefing workflows — see that module for their signatures.
 
 | MCP tool | GraphQL field | Notes |
 |---|---|---|
-| `search_sentences(term, document_id?, limit)` | `searchSentences` | KWIC pre/hit/post |
+| `search_sentences(term, document_id?, limit)` | `searchSentences` | KWIC pre/hit/post; term-filtered |
+| `read_document_sentences(document_id, limit, after?)` | `document { sentences }` | **sequential** in-order walk of a whole document; verbatim text + citation offsets |
 | `full_text_search(query, limit)` | `fullTextSearch` | ranked docs |
 | `list_documents(limit, doc_type?, status?)` | `documents` | keyset `cursor` |
 | `get_document(document_id)` | `document` | metadata + counts |
@@ -117,6 +119,24 @@ for cited-briefing workflows — see that module for their signatures.
 | `get_collection(collection_id, document_limit)` | `collection` | one collection + its member documents |
 | `entity_frequency(document_id?, entity_type?, limit)` | `entityFrequency` | top entities |
 | `lexeme_kwic(uid, document_id?, limit)` | `lexeme { occurrences }` | KWIC is a **nested** resolver, not a root field |
+
+**Reading a whole document, in order.** `search_sentences` is term-filtered — it
+returns only sentences matching a keyword, so it can't cover a document
+exhaustively. `read_document_sentences` is the sequential-read counterpart: it
+returns every sentence in `ordinal` order, keyset-paged, so walking it to
+exhaustion covers 100% of the text with no gaps and no keyword flooding. Text is
+returned **verbatim** (never clipped — exhaustive delivery is the contract;
+bound payload with `limit`), and each sentence carries `ordinal` +
+absolute `charStart`/`charEnd` offsets so any excerpt stays citable.
+
+```jsonc
+// Walk a document start-to-finish: call with after=null, then feed the last
+// row's cursor back as `after`, until a page comes back empty.
+{"name": "read_document_sentences", "arguments": {"document_id": "9f14ccff-…", "limit": 200}}
+// → [{"ordinal": 0, "text": "…", "charStart": 0, "charEnd": 47, "cursor": "eyJ…"}, …]
+{"name": "read_document_sentences", "arguments": {"document_id": "9f14ccff-…", "limit": 200, "after": "eyJ…"}}
+// → next 200 sentences … repeat until the result is []
+```
 
 ### Write tools (opt-in — `DOCRAY_MCP_ENABLE_WRITE=true`)
 

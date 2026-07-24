@@ -215,6 +215,38 @@ async def search_sentences(
     return [_clip_windows(hit, ("pre", "hit", "post")) for hit in hits]
 
 
+async def read_document_sentences(
+    document_id: str, limit: int = 200, after: str | None = None
+) -> list[dict[str, Any]]:
+    """Read a document's sentences in order — the exhaustive, sequential text walk.
+
+    Unlike ``search_sentences`` (which returns only sentences matching a term),
+    this returns every sentence in ``ordinal`` order, so paging it to exhaustion
+    covers 100% of the text with no gaps and no keyword flooding. Start with
+    ``after=None``; pass the last row's ``cursor`` as ``after`` to fetch the next
+    page; stop when a page comes back empty.
+
+    Each sentence carries its citation handles — ``ordinal`` and the absolute
+    ``charStart``/``charEnd`` offsets into the document — so a claim drawn from
+    any slice stays attributable to the same span whether read here or in the
+    whole document. Text is returned **verbatim** (never clipped): exhaustive
+    delivery is the contract, and payload is bounded by ``limit``, not by
+    truncating content. Returns ``[]`` for an unknown or unreadable document.
+    """
+    _require_uuid(document_id, "document_id")
+    data = await gql(
+        "query($id:ID!,$l:Int!,$a:String)"
+        "{document(id:$id){sentences(limit:$l,after:$a)"
+        "{id ordinal text charStart charEnd cursor}}}",
+        {"id": document_id, "l": limit, "a": after},
+    )
+    doc = data.get("document")
+    if doc is None:
+        return []
+    sentences: list[dict[str, Any]] = doc["sentences"]
+    return sentences
+
+
 async def full_text_search(query: str, limit: int = 25) -> list[dict[str, Any]]:
     """Rank documents by full-text relevance to a query."""
     _require_nonempty(query, "query")
@@ -239,7 +271,7 @@ async def list_documents(
     data = await gql(
         "query($l:Int!,$dt:String,$s:String,$a:String)"
         "{documents(limit:$l,docType:$dt,status:$s,after:$a)"
-        "{id title docType status pageCount charCount createdAt cursor}}",
+        "{id title docType language status pageCount charCount sentenceCount createdAt cursor}}",
         {"l": limit, "dt": doc_type, "s": status, "a": after},
     )
     docs: list[dict[str, Any]] = data["documents"]
@@ -419,6 +451,7 @@ async def visual_captions(document_id: str, limit: int = 100) -> list[dict[str, 
 #: The read tools registered on the MCP server (see server.py).
 TOOLS: tuple[Callable[..., Any], ...] = (
     search_sentences,
+    read_document_sentences,
     full_text_search,
     list_documents,
     get_document,

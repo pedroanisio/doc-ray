@@ -69,6 +69,7 @@ _READ_CALLS = [
     lambda: corpus.full_text_search("x"),
     lambda: corpus.list_documents(),
     lambda: corpus.get_document(_DOC),
+    lambda: corpus.read_document_sentences(_DOC),
     lambda: corpus.get_job("job-1"),
     lambda: corpus.list_collections(),
     lambda: corpus.get_collection(_DOC),

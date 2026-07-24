@@ -13,6 +13,7 @@ from doc_ray.entrypoints.mcp.auth import BearerAuthMiddleware
 _READ_TOOL_NAMES = {
     # corpus read tools
     "search_sentences",
+    "read_document_sentences",
     "full_text_search",
     "list_documents",
     "get_document",

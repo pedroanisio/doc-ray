@@ -4,7 +4,10 @@ from __future__ import annotations
 
 import pytest
 
-from doc_ray.entrypoints.mcp import corpus
+# Import the server eagerly so the `mcp` SDK loads (with the real httpx) before
+# any test patches httpx.AsyncClient — tokens._current_request() lazily imports
+# it, and the SDK evaluates `httpx.AsyncClient | None` at import time.
+from doc_ray.entrypoints.mcp import corpus, server  # noqa: F401
 
 
 class _FakeResp:
@@ -46,6 +49,9 @@ def _patch(monkeypatch, payload):
     return client
 
 
+_DOC = "11111111-1111-1111-1111-111111111111"
+
+
 @pytest.mark.asyncio
 async def test_search_forwards_bearer_and_maps_variables(monkeypatch):
     client = _patch(monkeypatch, {"data": {"searchSentences": [{"id": "1", "hit": "Berlin"}]}})
@@ -77,6 +83,18 @@ async def test_list_documents_forwards_after_cursor(monkeypatch):
     _, body, _ = client.calls[0]
     assert body["variables"]["a"] == "cur-42"
     assert "after:$a" in body["query"]
+
+
+@pytest.mark.asyncio
+async def test_list_documents_selects_the_fields_the_corpus_views_need(monkeypatch):
+    # The webapp corpus view modes (BL-143) key on language and sentence count;
+    # an MCP client building equivalent views needs those in the summary too, so
+    # the surfaces stay consistent about what a document row exposes.
+    client = _patch(monkeypatch, {"data": {"documents": []}})
+    await corpus.list_documents(limit=5)
+    _, body, _ = client.calls[0]
+    for field in ("language", "sentenceCount"):
+        assert field in body["query"], f"list_documents must select {field}"
 
 
 # --- KWIC window clipping ---------------------------------------------------
@@ -396,6 +414,7 @@ async def test_list_documents_and_entity_frequency_map(monkeypatch):
 def test_tools_tuple_is_the_read_tools():
     assert {fn.__name__ for fn in corpus.TOOLS} == {
         "search_sentences",
+        "read_document_sentences",
         "full_text_search",
         "list_documents",
         "get_document",
@@ -410,3 +429,129 @@ def test_tools_tuple_is_the_read_tools():
         "cross_modal_image_search",
         "visual_captions",
     }
+
+
+# --- read_document_sentences: exhaustive, in-order, citation-anchored walk ----
+
+
+@pytest.mark.asyncio
+async def test_read_document_sentences_forwards_and_maps(monkeypatch):
+    rows = [
+        {
+            "id": "s0",
+            "ordinal": 0,
+            "text": "Chapter one.",
+            "charStart": 0,
+            "charEnd": 12,
+            "cursor": "c0",
+        },
+        {
+            "id": "s1",
+            "ordinal": 1,
+            "text": "It begins.",
+            "charStart": 13,
+            "charEnd": 23,
+            "cursor": "c1",
+        },
+    ]
+    client = _patch(monkeypatch, {"data": {"document": {"sentences": rows}}})
+    corpus.caller_token.set("tok-read")
+    out = await corpus.read_document_sentences(_DOC, limit=2)
+    assert out == rows
+    url, body, headers = client.calls[0]
+    assert headers["Authorization"] == "Bearer tok-read"  # RLS travels with the token
+    assert "document(id:$id)" in body["query"]
+    assert "sentences(limit:$l,after:$a)" in body["query"]
+    # every citation handle is selected so slices stay attributable
+    for field in ("ordinal", "text", "charStart", "charEnd", "cursor"):
+        assert field in body["query"]
+    assert body["variables"] == {"id": _DOC, "l": 2, "a": None}
+
+
+@pytest.mark.asyncio
+async def test_read_document_sentences_forwards_after_cursor(monkeypatch):
+    client = _patch(monkeypatch, {"data": {"document": {"sentences": []}}})
+    await corpus.read_document_sentences(_DOC, limit=5, after="cur-7")
+    _, body, _ = client.calls[0]
+    assert body["variables"]["a"] == "cur-7"
+    assert "after:$a" in body["query"]
+
+
+@pytest.mark.asyncio
+async def test_read_document_sentences_returns_empty_for_unknown_document(monkeypatch):
+    _patch(monkeypatch, {"data": {"document": None}})
+    assert await corpus.read_document_sentences(_DOC) == []
+
+
+@pytest.mark.asyncio
+async def test_read_document_sentences_rejects_bad_uuid_before_network(monkeypatch):
+    client = _patch(monkeypatch, {"data": {"document": {"sentences": []}}})
+    with pytest.raises(corpus.ToolCallError) as err:
+        await corpus.read_document_sentences("not-a-uuid")
+    assert err.value.kind == "bad_input"
+    assert client.calls == []
+
+
+@pytest.mark.asyncio
+async def test_read_document_sentences_returns_text_verbatim_not_clipped(monkeypatch):
+    # Unlike KWIC windows, the sequential-read text is NOT clipped: the whole
+    # point is exhaustive delivery, and the caller bounds payload via `limit`.
+    mega = "z" * 20_000
+    _patch(
+        monkeypatch,
+        {"data": {"document": {"sentences": [{"ordinal": 0, "text": mega, "cursor": "c0"}]}}},
+    )
+    (row,) = await corpus.read_document_sentences(_DOC)
+    assert row["text"] == mega  # verbatim, no "… [+N chars]" marker
+
+
+@pytest.mark.asyncio
+async def test_walking_read_document_sentences_reconstructs_the_full_ordinal_sequence(monkeypatch):
+    """Driving the tool with successive `after` cursors covers every sentence, in order."""
+    # A fake corpus of 7 ordered sentences the fake API pages 3 at a time by cursor.
+    full = [
+        {
+            "ordinal": n,
+            "text": f"s{n}",
+            "charStart": n * 10,
+            "charEnd": n * 10 + 2,
+            "cursor": f"c{n}",
+        }
+        for n in range(7)
+    ]
+
+    class _PagingClient:
+        def __init__(self):
+            self.calls = []
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):
+            return False
+
+        async def post(self, url, json, headers):
+            after = json["variables"]["a"]
+            start = (
+                0
+                if after is None
+                else next(i for i, r in enumerate(full) if r["cursor"] == after) + 1
+            )
+            page = full[start : start + 3]
+            self.calls.append(after)
+            return _FakeResp({"data": {"document": {"sentences": page}}})
+
+    client = _PagingClient()
+    monkeypatch.setattr(corpus.httpx, "AsyncClient", lambda **kw: client)
+
+    walked, after = [], None
+    while True:
+        page = await corpus.read_document_sentences(_DOC, limit=3, after=after)
+        if not page:
+            break
+        walked.extend(page)
+        after = page[-1]["cursor"]
+
+    assert [r["ordinal"] for r in walked] == list(range(7))  # complete, in order, no gaps/dupes
+    # threaded the cursor forward each page, incl. the final empty-page probe that ends the walk
+    assert client.calls == [None, "c2", "c5", "c6"]

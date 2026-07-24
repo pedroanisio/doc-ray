@@ -22,6 +22,22 @@ doc-ray carries **one global version** covering both the application package
 ## [1.38.0]
 
 ### Added
+- **`read_document_sentences` — exhaustive sequential text read over MCP** (Claude
+  Opus 4.8 (1M context) via Claude Code). `search_sentences` is term-filtered, so
+  an agent could never walk a document end-to-end — the concrete cause of
+  coverage gaps in whole-document summarization. The new always-on MCP read tool
+  wraps the existing `Document.sentences(limit, after)` field (no schema change):
+  it returns every sentence in `ordinal` order, keyset-paged, so walking `after`
+  cursors to exhaustion covers 100% of the text with no gaps and no keyword
+  flooding. Text is returned **verbatim** (not clipped like KWIC windows —
+  exhaustive delivery is the contract; payload is bounded by `limit`), and each
+  sentence carries `ordinal` + absolute `charStart`/`charEnd` offsets so any
+  excerpt stays citable across slices. A completeness test drives the tool with
+  successive cursors and asserts the walk reconstructs the full ordinal sequence.
+  See `docs/mcp-service.md` §3 for the walk example. (A resource-template form —
+  `docray://document/{id}/sentences/{start}-{end}` — is a future block; this tool
+  closes the gap now and also scales to a multi-document corpus.)
+
 - **Corpus view modes — table, compact, gallery, grouped** (Claude Opus 4.8
   (1M context) via Claude Code) — BL-143. The corpus page shipped as a single
   dense table: one ~156px row per document (cover thumbnail + wrapped title +
