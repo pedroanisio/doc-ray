@@ -56,6 +56,7 @@ try:
         auth_sessions as auth_sessions,
     )
     from webapp.auth_session import (
+        configure_auth_sessions,
         session_cookie_secure,
     )
     from webapp.csrf import csrf_token, require_csrf_token
@@ -79,6 +80,7 @@ except ModuleNotFoundError:  # pragma: no cover - direct ``python webapp/app.py`
         auth_sessions as auth_sessions,
     )
     from auth_session import (
+        configure_auth_sessions,
         session_cookie_secure,
     )
     from csrf import csrf_token, require_csrf_token
@@ -87,6 +89,15 @@ except ModuleNotFoundError:  # pragma: no cover - direct ``python webapp/app.py`
     from security_headers import apply_security_headers
 
 DATABASE_URL = os.environ.get("DATABASE_URL", DEFAULT_DATABASE_URL)
+
+# Select the auth-session backend once, at startup. Default "memory" keeps tests
+# and local runs database-free; the compose webapp service sets
+# DOCRAY_WEBAPP_SESSION_STORE=postgres so a container restart (or a second
+# replica) no longer logs every user out — sessions live in web_auth_sessions.
+configure_auth_sessions(
+    store=os.environ.get("DOCRAY_WEBAPP_SESSION_STORE", "memory"),
+    database_url=DATABASE_URL,
+)
 
 # Row-Level Security enforcement (see db/migrations/018_rbac.sql). The superuser
 # connection BYPASSES RLS by design. To actually enforce document-level access

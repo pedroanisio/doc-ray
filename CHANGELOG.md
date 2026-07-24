@@ -47,6 +47,21 @@ doc-ray carries **one global version** covering both the application package
   annotate-grantee cannot publish a document lent to them. `visibility` is
   exposed on the GraphQL `Document` type; every change is audited (D-030).
 
+### Fixed
+- **Webapp logins no longer wiped on restart — durable Postgres session store**
+  (Claude Opus 4.8 (1M context) via Claude Code). The webapp's per-user login
+  sessions lived in a process-local dict (`InMemoryAuthSessionStore`): the Flask
+  cookie carries only an opaque session id, and the matching server-side record
+  was in memory, so every webapp container restart (and any second replica)
+  logged all users out. `webapp/auth_session.py` is now a swappable-backend
+  proxy; production persists sessions in a new `web_auth_sessions` table
+  (migration 112) via `PostgresAuthSessionStore`, selected by
+  `DOCRAY_WEBAPP_SESSION_STORE` (compose defaults to `postgres`; `memory` keeps
+  the in-process fallback for tests/local single-instance use). Same server-side
+  semantics — logout and TTL expiry still revoke immediately — now durable and
+  replica-safe. **Operator action:** apply migration 112 and set (or accept the
+  compose default of) `DOCRAY_WEBAPP_SESSION_STORE=postgres`.
+
 ## [1.37.0]
 
 ### Added

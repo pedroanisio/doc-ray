@@ -113,7 +113,78 @@ class InMemoryAuthSessionStore:
             self._sessions.clear()
 
 
-auth_sessions = InMemoryAuthSessionStore()
+class _AuthSessionStore:
+    """Facade over a swappable session backend, imported everywhere as ``auth_sessions``.
+
+    Defaults to the in-memory backend so tests and local runs need no database.
+    Production calls :func:`configure_auth_sessions` at startup to swap in the
+    durable Postgres backend *in place* — because every consumer holds a
+    reference to this one facade object, that swap reaches all of them without
+    re-importing. Keeping the boundary here (rather than rebinding the module
+    name) is what makes the fix invisible to ``auth_web``/``graphql_client``.
+    """
+
+    def __init__(self) -> None:
+        """Start on the in-memory backend."""
+        self._backend: Any = InMemoryAuthSessionStore()
+
+    @property
+    def backend(self) -> Any:
+        """The active backend (for tests and diagnostics)."""
+        return self._backend
+
+    def use_backend(self, backend: Any) -> None:
+        """Swap the active backend in place."""
+        self._backend = backend
+
+    def create(
+        self,
+        *,
+        principal_id: str,
+        subject: str,
+        ttl_seconds: int | None = None,
+        bearer_token: str | None = None,
+    ) -> str:
+        """Create a session on the active backend and return its opaque id."""
+        return self._backend.create(
+            principal_id=principal_id,
+            subject=subject,
+            ttl_seconds=ttl_seconds,
+            bearer_token=bearer_token,
+        )
+
+    def get(self, session_id: str | None) -> WebAuthSession | None:
+        """Return the active session from the backend, or None."""
+        return self._backend.get(session_id)
+
+    def revoke(self, session_id: str | None) -> None:
+        """Revoke a session id on the active backend."""
+        self._backend.revoke(session_id)
+
+    def reset(self) -> None:
+        """Clear every session on the active backend."""
+        self._backend.reset()
+
+
+auth_sessions = _AuthSessionStore()
+
+
+def configure_auth_sessions(*, store: str, database_url: str) -> None:
+    """Select the session backend at webapp startup.
+
+    ``store="postgres"`` swaps in the durable :class:`PostgresAuthSessionStore`
+    (survives restarts and scales to multiple replicas); anything else keeps the
+    in-memory backend. Called once from ``webapp/app.py`` with
+    ``DOCRAY_WEBAPP_SESSION_STORE``; the compose default is ``postgres``.
+    """
+    if store.strip().lower() == "postgres":
+        try:
+            from webapp.auth_session_postgres import PostgresAuthSessionStore
+        except ModuleNotFoundError:  # pragma: no cover - direct ``python webapp/app.py`` path.
+            from auth_session_postgres import PostgresAuthSessionStore
+        auth_sessions.use_backend(PostgresAuthSessionStore(database_url))
+    else:
+        auth_sessions.use_backend(InMemoryAuthSessionStore())
 
 
 def web_session_ttl_seconds(environ: Mapping[str, str] | None = None) -> int:
