@@ -19,6 +19,26 @@ doc-ray carries **one global version** covering both the application package
 (`docray_schema_version()`). They are kept in lockstep by
 `scripts/check_version_consistency.py`, which fails the build on any drift.
 
+## [1.39.0]
+
+### Added
+- **Durable NER corrections — Block A (P0)** (Claude Opus 4.8 (1M context) via
+  Claude Code). The verification layer PURPOSE.md mandates ("AI proposes,
+  verification decides") for named-entity recognition: a human (or a reviewing
+  agent under write scope) records a correction — reclassify a type, reject a
+  spurious mention, add a missed entity, or adjust a span boundary — and it
+  *survives re-annotation*. spaCy `entity_mention` rows are ephemeral
+  (`ON DELETE CASCADE` from `annotations`, rebuilt by every `reannotate`), so a
+  fix written there would vanish; instead a correction is keyed by a stable span
+  identity `(document_id, char_start, char_end)` in the new
+  `entity_mention_correction` table (migration 115, RLS-scoped to the document's
+  writable set), and the pure, deterministic `doc_ray.domain.ner_corrections.reconcile()`
+  re-applies the correction log onto each fresh set of ML mentions. Corrections
+  record the reviewer and the original ML value, so every fix is attributable
+  and reversible. Design: `docs/proposals/entity-fabric-substrate-lens-projection.md`.
+  *This release ships the domain core + substrate (schema, RLS, persistence);
+  the GraphQL/MCP write surfaces are the following slice.*
+
 ## [1.38.0]
 
 ### Added
