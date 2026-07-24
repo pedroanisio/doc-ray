@@ -1,6 +1,6 @@
 # doc-ray — Database ERD & Data Dictionary
 
-**Schema version `1.27.0`** (SemVer) · 116 migrations applied
+**Schema version `1.39.0`** (SemVer) · 117 migrations applied
 
 > Generated from the live schema by `scripts/gen_data_dictionary.py`. Do not edit by hand — re-run the generator.
 
@@ -2197,3 +2197,4 @@ owner's bypass.
 | 114 | `114_rls_helper_bypass_owner.sql` | SECURITY DEFINER RLS helpers run with BYPASSRLS (BL-142) |
 | 115 | `115_ner_corrections.sql` | durable human NER corrections keyed by a stable span (Block A) |
 | 116 | `116_schema_version_1_39_0.sql` | advance the schema SemVer to 1.39.0 |
+| 117 | `117_form_index_client_read.sql` | grant docray_client SELECT on form_index (BL-146 fix) |

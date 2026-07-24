@@ -153,6 +153,25 @@ doc-ray carries **one global version** covering both the application package
   inventory — four shipped tools whose GraphQL nobody was checking. Both gaps are
   closed. `persistence_read_structure.py` was also added to the D-024 scan set.
 
+### Fixed
+- **`entity_profiles` was dead for every real caller — `form_index` never granted
+  to `docray_client` (BL-147)** (Claude Opus 4.8 (1M context) via Claude Code).
+  BL-146's `entityProfiles` joins `form_index` → `canonical` to report whether an
+  entity is registry-backed. The API and webapp run as `docray_api`, which
+  inherits `docray_client` (migration 030); migration 097 added `canonical` to
+  that role's SELECT allowlist when the entity overlay needed it, but
+  `form_index` — its sibling from the same layer — was never added. Every
+  `entityProfiles` / `entity_profiles` call therefore raised
+  `InsufficientPrivilege: permission denied for table form_index` in production
+  while the entire suite stayed green. Migration `117` grants it (grant-only, no
+  schema-version change, mirroring 097's reasoning). The durable fix is the
+  accompanying invariant test: it asserts `docray_client` can SELECT **every**
+  table the structure read path touches, so it fails on the grant itself rather
+  than depending on fixture data. Root cause is the recurring one here — the read
+  path was verified as a privileged role (`docray_batch`, which holds
+  `BYPASSRLS`), and the behavioural tests could not reach the join because
+  `entity_profiles` returns early when there are no profiles to enrich.
+
 ### Changed
 - **`response_format: "concise" | "detailed"` on the bulk readers (BL-146)**
   (Claude Opus 4.8 (1M context) via Claude Code). `read_document_sentences` and

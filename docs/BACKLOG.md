@@ -513,6 +513,7 @@ against.
 | BL-144 | MCP tests order-dependent: tests patch httpx.AsyncClient, so a lazy mcp streamable_http import inside a patched test dies on `X or None` annotation eval | testing | bug | done | S | high | shared |
 | BL-145 | MCP layer is not self-teaching: no server instructions, no search coverage signal, opaque cursor rejections, thin tool descriptions | api | feature | done | M | high | shared |
 | BL-146 | MCP reach and honesty gaps: no document map, raw NER type-splits, no token lever on the bulk readers | api | feature | done | L | high | shared |
+| BL-147 | entity_profiles was dead for every real caller: form_index never granted to docray_client | api | bug | done | XS | high | shared |
 
 See [`backlog.yml`](backlog.yml) for each item's full description, rationale,
 acceptance criteria, dependencies, related decisions (`D-###`), and references.

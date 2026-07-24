@@ -191,6 +191,51 @@ def test_max_entries_is_respected_and_clamped(pg):
     asyncio.run(check())
 
 
+#: Every table the structure read path touches. The API and webapp connect as
+#: ``docray_api``, which inherits ``docray_client`` (migration 030), so a table
+#: missing from ``docray_client``'s SELECT allowlist makes the read path fail at
+#: runtime with InsufficientPrivilege — while every test that seeds its own data
+#: as the owning role passes happily.
+_STRUCTURE_READ_TABLES = (
+    "documents",
+    "document_stats",
+    "document_content",
+    "sentences",
+    "spans",
+    "entity_frequency_stats",
+    "entity_mention",
+    "annotations",
+    "canonical",
+    "form_index",
+)
+
+
+def test_docray_client_can_select_every_table_the_structure_reads(pg):
+    # Regression, found in production after BL-146 shipped: entity_profiles joins
+    # form_index -> canonical to resolve registry-backed identities. Migration 097
+    # granted canonical to docray_client when the entity overlay needed it, but
+    # form_index was never added, so every API/MCP call raised
+    # "permission denied for table form_index".
+    #
+    # The behavioural tests could not catch it: entity_profiles returns early when
+    # reconcile() yields no profiles, so the form_index query never executes on an
+    # empty fixture — and against the live corpus it was verified as docray_batch,
+    # which holds BYPASSRLS. This asserts the grant itself, which is data- and
+    # role-independent, and would have failed on the first run.
+    conn, _ = pg
+    missing = [
+        table
+        for table in _STRUCTURE_READ_TABLES
+        if not conn.execute(
+            "SELECT has_table_privilege('docray_client', %s, 'SELECT')", (table,)
+        ).fetchone()["has_table_privilege"]
+    ]
+    assert not missing, (
+        "docray_client (inherited by docray_api) cannot SELECT these tables, so the "
+        f"structure read path 500s for every real caller: {missing}"
+    )
+
+
 def test_entity_profiles_read_end_to_end_and_report_unresolved_honestly(pg):
     doc_id = _seed(pg, _NO_HEADINGS)
 

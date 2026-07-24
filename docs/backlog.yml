@@ -110,7 +110,7 @@ metadata:
   generated_by:     "Claude Sonnet 5 via Claude Code (merge of Claude Opus 4.8 backlog + OpenAI Codex improvement-proposal candidates)"
   generated_on:     "2026-07-05"
   system_of_record: "docs/backlog.yml"
-  total_items:      146
+  total_items:      147
 
 items:
 
@@ -4943,3 +4943,39 @@ items:
     owner:        "shared"
     source:       "P1 of docs/proposals/mcp-layer-improvements.md, implemented test-first and verified against the live corpus (Claude Opus 4.8 (1M context) via Claude Code)."
     tags:         ["api", "mcp", "agent-experience", "retrieval", "ner", "feature"]
+
+  - id:          "BL-147"
+    title:        "entity_profiles was dead for every real caller: form_index never granted to docray_client"
+    summary:      "BL-146's entity_profiles joins form_index -> canonical to report registry backing. The API and webapp run as docray_api, which inherits docray_client; migration 097 had added canonical to that role's SELECT allowlist but form_index was never added, so every entityProfiles/entity_profiles call raised InsufficientPrivilege in production while the whole test suite stayed green."
+    description: |
+      Root cause is the recurring one in this codebase: a read path verified as a
+      privileged role. The DB integration tests seed and read as the owning role,
+      and the live verification during BL-146 ran with `SET ROLE docray_batch`,
+      which holds BYPASSRLS — neither exercises docray_client's SELECT allowlist.
+      The behavioural tests could not have caught it either: entity_profiles
+      returns early when reconcile() yields no profiles, so on an empty fixture
+      the form_index query never executes at all.
+      Fixed by migration 117 (grant-only, no schema-version change, mirroring
+      migration 097's argument for canonical) and by a data-independent invariant
+      test that asserts docray_client can SELECT every table the structure read
+      path touches. The invariant is the durable part: it fails on the grant
+      itself, so it does not depend on fixture data or on which role the test
+      happens to run as.
+    category:     "api"
+    type:         "bug"
+    status:       "done"
+    complexity:   "XS"
+    priority:     "high"
+    rationale:    "A read surface that 500s for every real caller while the suite is green is the exact failure class that has bitten this project repeatedly (the jobs policy and the SECURITY DEFINER recursion both reached production the same way). The fix is one grant; the value is the invariant that makes the next one impossible to ship."
+    acceptance_criteria:
+      - "docray_client can SELECT every table the structure read path reads."
+      - "A test asserts the grants directly, independent of fixture data."
+      - "entityProfiles returns rows for a normal API caller."
+    dependencies: ["BL-146"]
+    references:
+      - "db/migrations/117_form_index_client_read.sql"
+      - "src/doc_ray/tests/test_read_structure_db.py"
+      - "src/doc_ray/adapters/persistence_read_structure.py"
+    owner:        "shared"
+    source:       "Found in production review after BL-146 shipped (GitHub issue #15); fixed with a red-first invariant test (Claude Opus 4.8 (1M context) via Claude Code)."
+    tags:         ["api", "rls", "grants", "bug", "mcp"]

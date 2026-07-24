@@ -282,6 +282,7 @@ MIGRATIONS = [
     ("114_rls_helper_bypass_owner", "SECURITY DEFINER RLS helpers run with BYPASSRLS (BL-142)"),
     ("115_ner_corrections", "durable human NER corrections keyed by a stable span (Block A)"),
     ("116_schema_version_1_39_0", "advance the schema SemVer to 1.39.0"),
+    ("117_form_index_client_read", "grant docray_client SELECT on form_index (BL-146 fix)"),
 ]
 
 # ---------------------------------------------------------------------------
