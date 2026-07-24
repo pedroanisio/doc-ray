@@ -120,6 +120,7 @@ def test_ingest_document_upload_mutation(pg):
         )
         try:
             await aconn.execute("CREATE TEMP TABLE jobs (LIKE public.jobs INCLUDING ALL)")
+            await aconn.execute("GRANT ALL PRIVILEGES ON jobs TO docray_batch")
             ctx = RequestContext(conn=aconn, principal=WRITE_PRINCIPAL, loaders=Loaders(aconn))
             r = await schema.execute(
                 'mutation($f: Upload!){ ingestDocument(file: $f, title: "itup") { kind status } }',
@@ -167,6 +168,7 @@ def test_ingest_document_upload_mutation_pipeline_false_skips_chain(pg):
         )
         try:
             await aconn.execute("CREATE TEMP TABLE jobs (LIKE public.jobs INCLUDING ALL)")
+            await aconn.execute("GRANT ALL PRIVILEGES ON jobs TO docray_batch")
             ctx = RequestContext(
                 conn=aconn,
                 principal=WRITE_PRINCIPAL,

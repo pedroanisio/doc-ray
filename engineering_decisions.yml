@@ -213,6 +213,21 @@ decisions:
             pattern:     'FOR UPDATE SKIP LOCKED'
             expect:
               present:   true
+      - claim_id:    "D-004.k2"
+        claim_text:  "The queue is trusted infrastructure: the async API enqueue runs the job INSERT as the trusted writer docray_batch (not the request's RLS role), because authorization happens at the API mutation boundary and a document-less ingest job could never satisfy a document-keyed jobs INSERT policy (BL-141). jobs RLS governs read visibility only; there is no user-facing INSERT policy."
+        auditable:   true
+        status:      "populated"
+        declared_checks_count: 1
+        checks:
+          - check_id:    "D-004.k2.c1"
+            description: "enqueue_async elevates to the trusted batch writer for the INSERT."
+            check_kind:  "grep"
+            severity:    "error"
+            context:     "workspace"
+            path:        "src/doc_ray/adapters/queue_postgres.py"
+            pattern:     'SET LOCAL ROLE'
+            expect:
+              present:   true
 
   - id:                 "D-005"
     title:              "Sync worker for blocking work; async only for API reads"

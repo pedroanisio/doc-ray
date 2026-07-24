@@ -151,6 +151,29 @@ def ensure_admin_principal(conn, principal_id: str, display_name: str) -> None:
     )
 
 
+def ensure_member_principal(conn, principal_id: str, display_name: str) -> None:
+    """Idempotently give a fixed test principal_id the (non-admin) ``member`` role.
+
+    The mirror of :func:`ensure_admin_principal` for the self-registered user the
+    ownership model (migrations 102/104) is built around: ``member`` carries
+    read+annotate+delete but NOT ``admin``, so ``docray_is_admin()`` is false for
+    it. Uploading is a member capability, so a member must be able to enqueue an
+    ingest job even though that job is document-less at enqueue time — the exact
+    path the ``jobs`` trusted-writer model exists to serve.
+    """
+    conn.execute(
+        "INSERT INTO principals (id, kind, display_name) VALUES (%s, 'human', %s) "
+        "ON CONFLICT DO NOTHING",
+        (principal_id, display_name),
+    )
+    member_role_id = conn.execute("SELECT id FROM roles WHERE name = 'member'").fetchone()["id"]
+    conn.execute(
+        "INSERT INTO principal_roles (principal_id, role_id) VALUES (%s, %s) "
+        "ON CONFLICT DO NOTHING",
+        (principal_id, member_role_id),
+    )
+
+
 def make_annotation(conn, doc_id: str, layer: str, tool: str, version: str | None = None) -> str:
     aid = new_ulid_str()
     conn.execute(

@@ -110,7 +110,7 @@ metadata:
   generated_by:     "Claude Sonnet 5 via Claude Code (merge of Claude Opus 4.8 backlog + OpenAI Codex improvement-proposal candidates)"
   generated_on:     "2026-07-05"
   system_of_record: "docs/backlog.yml"
-  total_items:      140
+  total_items:      142
 
 items:
 
@@ -4674,7 +4674,7 @@ items:
       test_operator_health_pills_and_pos_chips_expose_accessible_definitions.
     category:     "testing"
     type:         "bug"
-    status:       "ready"
+    status:       "done"
     complexity:   "M"
     priority:     "high"
     rationale:    "A gate that is red on main stops gating (BL-129/BL-136/BL-137's rationale, verbatim): every landing that runs the webapp suite learns to read past 16 failures, and family 2 means the reader and lexicon surfaces have no effective regression cover at all — a real break there would land silently."
@@ -4688,5 +4688,93 @@ items:
       - "webapp/templates/help.html"
       - "webapp/templates/landing.html"
     owner:        "shared"
-    source:       "Landing checklist for the /corpus header compaction, 2026-07-23 (Claude Opus 4.8 via Claude Code): baseline run in a detached HEAD worktree reports the same 16 failures as the working tree, isolating them from uncommitted work."
+    source:       "Landing checklist for the /corpus header compaction, 2026-07-23 (Claude Opus 4.8 via Claude Code): baseline run in a detached HEAD worktree reports the same 16 failures as the working tree, isolating them from uncommitted work. Fixed 2026-07-24 (Claude Opus 4.8 via Claude Code): stub drift re-derived from the current app SQL (lexeme_stats/document_stats rollups per migration 098; spans-first JOIN reads), copy assertions repointed at current templates, and a regression guard (test_reader_and_lexicon_stubs_cover_the_apps_data_queries) added that fails loudly on any unhandled live data query. pytest tests/test_webapp.py: 157 passed, 0 failed; no production code changed."
     tags:         ["testing", "gates", "webapp", "bug"]
+
+  - id:          "BL-141"
+    title:        "jobs RLS INSERT policy rejects non-admin member uploads (document-less ingest job)"
+    summary:      "Every non-admin `member` upload failed on production with `new row violates row-level security policy for table \"jobs\"`. The jobs INSERT policy p_ins (migration 043) gated a document-less job behind docray_is_admin(), but an upload's ingest job is document-less at enqueue time and, under the ownership model (1.34.0), is enqueued by a non-admin member. Fixed by moving enqueue to the trusted writer and demoting jobs RLS to read-only."
+    description: |
+      ROOT CAUSE. p_ins (043) allowed a document_id IS NULL job only for admins,
+      on the assumption that "no document_id" meant "corpus-wide backup/restore".
+      An upload's KIND_INGEST job is also document-less at enqueue time — the
+      document does not exist until the worker creates it from the bytes — and is
+      enqueued by a non-admin member. No document_id-keyed policy could ever admit
+      it (a brand-new row's id is never in docray_writable_documents(); the same
+      wall migration 106 documents for the writer).
+
+      FIX (how mature systems treat an async queue). Authorization happens once,
+      at the API boundary (mutation_guards: write scope, per-document ACL, or
+      admin); the enqueue then runs as the trusted writer docray_batch
+      (queue_postgres.enqueue_async elevates the RLS-bound request connection with
+      SET LOCAL ROLE). Migration 113 drops the user-facing jobs INSERT policy
+      entirely — with FORCE RLS that leaves docray_batch as the only enqueuer —
+      and RLS on jobs governs READ visibility only. A new jobs.enqueued_by column
+      records the acting principal so a member sees the jobs they enqueued,
+      including their document-less ingest, without seeing anyone else's.
+    category:     "security"
+    type:         "bug"
+    status:       "done"
+    complexity:   "M"
+    priority:     "high"
+    rationale:    "The ownership model (102/104) made member uploads a first-class capability, but the jobs INSERT policy (043) predates it and blocked every non-admin upload — the product's core member action was broken on production. Fixing it at the queue layer (trusted-writer enqueue + read-only jobs RLS) removes the whole class rather than carving another per-kind exception into the policy."
+    acceptance_criteria:
+      - "A non-admin member can upload: the ingestDocument mutation enqueues a document-less job without an RLS violation."
+      - "The jobs table has no user-facing INSERT policy; only docray_batch (BYPASSRLS) enqueues."
+      - "A member sees jobs they enqueued (jobs.enqueued_by) and jobs on documents they can read, and no others."
+      - "enqueue_async restores the request role after the LOCAL elevation (no docray_batch leak into RLS-bound reads)."
+    dependencies: ["BL-064", "BL-138"]
+    references:
+      - "db/migrations/113_jobs_trusted_writer_enqueue.sql"
+      - "src/doc_ray/adapters/queue_postgres.py"
+      - "src/doc_ray/entrypoints/api/mutation_guards.py"
+      - "src/doc_ray/tests/test_jobs_trusted_writer.py"
+    related_decisions: ["D-004", "D-005"]
+    owner:        "shared"
+    source:       "Production error reported 2026-07-24 (member upload rejected); fixed via TDD (Claude Opus 4.8 (1M context) via Claude Code)."
+    tags:         ["security", "rls", "jobs", "queue", "ownership", "bug"]
+
+  - id:          "BL-142"
+    title:        "Member corpus 500s: SECURITY DEFINER RLS helpers recurse on managed Postgres; documents.html formats a None n_sentences"
+    summary:      "A non-admin member browsing /corpus got a 500 stack-depth crash: docray_readable_documents() and its siblings are SECURITY DEFINER functions that read FROM documents, and under FORCE ROW LEVEL SECURITY (migration 106) their body re-enters the documents policy, which calls them again — unbounded recursion, but only for non-admin callers and only when the function owner is a non-superuser (managed Postgres docray), which is why the superuser-owned test DB never reproduced it. A second, independent 500 came from documents.html formatting a None n_sentences."
+    description: |
+      TWO bugs surfaced together when production advanced to 1.38.0 and members
+      began reading their own corpora.
+
+      1. RLS helper recursion (migration 114 fixes it). The org-corpus/sharing
+         migrations (108/110) (re)defined docray_readable_documents,
+         docray_writable_documents, docray_can_share_document and the stats
+         refreshers as SECURITY DEFINER functions that read forced-RLS tables.
+         Owned by the non-superuser docray, their bodies are subject to the very
+         policies that call them -> infinite recursion for non-admin callers.
+         Fix: reassign every such helper to the BYPASSRLS batch writer
+         docray_batch (they are meant to see all rows anyway). A dynamic sweep +
+         a RAISE guard make the invariant enforceable; test_forced_rls.py adds a
+         self-contained reproduction and a schema-level invariant test.
+         Operator step on managed Postgres: GRANT CREATE ON SCHEMA public TO
+         docray_batch as the cluster superuser (docray is not the schema owner).
+
+      2. Template None-format. documents.html rendered "{:,}".format(d.n_sentences)
+         with no `or 0` guard (unlike the char_count cell above it), so a document
+         lacking a document_stats rollup row (n_sentences NULL) 500'd. Fixed with
+         the same `or 0` guard; test_webapp.py adds a regression test.
+    category:     "security"
+    type:         "bug"
+    status:       "done"
+    complexity:   "M"
+    priority:     "high"
+    rationale:    "Both were live production 500s on the core member read path, exposed by the FORCE-RLS hardening (BL-138) meeting the ownership model on managed Postgres. The recursion is the same managed-vs-superuser class as BL-064's role checks and migration 106's BYPASSRLS step: a latent defect the superuser-owned CI database structurally cannot catch, so the fix ships with a schema invariant that can."
+    acceptance_criteria:
+      - "A non-admin member can read /corpus and their documents without a stack-depth 500."
+      - "No SECURITY DEFINER function that reads a forced-RLS table is owned by a non-BYPASSRLS role (migration 114 guard + test_forced_rls invariant test)."
+      - "A document with a NULL n_sentences renders as 0, not a 500."
+    dependencies: ["BL-138", "BL-141"]
+    references:
+      - "db/migrations/114_rls_helper_bypass_owner.sql"
+      - "src/doc_ray/tests/test_forced_rls.py"
+      - "webapp/templates/documents.html"
+      - "tests/test_webapp.py"
+    related_decisions: ["D-010"]
+    owner:        "shared"
+    source:       "Production 500s reported 2026-07-24 during the 1.38.0 rollout; fixed and regression-tested (Claude Opus 4.8 (1M context) via Claude Code)."
+    tags:         ["security", "rls", "recursion", "managed-postgres", "webapp", "bug"]

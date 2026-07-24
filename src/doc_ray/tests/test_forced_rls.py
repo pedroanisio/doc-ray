@@ -21,8 +21,31 @@ from __future__ import annotations
 import uuid
 from pathlib import Path
 
+import psycopg
+import pytest
+
 _ROOT = Path(__file__).resolve().parents[3]
 _MIGRATION = _ROOT / "db" / "migrations" / "106_force_rls.sql"
+
+# A SECURITY DEFINER function that reads a forced-RLS table must be owned by a
+# BYPASSRLS role, or its body re-enters the table's policy and recurses to a
+# stack-depth crash — but only for a non-admin caller and only when the owner
+# is not a superuser, which is why the managed-Postgres outage (BL-142) never
+# reproduced on the superuser-owned test DB. This query is the invariant, shared
+# by migration 114's guard.
+_NON_BYPASS_SECDEF_HELPERS = """
+    SELECT p.oid::regprocedure::text AS sig, r.rolname AS owner
+      FROM pg_proc p
+      JOIN pg_roles r ON r.oid = p.proowner
+     WHERE p.prosecdef
+       AND p.pronamespace = 'public'::regnamespace
+       AND NOT r.rolbypassrls
+       AND EXISTS (
+            SELECT 1 FROM pg_class c
+             WHERE c.relkind = 'r' AND c.relrowsecurity AND c.relforcerowsecurity
+               AND c.relnamespace = 'public'::regnamespace
+               AND pg_get_functiondef(p.oid) ~ ('\\y' || c.relname || '\\y'))
+"""
 
 
 def test_migration_106_forces_rls_and_refuses_to_run_without_the_batch_writer() -> None:
@@ -169,4 +192,69 @@ def test_the_batch_writer_may_refresh_the_tenant_rollups(pg) -> None:
         assert row is not None and row["n_distinct_lexemes"] == 1
     finally:
         conn.execute("RESET ROLE")
+        conn.execute("SET ROLE docray_batch")
+
+
+def test_no_security_definer_helper_that_reads_a_forced_rls_table_lacks_bypass(pg) -> None:
+    """Schema invariant (BL-142): every SECURITY DEFINER helper reading a forced-RLS
+    table is BYPASSRLS-owned. This is the guard that was missing when the org-corpus
+    helpers (migrations 108/110) shipped owned by the non-superuser `docray`, which
+    on managed Postgres recursed to a stack-depth 500 on every non-admin corpus read.
+    Migration 114 makes it true; this keeps it true as new helpers are added.
+    """
+    conn, _created = pg
+    conn.execute("RESET ROLE")
+    offenders = conn.execute(_NON_BYPASS_SECDEF_HELPERS).fetchall()
+    conn.execute("SET ROLE docray_batch")
+    assert offenders == [], (
+        "SECURITY DEFINER helpers that read a forced-RLS table must be owned by a "
+        f"BYPASSRLS role or they recurse under FORCE RLS: {[dict(r) for r in offenders]}"
+    )
+
+
+def test_a_secdef_policy_helper_without_bypass_recurses_and_bypass_fixes_it(pg) -> None:
+    """The outage mechanism, reproduced self-contained on the test DB.
+
+    The superuser-owned test DB cannot trigger the bug naturally (its owner
+    bypasses RLS), so this builds the managed condition from scratch: a forced-RLS
+    table whose SELECT policy calls a SECURITY DEFINER helper that reads the same
+    table. Owned by a NON-BYPASSRLS role the read recurses (stack depth); handing
+    the helper a BYPASSRLS owner — migration 114's fix — breaks the loop.
+    """
+    conn, _created = pg
+    conn.execute("RESET ROLE")
+    tag = uuid.uuid4().hex[:10]
+    probe, tbl, fn = f"probe_{tag}", f"rls_probe_{tag}", f"readable_{tag}"
+    try:
+        conn.execute(f"CREATE ROLE {probe} NOLOGIN NOBYPASSRLS")
+        conn.execute(f"GRANT CREATE, USAGE ON SCHEMA public TO {probe}")
+        conn.execute(f"CREATE TABLE {tbl} (id int PRIMARY KEY)")
+        conn.execute(f"INSERT INTO {tbl} VALUES (1)")
+        conn.execute(f"GRANT SELECT ON {tbl} TO {probe}, docray_api, docray_batch")
+        conn.execute(
+            f"CREATE FUNCTION {fn}() RETURNS SETOF int LANGUAGE sql STABLE "
+            f"SECURITY DEFINER AS 'SELECT id FROM {tbl}'"
+        )
+        conn.execute(f"GRANT EXECUTE ON FUNCTION {fn}() TO docray_api")
+        conn.execute(f"ALTER TABLE {tbl} ENABLE ROW LEVEL SECURITY")
+        conn.execute(f"ALTER TABLE {tbl} FORCE ROW LEVEL SECURITY")
+        conn.execute(f"CREATE POLICY p ON {tbl} FOR SELECT USING (id IN (SELECT {fn}()))")
+
+        # 1) Non-BYPASSRLS owner → the helper's own read re-enters the policy → recursion.
+        conn.execute(f"ALTER FUNCTION {fn}() OWNER TO {probe}")
+        conn.execute("SET ROLE docray_api")
+        with pytest.raises(psycopg.errors.StatementTooComplex):  # "stack depth limit exceeded"
+            conn.execute(f"SELECT id FROM {tbl}").fetchall()
+        conn.execute("RESET ROLE")
+
+        # 2) BYPASSRLS owner (the fix) → the helper's read skips the policy → no loop.
+        conn.execute(f"ALTER FUNCTION {fn}() OWNER TO docray_batch")
+        conn.execute("SET ROLE docray_api")
+        assert conn.execute(f"SELECT id FROM {tbl}").fetchall() == [{"id": 1}]
+    finally:
+        conn.execute("RESET ROLE")
+        conn.execute(f"DROP TABLE IF EXISTS {tbl} CASCADE")
+        conn.execute(f"DROP FUNCTION IF EXISTS {fn}() CASCADE")
+        conn.execute(f"REVOKE ALL ON SCHEMA public FROM {probe}")
+        conn.execute(f"DROP ROLE IF EXISTS {probe}")
         conn.execute("SET ROLE docray_batch")

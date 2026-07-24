@@ -258,11 +258,19 @@ owner-or-admin authority in the database — so `docray_client` needs no `UPDATE
 grant on `documents` and an annotate-grantee cannot publish a document lent to
 them.
 
-Note that corpus writes do not need table-level DML grants: `docray_client` holds
-`SELECT` on the corpus tables and `INSERT`/`UPDATE` on `jobs`, so a mutation
-*enqueues* work that the trusted batch writer executes. Authorization therefore
-happens at enqueue time, under the caller's principal, which is why both gates
-above live in the mutation layer.
+Note that corpus writes do not need table-level DML grants: a mutation *enqueues*
+work that the trusted batch writer executes. The jobs queue is trusted
+infrastructure, not a user-writable table. Authorization happens once, at the API
+boundary — the mutation guards check write scope, per-document ACL, or admin under
+the caller's principal — and the enqueue itself runs as `docray_batch`, elevated
+`LOCAL` to the insert. So `jobs` needs no user-facing `INSERT` policy at all: with
+`FORCE ROW LEVEL SECURITY` that denies every non-bypass role, and only the trusted
+writer enqueues. This is deliberate, not incidental — an upload's ingest job is
+document-less at enqueue time (the document does not exist until the worker creates
+it), so no `document_id`-keyed policy could ever admit it. RLS on `jobs` therefore
+governs **read** visibility only: a caller sees the jobs they enqueued (`enqueued_by`)
+or those on a document they can read. Both write gates above live in the mutation
+layer for exactly this reason (BL-141).
 
 ## Deployment guardrails
 

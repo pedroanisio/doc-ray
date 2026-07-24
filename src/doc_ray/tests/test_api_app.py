@@ -225,6 +225,7 @@ async def _isolated_write_conn() -> psycopg.AsyncConnection:
         _itdb.DB_URL, row_factory=dict_row, autocommit=True
     )
     await aconn.execute("CREATE TEMP TABLE jobs (LIKE public.jobs INCLUDING ALL)")
+    await aconn.execute("GRANT ALL PRIVILEGES ON jobs TO docray_batch")
     await aconn.execute("GRANT SELECT, INSERT ON jobs TO docray_client; SET ROLE docray_api")
     await aconn.execute(
         "SELECT set_config('app.principal_id', %s, false)", (WRITE_PRINCIPAL.principal_id,)

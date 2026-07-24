@@ -30,9 +30,16 @@ from doc_ray.domain.jobs import Job, JobStatus
 from doc_ray.domain.ulid import new_ulid_str
 
 _INSERT = (
-    "INSERT INTO jobs (id, kind, status, priority, payload, max_attempts, document_id) "
-    "VALUES (%s, %s, 'queued', %s, %s, %s, %s)"
+    "INSERT INTO jobs (id, kind, status, priority, payload, max_attempts, document_id, "
+    "enqueued_by) VALUES (%s, %s, 'queued', %s, %s, %s, %s, %s)"
 )
+
+#: The trusted batch-writer role the RLS policies exempt (migration 106). Job
+#: creation is infrastructure authorized at the API boundary, not a user-facing
+#: write, so the async (API) enqueue elevates the request's RLS-bound connection
+#: to this role for the INSERT. The sync :func:`enqueue` needs no switch: its
+#: callers (the worker, CLIs) already connect as this identity.
+_BATCH_WRITER_ROLE = "docray_batch"
 
 _CLAIM = """
 WITH picked AS (
@@ -124,11 +131,19 @@ def enqueue(
     priority: int = 100,
     max_attempts: int = 3,
     document_id: str | None = None,
+    enqueued_by: str | None = None,
 ) -> str:
-    """Insert a queued job (sync) and return its new id."""
+    """Insert a queued job (sync) and return its new id.
+
+    ``enqueued_by`` records the principal a job acts for so the ``jobs`` read
+    policy can show a caller their own jobs; the worker/CLI leave it ``None``
+    (system-initiated work with no request principal).
+    """
     job_id = new_ulid_str()
     payload = payload_with_request_metadata(payload)
-    conn.execute(_INSERT, (job_id, kind, priority, Jsonb(payload), max_attempts, document_id))
+    conn.execute(
+        _INSERT, (job_id, kind, priority, Jsonb(payload), max_attempts, document_id, enqueued_by)
+    )
     _notify_job_event(
         conn,
         {
@@ -152,23 +167,45 @@ async def enqueue_async(
     priority: int = 100,
     max_attempts: int = 3,
     document_id: str | None = None,
+    enqueued_by: str | None = None,
 ) -> str:
-    """Insert a queued job (async, for the API) and return its new id."""
+    """Insert a queued job (async, for the API) and return its new id.
+
+    ARCHITECTURE — the queue is trusted infrastructure, not a user-writable table.
+    An API request runs on a connection bound to the RLS role ``docray_api`` so a
+    resolver's *reads* are scoped to the caller. Job creation, though, is already
+    authorized at the API boundary (``mutation_guards``: write scope, per-document
+    ACL, or admin) and must not be re-litigated by the ``jobs`` table's RLS. It
+    cannot be, in fact: an ingest job is document-less at enqueue time, so no
+    ``document_id``-keyed policy could ever admit it — the same "a brand-new row's
+    id is never in the writable set" wall migration 106 documents for the writer.
+
+    So the INSERT runs as the trusted writer ``docray_batch`` (the identity the
+    worker uses), elevated with ``SET LOCAL ROLE`` inside a transaction so it
+    reverts the instant the insert commits and never leaks into the request's
+    RLS-bound reads. The enclosing role must be able to assume it: in production
+    the pool logs in as ``docray``, a member of ``docray_batch`` (migration 106).
+    """
     job_id = new_ulid_str()
     payload = payload_with_request_metadata(payload)
-    await conn.execute(_INSERT, (job_id, kind, priority, Jsonb(payload), max_attempts, document_id))
-    await _notify_job_event_async(
-        conn,
-        {
-            "id": job_id,
-            "kind": kind,
-            "status": JobStatus.QUEUED.value,
-            "document_id": document_id,
-            "progress_current": None,
-            "progress_total": None,
-            "progress_stage": None,
-        },
-    )
+    async with conn.transaction():
+        await conn.execute(f"SET LOCAL ROLE {_BATCH_WRITER_ROLE}")
+        await conn.execute(
+            _INSERT,
+            (job_id, kind, priority, Jsonb(payload), max_attempts, document_id, enqueued_by),
+        )
+        await _notify_job_event_async(
+            conn,
+            {
+                "id": job_id,
+                "kind": kind,
+                "status": JobStatus.QUEUED.value,
+                "document_id": document_id,
+                "progress_current": None,
+                "progress_total": None,
+                "progress_stage": None,
+            },
+        )
     return job_id
 
 

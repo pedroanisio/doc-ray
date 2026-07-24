@@ -48,6 +48,44 @@ doc-ray carries **one global version** covering both the application package
   exposed on the GraphQL `Document` type; every change is audited (D-030).
 
 ### Fixed
+- **Member corpus reads no longer 500 — SECURITY DEFINER RLS helpers run with
+  BYPASSRLS** (Claude Opus 4.8 (1M context) via Claude Code) — BL-142. A
+  non-admin member browsing `/corpus` hit a `stack depth limit exceeded` crash:
+  `docray_readable_documents()` and its siblings are SECURITY DEFINER functions
+  that read `FROM documents`, and under FORCE RLS (1.36.0) their body re-enters
+  the documents policy — which calls them again — recursing without bound. It
+  only bites a non-admin caller (admins short-circuit on `docray_is_admin()`) and
+  only when the function owner is a non-superuser, which is exactly why the
+  superuser-owned CI database never reproduced it — the same managed-vs-superuser
+  gap as migrations 032/106. Migration 114 reassigns every SECURITY DEFINER
+  helper that reads a forced-RLS table to the BYPASSRLS batch writer
+  `docray_batch` (they compute access decisions / corpus-wide stats, so they are
+  meant to see all rows), with a dynamic sweep and a RAISE guard that makes the
+  invariant enforceable. A separate 500 in `documents.html` — `"{:,}".format`
+  on a `None` `n_sentences` — is fixed with the same `or 0` guard the row above
+  it already used. Both land regression tests (`test_forced_rls.py` reproduces
+  the recursion self-contained and asserts the schema invariant; `test_webapp.py`
+  covers the None render).
+- **Member uploads no longer rejected by row-level security — the jobs queue is
+  trusted infrastructure** (Claude Opus 4.8 (1M context) via Claude Code) —
+  BL-141. Every non-admin `member` upload failed with `new row violates
+  row-level security policy for table "jobs"`. The `jobs` INSERT policy (043)
+  gated a document-less job behind `docray_is_admin()`, on the assumption that
+  "no document_id" meant "corpus-wide backup/restore" — but an *upload's* ingest
+  job is also document-less at enqueue time (the document does not exist until
+  the worker creates it), and under the ownership model (1.34.0) it is enqueued
+  by a non-admin member. No `document_id`-keyed policy could ever admit it (a
+  brand-new row's id is never in the writable set — the wall migration 106
+  documents). The fix adopts how mature systems treat an async queue:
+  authorization happens once, at the API boundary (`mutation_guards`), and the
+  enqueue runs as the trusted writer `docray_batch` (`enqueue_async` elevates
+  with `SET LOCAL ROLE`). The queue table is not a user-facing resource, so
+  migration 113 drops the user-facing INSERT policy entirely — with FORCE RLS
+  that leaves the trusted writer as the only enqueuer — and RLS on `jobs` now
+  governs **read visibility only**: a new `jobs.enqueued_by` records the acting
+  principal so a member sees the jobs they enqueued (including their document-
+  less ingest) without seeing anyone else's. Regression coverage lands the
+  production error as a failing test in `test_jobs_trusted_writer.py`.
 - **Webapp logins no longer wiped on restart — durable Postgres session store**
   (Claude Opus 4.8 (1M context) via Claude Code). The webapp's per-user login
   sessions lived in a process-local dict (`InMemoryAuthSessionStore`): the Flask

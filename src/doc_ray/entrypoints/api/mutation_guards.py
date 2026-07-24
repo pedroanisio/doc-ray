@@ -86,9 +86,7 @@ async def _require_write_audited(ctx: RequestContext, *, action: str) -> None:
             raise PermissionError(str(exc)) from exc
 
 
-async def _require_document_share(
-    ctx: RequestContext, document_id: str, *, action: str
-) -> None:
+async def _require_document_share(ctx: RequestContext, document_id: str, *, action: str) -> None:
     """Require that the caller may change who *document_id* is shared with.
 
     Stricter than :func:`_require_document_write`: an ``annotate`` grantee may
@@ -111,9 +109,7 @@ async def _require_document_share(
             details={"reason": "malformed_document_id"},
         )
         raise PermissionError(f"cannot share document {document_id}") from exc
-    cur = await ctx.conn.execute(
-        "SELECT docray_can_share_document(%s::uuid) AS ok", (document_id,)
-    )
+    cur = await ctx.conn.execute("SELECT docray_can_share_document(%s::uuid) AS ok", (document_id,))
     row = await cur.fetchone()
     if not row or not row["ok"]:
         await _audit_mutation_event(
@@ -283,7 +279,12 @@ async def _enqueue_job(
     max_attempts: int = 3,
     document_id: str | None = None,
 ) -> str:
-    """Enqueue a job with this GraphQL request's correlation metadata."""
+    """Enqueue a job with this GraphQL request's correlation metadata.
+
+    ``enqueued_by`` is the request principal, so the ``jobs`` read policy can show
+    a caller the jobs they created — including a document-less ingest job, whose
+    document does not exist yet — without widening visibility to anyone else.
+    """
     return await queue.enqueue_async(
         ctx.conn,
         kind,
@@ -291,6 +292,7 @@ async def _enqueue_job(
         priority=priority,
         max_attempts=max_attempts,
         document_id=document_id,
+        enqueued_by=ctx.principal.principal_id,
     )
 
 

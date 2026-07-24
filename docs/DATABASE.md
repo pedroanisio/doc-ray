@@ -1606,6 +1606,7 @@ clobbers the queue or the archive index it is reading from.
 | `attempts` | integer |  |  | `0` |  |
 | `max_attempts` | integer |  |  | `3` |  |
 | `document_id` | uuid | yes | FK→documents |  |  |
+| `enqueued_by` | uuid | yes | FK→principals |  | Principal the job acts for (the API request principal); NULL = system/worker job. Drives the `jobs` read policy's owner branch so a caller sees the jobs they enqueued — including a document-less ingest job (BL-141). |
 | `created_at` | timestamp with time zone |  |  | `now()` |  |
 | `run_after` | timestamp with time zone |  |  | `now()` |  |
 | `started_at` | timestamp with time zone | yes |  |  |  |
@@ -1619,6 +1620,7 @@ clobbers the queue or the archive index it is reading from.
 
 - **Primary key:** (id)
 - **FK:** FOREIGN KEY (document_id) REFERENCES documents(id) ON DELETE CASCADE
+- **FK:** FOREIGN KEY (enqueued_by) REFERENCES principals(id) ON DELETE SET NULL
 - **Check:** CHECK ((attempts <= max_attempts))
 - **Check:** CHECK (((finished_at IS NULL) OR (started_at IS NOT NULL)))
 - **Check:** CHECK (((progress_current IS NULL) OR (progress_total IS NULL) OR (progress_current <= progress_total)))
@@ -1627,9 +1629,10 @@ clobbers the queue or the archive index it is reading from.
 - **Check:** CHECK ((status = ANY (ARRAY['queued'::text, 'running'::text, 'succeeded'::text, 'failed'::text, 'canceled'::text])))
 - **Index** `idx_jobs_claimable`: public.jobs USING btree (priority, run_after, id) WHERE (status = 'queued'::text)
 - **Index** `idx_jobs_document`: public.jobs USING btree (document_id, id)
+- **Index** `jobs_enqueued_by_idx`: public.jobs USING btree (enqueued_by) WHERE (enqueued_by IS NOT NULL)
 - **Index** `idx_jobs_running_heartbeat`: public.jobs USING btree (heartbeat_at) WHERE (status = 'running'::text)
 - **Index** `idx_jobs_status`: public.jobs USING btree (status, id)
-- **RLS:** enabled — read/write policies via *document_id (admin-only when NULL)* (FORCED)
+- **RLS:** enabled, FORCED — **read-visibility only** (BL-141). `p_read` shows a caller jobs they enqueued (`enqueued_by`), jobs on a document they can read, or all if admin. There is **no user-facing INSERT policy**: the queue is trusted infrastructure — the API authorizes enqueue at the mutation boundary and the enqueue runs as `docray_batch` (BYPASSRLS); with FORCE RLS that denies every other role, only the trusted writer enqueues. `p_upd_cancel` still allows an admin to cancel.
 
 #### `schema_migrations`
 

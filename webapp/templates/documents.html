@@ -70,7 +70,7 @@
         <td>{% if d.language %}<span class="pill lang">{{ d.language }}</span>{% endif %}</td>
         <td class="num">{{ "{:,}".format(d.char_count or 0) }}</td>
         <td class="num">{{ d.page_count or "—" }}</td>
-        <td class="num">{{ "{:,}".format(d.n_sentences) }}</td>
+        <td class="num">{{ "{:,}".format(d.n_sentences or 0) }}</td>
         <td class="meta-cell">{{ d.tools or "—" }}</td>
       </tr>
     {% else %}

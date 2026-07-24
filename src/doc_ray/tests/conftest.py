@@ -46,6 +46,7 @@ def qconn():
     conn.execute((migrations / "059_job_progress.sql").read_text())
     conn.execute((migrations / "072_jobs_drain_requested_at.sql").read_text())
     conn.execute("CREATE TEMP TABLE jobs (LIKE public.jobs INCLUDING ALL)")
+    conn.execute("GRANT ALL PRIVILEGES ON jobs TO docray_batch")
     yield conn
     conn.close()
 

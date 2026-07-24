@@ -506,7 +506,9 @@ against.
 | BL-137 | docs-in-sync gate red on main: DATABASE.md stops at migration 094 while db/migrations holds 101 | docs | bug | ready | S | high | shared |
 | BL-138 | No table is FORCE ROW LEVEL SECURITY, so any owner-role connection bypasses RLS entirely | security | bug | done | L | high | shared |
 | BL-139 | Organization corpus: make unowned documents shareable within a tenant | security | feature | done | M | medium | shared |
-| BL-140 | tests/test_webapp.py red on main: 16 tests fail on stale copy assertions and stale SQL stubs | testing | bug | ready | M | high | shared |
+| BL-140 | tests/test_webapp.py red on main: 16 tests fail on stale copy assertions and stale SQL stubs | testing | bug | done | M | high | shared |
+| BL-141 | jobs RLS INSERT policy rejects non-admin member uploads (document-less ingest job); move enqueue to the trusted writer, jobs RLS read-only | security | bug | done | M | high | shared |
+| BL-142 | Member corpus 500s: SECURITY DEFINER RLS helpers recurse on managed Postgres; documents.html formats a None n_sentences | security | bug | done | M | high | shared |
 
 See [`backlog.yml`](backlog.yml) for each item's full description, rationale,
 acceptance criteria, dependencies, related decisions (`D-###`), and references.

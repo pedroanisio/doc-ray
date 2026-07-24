@@ -79,6 +79,7 @@ def test_ingest_document_rejects_oversized_upload(pg, monkeypatch):
         aconn = await _aconn()
         try:
             await aconn.execute("CREATE TEMP TABLE jobs (LIKE public.jobs INCLUDING ALL)")
+            await aconn.execute("GRANT ALL PRIVILEGES ON jobs TO docray_batch")
             ctx = RequestContext(conn=aconn, principal=WRITE_PRINCIPAL, loaders=Loaders(aconn))
             result = await schema.execute(
                 "mutation($f: Upload!){ ingestDocument(file: $f) { id } }",
@@ -109,6 +110,13 @@ def test_ingest_document_accepts_upload_within_the_cap(pg, monkeypatch):
     except Exception as exc:
         pytest.skip(f"object store unreachable: {exc}")
 
+    import _itdb
+
+    conn, _created = pg
+    # The mutation audits its write; audit_events.actor_principal_id FKs to
+    # principals, so the acting principal must exist (seeded by _aconn-based
+    # tests via _seed; this one builds its own connection).
+    _itdb.ensure_admin_principal(conn, WRITE_PRINCIPAL.principal_id, "test-writer-cap")
     monkeypatch.setenv("DOCRAY_MAX_UPLOAD_MB", "1")
     schema = build_schema()
     body = b"Well within the cap."
@@ -122,6 +130,7 @@ def test_ingest_document_accepts_upload_within_the_cap(pg, monkeypatch):
         aconn = await _aconn()
         try:
             await aconn.execute("CREATE TEMP TABLE jobs (LIKE public.jobs INCLUDING ALL)")
+            await aconn.execute("GRANT ALL PRIVILEGES ON jobs TO docray_batch")
             ctx = RequestContext(conn=aconn, principal=WRITE_PRINCIPAL, loaders=Loaders(aconn))
             result = await schema.execute(
                 "mutation($f: Upload!){ ingestDocument(file: $f, pipeline: false) "
@@ -172,6 +181,7 @@ def test_ingest_document_payload_carries_the_uploader(pg, monkeypatch):
         aconn = await _aconn_as(str(uploader))
         try:
             await aconn.execute("CREATE TEMP TABLE jobs (LIKE public.jobs INCLUDING ALL)")
+            await aconn.execute("GRANT ALL PRIVILEGES ON jobs TO docray_batch")
             ctx = RequestContext(
                 conn=aconn,
                 principal=Principal(
@@ -224,6 +234,7 @@ def test_ingest_document_rejects_unsupported_extension_before_storing_blob(pg, m
         aconn = await _aconn()
         try:
             await aconn.execute("CREATE TEMP TABLE jobs (LIKE public.jobs INCLUDING ALL)")
+            await aconn.execute("GRANT ALL PRIVILEGES ON jobs TO docray_batch")
             ctx = RequestContext(conn=aconn, principal=WRITE_PRINCIPAL, loaders=Loaders(aconn))
             result = await schema.execute(
                 "mutation($f: Upload!){ ingestDocument(file: $f) { id } }",
@@ -252,11 +263,14 @@ def test_ingest_document_rejects_unsupported_extension_before_storing_blob(pg, m
 def test_duplicate_upload_preserves_existing_object_content_type(pg, monkeypatch):
     import io
 
+    import _itdb
     from starlette.datastructures import Headers, UploadFile
 
     from doc_ray.adapters.object_store import ObjectStore
 
     conn, created = pg
+    # audit_events.actor_principal_id FKs to principals — seed the acting one.
+    _itdb.ensure_admin_principal(conn, WRITE_PRINCIPAL.principal_id, "test-writer-dup")
     body = b"Already stored document."
     sha = hashlib.sha256(body).hexdigest()
     key = f"{sha[:2]}/{sha}.txt"
@@ -293,6 +307,7 @@ def test_duplicate_upload_preserves_existing_object_content_type(pg, monkeypatch
         aconn = await _aconn()
         try:
             await aconn.execute("CREATE TEMP TABLE jobs (LIKE public.jobs INCLUDING ALL)")
+            await aconn.execute("GRANT ALL PRIVILEGES ON jobs TO docray_batch")
             ctx = RequestContext(conn=aconn, principal=WRITE_PRINCIPAL, loaders=Loaders(aconn))
             result = await schema.execute(
                 "mutation($f: Upload!){ ingestDocument(file: $f, pipeline: false) "
