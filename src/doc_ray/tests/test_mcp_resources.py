@@ -81,12 +81,52 @@ def _patch(monkeypatch, pages):
 def test_resources_declare_the_expected_uris_and_templates():
     uris = {spec.uri for spec in resources.RESOURCES}
     assert uris == {
+        # concrete (listable) entry points
+        "docray://corpus/documents",
+        "docray://corpus/collections",
+        "docray://corpus/manifest",
+        # parameterized templates (drill-down)
         "docray://doc/{document_id}",
         "docray://doc/{document_id}/sentences/{start}-{end}",
         "docray://doc/{document_id}/pages/{page}",
         "docray://collection/{collection_id}",
         "docray://corpus/shards/{shard_count}",
     }
+
+
+# --- regression: a template-only surface is INVISIBLE to clients -------------
+# `resources/list` and `resources/templates/list` read disjoint registries in the
+# SDK. A surface made only of parameterized templates yields resources/list == []
+# — which is exactly what a client renders as "this server has no resources".
+
+
+def test_resources_list_exposes_at_least_one_concrete_resource():
+    mcp = server.build_server()
+    listed = anyio.run(mcp.list_resources)
+    assert listed, "resources/list is empty — clients that enumerate it see nothing"
+
+
+def test_concrete_entry_point_uris_are_listed_by_resources_list():
+    mcp = server.build_server()
+    listed = {str(r.uri) for r in anyio.run(mcp.list_resources)}
+    assert listed == {
+        "docray://corpus/documents",
+        "docray://corpus/collections",
+        "docray://corpus/manifest",
+    }
+
+
+def test_parameterless_specs_land_in_resources_list_and_braced_ones_in_templates():
+    """Structural guard against the disjoint-registry trap that caused this bug."""
+    mcp = server.build_server()
+    listed = {str(r.uri) for r in anyio.run(mcp.list_resources)}
+    templated = {t.uriTemplate for t in anyio.run(mcp.list_resource_templates)}
+    for spec in resources.RESOURCES:
+        if "{" in spec.uri:
+            assert spec.uri in templated, f"{spec.uri} missing from resources/templates/list"
+        else:
+            assert spec.uri in listed, f"{spec.uri} missing from resources/list"
+    assert not (listed & templated)  # the two registries never overlap
 
 
 def test_server_registers_the_resource_templates():
@@ -180,6 +220,34 @@ async def test_reading_an_unknown_document_yields_empty_text(monkeypatch):
     mcp = server.build_server()
     (content,) = list(await mcp.read_resource(f"docray://doc/{_DOC}"))
     assert content.content == ""
+
+
+@pytest.mark.asyncio
+async def test_corpus_documents_entry_point_returns_the_document_index(monkeypatch):
+    docs = [{"id": "d1", "title": "Dune Messiah", "docType": "epub"}]
+    _patch(monkeypatch, [{"data": {"documents": docs}}])
+    mcp = server.build_server()
+    (content,) = list(await mcp.read_resource("docray://corpus/documents"))
+    assert json.loads(content.content)[0]["title"] == "Dune Messiah"
+
+
+@pytest.mark.asyncio
+async def test_corpus_collections_entry_point_returns_the_collection_index(monkeypatch):
+    colls = [{"id": "c1", "name": "Dune Series", "documentCount": 3}]
+    _patch(monkeypatch, [{"data": {"collections": colls}}])
+    mcp = server.build_server()
+    (content,) = list(await mcp.read_resource("docray://corpus/collections"))
+    assert json.loads(content.content)[0]["name"] == "Dune Series"
+
+
+@pytest.mark.asyncio
+async def test_corpus_manifest_entry_point_uses_the_default_shard_count(monkeypatch):
+    manifest = {"shardCount": resources.DEFAULT_SHARD_COUNT, "totalDocuments": 3, "shards": []}
+    client = _patch(monkeypatch, [{"data": {"corpusManifest": manifest}}])
+    mcp = server.build_server()
+    (content,) = list(await mcp.read_resource("docray://corpus/manifest"))
+    assert json.loads(content.content)["shardCount"] == resources.DEFAULT_SHARD_COUNT
+    assert client.calls[0]["variables"]["sc"] == resources.DEFAULT_SHARD_COUNT
 
 
 @pytest.mark.asyncio

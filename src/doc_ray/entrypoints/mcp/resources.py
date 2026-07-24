@@ -33,6 +33,13 @@ MAX_RESOURCE_TEXT_CHARS = 200_000
 #: Sentences fetched per page while walking a document for the full-text resource.
 _WALK_PAGE = 500
 
+#: Rows returned by the listable corpus entry points.
+_INDEX_LIMIT = 100
+
+#: Shard width served by the parameterless ``docray://corpus/manifest`` entry
+#: point; other widths stay available via the ``corpus/shards/{n}`` template.
+DEFAULT_SHARD_COUNT = 8
+
 
 @dataclass(frozen=True)
 class ResourceSpec:
@@ -113,9 +120,60 @@ async def corpus_shard_manifest(shard_count: int) -> str:
     return json.dumps(manifest, indent=2, default=str)
 
 
+async def corpus_documents() -> str:
+    """The document index — id, title, type and counts — as JSON.
+
+    A **listable entry point**: parameterless, so it appears in ``resources/list``
+    and gives a client something to enumerate and a caller somewhere to start.
+    Drill into a document with the ``docray://doc/{document_id}`` templates.
+    """
+    docs = await corpus.list_documents(limit=_INDEX_LIMIT)
+    return json.dumps(docs, indent=2, default=str)
+
+
+async def corpus_collections() -> str:
+    """The collection index — doc-ray's native containers — as JSON."""
+    collections = await corpus.list_collections(limit=_INDEX_LIMIT)
+    return json.dumps(collections, indent=2, default=str)
+
+
+async def corpus_default_manifest() -> str:
+    """The corpus shard map at the default width (:data:`DEFAULT_SHARD_COUNT`), as JSON.
+
+    The parameterless companion to ``docray://corpus/shards/{shard_count}`` so the
+    map-reduce plan is reachable without knowing a width up front.
+    """
+    manifest = await corpus.corpus_manifest(DEFAULT_SHARD_COUNT)
+    return json.dumps(manifest, indent=2, default=str)
+
+
 #: Every ``docray://`` surface, bound to its server function. Registered
 #: unconditionally (all reads, RLS-scoped) by ``server.build_server``.
+#:
+#: The first three are **concrete** (no ``{param}``): the SDK keeps concrete and
+#: templated resources in *disjoint* registries, and ``resources/list`` returns
+#: only the concrete ones — so a template-only surface is invisible to any client
+#: that enumerates ``resources/list``. These are the listable entry points; the
+#: templates below are drill-down targets reached from them.
 RESOURCES: tuple[ResourceSpec, ...] = (
+    ResourceSpec(
+        "docray://corpus/documents",
+        corpus_documents,
+        "application/json",
+        "The document index (id, title, type, counts) — start here.",
+    ),
+    ResourceSpec(
+        "docray://corpus/collections",
+        corpus_collections,
+        "application/json",
+        "The collection index — doc-ray's native document containers.",
+    ),
+    ResourceSpec(
+        "docray://corpus/manifest",
+        corpus_default_manifest,
+        "application/json",
+        f"Corpus shard map at the default width ({DEFAULT_SHARD_COUNT} shards).",
+    ),
     ResourceSpec(
         "docray://doc/{document_id}",
         document_full_text,
