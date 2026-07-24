@@ -22,6 +22,25 @@ doc-ray carries **one global version** covering both the application package
 ## [1.38.0]
 
 ### Added
+- **OAuth connectors can obtain `write`, bounded by the user's RBAC** (Claude Opus
+  4.8 (1M context) via Claude Code) — D-032. The MCP write tools (D-030) were
+  inert for OAuth-connected agents: the Authorization Server only ever minted
+  `read` (`SUPPORTED_SCOPES = ("read",)`), so every mutation 401'd on the scope
+  check before ownership was even consulted — a Claude Desktop connector couldn't
+  rename a title even for its own documents. `SUPPORTED_SCOPES` is now
+  `("read", "write")`, and on the interactive `authorization_code` grant the
+  issued scope is **not** what the client asked for but the *consenting user's*
+  own RBAC capability: `OAuthServerService.issue_code(..., principal_scopes=…)`
+  binds it via `_bound_scope`, `webapp/oauth_web.py` derives it with the new
+  `LocalAuthService.scopes_for_principal` (the same `scopes_for_actions`
+  derivation `login` uses, D-027), and the consent screen shows what will be
+  granted. A `member`/admin connector gets `write`; a `reader` stays read-only
+  however the request is framed; an unresolvable principal degrades to read-only
+  (never fail-open). `write` is still only the coarse "may mutate anything" gate —
+  the row-level `document_acl` decides which documents. To rename via a connector
+  end-to-end: reconnect doc-ray so the user re-consents (the token now carries
+  `write`), and ensure `DOCRAY_MCP_ENABLE_WRITE=true`.
+
 - **Organization corpus — opt-in tenant-wide document visibility** (Claude Opus
   4.8 via Claude Code) — BL-139. Per-owner isolation (1.34.0) and sharing
   (1.37.0) covered private documents and person-to-person grants; this adds the
@@ -48,6 +67,20 @@ doc-ray carries **one global version** covering both the application package
   exposed on the GraphQL `Document` type; every change is audited (D-030).
 
 ### Fixed
+- **Webapp test suite green again — stale test stubs and copy re-synced to the
+  app** (Claude Opus 4.8 (1M context) via Claude Code) — BL-140. `tests/test_webapp.py`
+  had 16 tests red on main from drift between the tests and the code they cover
+  (no production behavior was wrong — the tests were stale). Two families: SQL
+  stub drift, where `fake_q`/`fake_q1` still matched pre-rollup queries (live
+  `count(*)` / `GROUP BY`) so the lexicon and reader pages rendered empty and
+  content assertions failed — re-derived from the current SQL (the `lexeme_stats`
+  and `document_stats` rollups of migration 098, and spans-first `JOIN` reads);
+  and copy drift, where assertions checked prose the templates had since
+  reworded — repointed at the live text. Added a regression guard
+  (`test_reader_and_lexicon_stubs_cover_the_apps_data_queries`) that records any
+  query no stub handler recognises and fails loudly when a live data query falls
+  through to the empty default, so this silent-drift class can't recur. No
+  production code, API, schema, or version change.
 - **Member corpus reads no longer 500 — SECURITY DEFINER RLS helpers run with
   BYPASSRLS** (Claude Opus 4.8 (1M context) via Claude Code) — BL-142. A
   non-admin member browsing `/corpus` hit a `stack depth limit exceeded` crash:

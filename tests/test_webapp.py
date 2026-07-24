@@ -145,13 +145,13 @@ def _fake_document_q(s: str):
         return [{"name": "George Orwell"}]
     if "document_tags" in s:
         return []
-    if "GROUP BY l.pos" in s:
-        return [{"pos": "NOUN", "n": 100}, {"pos": "VERB", "n": 40}]
-    if "l.pos = 'VERB'" in s and "GROUP BY l.uid, l.lemma" in s:
-        return [{"uid": LEX_UID, "lemma": "say", "n": 40}]
+    # POS distribution + top verbs now come from the document_stats rollup
+    # (migration 098; see fake_q1), not a live GROUP BY over lexeme_occurrences.
     if "sen.ordinal, sen.text" in s:
         return [{"ordinal": 0, "text": "He said hello", "ss": 0, "se": 13}]
-    if "FROM lexeme_occurrences o" in s and "sp.char_start >=" in s:
+    # Reader per-page annotation spans: driven from the page's spans, joining
+    # their occurrences (reader_blocks) — `JOIN lexeme_occurrences`, not FROM.
+    if "JOIN lexeme_occurrences o" in s and "sp.char_start >=" in s:
         return [
             {"a": 0, "b": 2, "uid": "lx_en.o_he", "lemma": "he", "pos": "PRON"},
             {"a": 3, "b": 7, "uid": LEX_UID, "lemma": "say", "pos": "VERB"},
@@ -161,11 +161,13 @@ def _fake_document_q(s: str):
 
 
 def _fake_lexeme_q(s: str):
-    if "FROM lexemes l" in s and "JOIN lexeme_occurrences" in s and "count(o.*) AS uses" in s:
+    # Lexicon list: reads the precomputed lexeme_stats rollup (migration 098),
+    # joined to the lexeme registry — not a live count(*) over lexeme_occurrences.
+    if "FROM lexeme_stats ls" in s and "JOIN lexemes l" in s:
         return [{"uid": LEX_UID, "lang": "en", "pos": "VERB", "lemma": "say", "uses": 496}]
-    if "SELECT DISTINCT l.lang" in s and "JOIN lexeme_occurrences" in s:
+    if "SELECT DISTINCT lang FROM lexemes" in s:
         return [{"lang": "en"}, {"lang": "pt"}]
-    if "SELECT DISTINCT l.pos" in s and "JOIN lexeme_occurrences" in s:
+    if "SELECT DISTINCT pos FROM lexemes" in s:
         return [{"pos": "NOUN"}, {"pos": "VERB"}]
     if "AS form" in s:
         return [{"form": "said"}, {"form": "says"}]
@@ -195,6 +197,13 @@ def _fake_search_q(s: str):
     return None
 
 
+# Records the SQL of every query no handler recognised. A silently-unhandled
+# data query is exactly the BL-140 stub-drift failure mode (the page renders
+# empty and a content assertion fails cryptically); the guard test below turns
+# it into an explicit, self-explaining failure instead.
+_UNHANDLED_QUERIES: list[str] = []
+
+
 def fake_q(sql, params=()):
     s = _norm(sql)
     for handler in (
@@ -207,11 +216,12 @@ def fake_q(sql, params=()):
         rows = handler(s)
         if rows is not None:
             return rows
+    _UNHANDLED_QUERIES.append(s)
     return []
 
 
-def fake_q1(sql, params=()):
-    s = _norm(sql)
+def _fake_q1_aggregate(s: str):
+    """Corpus totals, instance-health scalars, and the D-024 rollup single-rows."""
     if "FROM tokens" in s and "entity_mention" in s and "canonical" in s:
         return {
             "documents": 5,
@@ -229,6 +239,18 @@ def fake_q1(sql, params=()):
         return {"bytes": 1048576, "pretty": "1024 kB"}
     if "max_connections FROM pg_settings" in s:
         return {"max_connections": 10}
+    # Document reader POS distribution + top verbs: the D-024 rollup (migration
+    # 098) the reader reads instead of aggregating lexeme_occurrences live.
+    if "FROM document_stats WHERE document_id" in s:
+        return {
+            "pos_counts": [{"pos": "NOUN", "n": 100}, {"pos": "VERB", "n": 40}],
+            "top_verbs": [{"uid": LEX_UID, "lemma": "say", "n": 40}],
+        }
+    return None
+
+
+def _fake_q1_row(s: str, params):
+    """Single-entity lookups: a document, job, lexeme, sentence count, text slice."""
     if "FROM jobs WHERE id" in s:
         return {
             "id": params[0],
@@ -255,6 +277,14 @@ def fake_q1(sql, params=()):
     return None
 
 
+def fake_q1(sql, params=()):
+    s = _norm(sql)
+    row = _fake_q1_aggregate(s)
+    if row is not None:
+        return row
+    return _fake_q1_row(s, params)
+
+
 @pytest.fixture
 def client(monkeypatch):
     monkeypatch.setattr(webapp, "q", fake_q)
@@ -267,10 +297,33 @@ def client(monkeypatch):
 # --- landing (public front door at /) --------------------------------------
 
 
+def test_reader_and_lexicon_stubs_cover_the_apps_data_queries(client):
+    """BL-140 regression guard against silent stub drift.
+
+    When the app's SQL evolves (e.g. the D-024 rollups: live GROUP BY /
+    count(*) became FROM lexeme_stats / FROM document_stats; occurrence reads
+    became JOIN not FROM), a fake_q handler that still matches the old shape
+    stops matching, the page renders empty, and a content assertion elsewhere
+    fails cryptically. This turns that into an explicit failure: the two data
+    queries whose emptiness would blank the lexicon list and the reader overlay
+    must be recognised by a handler, never fall through to the empty default.
+    """
+    _UNHANDLED_QUERIES.clear()
+    client.get("/lexemes")
+    client.get(f"/doc/{DOC_ID}?annotate=1")
+
+    must_be_handled = ("FROM lexeme_stats", "JOIN lexeme_occurrences o")
+    drifted = [q for q in _UNHANDLED_QUERIES if any(marker in q for marker in must_be_handled)]
+    assert not drifted, (
+        "fake_q has no handler for a live data query — a stub fell behind the app's "
+        f"SQL (BL-140 stub drift). Update the handler to match:\n  {drifted}"
+    )
+
+
 def test_landing_is_served_at_root(client):
     html = client.get("/").get_data(as_text=True)
     # Hero uses the project's own established value proposition.
-    assert "auditable research corpus" in html
+    assert "connected corpus" in html
     # Primary CTA points into the app; sign-in CTA is present.
     assert 'href="/corpus"' in html
     assert 'href="/login"' in html
@@ -280,7 +333,8 @@ def test_landing_is_served_at_root(client):
 
 def test_landing_shows_pipeline_stages(client):
     html = _norm(client.get("/").get_data(as_text=True))
-    for stage in ("Extract", "Annotate", "Canonicalize", "Enrich", "Query"):
+    # The five numbered stages the landing advertises (ingest → query).
+    for stage in ("Ingest", "Annotate", "Resolve", "Curate", "Query"):
         assert stage in html
 
 
@@ -921,7 +975,7 @@ def _original_pdf_q():
             return [
                 {"page_width": 200.0, "page_height": 300.0, "has_text": True, "text_run_count": 5}
             ]
-        if "FROM lexeme_occurrences o" in s and "sp.char_start >=" in s:
+        if "JOIN lexeme_occurrences o" in s and "sp.char_start >=" in s:
             return [
                 {
                     "uid": "u1",
@@ -1068,7 +1122,7 @@ def test_document_reader_renders_markdown_blocks_with_annotations(client, monkey
                 {"ordinal": 0, "text": "# Chapter One", "ss": 0, "se": 13},
                 {"ordinal": 1, "text": "- said hello", "ss": 14, "se": 26},
             ]
-        if "FROM lexeme_occurrences o" in s and "sp.char_start >=" in s:
+        if "JOIN lexeme_occurrences o" in s and "sp.char_start >=" in s:
             return [{"a": 16, "b": 20, "uid": LEX_UID, "lemma": "say", "pos": "VERB"}]
         return fake_q(sql, params)
 
@@ -1094,17 +1148,21 @@ def test_document_reader_renders_markdown_blocks_with_annotations(client, monkey
 def test_document_unannotated_reader_explains_queued_annotation(client, monkeypatch):
     def unannotated_q(sql, params=()):
         s = _norm(sql)
-        if "GROUP BY l.pos" in s:
-            return []
-        if "l.pos = 'VERB'" in s and "GROUP BY l.uid, l.lemma" in s:
-            return []
-        if "FROM lexeme_occurrences o" in s and "sp.char_start >=" in s:
+        if "JOIN lexeme_occurrences o" in s and "sp.char_start >=" in s:
             return []
         if "FROM jobs WHERE document_id" in s and "kind = 'annotate'" in s:
             return [{"status": "queued"}]
         return fake_q(sql, params)
 
+    # Empty POS rollup = annotation has not produced anything yet; the reader
+    # then shows the "annotation queued" notice instead of the overlay.
+    def unannotated_q1(sql, params=()):
+        if "FROM document_stats WHERE document_id" in _norm(sql):
+            return {"pos_counts": [], "top_verbs": []}
+        return fake_q1(sql, params)
+
     monkeypatch.setattr(webapp, "q", unannotated_q)
+    monkeypatch.setattr(webapp, "q1", unannotated_q1)
 
     html = client.get(f"/doc/{DOC_ID}").get_data(as_text=True)
 
@@ -1487,7 +1545,7 @@ def test_document_pages_tab_uses_persisted_pdf_page_boundaries(client, monkeypat
                 assert params == (DOC_ID, 2)
                 return [{"ordinal": 4, "text": "Only page two.", "ss": 21, "se": 35}]
             return [{"ordinal": 0, "text": "Chunk fallback.", "ss": 0, "se": 15}]
-        if "FROM lexeme_occurrences o" in s and "sp.char_start >=" in s:
+        if "JOIN lexeme_occurrences o" in s and "sp.char_start >=" in s:
             return []
         return fake_q(sql, params)
 
@@ -1529,7 +1587,7 @@ def test_document_original_overlay_renders_pdf_page_and_pos_boxes(client, monkey
                     "bbox_y1": 30.0,
                 }
             ]
-        if "FROM lexeme_occurrences o" in s and "sp.char_start >=" in s:
+        if "JOIN lexeme_occurrences o" in s and "sp.char_start >=" in s:
             return []
         return fake_q(sql, params)
 
@@ -1564,7 +1622,7 @@ def test_document_original_overlay_renders_text_free_pdf_page(client, monkeypatc
             return []
         if "document_layout_runs" in s and "page_width" in s:
             raise AssertionError("document_pages should answer page dimensions first")
-        if "FROM lexeme_occurrences o" in s and "sp.char_start >=" in s:
+        if "JOIN lexeme_occurrences o" in s and "sp.char_start >=" in s:
             return []
         return fake_q(sql, params)
 
@@ -1618,7 +1676,7 @@ def test_document_original_overlay_can_toggle_to_entity_canonical_boxes(client, 
             return [{"ordinal": 4, "text": "Only page two.", "ss": 21, "se": 35}]
         if "document_layout_runs" in s and "page_width" in s:
             return [{"page_width": 200.0, "page_height": 100.0}]
-        if "FROM entity_mention em" in s and "LEFT JOIN canonical c" in s:
+        if "JOIN entity_mention em" in s and "LEFT JOIN canonical c" in s:
             return [
                 {
                     "mention_id": "m1",
@@ -1633,7 +1691,7 @@ def test_document_original_overlay_can_toggle_to_entity_canonical_boxes(client, 
                     "bbox_y1": 30.0,
                 }
             ]
-        if "FROM lexeme_occurrences o" in s and "sp.char_start >=" in s:
+        if "JOIN lexeme_occurrences o" in s and "sp.char_start >=" in s:
             return []
         return fake_q(sql, params)
 
@@ -1700,7 +1758,7 @@ def test_document_full_scroll_view_disables_sentence_pager(client, monkeypatch):
                 {"ordinal": 0, "text": "First sentence.", "ss": 0, "se": 15},
                 {"ordinal": 119, "text": "Last sentence.", "ss": 16, "se": 30},
             ]
-        if "FROM lexeme_occurrences o" in s and "sp.char_start >=" in s:
+        if "JOIN lexeme_occurrences o" in s and "sp.char_start >=" in s:
             return []
         return fake_q(sql, params)
 
@@ -1774,9 +1832,7 @@ def test_lexemes_empty_state(client, monkeypatch):
         webapp,
         "q",
         lambda sql, params=(): (
-            []
-            if "count(o.*) AS uses" in sql and "JOIN lexeme_occurrences" in sql
-            else fake_q(sql, params)
+            [] if "FROM lexeme_stats ls" in sql and "JOIN lexemes l" in sql else fake_q(sql, params)
         ),
     )
     html = client.get("/lexemes?q=zzzzz").get_data(as_text=True)
@@ -1947,8 +2003,11 @@ def test_search_last_page_has_no_next_link(client):
 def test_search_discloses_literal_substring_semantics(client):
     html = client.get("/search").get_data(as_text=True)
     normalized = _norm(html)
-    assert "literal substring match" in normalized
-    assert "will not match inflected variants" in normalized
+    # Discloses exact-character (substring) matching, that inflected forms won't
+    # match, and the stemmed full-text alternative.
+    assert "matches the characters you type" in normalized
+    assert "won't match" in normalized
+    assert "stemmed full-text search" in normalized
 
 
 def test_search_empty_state_explains_literal_match_and_alternative(client, monkeypatch):
@@ -1961,8 +2020,8 @@ def test_search_empty_state_explains_literal_match_and_alternative(client, monke
 
     html = client.get("/search?q=run").get_data(as_text=True)
 
-    assert "No sentences match." in html
-    assert "literal substring search" in html
+    assert "No sentences match" in html
+    assert "exact-phrase search" in html
     assert "running" in html and "ran" in html
     assert "fullTextSearch" in html
 
@@ -1981,7 +2040,7 @@ def test_help_entry_is_reachable_from_every_page(client):
     guide = client.get("/help").get_data(as_text=True)
 
     assert 'href="/help"' in home
-    assert "doc-ray guide" in guide
+    assert "ray guide" in guide  # the "doc·ray guide" heading (middot brand mark)
     assert 'id="pipeline-status"' in guide
     assert 'id="domain-seeding"' in guide
     assert 'id="backups"' in guide
@@ -2002,8 +2061,8 @@ def test_seeding_screen_signposts_workflow_without_scare_popup(client):
     normalized = _norm(html)
 
     assert (
-        "Mine candidates -> audit identities -> approve exact matches -> seed approved rows"
-        in normalized
+        "Mine candidates &rarr; audit identities &rarr; approve exact matches &rarr; "
+        "seed approved rows" in normalized
     )
     # The workflow consequence stays as calm prose, but the operator already
     # approved each row — no native confirm() scare popup on the seed action.
@@ -2049,9 +2108,9 @@ def test_help_glossary_defines_core_terms(client):
 
     assert 'id="glossary"' in html
     assert "Lexeme" in html
-    assert "one normalized vocabulary identity" in normalized
+    assert "normalized vocabulary identity" in normalized
     assert "Canonicalize" in html
-    assert "links mentions to known canonical entities" in normalized
+    assert "Resolves entity mentions to one shared identity" in normalized
     assert "Part-of-speech codes" in html
 
 
@@ -3087,3 +3146,20 @@ def test_created_collection_survives_the_creating_request():
     finally:
         with psycopg.connect(os.environ["DATABASE_URL"], autocommit=True) as conn:
             conn.execute("DELETE FROM document_collections WHERE name = 'bl131-commit-proof'")
+
+
+def test_corpus_row_without_a_stats_rollup_renders_zero_not_500(client, monkeypatch):
+    """A document with no document_stats rollup row has n_sentences=None; the corpus
+    table must render it as 0, not 500 with 'unsupported format string passed to
+    NoneType.__format__' (BL-142). Mirrors the char_count guard on the line above it.
+    """
+
+    def doc_without_stats(sql, params=()):
+        if "FROM documents d" in _norm(sql) and "ORDER BY d.char_count" in _norm(sql):
+            return [dict(_DOC, n_sentences=None, char_count=None, tools=None)]
+        return fake_q(sql, params)
+
+    monkeypatch.setattr(webapp, "q", doc_without_stats)
+    resp = client.get("/corpus")
+    assert resp.status_code == 200, resp.get_data(as_text=True)[:600]
+    assert "unsupported format string" not in resp.get_data(as_text=True)
