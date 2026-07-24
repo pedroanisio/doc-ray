@@ -26,25 +26,106 @@ except ModuleNotFoundError:  # pragma: no cover - direct ``python webapp/app.py`
 
 _core: ModuleType
 
+#: The corpus can be laid out four ways; the view is a presentation choice over
+#: the same rows and the same bulk-selection model (BL-143). Unknown values fall
+#: back to ``table`` so a hand-edited or stale URL never 500s.
+CORPUS_VIEWS = ("table", "compact", "gallery", "grouped")
+CORPUS_DENSITIES = ("comfortable", "compact")
+#: ``sort`` is whitelisted to a fixed ORDER-BY fragment — the request value NEVER
+#: reaches SQL, so a crafted ``?sort=`` cannot inject. ``n_sentences`` sorts on the
+#: SELECT alias; the rest on indexed document columns.
+CORPUS_SORTS = {
+    "size": "d.char_count DESC NULLS LAST",
+    "recent": "d.created_at DESC, d.id",
+    "title": "d.title ASC, d.id",
+    "sentences": "n_sentences DESC NULLS LAST, d.id",
+    "pages": "d.page_count DESC NULLS LAST, d.id",
+}
+#: The axes a corpus can be sectioned along in the grouped view.
+CORPUS_GROUPS = ("none", "type", "language", "status")
+
+_GROUP_KEY = {
+    "type": lambda r: str(r.get("doc_type") or "other").lower(),
+    "language": lambda r: str(r.get("language") or "unknown").lower(),
+    "status": lambda r: str(r.get("status") or "unknown").lower(),
+}
+_GROUP_LABEL = {
+    "type": lambda k: k.upper(),
+    "language": lambda k: k.upper(),
+    "status": lambda k: k.replace("_", " ").capitalize(),
+}
+
+
+def _group_documents(rows: list[dict], group_by: str) -> list[dict]:
+    """Bucket ``rows`` into ordered sections for the grouped view.
+
+    First-seen order is preserved (the rows arrive already sorted), so a group's
+    members keep the caller's chosen sort. Each section carries a count and a
+    sentence subtotal for its header.
+    """
+    if group_by == "none" or group_by not in _GROUP_KEY:
+        return [
+            {
+                "key": "all",
+                "label": "All documents",
+                "count": len(rows),
+                "sentences": sum(int(r.get("n_sentences") or 0) for r in rows),
+                "rows": rows,
+            }
+        ]
+    keyer, labeler = _GROUP_KEY[group_by], _GROUP_LABEL[group_by]
+    buckets: dict[str, list[dict]] = {}
+    for row in rows:
+        buckets.setdefault(keyer(row), []).append(row)
+    return [
+        {
+            "key": key,
+            "label": labeler(key),
+            "count": len(members),
+            "sentences": sum(int(r.get("n_sentences") or 0) for r in members),
+            "rows": members,
+        }
+        for key, members in buckets.items()
+    ]
+
 
 def documents():
-    """Render the corpus landing page: a paginated document list plus corpus-wide totals."""
+    """Render the corpus landing page: a paginated document list plus corpus-wide totals.
+
+    The layout is chosen by query params — ``view`` (table/compact/gallery/grouped),
+    ``sort``, ``density``, and ``group_by`` — each whitelisted so a bad value degrades
+    to the default rather than erroring, and so ``sort`` can safely drive ORDER BY.
+    """
     per_page = _core.current_preferences().rows_per_page
     page = max(1, request.args.get("page", 1, type=int))
+    view = request.args.get("view", "table")
+    if view not in CORPUS_VIEWS:
+        view = "table"
+    density = request.args.get("density", "comfortable")
+    if density not in CORPUS_DENSITIES:
+        density = "comfortable"
+    sort = request.args.get("sort", "size")
+    if sort not in CORPUS_SORTS:
+        sort = "size"
+    group_by = request.args.get("group_by", "none")
+    if group_by not in CORPUS_GROUPS:
+        group_by = "none"
     rows = _core.q(
-        """
+        f"""
         SELECT d.id, d.title, d.doc_type, d.language, d.char_count, d.page_count, d.status,
+               d.created_at,
                (SELECT n_sentences FROM document_stats ds WHERE ds.document_id = d.id)
                    AS n_sentences,
                (SELECT string_agg(DISTINCT a.tool, ', ')
                   FROM annotations a WHERE a.document_id = d.id) AS tools
         FROM documents d
-        ORDER BY d.char_count DESC NULLS LAST
+        ORDER BY {CORPUS_SORTS[sort]}
         LIMIT %(limit)s OFFSET %(offset)s
         """,
         {"limit": per_page, "offset": (page - 1) * per_page},
     )
     rows = [dict(row, preview=document_preview(row)) for row in rows]
+    groups = _group_documents(rows, group_by) if view == "grouped" else None
     # The stat band reads PRECOMPUTED rollups (migration 095), never the live
     # corpus-wide scans it used to: those full-scanned the 17.5M-row
     # lexeme_occurrences table twice per load (~18.7 s vs. a 300 ms SLA).
@@ -70,6 +151,14 @@ def documents():
         totals=totals,
         page=page,
         has_next=len(rows) == per_page,
+        view=view,
+        density=density,
+        sort=sort,
+        group_by=group_by,
+        groups=groups,
+        views=CORPUS_VIEWS,
+        sorts=tuple(CORPUS_SORTS),
+        group_axes=CORPUS_GROUPS,
         bulk_queued=request.args.get("bulk_queued"),
         bulk_skipped=request.args.get("bulk_skipped"),
         bulk_error=request.args.get("bulk_error"),

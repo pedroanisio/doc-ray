@@ -65,7 +65,12 @@ disclaimer:
 - **`webapp/`** — the Flask frontend. Reads Postgres directly; imports **nothing**
   from `doc_ray`. Every write (upload, domain-seeding decisions, backups) goes
   through the GraphQL API instead — one write path, never a direct queue/DB
-  write from the browser tier. Intentionally kept outside `src/`.
+  write from the browser tier. Intentionally kept outside `src/`. Presentation
+  concerns live only here: the corpus page's view modes (table/compact/gallery/
+  grouped) plus sort, density, and grouping are URL-driven layout over the same
+  read model, with `sort` whitelisted to a fixed ORDER-BY fragment so a request
+  value never reaches SQL (BL-143). The GraphQL API and MCP expose the underlying
+  document fields; the layouts themselves are a browser-tier concern.
 - **`scripts/`** — standalone CLI tools (`extract_phrases`, `docmodel`, …),
   independent of the pipeline.
 

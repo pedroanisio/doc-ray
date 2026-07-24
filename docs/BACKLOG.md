@@ -509,6 +509,8 @@ against.
 | BL-140 | tests/test_webapp.py red on main: 16 tests fail on stale copy assertions and stale SQL stubs | testing | bug | done | M | high | shared |
 | BL-141 | jobs RLS INSERT policy rejects non-admin member uploads (document-less ingest job); move enqueue to the trusted writer, jobs RLS read-only | security | bug | done | M | high | shared |
 | BL-142 | Member corpus 500s: SECURITY DEFINER RLS helpers recurse on managed Postgres; documents.html formats a None n_sentences | security | bug | done | M | high | shared |
+| BL-143 | Corpus page is a single dense table (~156px rows, ~5 docs/screen); add view modes (table/compact/gallery/grouped) + sort + density + group_by over the same rows | webapp | feature | done | M | medium | shared |
+| BL-144 | test_mcp_corpus.py red on main: pinned mcp==1.28.* raises a runtime TypeError in streamable_http, failing all 25 MCP client tests | tooling | bug | ready | S | high | shared |
 
 See [`backlog.yml`](backlog.yml) for each item's full description, rationale,
 acceptance criteria, dependencies, related decisions (`D-###`), and references.

@@ -124,6 +124,22 @@ shows an upload call-to-action instead of an unexplained empty grid. What the
 corpus *is* is stated on the public landing page (`/`) and in the in-app guide
 (`/help`), not restated on every visit here.
 
+**View modes.** The same documents can be laid out four ways, chosen from the
+switcher above the list; the choice, along with sort, density, and grouping,
+lives in the URL, so a view is shareable and bookmarkable:
+
+| Control | Values | What it does |
+|---|---|---|
+| **View** | `table` · `compact` · `gallery` · `grouped` | `table` is the full detail grid (default). `compact` is one line per document — ~3–4× the documents per screen. `gallery` is a cover-forward card grid. `grouped` sections the list under headers. |
+| **Sort** | `size` · `recent` · `title` · `sentences` · `pages` | Orders the list. Default `size` (largest first). |
+| **Density** | `comfortable` · `compact` | Tightens row/card spacing. |
+| **Group by** | `type` · `language` · `status` · `none` | In the `grouped` view, sections the documents with a per-group count and sentence subtotal. |
+
+Any unrecognized value falls back to its default (the `sort` value is
+whitelisted and never reaches SQL), so a hand-edited or stale URL is always
+safe. Example: `/corpus?view=grouped&group_by=type&sort=recent&density=compact`.
+Selection and the bulk-action toolbar work identically in every view.
+
 ### 2.3 Document reader (`/doc/<id>`)
 
 The reader shows the document either 40 sentences per page or as one continuous

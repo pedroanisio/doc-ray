@@ -110,7 +110,7 @@ metadata:
   generated_by:     "Claude Sonnet 5 via Claude Code (merge of Claude Opus 4.8 backlog + OpenAI Codex improvement-proposal candidates)"
   generated_on:     "2026-07-05"
   system_of_record: "docs/backlog.yml"
-  total_items:      142
+  total_items:      144
 
 items:
 
@@ -4778,3 +4778,71 @@ items:
     owner:        "shared"
     source:       "Production 500s reported 2026-07-24 during the 1.38.0 rollout; fixed and regression-tested (Claude Opus 4.8 (1M context) via Claude Code)."
     tags:         ["security", "rls", "recursion", "managed-postgres", "webapp", "bug"]
+
+  - id:          "BL-143"
+    title:        "Corpus view modes: table/compact/gallery/grouped + sort + density + group_by over the same rows"
+    summary:      "The /corpus page shipped as one dense table — a ~156px row per document (cover thumbnail + wrapped title + a four-line near-identical analyzer string), so ~5 documents filled a screen and a growing library stopped being browsable, found by inspecting the live page with Playwright. Added four URL-driven layouts, a whitelisted sort, a density toggle, and grouping, all over the same rows and bulk-selection model."
+    description: |
+      The corpus browser gained a view-mode system driven entirely by query
+      params (so a view is shareable and bookmarkable), each whitelisted so a bad
+      value degrades to its default:
+        - view=table|compact|gallery|grouped (default table). compact is one line
+          per document (~3-4x density); gallery is a cover-forward card grid that
+          reuses the already-rendered first-page covers; grouped sections the list.
+        - sort=size|recent|title|sentences|pages — the request value never reaches
+          SQL (mapped to a fixed ORDER BY fragment), so ?sort= cannot inject.
+        - density=comfortable|compact.
+        - group_by=type|language|status — per-group count + sentence subtotal.
+      These are webapp presentation over the read model; the GraphQL API already
+      exposes every field the modes use, and MCP list_documents was extended with
+      language + sentenceCount so an MCP client can build equivalent views.
+    category:     "webapp"
+    type:         "feature"
+    status:       "done"
+    complexity:   "M"
+    priority:     "medium"
+    rationale:    "A living library must stay browsable as it grows; one fixed dense table does not scale past a screenful. The proposal was grounded in a live Playwright inspection of the running corpus (156px rows, ~5 docs/screen, a repeated analyzer column, scattered series). Query-param-driven views keep the change small, testable, and shareable, with no new data — every field already exists."
+    acceptance_criteria:
+      - "Default /corpus is the table view and is backward compatible."
+      - "view=compact/gallery/grouped render their layouts; an unknown view falls back to table."
+      - "sort maps to a whitelisted ORDER BY and a crafted ?sort= never reaches SQL."
+      - "density and group_by are honored, with unknown values degrading to defaults."
+      - "Selection and bulk actions work identically across views."
+    dependencies: []
+    references:
+      - "webapp/corpus_web.py"
+      - "webapp/templates/documents.html"
+      - "webapp/static/design-system.css"
+      - "tests/test_corpus_views.py"
+      - "docs/webapp_user_manual.md"
+    owner:        "shared"
+    source:       "Live Playwright inspection of /corpus + a design proposal, 2026-07-24 (Claude Opus 4.8 (1M context) via Claude Code)."
+    tags:         ["webapp", "corpus", "ui", "views", "feature"]
+
+  - id:          "BL-144"
+    title:        "test_mcp_corpus.py red on main: pinned mcp==1.28.* raises a runtime TypeError, failing all MCP client tests"
+    summary:      "The full MCP client test suite (25 tests in test_mcp_corpus.py) fails on a clean build: the pinned mcp==1.28.* SDK raises TypeError: unsupported operand type(s) for |: 'function' and 'NoneType' from mcp/client/streamable_http.py while evaluating a `X | None` runtime annotation. Unrelated to any corpus/webapp change — the whole suite errors on import of the SDK client path."
+    description: |
+      Observed 2026-07-24 in the canonical Docker test runner: 25 of the MCP
+      client tests fail identically with a SDK-level TypeError in
+      streamable_http.py, including tests that never touch document listing
+      (auth-header, error-mapping, kwic). The prod MCP server container runs, so
+      the fault is in the client/test import path under the pinned mcp==1.28.*.
+      Fix: pin mcp to a version whose streamable_http imports cleanly (or address
+      the httpx/typing incompatibility), then re-run test_mcp_corpus.py.
+    category:     "tooling"
+    type:         "bug"
+    status:       "ready"
+    complexity:   "S"
+    priority:     "high"
+    rationale:    "A gate red on main stops gating (same rationale as BL-129/BL-137/BL-140): every landing that runs the MCP suite learns to read past 25 failures, so a real MCP regression would land silently. It also blocks validating any MCP client change (e.g. BL-143's list_documents field additions)."
+    acceptance_criteria:
+      - "test_mcp_corpus.py passes on a clean build."
+      - "The mcp pin is a version whose streamable_http client imports without a TypeError."
+    dependencies: []
+    references:
+      - "src/doc_ray/tests/test_mcp_corpus.py"
+      - "requirements.txt"
+    owner:        "shared"
+    source:       "Canonical Docker test run during BL-143, 2026-07-24 (Claude Opus 4.8 (1M context) via Claude Code): 25 MCP tests fail on the mcp SDK import, independent of the change under test."
+    tags:         ["tooling", "gates", "mcp", "dependencies", "bug"]

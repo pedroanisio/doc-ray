@@ -1,11 +1,52 @@
 {% extends "base.html" %}
 {% import "_terms.html" as terms %}
 {% block title %}Corpus · doc·ray{% endblock %}
+
+{# ------- shared row/card fragments, reused across the layouts (BL-143) ------- #}
+{% macro thumb(d) %}
+  {% set preview = d.preview %}
+  {% if preview.kind == "image" %}
+    <a class="doc-preview doc-preview-image" href="{{ url_for('document', doc_id=d.id) }}" aria-label="{{ preview.label }}">
+      <img src="{{ preview.src }}"{% if preview.srcset %} srcset="{{ preview.srcset }}" sizes="4.8rem"{% endif %} alt="{{ preview.alt }}" loading="lazy" decoding="async">
+    </a>
+  {% else %}
+    <a class="doc-preview doc-preview-icon doc-preview-{{ preview.state }}" href="{{ url_for('document', doc_id=d.id) }}" aria-label="{{ preview.label }}"><span>{{ preview.icon }}</span></a>
+  {% endif %}
+{% endmacro %}
+
+{% macro compact_row(d) %}
+  <li class="doc-compact__row">
+    <input type="checkbox" name="document_id" value="{{ d.id }}" aria-label="Select {{ d.title }}">
+    <span class="doc-compact__type ti ti-{{ (d.doc_type or 'file')|lower }}">{{ (d.doc_type or 'file')|upper }}</span>
+    <a class="doc-compact__title" href="{{ url_for('document', doc_id=d.id) }}">{{ d.title }}</a>
+    <span class="doc-compact__meta">
+      <span class="num">{{ "{:,}".format(d.char_count or 0) }}<span class="u">ch</span></span>
+      <span class="num">{{ d.page_count or "—" }}<span class="u">pg</span></span>
+      <span class="num">{{ "{:,}".format(d.n_sentences or 0) }}<span class="u">sent</span></span>
+      {% if d.language %}<span class="pill lang">{{ d.language }}</span>{% endif %}
+    </span>
+  </li>
+{% endmacro %}
+
+{% macro doc_card(d) %}
+  <article class="doc-card">
+    <label class="doc-card__pick"><input type="checkbox" name="document_id" value="{{ d.id }}" aria-label="Select {{ d.title }}"></label>
+    <a class="doc-card__cover" href="{{ url_for('document', doc_id=d.id) }}" aria-label="Open {{ d.title }}">
+      {% set preview = d.preview %}
+      {% if preview.kind == "image" %}
+        <img src="{{ preview.src }}"{% if preview.srcset %} srcset="{{ preview.srcset }}" sizes="9rem"{% endif %} alt="{{ preview.alt }}" loading="lazy" decoding="async">
+      {% else %}
+        <span class="doc-card__placeholder doc-preview-{{ preview.state }}"><b>{{ preview.icon }}</b>{{ preview.status_label or "no preview" }}</span>
+      {% endif %}
+    </a>
+    <div class="doc-card__body">
+      <a class="doc-card__title" href="{{ url_for('document', doc_id=d.id) }}">{{ d.title }}</a>
+      <div class="doc-card__meta num">{{ d.page_count or "—" }} pg · {{ "{:,}".format(d.n_sentences or 0) }} sent</div>
+    </div>
+  </article>
+{% endmacro %}
+
 {% block body %}
-{# Working screen, not a shop window: title and corpus counters share one row so
-   the document table starts inside the first viewport. What the corpus *is*
-   belongs on the landing page and in /help — it does not need restating on
-   every visit. #}
 <div class="work-head">
   <h1>The <span class="accent">Corpus</span></h1>
   <p class="stat-rail">
@@ -17,78 +58,111 @@
   </p>
 </div>
 
-{% if bulk_queued %}
-<p class="notice">Queued {{ bulk_queued }} bulk document jobs.</p>
-{% endif %}
-{% if bulk_skipped %}
-<p class="notice">{{ bulk_skipped }} selected document(s) were skipped.</p>
-{% endif %}
-{% if bulk_error %}
-<p class="notice error">{{ bulk_error }}</p>
-{% endif %}
+{% if bulk_queued %}<p class="notice">Queued {{ bulk_queued }} bulk document jobs.</p>{% endif %}
+{% if bulk_skipped %}<p class="notice">{{ bulk_skipped }} selected document(s) were skipped.</p>{% endif %}
+{% if bulk_error %}<p class="notice error">{{ bulk_error }}</p>{% endif %}
 
-<form action="{{ url_for('documents_bulk_action') }}" method="post" class="card table-card">
+{# ---- view + sort + density + group controls (same rows, different lens) ---- #}
+<div class="corpus-controls">
+  <nav class="view-switch" aria-label="Corpus layout">
+    {% for v in views %}
+      <a class="view-switch__btn"
+         href="{{ url_for('documents', view=v, sort=sort, density=density, group_by=group_by) }}"
+         {% if v == view %}aria-current="page"{% endif %}>{{ v|capitalize }}</a>
+    {% endfor %}
+  </nav>
+  <form method="get" class="corpus-lens" role="search">
+    <input type="hidden" name="view" value="{{ view }}">
+    <label>Sort
+      <select name="sort">
+        {% for s in sorts %}<option value="{{ s }}"{% if s == sort %} selected{% endif %}>{{ s|capitalize }}</option>{% endfor %}
+      </select>
+    </label>
+    <label>Density
+      <select name="density">
+        <option value="comfortable"{% if density == 'comfortable' %} selected{% endif %}>Comfortable</option>
+        <option value="compact"{% if density == 'compact' %} selected{% endif %}>Compact</option>
+      </select>
+    </label>
+    {% if view == 'grouped' %}
+    <label>Group by
+      <select name="group_by">
+        {% for g in group_axes %}<option value="{{ g }}"{% if g == group_by %} selected{% endif %}>{{ g|capitalize }}</option>{% endfor %}
+      </select>
+    </label>
+    {% endif %}
+    <button type="submit" class="corpus-lens__apply">Apply</button>
+  </form>
+</div>
+
+<form action="{{ url_for('documents_bulk_action') }}" method="post" class="card table-card corpus" data-view="{{ view }}" data-density="{{ density }}">
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
   <div class="toolbar">
-    <label>
-      Tags
-      <input name="tags" placeholder="reviewed, source-a">
-    </label>
+    <label>Tags <input name="tags" placeholder="reviewed, source-a"></label>
     <button type="submit" name="bulk_action" value="tag">Tag selected</button>
     <button type="submit" name="bulk_action" value="archive">Archive selected</button>
     <button type="submit" name="bulk_action" value="reannotate">Re-annotate selected</button>
     <button type="submit" name="bulk_action" value="reextract">Re-extract selected PDFs</button>
   </div>
-  <table>
-    <thead><tr>
-      <th>Select</th><th>Preview</th><th>Title</th><th>Type</th><th>Lang</th>
-      <th class="num">Chars</th><th class="num">Pages</th>
-      <th class="num">Sentences</th><th>Analyzer</th>
-    </tr></thead>
-    <tbody>
-    {% for d in rows %}
-      <tr>
-        <td><input type="checkbox" name="document_id" value="{{ d.id }}" aria-label="Select {{ d.title }}"></td>
-        <td class="preview-cell">
-          {% set preview = d.preview %}
-          {% if preview.kind == "image" %}
-            <a class="doc-preview doc-preview-image" href="{{ url_for('document', doc_id=d.id) }}" aria-label="{{ preview.label }}">
-              <img src="{{ preview.src }}"{% if preview.srcset %} srcset="{{ preview.srcset }}" sizes="4.8rem"{% endif %} alt="{{ preview.alt }}" width="77" height="102" loading="lazy" decoding="async">
-            </a>
-          {% else %}
-            <a class="doc-preview doc-preview-icon doc-preview-{{ preview.state }}" href="{{ url_for('document', doc_id=d.id) }}" aria-label="{{ preview.label }}">
-              <span>{{ preview.icon }}</span>
-            </a>
-          {% endif %}
-          {% if preview.status_label %}
-            <div class="preview-status preview-status-{{ preview.state }}">{{ preview.status_label }}</div>
-          {% endif %}
-        </td>
-        <td class="table-title">
-          <a href="{{ url_for('document', doc_id=d.id) }}">{{ d.title }}</a></td>
-        <td class="meta-cell">{{ d.doc_type }}</td>
-        <td>{% if d.language %}<span class="pill lang">{{ d.language }}</span>{% endif %}</td>
-        <td class="num">{{ "{:,}".format(d.char_count or 0) }}</td>
-        <td class="num">{{ d.page_count or "—" }}</td>
-        <td class="num">{{ "{:,}".format(d.n_sentences or 0) }}</td>
-        <td class="meta-cell">{{ d.tools or "—" }}</td>
-      </tr>
-    {% else %}
-      <tr>
-        <td colspan="9" style="padding:1.4rem; text-align:center">
-          <strong>No documents yet.</strong>
-          <span style="color:var(--ink-faint)">Start by adding a file to the corpus.</span>
-          <a href="{{ url_for('upload_form') }}">Upload the first document</a>
-        </td>
-      </tr>
+
+  {% if not rows %}
+    <p class="empty-state"><strong>No documents yet.</strong>
+      <span style="color:var(--ink-faint)">Start by adding a file to the corpus.</span>
+      <a href="{{ url_for('upload_form') }}">Upload the first document</a></p>
+
+  {% elif view == "table" %}
+    <table>
+      <thead><tr>
+        <th>Select</th><th>Preview</th><th>Title</th><th>Type</th><th>Lang</th>
+        <th class="num">Chars</th><th class="num">Pages</th><th class="num">Sentences</th><th>Analyzer</th>
+      </tr></thead>
+      <tbody>
+      {% for d in rows %}
+        <tr>
+          <td><input type="checkbox" name="document_id" value="{{ d.id }}" aria-label="Select {{ d.title }}"></td>
+          <td class="preview-cell">{{ thumb(d) }}{% if d.preview.status_label %}<div class="preview-status preview-status-{{ d.preview.state }}">{{ d.preview.status_label }}</div>{% endif %}</td>
+          <td class="table-title"><a href="{{ url_for('document', doc_id=d.id) }}">{{ d.title }}</a></td>
+          <td class="meta-cell">{{ d.doc_type }}</td>
+          <td>{% if d.language %}<span class="pill lang">{{ d.language }}</span>{% endif %}</td>
+          <td class="num">{{ "{:,}".format(d.char_count or 0) }}</td>
+          <td class="num">{{ d.page_count or "—" }}</td>
+          <td class="num">{{ "{:,}".format(d.n_sentences or 0) }}</td>
+          <td class="meta-cell">{{ d.tools or "—" }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+
+  {% elif view == "compact" %}
+    <ul class="doc-compact">
+      {% for d in rows %}{{ compact_row(d) }}{% endfor %}
+    </ul>
+
+  {% elif view == "gallery" %}
+    <div class="doc-gallery">
+      {% for d in rows %}{{ doc_card(d) }}{% endfor %}
+    </div>
+
+  {% elif view == "grouped" %}
+    {% for g in groups %}
+      <section class="doc-group">
+        <header class="doc-group__head">
+          <span class="doc-group__name">{{ g.label }}</span>
+          <span class="doc-group__count">{{ g.count }}</span>
+          <span class="doc-group__sum num">{{ "{:,}".format(g.sentences) }} sentences</span>
+        </header>
+        <ul class="doc-compact">
+          {% for d in g.rows %}{{ compact_row(d) }}{% endfor %}
+        </ul>
+      </section>
     {% endfor %}
-    </tbody>
-  </table>
+  {% endif %}
+
   {% if rows %}
   <div class="pager">
-    {% if page > 1 %}<a href="?page={{ page-1 }}">← prev</a>{% endif %}
+    {% if page > 1 %}<a href="{{ url_for('documents', view=view, sort=sort, density=density, group_by=group_by, page=page-1) }}">← prev</a>{% endif %}
     <span>page {{ page }}</span>
-    {% if has_next %}<a href="?page={{ page+1 }}">next →</a>{% endif %}
+    {% if has_next %}<a href="{{ url_for('documents', view=view, sort=sort, density=density, group_by=group_by, page=page+1) }}">next →</a>{% endif %}
   </div>
   {% endif %}
 </form>

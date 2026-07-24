@@ -22,6 +22,25 @@ doc-ray carries **one global version** covering both the application package
 ## [1.38.0]
 
 ### Added
+- **Corpus view modes — table, compact, gallery, grouped** (Claude Opus 4.8
+  (1M context) via Claude Code) — BL-143. The corpus page shipped as a single
+  dense table: one ~156px row per document (cover thumbnail + wrapped title +
+  a four-line, near-identical analyzer string), so only ~5 documents fit a
+  screen and a growing library stopped being browsable — a gap found by
+  inspecting the live `/corpus` with Playwright. The page now offers four
+  layouts over the same rows and the same bulk-selection model, driven by URL
+  query params so a view is shareable and bookmarkable: `view`
+  (`table`/`compact`/`gallery`/`grouped`), `sort`
+  (`size`/`recent`/`title`/`sentences`/`pages`), `density`
+  (`comfortable`/`compact`), and `group_by` (`type`/`language`/`status`).
+  `compact` is one line per document (~3–4× the density); `gallery` is a
+  cover-forward grid that reuses the already-rendered first-page covers;
+  `grouped` sections the list with per-group counts and sentence subtotals.
+  Every param is whitelisted — an unknown value degrades to its default and the
+  `sort` value never reaches SQL — so a hand-edited URL is always safe. These
+  are webapp presentation over the read model; the GraphQL API and MCP already
+  return every field the modes use (title, type, language, char/page counts,
+  sentence count, status, cover), so any client can build equivalent views.
 - **Editable document authors, and collection rename/delete** (Claude Opus 4.8
   (1M context) via Claude Code). Two gaps surfaced by connector use:
   authors were write-once at ingest (no edit path anywhere), and a collection,

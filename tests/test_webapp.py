@@ -524,8 +524,10 @@ def test_home_paginates_and_shows_next_link(client, monkeypatch):
 
     assert captured["params"]["offset"] == 50
     assert captured["params"]["limit"] == 50
-    assert 'href="?page=1"' in html  # prev
-    assert 'href="?page=3"' in html  # a full page implies a next page
+    # The pager preserves the active view/sort/density across pages (BL-143), so
+    # the links are absolute with a page arg rather than a bare relative "?page=".
+    assert "page=1" in html  # prev
+    assert "page=3" in html  # a full page implies a next page
 
 
 def test_home_last_page_has_no_next_link(client):
