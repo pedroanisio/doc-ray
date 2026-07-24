@@ -187,3 +187,71 @@ class CollectionMutations:
             details={"document_id": doc_id},
         )
         return await _collection_status(ctx, coll_id)
+
+    @strawberry.mutation
+    async def update_collection(
+        self,
+        info: Info,
+        collection_id: strawberry.ID,
+        name: str | None = None,
+        description: str | None = None,
+    ) -> DocumentCollection:
+        """Rename a collection and/or edit its description; returns the updated collection.
+
+        Only the fields passed change. Applies to manual and smart collections
+        alike — it edits the collection's own metadata, not its membership.
+        Renaming to a name another collection already holds is a clean error
+        (the ``name`` column is globally unique).
+        """
+        ctx = info.context
+        coll_id = str(collection_id)
+        await _require_write_audited(ctx, action="mutation.update_collection")
+        await _collection_status(ctx, coll_id)  # rejects an unknown id before any write
+        if name is not None:
+            clean_name = name.strip()
+            if not clean_name:
+                raise ValueError("collection name cannot be empty")
+            cur = await ctx.conn.execute(
+                "SELECT 1 FROM document_collections WHERE name = %s AND id <> %s",
+                (clean_name, coll_id),
+            )
+            if await cur.fetchone() is not None:
+                raise ValueError(f"a collection named {clean_name!r} already exists")
+            await ctx.conn.execute(
+                "UPDATE document_collections SET name = %s WHERE id = %s", (clean_name, coll_id)
+            )
+        if description is not None:
+            await ctx.conn.execute(
+                "UPDATE document_collections SET description = %s WHERE id = %s",
+                (description.strip(), coll_id),
+            )
+        await _audit_mutation_event(
+            ctx,
+            action="mutation.update_collection",
+            target_type="collection",
+            target_id=coll_id,
+            outcome="success",
+        )
+        return await _collection_status(ctx, coll_id)
+
+    @strawberry.mutation
+    async def delete_collection(self, info: Info, collection_id: strawberry.ID) -> bool:
+        """Delete a collection; returns True. Membership rows cascade.
+
+        Removes only the container — the member documents themselves are
+        untouched (``document_collection_members`` is ``ON DELETE CASCADE``).
+        Rejects an unknown collection id.
+        """
+        ctx = info.context
+        coll_id = str(collection_id)
+        await _require_write_audited(ctx, action="mutation.delete_collection")
+        await _collection_status(ctx, coll_id)  # rejects an unknown id before the delete
+        await ctx.conn.execute("DELETE FROM document_collections WHERE id = %s", (coll_id,))
+        await _audit_mutation_event(
+            ctx,
+            action="mutation.delete_collection",
+            target_type="collection",
+            target_id=coll_id,
+            outcome="success",
+        )
+        return True

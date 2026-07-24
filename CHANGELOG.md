@@ -22,6 +22,30 @@ doc-ray carries **one global version** covering both the application package
 ## [1.38.0]
 
 ### Added
+- **Editable document authors, and collection rename/delete** (Claude Opus 4.8
+  (1M context) via Claude Code). Two gaps surfaced by connector use:
+  authors were write-once at ingest (no edit path anywhere), and a collection,
+  once created, had an immutable name and could never be deleted — so a
+  mis-typed name (e.g. an HTML-escaped `"AI &amp; Business"`) was permanent.
+  - **Authors** are now editable through the existing metadata path:
+    `updateDocumentMetadata` gains an `authors: [String!]` argument (ordered
+    replace-set — author order is meaningful; `[]` clears), applied by the
+    worker + `persistence_doc_admin.update_document_metadata` (upserts the
+    `authors` dimension, rewrites the `document_authors` junction, records a
+    `documentMetadataHistory` row). The MCP `update_document_metadata` tool
+    gains the same `authors` param. No migration — it uses the existing 4NF
+    author tables.
+  - **Collections** gain `updateCollection(collectionId, name?, description?)`
+    and `deleteCollection(collectionId): Boolean` GraphQL mutations, plus the
+    matching MCP `update_collection` / `delete_collection` write tools. Rename
+    to an already-used name is a clean error (names are globally unique).
+    `deleteCollection` removes **only the container** — member documents are
+    never touched (`document_collection_members` is `ON DELETE CASCADE`, so
+    only membership rows cascade), covered by an explicit regression test.
+  Both follow D-030: reads unaffected; writes need `write` scope (+ per-document
+  grant for author edits) and are billing-classified. See `docs/mcp-service.md`
+  §3 and the MCP write examples.
+
 - **MCP exposes the collection tools** (Claude Opus 4.8 (1M context) via Claude
   Code) — D-030. doc-ray has a native `DocumentCollection` container, but MCP
   surfaced none of it, so connectors fell back to ad-hoc tags. MCP now has two

@@ -137,10 +137,28 @@ async def test_update_metadata_sends_only_the_document_id_and_passed_fields(
     await mutations.update_document_metadata(_DOC, title="New", tags=["a", "b"])
     body = client.calls[0][1]
     assert (
-        "updateDocumentMetadata(documentId:$id,title:$t,description:$d,tags:$tags)" in body["query"]
+        "updateDocumentMetadata(documentId:$id,title:$t,description:$d,tags:$tags,authors:$authors)"
+        in body["query"]
     )
     # description omitted -> null forwarded (server treats null as "unchanged")
-    assert body["variables"] == {"id": _DOC, "t": "New", "d": None, "tags": ["a", "b"]}
+    assert body["variables"] == {
+        "id": _DOC,
+        "t": "New",
+        "d": None,
+        "tags": ["a", "b"],
+        "authors": None,
+    }
+
+
+@pytest.mark.asyncio
+async def test_update_metadata_forwards_authors(monkeypatch: pytest.MonkeyPatch) -> None:
+    client = _patch(monkeypatch, {"data": {"updateDocumentMetadata": _JOB}})
+    await mutations.update_document_metadata(_DOC, authors=["Brian Herbert", "Kevin J. Anderson"])
+    body = client.calls[0][1]
+    assert "authors:$authors" in body["query"]
+    assert body["variables"]["authors"] == ["Brian Herbert", "Kevin J. Anderson"]
+    # unset fields still forwarded as null (server treats null as "unchanged")
+    assert body["variables"]["t"] is None and body["variables"]["tags"] is None
 
 
 @pytest.mark.asyncio
@@ -234,7 +252,10 @@ async def test_create_collection_forwards_all_fields(monkeypatch: pytest.MonkeyP
     )
     assert out == _COLLECTION
     body = client.calls[0][1]
-    assert "createCollection(name:$n,description:$d,kind:$k,rule:$r,docType:$dt,status:$s,tags:$t)" in body["query"]
+    assert (
+        "createCollection(name:$n,description:$d,kind:$k,rule:$r,docType:$dt,status:$s,tags:$t)"
+        in body["query"]
+    )
     assert body["variables"] == {
         "n": "Dune Series",
         "d": "Herbert fiction",
@@ -268,7 +289,9 @@ async def test_add_document_to_collection_forwards(monkeypatch: pytest.MonkeyPat
 async def test_remove_document_from_collection_forwards(monkeypatch: pytest.MonkeyPatch) -> None:
     client = _patch(monkeypatch, {"data": {"removeDocumentFromCollection": _COLLECTION}})
     await mutations.remove_document_from_collection(_COLL, _DOC)
-    assert "removeDocumentFromCollection(collectionId:$c,documentId:$d)" in client.calls[0][1]["query"]
+    assert (
+        "removeDocumentFromCollection(collectionId:$c,documentId:$d)" in client.calls[0][1]["query"]
+    )
 
 
 @pytest.mark.asyncio
@@ -280,6 +303,46 @@ async def test_collection_membership_rejects_bad_ids_before_network(
         await mutations.add_document_to_collection("not-a-uuid", _DOC)
     with pytest.raises(corpus.ToolCallError):
         await mutations.remove_document_from_collection(_COLL, "not-a-uuid")
+    assert client.calls == []
+
+
+@pytest.mark.asyncio
+async def test_update_collection_forwards_name_and_description(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = _patch(monkeypatch, {"data": {"updateCollection": _COLLECTION}})
+    out = await mutations.update_collection(_COLL, name="AI & Business")
+    assert out == _COLLECTION
+    body = client.calls[0][1]
+    assert "updateCollection(collectionId:$c,name:$n,description:$d)" in body["query"]
+    assert body["variables"] == {"c": _COLL, "n": "AI & Business", "d": None}
+
+
+@pytest.mark.asyncio
+async def test_update_collection_rejects_bad_uuid(monkeypatch: pytest.MonkeyPatch) -> None:
+    client = _patch(monkeypatch, {"data": {"updateCollection": _COLLECTION}})
+    with pytest.raises(corpus.ToolCallError):
+        await mutations.update_collection("not-a-uuid", name="x")
+    assert client.calls == []
+
+
+@pytest.mark.asyncio
+async def test_delete_collection_forwards_and_returns_bool(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = _patch(monkeypatch, {"data": {"deleteCollection": True}})
+    out = await mutations.delete_collection(_COLL)
+    assert out is True
+    body = client.calls[0][1]
+    assert "deleteCollection(collectionId:$c)" in body["query"]
+    assert body["variables"] == {"c": _COLL}
+
+
+@pytest.mark.asyncio
+async def test_delete_collection_rejects_bad_uuid(monkeypatch: pytest.MonkeyPatch) -> None:
+    client = _patch(monkeypatch, {"data": {"deleteCollection": True}})
+    with pytest.raises(corpus.ToolCallError):
+        await mutations.delete_collection("not-a-uuid")
     assert client.calls == []
 
 
@@ -301,6 +364,9 @@ def test_tools_tuple_is_the_reprocessing_and_curation_writers() -> None:
         "create_collection",
         "add_document_to_collection",
         "remove_document_from_collection",
+        "update_collection",
+        "delete_collection",
     }
-    # Destructive / admin-only mutations are deliberately NOT exposed.
+    # Destructive DOCUMENT verbs stay off MCP (delete_collection removes only the
+    # container, never the documents, so it is exposed).
     assert not {"delete_document", "archive_document", "create_backup", "cancel_job"} & names

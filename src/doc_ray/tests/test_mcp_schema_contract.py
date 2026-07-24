@@ -9,6 +9,7 @@ argument, this fails here instead of at runtime against a 401/GraphQL error.
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 import pytest
@@ -91,6 +92,9 @@ _WRITE_CALLS = [
     lambda: mutations.create_collection("Dune Series", tags=["dune"]),
     lambda: mutations.add_document_to_collection(_DOC, _DOC),
     lambda: mutations.remove_document_from_collection(_DOC, _DOC),
+    lambda: mutations.update_document_metadata(_DOC, authors=["Frank Herbert"]),
+    lambda: mutations.update_collection(_DOC, name="AI & Business"),
+    lambda: mutations.delete_collection(_DOC),
 ]
 
 
@@ -100,6 +104,17 @@ async def test_mcp_document_validates_against_the_api_schema(monkeypatch, call) 
     document = await _capture(monkeypatch, call)
     errors = validate(_GRAPHQL_SCHEMA, parse(document))
     assert not errors, f"{document!r} -> {[str(e) for e in errors]}"
+
+
+def test_api_schema_exposes_author_edit_and_collection_lifecycle() -> None:
+    """The GraphQL surface the tools depend on: authors edit + collection update/delete."""
+    from doc_ray.entrypoints.api.schema import build_schema as _bs
+
+    sdl = _bs(debug=True).as_str()
+    mutation = re.search(r"type Mutation \{(.*?)\n\}", sdl, re.S).group(1)
+    assert "updateDocumentMetadata(" in mutation and "authors: [String!]" in mutation
+    assert "updateCollection(collectionId: ID!" in mutation
+    assert "deleteCollection(collectionId: ID!): Boolean!" in mutation
 
 
 @pytest.mark.asyncio
@@ -121,5 +136,7 @@ async def test_every_write_tool_is_contract_checked() -> None:
         "create_collection",
         "add_document_to_collection",
         "remove_document_from_collection",
+        "update_collection",
+        "delete_collection",
     }
     assert {fn.__name__ for fn in mutations.TOOLS} == covered

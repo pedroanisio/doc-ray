@@ -235,12 +235,14 @@ class Mutation(BillingMutations, CollectionMutations, SharingMutations):
         title: str | None = None,
         description: str | None = None,
         tags: list[str] | None = None,
+        authors: list[str] | None = None,
     ) -> Job:
-        """Enqueue an edit to a document's title/description/tags; returns the job.
+        """Enqueue an edit to a document's title/description/tags/authors; returns the job.
 
         Only the fields passed are changed; each actually-changed field is
-        recorded in ``documentMetadataHistory``. Tags, when passed, fully
-        replace the document's current tag set. Requires a write grant on the
+        recorded in ``documentMetadataHistory``. ``tags`` and ``authors``, when
+        passed, fully replace the document's current set (``authors`` keeps the
+        order given — author order is meaningful). Requires a write grant on the
         document itself, like every other document-scoped mutation (BL-064).
         """
         ctx = info.context
@@ -252,6 +254,8 @@ class Mutation(BillingMutations, CollectionMutations, SharingMutations):
             payload["description"] = description
         if tags is not None:
             payload["tags"] = list(tags)
+        if authors is not None:
+            payload["authors"] = list(authors)
         job_id = await _enqueue_job(
             ctx, KIND_UPDATE_METADATA, payload, document_id=str(document_id)
         )

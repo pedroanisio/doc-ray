@@ -121,20 +121,26 @@ async def update_document_metadata(
     title: str | None = None,
     description: str | None = None,
     tags: list[str] | None = None,
+    authors: list[str] | None = None,
 ) -> dict[str, Any]:
-    """Edit a document's title/description/tags; returns the queued job.
+    """Edit a document's title/description/tags/authors; returns the queued job.
 
     Only the fields you pass change; each changed field is recorded in the
-    document's metadata history. ``tags``, when passed, fully replaces the current
-    tag set. Requires a write grant on the document (BL-064).
+    document's metadata history. ``tags`` (a set) and ``authors`` (an ordered
+    list — author order is kept) each fully replace the current set when passed;
+    pass ``authors=[]`` to clear them. Requires a write grant on the document
+    (BL-064).
     """
     _require_uuid(document_id, "document_id")
     query = (
-        "mutation($id:ID!,$t:String,$d:String,$tags:[String!])"
-        "{updateDocumentMetadata(documentId:$id,title:$t,description:$d,tags:$tags)"
+        "mutation($id:ID!,$t:String,$d:String,$tags:[String!],$authors:[String!])"
+        "{updateDocumentMetadata(documentId:$id,title:$t,description:$d,tags:$tags,authors:$authors)"
         f"{{{JOB_FIELDS}}}}}"
     )
-    data = await gql(query, {"id": document_id, "t": title, "d": description, "tags": tags})
+    data = await gql(
+        query,
+        {"id": document_id, "t": title, "d": description, "tags": tags, "authors": authors},
+    )
     job: dict[str, Any] = data["updateDocumentMetadata"]
     return job
 
@@ -243,6 +249,40 @@ async def remove_document_from_collection(collection_id: str, document_id: str) 
     return collection
 
 
+async def update_collection(
+    collection_id: str, name: str | None = None, description: str | None = None
+) -> dict[str, Any]:
+    """Rename a collection and/or edit its description; returns the updated collection.
+
+    Only the fields you pass change (use this to fix a bad name, e.g. an
+    HTML-escaped one). Renaming to a name another collection already holds is a
+    clean error — names are globally unique.
+    """
+    _require_uuid(collection_id, "collection_id")
+    data = await gql(
+        "mutation($c:ID!,$n:String,$d:String){updateCollection(collectionId:$c,name:$n,description:$d)"
+        f"{{{COLLECTION_FIELDS}}}}}",
+        {"c": collection_id, "n": name, "d": description},
+    )
+    collection: dict[str, Any] = data["updateCollection"]
+    return collection
+
+
+async def delete_collection(collection_id: str) -> bool:
+    """Delete a collection; returns True. Removes only the container.
+
+    The member documents are untouched — only the grouping is removed. Use it to
+    clean up a mistaken collection.
+    """
+    _require_uuid(collection_id, "collection_id")
+    data = await gql(
+        "mutation($c:ID!){deleteCollection(collectionId:$c)}",
+        {"c": collection_id},
+    )
+    deleted: bool = data["deleteCollection"]
+    return deleted
+
+
 #: The write tools registered when ``DOCRAY_MCP_ENABLE_WRITE`` is set. Reprocessing
 #: (reannotate … suggest_document_metadata), curation (update_document_metadata,
 #: bulk_tag_documents, decide_*, seed_approved), and collection management
@@ -263,4 +303,6 @@ TOOLS: tuple[Any, ...] = (
     create_collection,
     add_document_to_collection,
     remove_document_from_collection,
+    update_collection,
+    delete_collection,
 )

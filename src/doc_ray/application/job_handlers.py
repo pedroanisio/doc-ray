@@ -137,6 +137,7 @@ def handle_update_metadata(
         title=job.payload.get("title"),
         description=job.payload.get("description"),
         tags=job.payload.get("tags"),
+        authors=job.payload.get("authors"),
         actor=job.payload.get("actor"),
     )
     return {"changed": changed}

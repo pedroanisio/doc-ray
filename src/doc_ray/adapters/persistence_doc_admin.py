@@ -32,6 +32,28 @@ def _tag_id(conn: DictConnection, tag: str) -> int:
     return int(row["id"])
 
 
+def _dedup_ordered(names: list[str]) -> list[str]:
+    """Strip, drop blanks, and dedupe *names* preserving first-seen order."""
+    seen: set[str] = set()
+    out: list[str] = []
+    for raw in names:
+        name = raw.strip()
+        if name and name not in seen:
+            seen.add(name)
+            out.append(name)
+    return out
+
+
+def _replace_authors(conn: DictConnection, document_id: str, new_authors: list[str]) -> None:
+    """Rewrite a document's ordered author set (positions 0..n)."""
+    conn.execute("DELETE FROM document_authors WHERE document_id = %s", (document_id,))
+    for position, name in enumerate(new_authors):
+        conn.execute(
+            "INSERT INTO document_authors (document_id, author_id, position) VALUES (%s, %s, %s)",
+            (document_id, _author_id(conn, name), position),
+        )
+
+
 def update_document_metadata(
     conn: DictConnection,
     document_id: str,
@@ -39,13 +61,15 @@ def update_document_metadata(
     title: str | None = None,
     description: str | None = None,
     tags: list[str] | None = None,
+    authors: list[str] | None = None,
     actor: str | None = None,
 ) -> list[str]:
-    """Edit a document's title/description/tags, recording one history row per change.
+    """Edit a document's title/description/tags/authors, one history row per change.
 
     Only fields actually passed (not ``None``) are considered; a field whose new
     value equals its current value is not treated as a change (no-op, no history
-    row). ``tags``, when passed, fully replaces the document's tag set.
+    row). ``tags`` (a set) and ``authors`` (an ordered list — author order is
+    meaningful) each fully replace the document's current set when passed.
 
     Args:
         conn: Open database connection.
@@ -53,11 +77,12 @@ def update_document_metadata(
         title: New title, or ``None`` to leave unchanged.
         description: New description, or ``None`` to leave unchanged.
         tags: New complete tag set, or ``None`` to leave unchanged.
+        authors: New complete ordered author list, or ``None`` to leave unchanged.
         actor: Caller-supplied label recorded on each history row.
 
     Returns:
         The list of field names actually changed (a subset of
-        ``["title", "description", "tags"]``), in that order.
+        ``["title", "description", "tags", "authors"]``), in that order.
 
     Raises:
         ValueError: If *document_id* does not name an existing document.
@@ -82,6 +107,16 @@ def update_document_metadata(
                     (document_id,),
                 ).fetchall()
             )
+        current_authors = None
+        if authors is not None:
+            current_authors = [
+                r["name"]
+                for r in conn.execute(
+                    "SELECT a.name FROM document_authors da JOIN authors a ON a.id = da.author_id "
+                    "WHERE da.document_id = %s ORDER BY da.position",
+                    (document_id,),
+                ).fetchall()
+            ]
 
         def _record(field: str, old_value: str | None, new_value: str | None) -> None:
             conn.execute(
@@ -113,6 +148,12 @@ def update_document_metadata(
                         "ON CONFLICT DO NOTHING",
                         (document_id, _tag_id(conn, tag)),
                     )
+
+        if authors is not None:
+            new_authors = _dedup_ordered(authors)
+            if new_authors != current_authors:
+                _record("authors", ", ".join(current_authors or []), ", ".join(new_authors))
+                _replace_authors(conn, document_id, new_authors)
     return changed
 
 

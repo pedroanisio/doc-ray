@@ -140,6 +140,7 @@ Other query/mutation surface: `documents(docType:, status:, tags:)` /
 `crossModalImageSearch` (Prism visual-layer reads) / `billingStatus` /
 `billingEvents` (reads);
 `createCollection` / `addDocumentToCollection` / `removeDocumentFromCollection`
+/ `updateCollection` / `deleteCollection`
 / `reannotate` / `deleteDocument` / `archiveDocument` / `restoreDocument` /
 `bulkArchiveDocuments` / `bulkTagDocuments` / `annotateDocument` /
 `reextractDocument` / `reextractDocuments` / `canonicalizeDocument(resolve:)` /

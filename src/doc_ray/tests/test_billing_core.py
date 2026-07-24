@@ -47,6 +47,7 @@ def test_paid_saas_mutations_cannot_drift_outside_billing_entitlement_guard() ->
         "create_collection": "mutation.create_collection",
         "decide_document_metadata_suggestions": ("mutation.decide_document_metadata_suggestions"),
         "decide_seeds": "mutation.decide_seeds",
+        "delete_collection": "mutation.delete_collection",
         "delete_document": "mutation.delete",
         "ingest_document": "mutation.ingest",
         "reannotate": "mutation.reannotate",
@@ -62,6 +63,7 @@ def test_paid_saas_mutations_cannot_drift_outside_billing_entitlement_guard() ->
         "share_document": "mutation.share_document",
         "suggest_document_metadata": "mutation.suggest_document_metadata",
         "suggest_seeds": "mutation.seed_suggest",
+        "update_collection": "mutation.update_collection",
         "update_document_metadata": "mutation.update_metadata",
     }
     assert set(mutation_fields) == set(guarded_mutations) | set(exempt_mutations)

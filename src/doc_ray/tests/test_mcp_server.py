@@ -48,6 +48,8 @@ _WRITE_TOOL_NAMES = {
     "create_collection",
     "add_document_to_collection",
     "remove_document_from_collection",
+    "update_collection",
+    "delete_collection",
 }
 
 

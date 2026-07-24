@@ -22,8 +22,8 @@ what they can read.
 **Status: live in production and verified end-to-end.** The server ships **16
 read tools** (9 corpus readers incl. `get_job`, `list_collections`,
 `get_collection` + 3 composition-grounding tools from `entrypoints/mcp/compose.py`
-+ 4 Prism visual tools… see §3) always registered, plus **15 opt-in write tools**
-(reprocessing + curation + collection management) registered only when
++ 4 Prism visual tools… see §3) always registered, plus **17 opt-in write tools**
+(reprocessing + curation + full collection lifecycle) registered only when
 `DOCRAY_MCP_ENABLE_WRITE=true` — the default surface stays read-only. It is
 deployed via `make mcp-up`, routed at `https://doc-ray.com/mcp` behind the
 Cloudflare tunnel, and confirmed with a real MCP client (initialize → tools/list
@@ -149,7 +149,7 @@ engineering decision **D-030**.
 | `canonicalize_document(document_id, resolve=False)` | `canonicalizeDocument` | `Job` (LLM only if `resolve`) |
 | `suggest_seeds(document_id, limit=40)` | `suggestSeeds` | `Job` |
 | `suggest_document_metadata(document_id)` | `suggestDocumentMetadata` | `Job` |
-| `update_document_metadata(document_id, title?, description?, tags?)` | `updateDocumentMetadata` | `Job` |
+| `update_document_metadata(document_id, title?, description?, tags?, authors?)` | `updateDocumentMetadata` | `Job` |
 | `bulk_tag_documents(document_ids, tags)` | `bulkTagDocuments` | `[Job]` |
 | `decide_seeds(approve_ids?, reject_ids?)` | `decideSeeds` | `Int` (rows updated) |
 | `decide_document_metadata_suggestions(approve_ids?, reject_ids?)` | `decideDocumentMetadataSuggestions` | `Int` |
@@ -157,11 +157,21 @@ engineering decision **D-030**.
 | `create_collection(name, description="", kind="manual", rule?, doc_type?, status?, tags?)` | `createCollection` | `DocumentCollection` |
 | `add_document_to_collection(collection_id, document_id)` | `addDocumentToCollection` | `DocumentCollection` |
 | `remove_document_from_collection(collection_id, document_id)` | `removeDocumentFromCollection` | `DocumentCollection` |
+| `update_collection(collection_id, name?, description?)` | `updateCollection` | `DocumentCollection` |
+| `delete_collection(collection_id)` | `deleteCollection` | `Boolean` |
 
 Collection tools return the `DocumentCollection` shape (`id`, `name`, `kind`,
 `documentCount`, …), not a `Job` — the API applies them synchronously.
-`create_collection` needs `write` scope; `add`/`remove` additionally need a write
-grant on the document and a **manual** (not smart-rule) collection.
+`create_collection`/`update_collection`/`delete_collection` need `write` scope;
+`add`/`remove` additionally need a write grant on the document and a **manual**
+(not smart-rule) collection. `update_collection` fixes a bad name (e.g. an
+HTML-escaped one); `delete_collection` removes **only the container** — the
+member documents are never touched (`document_collection_members` is
+`ON DELETE CASCADE`, so only the membership rows go).
+
+`update_document_metadata` now also edits **`authors`** (an ordered list — order
+is kept; pass `[]` to clear), so an agent can correct wrong or empty author
+credits. Like `tags`, it replaces the whole set.
 
 **Example — enqueue re-annotation, then poll to completion:**
 

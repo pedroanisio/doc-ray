@@ -175,6 +175,72 @@ def test_handle_update_metadata_applies_edit_and_records_history(qconn, pg):
     assert [r["field"] for r in history] == ["title", "description", "tags"]
 
 
+def test_handle_update_metadata_replaces_authors_in_order_and_records_history(qconn, pg):
+    conn, created = pg
+    doc_id = _itdb.make_doc(conn, "Some text.")
+    created.append(doc_id)
+    job = Job(
+        id="0" * 26,
+        kind=KIND_UPDATE_METADATA,
+        status="queued",
+        document_id=doc_id,
+        # duplicate + blank are dropped; order is preserved (author order is meaningful)
+        payload={"authors": ["Brian Herbert", "Kevin J. Anderson", "  ", "Brian Herbert"]},
+    )  # type: ignore[arg-type]
+
+    out = jobs_mod.handle_update_metadata(qconn, None, job)
+
+    assert out["changed"] == ["authors"]
+    authors = [
+        r["name"]
+        for r in conn.execute(
+            "SELECT a.name FROM document_authors da JOIN authors a ON a.id=da.author_id "
+            "WHERE da.document_id=%s ORDER BY da.position",
+            (doc_id,),
+        ).fetchall()
+    ]
+    assert authors == ["Brian Herbert", "Kevin J. Anderson"]
+    history = conn.execute(
+        "SELECT field, new_value FROM document_metadata_history WHERE document_id=%s",
+        (doc_id,),
+    ).fetchone()
+    assert history["field"] == "authors"
+    assert history["new_value"] == "Brian Herbert, Kevin J. Anderson"
+
+
+def test_handle_update_metadata_can_clear_authors(qconn, pg):
+    conn, created = pg
+    doc_id = _itdb.make_doc(conn, "Some text.")
+    created.append(doc_id)
+    jobs_mod.handle_update_metadata(
+        qconn,
+        None,
+        Job(
+            id="0" * 26,
+            kind=KIND_UPDATE_METADATA,
+            status="queued",
+            document_id=doc_id,
+            payload={"authors": ["A. I. Holmes"]},
+        ),  # type: ignore[arg-type]
+    )
+    out = jobs_mod.handle_update_metadata(
+        qconn,
+        None,
+        Job(
+            id="1" * 26,
+            kind=KIND_UPDATE_METADATA,
+            status="queued",
+            document_id=doc_id,
+            payload={"authors": []},
+        ),  # type: ignore[arg-type]
+    )
+    assert out["changed"] == ["authors"]
+    remaining = conn.execute(
+        "SELECT count(*) AS n FROM document_authors WHERE document_id=%s", (doc_id,)
+    ).fetchone()
+    assert remaining["n"] == 0
+
+
 def test_handle_update_metadata_is_a_no_op_when_values_are_unchanged(qconn, pg):
     conn, created = pg
     doc_id = _itdb.make_doc(conn, "Some text.")

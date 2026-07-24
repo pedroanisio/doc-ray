@@ -208,6 +208,136 @@ def test_collection_mutations_create_add_and_remove_manual_membership(pg):
     asyncio.run(check())
 
 
+def test_update_collection_renames_and_edits_description(pg):
+    conn, _created = pg
+    schema = build_schema()
+
+    async def check() -> None:
+        aconn = await _aconn_as(WRITE_PRINCIPAL.principal_id)
+        try:
+            created = await schema.execute(
+                'mutation($n:String!){createCollection(name:$n,kind:"manual"){id}}',
+                variable_values={"n": _unique_name("AI &amp; Business")},
+                context_value=_ctx(aconn),
+            )
+            assert created.errors is None, created.errors
+            cid = created.data["createCollection"]["id"]
+            new_name = _unique_name("AI & Business")
+            renamed = await schema.execute(
+                """
+                mutation($c: ID!, $n: String, $d: String) {
+                  updateCollection(collectionId: $c, name: $n, description: $d) {
+                    id name description
+                  }
+                }
+                """,
+                variable_values={"c": cid, "n": new_name, "d": "Nonfiction"},
+                context_value=_ctx(aconn),
+            )
+            assert renamed.errors is None, renamed.errors
+            assert renamed.data["updateCollection"]["name"] == new_name
+            assert renamed.data["updateCollection"]["description"] == "Nonfiction"
+        finally:
+            await aconn.close()
+
+    asyncio.run(check())
+
+
+def test_update_collection_rejects_duplicate_name(pg):
+    conn, _created = pg
+    schema = build_schema()
+
+    async def check() -> None:
+        aconn = await _aconn_as(WRITE_PRINCIPAL.principal_id)
+        try:
+            taken = _unique_name("taken")
+            await schema.execute(
+                'mutation($n:String!){createCollection(name:$n,kind:"manual"){id}}',
+                variable_values={"n": taken},
+                context_value=_ctx(aconn),
+            )
+            b = await schema.execute(
+                'mutation($n:String!){createCollection(name:$n,kind:"manual"){id}}',
+                variable_values={"n": _unique_name("other")},
+                context_value=_ctx(aconn),
+            )
+            bid = b.data["createCollection"]["id"]
+            clash = await schema.execute(
+                "mutation($c:ID!,$n:String){updateCollection(collectionId:$c,name:$n){id}}",
+                variable_values={"c": bid, "n": taken},
+                context_value=_ctx(aconn),
+            )
+            assert clash.errors is not None
+            assert "already exists" in str(clash.errors[0])
+        finally:
+            await aconn.close()
+
+    asyncio.run(check())
+
+
+def test_delete_collection_removes_the_container_but_never_the_documents(pg):
+    """Deleting a collection cascades only its membership rows — the books survive."""
+    conn, _created = pg
+    doc_id = _seed(pg)
+    schema = build_schema()
+
+    async def check() -> None:
+        aconn = await _aconn_as(WRITE_PRINCIPAL.principal_id)
+        try:
+            created = await schema.execute(
+                'mutation($n:String!){createCollection(name:$n,kind:"manual"){id}}',
+                variable_values={"n": _unique_name("to-delete")},
+                context_value=_ctx(aconn),
+            )
+            cid = created.data["createCollection"]["id"]
+            await schema.execute(
+                "mutation($c:ID!,$d:ID!){addDocumentToCollection(collectionId:$c,documentId:$d){id}}",
+                variable_values={"c": cid, "d": doc_id},
+                context_value=_ctx(aconn),
+            )
+            deleted = await schema.execute(
+                "mutation($c:ID!){deleteCollection(collectionId:$c)}",
+                variable_values={"c": cid},
+                context_value=_ctx(aconn),
+            )
+            assert deleted.errors is None, deleted.errors
+            assert deleted.data["deleteCollection"] is True
+        finally:
+            await aconn.close()
+
+    asyncio.run(check())
+    # The collection and its membership rows are gone; the DOCUMENT is untouched.
+    assert (
+        conn.execute("SELECT count(*) AS n FROM documents WHERE id=%s", (doc_id,)).fetchone()["n"]
+        == 1
+    )
+    assert (
+        conn.execute(
+            "SELECT count(*) AS n FROM document_collection_members WHERE document_id=%s", (doc_id,)
+        ).fetchone()["n"]
+        == 0
+    )
+
+
+def test_delete_collection_rejects_unknown_id(pg):
+    schema = build_schema()
+
+    async def check() -> None:
+        aconn = await _aconn_as(WRITE_PRINCIPAL.principal_id)
+        try:
+            result = await schema.execute(
+                "mutation($c:ID!){deleteCollection(collectionId:$c)}",
+                variable_values={"c": "00000000-0000-0000-0000-000000000000"},
+                context_value=_ctx(aconn),
+            )
+            assert result.errors is not None
+            assert "unknown collection" in str(result.errors[0])
+        finally:
+            await aconn.close()
+
+    asyncio.run(check())
+
+
 def test_add_document_to_collection_requires_document_write_grant(pg):
     conn, _created = pg
     doc_id = _seed(pg)
