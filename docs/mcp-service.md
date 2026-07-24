@@ -26,8 +26,8 @@ composition-grounding tools from `entrypoints/mcp/compose.py` + 4 Prism visual
 tools… see §3) always registered, plus **17 opt-in write tools**
 (reprocessing + curation + full collection lifecycle) registered only when
 `DOCRAY_MCP_ENABLE_WRITE=true` — the default surface stays read-only. It also
-declares MCP's **resources** primitive: 5 `docray://` URIs/templates (§3) that
-address the same RLS-scoped reads by URI. It is
+declares MCP's **resources** primitive: 3 listable `docray://` entry points +
+5 drill-down templates (§3) addressing the same RLS-scoped reads by URI. It is
 deployed via `make mcp-up`, routed at `https://doc-ray.com/mcp` behind the
 Cloudflare tunnel, and confirmed with a real MCP client (initialize → tools/list
 → RLS-scoped tools/call). The **OAuth 2.1 Authorization Server** (originally
@@ -112,8 +112,9 @@ for cited-briefing workflows — see that module for their signatures.
 
 | MCP tool | GraphQL field | Notes |
 |---|---|---|
-| `search_sentences(term, document_id?, limit)` | `searchSentences` | KWIC pre/hit/post; term-filtered. Returns `{hits, coverage, note}` — see §3.1 |
-| `read_document_sentences(document_id, limit, after?, from_ordinal?, to_ordinal?, page?)` | `document { sentences }` | in-order read: **sequential** walk *or* **random-access** ordinal/page slice; verbatim text + citation offsets |
+| `search_sentences(term, document_id?, limit, response_format?)` | `searchSentences` | KWIC pre/hit/post; term-filtered. Returns `{hits, coverage, note}` — see §3.1 |
+| `read_document_sentences(document_id, limit, after?, from_ordinal?, to_ordinal?, page?, response_format?)` | `document { sentences }` | in-order read: **sequential** walk *or* **random-access** ordinal/page slice; verbatim text + citation offsets |
+| `read_document_outline(document_id, max_entries)` | `documentOutline` | the map that aims the ranged reader: addressable ordinal ranges + `source` provenance — see §3.2 |
 | `full_text_search(query, limit)` | `fullTextSearch` | ranked docs |
 | `list_documents(limit, doc_type?, status?)` | `documents` | keyset `cursor` |
 | `get_document(document_id)` | `document` | metadata + counts |
@@ -123,8 +124,13 @@ for cited-briefing workflows — see that module for their signatures.
 | `get_collection(collection_id, document_limit)` | `collection` | one collection + its member documents |
 | `corpus_manifest(shard_count)` | `corpusManifest` | shard map for a map-reduce sweep: per-shard counts that sum to the total |
 | `corpus_shard(shard_index, shard_count, limit, after?)` | `corpusShard` | one deterministic, disjoint slice of the corpus; keyset `cursor` |
-| `entity_frequency(document_id?, entity_type?, limit)` | `entityFrequency` | top entities |
+| `entity_frequency(document_id?, entity_type?, limit)` | `entityFrequency` | **raw** NER rows, one per (surface, type) — prefer `entity_profiles` |
+| `entity_profiles(document_id?, entity_type?, limit)` | `entityProfiles` | one row per entity: merged spellings, measured type spread, `typeConsistency` — see §3.3 |
 | `lexeme_kwic(uid, document_id?, limit)` | `lexeme { occurrences }` | KWIC is a **nested** resolver, not a root field |
+| `document_images(document_id, limit)` | `document { images }` | Prism visual layer: extracted/rendered page images |
+| `image_class_summary(document_id)` | `imageClassSummary` | per-document tally of image tier classes |
+| `visual_captions(document_id, limit)` | `visualCaptions` | generated captions for a document's images |
+| `cross_modal_image_search(query, limit)` | `crossModalImageSearch` | text→image search; typed `unsupported` where the vision stack is absent |
 
 **Reading a whole document, in order.** `search_sentences` is term-filtered — it
 returns only sentences matching a keyword, so it can't cover a document
@@ -356,15 +362,28 @@ destructive/admin verb. These remain available on the GraphQL API directly.
 ### Resources — `docray://` URIs and templates (always registered)
 
 Alongside tools, the server declares MCP's **resources** primitive: addressable,
-host-cacheable handles a client enumerates with `resources/templates/list` and
-fetches with `resources/read`. They are **addressing, not capability** — each read
-goes through the same read tools, so the caller's bearer token and Postgres RLS
-scope the result identically, and a `resources/read` still lands its bytes in the
-caller's context (the resource abstraction does not shrink payloads). Served by
+host-cacheable handles a client enumerates and fetches with `resources/read`.
+They are **addressing, not capability** — each read goes through the same read
+tools, so the caller's bearer token and Postgres RLS scope the result
+identically, and a `resources/read` still lands its bytes in the caller's context
+(the resource abstraction does not shrink payloads). Served by
 [`resources.py`](../src/doc_ray/entrypoints/mcp/resources.py).
+
+> **Concrete vs. template — why both exist.** `resources/list` and
+> `resources/templates/list` read **disjoint registries**: a parameterized URI is
+> returned *only* by the templates call. A template-only surface therefore makes
+> `resources/list` return `[]`, which clients render as "this server has no
+> resources" — the defect that shipped in the first cut of this layer. The three
+> **concrete** entry points below are parameterless so they are listable and give
+> a client somewhere to start; the templates are drill-down targets reached from
+> them. `test_mcp_resources.py` asserts `resources/list` is non-empty and that
+> every parameterless spec lands in the concrete registry.
 
 | URI / template | Type | Serves |
 |---|---|---|
+| `docray://corpus/documents` | `application/json` | **concrete** — the document index (id, title, type, counts); start here |
+| `docray://corpus/collections` | `application/json` | **concrete** — the collection index |
+| `docray://corpus/manifest` | `application/json` | **concrete** — shard map at the default width (8) |
 | `docray://doc/{document_id}` | `text/plain` | full text, one sentence per line; truncates **explicitly** at 200 000 chars and names the ranged template for the remainder |
 | `docray://doc/{document_id}/sentences/{start}-{end}` | `text/plain` | sentences `start`..`end` (inclusive ordinals) — the bounded, citable slice |
 | `docray://doc/{document_id}/pages/{page}` | `text/plain` | every sentence on one source page |
@@ -372,6 +391,9 @@ caller's context (the resource abstraction does not shrink payloads). Served by
 | `docray://corpus/shards/{shard_count}` | `application/json` | the corpus shard map (map-reduce plan) |
 
 ```jsonc
+// resources/list → the three concrete entry points; start from one of them
+{"uri": "docray://corpus/documents"}   // → JSON index of documents
+
 // resources/read — a bounded, in-order slice by URI instead of a tool call
 {"uri": "docray://doc/9f14ccff-…/sentences/4000-4200"}
 // → contents[0].text = the sentences, one per line

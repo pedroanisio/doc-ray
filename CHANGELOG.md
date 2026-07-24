@@ -141,6 +141,27 @@ doc-ray carries **one global version** covering both the application package
   `searchSentences` field is **unchanged**; this affects the MCP tool only.
 
 ### Fixed
+- **MCP resources were invisible to clients — `resources/list` returned `[]`**
+  (Claude Opus 4.8 (1M context) via Claude Code). The resource layer shipped with
+  five surfaces, *all* of them parameterized URI templates. The SDK keeps concrete
+  and templated resources in **disjoint registries**: `resources/list` returns only
+  the concrete ones, templates come back solely from `resources/templates/list`.
+  So a client enumerating `resources/list` — the usual way a UI populates its
+  resource picker — got an empty array and rendered "no resources", even though
+  the capability was advertised and all five templates were live.
+
+  Root cause was twofold: no parameterless entry point existed, **and the tests
+  asserted `list_resource_templates` twice while never calling `list_resources`**,
+  so a client-invisible surface passed the whole suite. Added three concrete,
+  listable entry points — `docray://corpus/documents` (the document index),
+  `docray://corpus/collections`, and `docray://corpus/manifest` (shard map at the
+  default width of 8) — with the templates retained as drill-down targets. The
+  regression tests now assert `resources/list` is non-empty, pin the concrete URI
+  set, and enforce the structural invariant that every parameterless spec lands in
+  the concrete registry and every braced one in the template registry (the two
+  never overlap). Note the remaining limit is client-side: declaring resources
+  puts them on the protocol, but a host must still surface `resources/*`.
+
 - **MCP tests were order-dependent and red after the webapp suite (BL-144)**
   (Claude Opus 4.8 (1M context) via Claude Code). `test_mcp_corpus.py` passed
   30/30 alone and failed en masse in the full run — originally misfiled as a
