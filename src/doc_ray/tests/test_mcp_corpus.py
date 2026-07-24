@@ -57,7 +57,10 @@ async def test_search_forwards_bearer_and_maps_variables(monkeypatch):
     client = _patch(monkeypatch, {"data": {"searchSentences": [{"id": "1", "hit": "Berlin"}]}})
     corpus.caller_token.set("tok-abc")
     out = await corpus.search_sentences("Berlin", limit=5)
-    assert out == [{"id": "1", "hit": "Berlin"}]
+    # search_sentences returns {hits, coverage, note} (BL-145): the rows plus a
+    # coverage signal that tells the caller when a common term flooded the result.
+    assert out["hits"] == [{"id": "1", "hit": "Berlin"}]
+    assert out["coverage"]["hit_count"] == 1
     url, body, headers = client.calls[0]
     assert url == corpus.API_URL
     assert headers["Authorization"] == "Bearer tok-abc"  # RLS travels with the caller's token
@@ -115,7 +118,7 @@ async def test_search_sentences_clips_oversized_kwic_windows(monkeypatch):
             }
         },
     )
-    (row,) = await corpus.search_sentences("Berlin")
+    (row,) = (await corpus.search_sentences("Berlin"))["hits"]
     assert row["pre"] == "x" * corpus.MAX_KWIC_WINDOW_CHARS + "… [+14500 chars]"
     assert row["hit"] == "Berlin"  # small windows pass through untouched
     assert row["post"] == "small tail."
@@ -415,6 +418,7 @@ def test_tools_tuple_is_the_read_tools():
     assert {fn.__name__ for fn in corpus.TOOLS} == {
         "search_sentences",
         "read_document_sentences",
+        "entity_mention_corrections",
         "full_text_search",
         "list_documents",
         "get_document",
@@ -431,5 +435,3 @@ def test_tools_tuple_is_the_read_tools():
         "cross_modal_image_search",
         "visual_captions",
     }
-
-
