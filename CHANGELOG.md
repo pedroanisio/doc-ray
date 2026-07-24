@@ -22,6 +22,30 @@ doc-ray carries **one global version** covering both the application package
 ## [1.39.0]
 
 ### Added
+- **MCP resources — `docray://` URIs and templates (Block 3b)** (Claude Opus 4.8
+  (1M context) via Claude Code). The server previously declared only MCP's
+  *tools* primitive; it now also declares **resources**, so a host can enumerate
+  addressable handles with `resources/templates/list` and fetch one with
+  `resources/read` instead of composing a tool call. Five surfaces
+  (`entrypoints/mcp/resources.py`): `docray://doc/{document_id}`,
+  `docray://doc/{document_id}/sentences/{start}-{end}`,
+  `docray://doc/{document_id}/pages/{page}`, `docray://collection/{collection_id}`,
+  and `docray://corpus/shards/{shard_count}`.
+
+  This is **addressing, not capability**: every read goes through the same read
+  tools, so the caller's bearer token and Postgres RLS scope the result
+  identically, and a `resources/read` still lands its bytes in the caller's
+  context — the resource layer improves addressing and host-side caching, not
+  payload size. The whole-document URI therefore truncates **explicitly** at
+  200 000 chars, naming the ranged template for the remainder, rather than
+  silently. The ranged template is the one that matters at scale and is a thin
+  wrapper over Block 3a's random access.
+
+  Host-gated: declaring resources makes them available on the protocol, but a
+  client must still surface `resources/*` before a `docray://` URI can be read —
+  clients that expose only tools are unaffected. No schema change, no new
+  dependency, no write surface (all reads, always registered).
+
 - **Random-access sentence reads — ordinal range + page (Block 3a)** (Claude Opus
   4.8 (1M context) via Claude Code). `read_document_sentences` / `Document.sentences`
   were sequential-only (cursor walk): reaching a mid-document slice meant paging

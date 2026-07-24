@@ -25,7 +25,9 @@ read tools** (12 corpus readers incl. `read_document_sentences`, `corpus_manifes
 composition-grounding tools from `entrypoints/mcp/compose.py` + 4 Prism visual
 tools… see §3) always registered, plus **17 opt-in write tools**
 (reprocessing + curation + full collection lifecycle) registered only when
-`DOCRAY_MCP_ENABLE_WRITE=true` — the default surface stays read-only. It is
+`DOCRAY_MCP_ENABLE_WRITE=true` — the default surface stays read-only. It also
+declares MCP's **resources** primitive: 5 `docray://` URIs/templates (§3) that
+address the same RLS-scoped reads by URI. It is
 deployed via `make mcp-up`, routed at `https://doc-ray.com/mcp` behind the
 Cloudflare tunnel, and confirmed with a real MCP client (initialize → tools/list
 → RLS-scoped tools/call). The **OAuth 2.1 Authorization Server** (originally
@@ -90,6 +92,7 @@ every other read rule.
 | `src/doc_ray/entrypoints/mcp/corpus.py` | httpx only | GraphQL-passthrough client + read-tool functions (SDK-independent) |
 | `src/doc_ray/entrypoints/mcp/auth.py` | starlette only | Bearer/JWT validation + `BearerAuthMiddleware` (reuses `tokens`) |
 | `src/doc_ray/entrypoints/mcp/mutations.py` | httpx only | Write tools (reprocessing + curation mutations); registered only when writes are enabled |
+| `src/doc_ray/entrypoints/mcp/resources.py` | httpx only | `docray://` resources + RFC 6570 templates over the read tools (addressing layer) |
 | `src/doc_ray/entrypoints/mcp/server.py` | `mcp` (new dep) | Thin FastMCP glue: register tools, mount middleware, expose ASGI `app` |
 | `docker-compose.mcp.yml` | — | `mcp` service; dev forwards to `http://api:8000/graphql` (in-network), prod to `https://doc-ray.com/graphql` |
 
@@ -349,6 +352,38 @@ labels. (A `smart` collection auto-populates from a `rule` + `doc_type`/`status`
 Not exposed via MCP: `ingestDocument` (multipart upload, not a plain mutation),
 the sharing mutations (`shareDocument`/`revokeDocumentShare`), and every
 destructive/admin verb. These remain available on the GraphQL API directly.
+
+### Resources — `docray://` URIs and templates (always registered)
+
+Alongside tools, the server declares MCP's **resources** primitive: addressable,
+host-cacheable handles a client enumerates with `resources/templates/list` and
+fetches with `resources/read`. They are **addressing, not capability** — each read
+goes through the same read tools, so the caller's bearer token and Postgres RLS
+scope the result identically, and a `resources/read` still lands its bytes in the
+caller's context (the resource abstraction does not shrink payloads). Served by
+[`resources.py`](../src/doc_ray/entrypoints/mcp/resources.py).
+
+| URI / template | Type | Serves |
+|---|---|---|
+| `docray://doc/{document_id}` | `text/plain` | full text, one sentence per line; truncates **explicitly** at 200 000 chars and names the ranged template for the remainder |
+| `docray://doc/{document_id}/sentences/{start}-{end}` | `text/plain` | sentences `start`..`end` (inclusive ordinals) — the bounded, citable slice |
+| `docray://doc/{document_id}/pages/{page}` | `text/plain` | every sentence on one source page |
+| `docray://collection/{collection_id}` | `application/json` | one collection + its member documents |
+| `docray://corpus/shards/{shard_count}` | `application/json` | the corpus shard map (map-reduce plan) |
+
+```jsonc
+// resources/read — a bounded, in-order slice by URI instead of a tool call
+{"uri": "docray://doc/9f14ccff-…/sentences/4000-4200"}
+// → contents[0].text = the sentences, one per line
+
+{"uri": "docray://doc/9f14ccff-…/pages/50"}     // one source page
+{"uri": "docray://corpus/shards/8"}             // JSON shard plan
+```
+
+**Host-gated.** Declaring these makes them available on the protocol; a client
+must still surface `resources/*` to the model before a `docray://` URI can be
+read. Clients that expose only tools keep working unchanged — the tool surface is
+unaffected.
 
 ## 4. Phased plan
 

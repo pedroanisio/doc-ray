@@ -22,7 +22,7 @@ from mcp.server.transport_security import TransportSecuritySettings
 from starlette.applications import Starlette
 
 from doc_ray.config import Config
-from doc_ray.entrypoints.mcp import audit, compose, corpus, mutations
+from doc_ray.entrypoints.mcp import audit, compose, corpus, mutations, resources
 from doc_ray.entrypoints.mcp.auth import BearerAuthMiddleware
 
 #: Loopback patterns the SDK trusts by default — kept so local dev still works.
@@ -104,6 +104,13 @@ def build_server(enable_write: bool = False) -> FastMCP:
     tools = (*corpus.TOOLS, *compose.TOOLS, *(mutations.TOOLS if enable_write else ()))
     for tool in tools:
         mcp.tool()(audit.audited(tool))
+    # `docray://` resources/templates — the addressing layer over the read tools.
+    # Always registered: they are reads, RLS-scoped by the same forwarded token,
+    # and grant nothing the tools don't (see resources.py).
+    for spec in resources.RESOURCES:
+        mcp.resource(spec.uri, mime_type=spec.mime_type, description=spec.description)(
+            audit.audited(spec.fn)
+        )
     return mcp
 
 
