@@ -19,10 +19,11 @@ Exposes the doc-ray corpus to agentic AI over the **Model Context Protocol
 (MCP)**, authenticating each caller to a doc-ray principal so Postgres RLS scopes
 what they can read.
 
-**Status: live in production and verified end-to-end.** The server ships **14
-read tools** (7 corpus readers incl. `get_job` + 3 composition-grounding tools
-from `entrypoints/mcp/compose.py`… see §3) always registered, plus **12 opt-in
-write tools** (reprocessing + curation mutations) registered only when
+**Status: live in production and verified end-to-end.** The server ships **16
+read tools** (9 corpus readers incl. `get_job`, `list_collections`,
+`get_collection` + 3 composition-grounding tools from `entrypoints/mcp/compose.py`
++ 4 Prism visual tools… see §3) always registered, plus **15 opt-in write tools**
+(reprocessing + curation + collection management) registered only when
 `DOCRAY_MCP_ENABLE_WRITE=true` — the default surface stays read-only. It is
 deployed via `make mcp-up`, routed at `https://doc-ray.com/mcp` behind the
 Cloudflare tunnel, and confirmed with a real MCP client (initialize → tools/list
@@ -112,6 +113,8 @@ for cited-briefing workflows — see that module for their signatures.
 | `list_documents(limit, doc_type?, status?)` | `documents` | keyset `cursor` |
 | `get_document(document_id)` | `document` | metadata + counts |
 | `get_job(job_id)` | `job` | poll a job enqueued by a write tool |
+| `list_collections(limit, kind?, after?)` | `collections` | native containers; keyset `cursor` |
+| `get_collection(collection_id, document_limit)` | `collection` | one collection + its member documents |
 | `entity_frequency(document_id?, entity_type?, limit)` | `entityFrequency` | top entities |
 | `lexeme_kwic(uid, document_id?, limit)` | `lexeme { occurrences }` | KWIC is a **nested** resolver, not a root field |
 
@@ -151,6 +154,14 @@ engineering decision **D-030**.
 | `decide_seeds(approve_ids?, reject_ids?)` | `decideSeeds` | `Int` (rows updated) |
 | `decide_document_metadata_suggestions(approve_ids?, reject_ids?)` | `decideDocumentMetadataSuggestions` | `Int` |
 | `seed_approved(document_id)` | `seedApproved` | `Job` |
+| `create_collection(name, description="", kind="manual", rule?, doc_type?, status?, tags?)` | `createCollection` | `DocumentCollection` |
+| `add_document_to_collection(collection_id, document_id)` | `addDocumentToCollection` | `DocumentCollection` |
+| `remove_document_from_collection(collection_id, document_id)` | `removeDocumentFromCollection` | `DocumentCollection` |
+
+Collection tools return the `DocumentCollection` shape (`id`, `name`, `kind`,
+`documentCount`, …), not a `Job` — the API applies them synchronously.
+`create_collection` needs `write` scope; `add`/`remove` additionally need a write
+grant on the document and a **manual** (not smart-rule) collection.
 
 **Example — enqueue re-annotation, then poll to completion:**
 
@@ -173,9 +184,30 @@ engineering decision **D-030**.
 // → 3   (rows updated)
 ```
 
+**Example — group documents in a real collection (not tags):**
+
+```jsonc
+// tools/call → create_collection (a named, browsable container)
+{"name": "create_collection", "arguments": {"name": "Dune Series", "description": "Herbert fiction"}}
+// → {"id": "c1a2…", "name": "Dune Series", "kind": "manual", "documentCount": 0}
+
+// tools/call → add_document_to_collection (repeat per document)
+{"name": "add_document_to_collection", "arguments": {"collection_id": "c1a2…", "document_id": "9f14ccff-…"}}
+// → {"id": "c1a2…", "name": "Dune Series", "documentCount": 1}
+
+// tools/call → get_collection (fetch it back with its members)
+{"name": "get_collection", "arguments": {"collection_id": "c1a2…"}}
+// → {"id": "c1a2…", "name": "Dune Series", "documentCount": 1, "documents": [{"id": "9f14ccff-…", "title": "Dune Messiah", …}]}
+```
+
+Prefer collections over ad-hoc tags when the intent is a named group: a
+collection is a first-class container with its own view, whereas tags are just
+labels. (A `smart` collection auto-populates from a `rule` + `doc_type`/`status`/
+`tags` filters instead of manual membership.)
+
 Not exposed via MCP: `ingestDocument` (multipart upload, not a plain mutation),
-`createCollection`/collection & sharing mutations, and every destructive/admin
-verb. These remain available on the GraphQL API directly.
+the sharing mutations (`shareDocument`/`revokeDocumentShare`), and every
+destructive/admin verb. These remain available on the GraphQL API directly.
 
 ## 4. Phased plan
 

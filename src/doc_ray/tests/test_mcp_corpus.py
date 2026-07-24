@@ -163,6 +163,43 @@ async def test_get_job_returns_none_when_unknown(monkeypatch):
     assert await corpus.get_job("nope") is None
 
 
+@pytest.mark.asyncio
+async def test_list_collections_forwards_and_maps(monkeypatch):
+    rows = [{"id": "c1", "name": "Dune Series", "kind": "manual", "documentCount": 3}]
+    client = _patch(monkeypatch, {"data": {"collections": rows}})
+    out = await corpus.list_collections(limit=10, kind="manual")
+    assert out == rows
+    _url, body, _headers = client.calls[0]
+    assert "collections(limit:$l,kind:$k,after:$a)" in body["query"]
+    assert body["variables"] == {"l": 10, "k": "manual", "a": None}
+
+
+@pytest.mark.asyncio
+async def test_get_collection_forwards_with_documents(monkeypatch):
+    coll = {"id": "c1", "name": "Dune Series", "documentCount": 3, "documents": []}
+    client = _patch(monkeypatch, {"data": {"collection": coll}})
+    out = await corpus.get_collection("00000000-0000-0000-0000-000000000000")
+    assert out == coll
+    body = client.calls[0][1]
+    assert "collection(id:$id)" in body["query"]
+    assert "documents(limit:$dl)" in body["query"]
+
+
+@pytest.mark.asyncio
+async def test_get_collection_returns_none_when_unknown(monkeypatch):
+    _patch(monkeypatch, {"data": {"collection": None}})
+    assert await corpus.get_collection("00000000-0000-0000-0000-000000000000") is None
+
+
+@pytest.mark.asyncio
+async def test_get_collection_rejects_bad_uuid_before_network(monkeypatch):
+    client = _patch(monkeypatch, {"data": {"collection": None}})
+    with pytest.raises(corpus.ToolCallError) as ei:
+        await corpus.get_collection("not-a-uuid")
+    assert ei.value.kind == "bad_input"
+    assert client.calls == []
+
+
 # --- typed errors -----------------------------------------------------------
 
 
@@ -363,6 +400,8 @@ def test_tools_tuple_is_the_read_tools():
         "list_documents",
         "get_document",
         "get_job",
+        "list_collections",
+        "get_collection",
         "entity_frequency",
         "lexeme_kwic",
         # Prism visual tools

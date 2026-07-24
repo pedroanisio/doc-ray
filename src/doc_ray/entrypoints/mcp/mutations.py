@@ -29,8 +29,10 @@ from __future__ import annotations
 from typing import Any
 
 from doc_ray.entrypoints.mcp.corpus import (
+    COLLECTION_FIELDS,
     JOB_FIELDS,
     ToolCallError,
+    _require_nonempty,
     _require_uuid,
     gql,
 )
@@ -180,9 +182,71 @@ async def decide_document_metadata_suggestions(
     return updated
 
 
+async def create_collection(
+    name: str,
+    description: str = "",
+    kind: str = "manual",
+    rule: dict[str, Any] | None = None,
+    doc_type: str | None = None,
+    status: str | None = None,
+    tags: list[str] | None = None,
+) -> dict[str, Any]:
+    """Create a document collection — doc-ray's native container for grouping docs.
+
+    Prefer this over ad-hoc tags when the intent is a named, browsable group. The
+    default ``manual`` kind is a hand-curated set you fill with
+    ``add_document_to_collection``; a ``smart`` kind takes a ``rule`` (JSON) plus
+    optional ``doc_type``/``status``/``tags`` filters that auto-populate it.
+    Returns the created collection.
+    """
+    _require_nonempty(name, "name")
+    query = (
+        "mutation($n:String!,$d:String!,$k:String!,$r:JSON,$dt:String,$s:String,$t:[String!])"
+        "{createCollection(name:$n,description:$d,kind:$k,rule:$r,docType:$dt,status:$s,tags:$t)"
+        f"{{{COLLECTION_FIELDS}}}}}"
+    )
+    data = await gql(
+        query,
+        {"n": name, "d": description, "k": kind, "r": rule, "dt": doc_type, "s": status, "t": tags},
+    )
+    collection: dict[str, Any] = data["createCollection"]
+    return collection
+
+
+async def add_document_to_collection(collection_id: str, document_id: str) -> dict[str, Any]:
+    """Add a document to a manual collection; returns the updated collection.
+
+    Requires a write grant on the document and a ``manual`` (not smart-rule)
+    collection — the API rejects adding to a rule-driven collection.
+    """
+    _require_uuid(collection_id, "collection_id")
+    _require_uuid(document_id, "document_id")
+    data = await gql(
+        "mutation($c:ID!,$d:ID!){addDocumentToCollection(collectionId:$c,documentId:$d)"
+        f"{{{COLLECTION_FIELDS}}}}}",
+        {"c": collection_id, "d": document_id},
+    )
+    collection: dict[str, Any] = data["addDocumentToCollection"]
+    return collection
+
+
+async def remove_document_from_collection(collection_id: str, document_id: str) -> dict[str, Any]:
+    """Remove a document from a manual collection; returns the updated collection."""
+    _require_uuid(collection_id, "collection_id")
+    _require_uuid(document_id, "document_id")
+    data = await gql(
+        "mutation($c:ID!,$d:ID!){removeDocumentFromCollection(collectionId:$c,documentId:$d)"
+        f"{{{COLLECTION_FIELDS}}}}}",
+        {"c": collection_id, "d": document_id},
+    )
+    collection: dict[str, Any] = data["removeDocumentFromCollection"]
+    return collection
+
+
 #: The write tools registered when ``DOCRAY_MCP_ENABLE_WRITE`` is set. Reprocessing
-#: (reannotate … suggest_document_metadata) and curation (update_document_metadata,
-#: bulk_tag_documents, decide_*, seed_approved) only — no destructive/admin verbs.
+#: (reannotate … suggest_document_metadata), curation (update_document_metadata,
+#: bulk_tag_documents, decide_*, seed_approved), and collection management
+#: (create/add/remove) only — no destructive/admin verbs.
 TOOLS: tuple[Any, ...] = (
     reannotate,
     reextract_document,
@@ -196,4 +260,7 @@ TOOLS: tuple[Any, ...] = (
     decide_seeds,
     decide_document_metadata_suggestions,
     seed_approved,
+    create_collection,
+    add_document_to_collection,
+    remove_document_from_collection,
 )

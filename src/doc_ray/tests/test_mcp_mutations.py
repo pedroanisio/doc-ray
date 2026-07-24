@@ -222,6 +222,67 @@ async def test_write_without_scope_maps_to_permission_denied(
     assert excinfo.value.kind == "permission_denied"
 
 
+_COLL = "22222222-2222-2222-2222-222222222222"
+_COLLECTION = {"id": _COLL, "name": "Dune Series", "kind": "manual", "documentCount": 0}
+
+
+@pytest.mark.asyncio
+async def test_create_collection_forwards_all_fields(monkeypatch: pytest.MonkeyPatch) -> None:
+    client = _patch(monkeypatch, {"data": {"createCollection": _COLLECTION}})
+    out = await mutations.create_collection(
+        "Dune Series", description="Herbert fiction", tags=["dune"]
+    )
+    assert out == _COLLECTION
+    body = client.calls[0][1]
+    assert "createCollection(name:$n,description:$d,kind:$k,rule:$r,docType:$dt,status:$s,tags:$t)" in body["query"]
+    assert body["variables"] == {
+        "n": "Dune Series",
+        "d": "Herbert fiction",
+        "k": "manual",
+        "r": None,
+        "dt": None,
+        "s": None,
+        "t": ["dune"],
+    }
+
+
+@pytest.mark.asyncio
+async def test_create_collection_requires_a_name(monkeypatch: pytest.MonkeyPatch) -> None:
+    client = _patch(monkeypatch, {"data": {"createCollection": _COLLECTION}})
+    with pytest.raises(corpus.ToolCallError) as ei:
+        await mutations.create_collection("  ")
+    assert ei.value.kind == "bad_input"
+    assert client.calls == []
+
+
+@pytest.mark.asyncio
+async def test_add_document_to_collection_forwards(monkeypatch: pytest.MonkeyPatch) -> None:
+    client = _patch(monkeypatch, {"data": {"addDocumentToCollection": _COLLECTION}})
+    await mutations.add_document_to_collection(_COLL, _DOC)
+    body = client.calls[0][1]
+    assert "addDocumentToCollection(collectionId:$c,documentId:$d)" in body["query"]
+    assert body["variables"] == {"c": _COLL, "d": _DOC}
+
+
+@pytest.mark.asyncio
+async def test_remove_document_from_collection_forwards(monkeypatch: pytest.MonkeyPatch) -> None:
+    client = _patch(monkeypatch, {"data": {"removeDocumentFromCollection": _COLLECTION}})
+    await mutations.remove_document_from_collection(_COLL, _DOC)
+    assert "removeDocumentFromCollection(collectionId:$c,documentId:$d)" in client.calls[0][1]["query"]
+
+
+@pytest.mark.asyncio
+async def test_collection_membership_rejects_bad_ids_before_network(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = _patch(monkeypatch, {"data": {"addDocumentToCollection": _COLLECTION}})
+    with pytest.raises(corpus.ToolCallError):
+        await mutations.add_document_to_collection("not-a-uuid", _DOC)
+    with pytest.raises(corpus.ToolCallError):
+        await mutations.remove_document_from_collection(_COLL, "not-a-uuid")
+    assert client.calls == []
+
+
 def test_tools_tuple_is_the_reprocessing_and_curation_writers() -> None:
     names = {tool.__name__ for tool in mutations.TOOLS}
     assert names == {
@@ -237,6 +298,9 @@ def test_tools_tuple_is_the_reprocessing_and_curation_writers() -> None:
         "decide_seeds",
         "decide_document_metadata_suggestions",
         "seed_approved",
+        "create_collection",
+        "add_document_to_collection",
+        "remove_document_from_collection",
     }
     # Destructive / admin-only mutations are deliberately NOT exposed.
     assert not {"delete_document", "archive_document", "create_backup", "cancel_job"} & names

@@ -17,6 +17,8 @@ _READ_TOOL_NAMES = {
     "list_documents",
     "get_document",
     "get_job",
+    "list_collections",
+    "get_collection",
     "entity_frequency",
     "lexeme_kwic",
     # Prism visual tools
@@ -43,6 +45,9 @@ _WRITE_TOOL_NAMES = {
     "decide_seeds",
     "decide_document_metadata_suggestions",
     "seed_approved",
+    "create_collection",
+    "add_document_to_collection",
+    "remove_document_from_collection",
 }
 
 

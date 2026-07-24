@@ -22,6 +22,21 @@ doc-ray carries **one global version** covering both the application package
 ## [1.38.0]
 
 ### Added
+- **MCP exposes the collection tools** (Claude Opus 4.8 (1M context) via Claude
+  Code) — D-030. doc-ray has a native `DocumentCollection` container, but MCP
+  surfaced none of it, so connectors fell back to ad-hoc tags. MCP now has two
+  always-on read tools — `list_collections`, `get_collection` (with member
+  documents) — and, behind `DOCRAY_MCP_ENABLE_WRITE`, three write tools:
+  `create_collection`, `add_document_to_collection`,
+  `remove_document_from_collection`. They forward the existing GraphQL
+  collection fields, so the same guards apply: reads are RLS-scoped;
+  `create_collection` needs `write` scope; add/remove additionally need a write
+  grant on the document and a `manual` (not smart-rule) collection. A
+  schema-contract test validates every collection document against the live
+  schema. Agents can now build real named containers instead of tag pseudo-
+  collections (see `docs/mcp-service.md` §3 for signatures and an end-to-end
+  example). Sharing mutations and destructive/admin verbs remain unexposed.
+
 - **OAuth connectors can obtain `write`, bounded by the user's RBAC** (Claude Opus
   4.8 (1M context) via Claude Code) — D-032. The MCP write tools (D-030) were
   inert for OAuth-connected agents: the Authorization Server only ever minted

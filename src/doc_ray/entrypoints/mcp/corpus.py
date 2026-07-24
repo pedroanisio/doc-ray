@@ -270,6 +270,42 @@ async def get_job(job_id: str) -> dict[str, Any] | None:
     return job
 
 
+#: The ``DocumentCollection`` metadata selection shared by the read and write
+#: collection tools (``mutations.py``), so a listed, fetched, or mutated
+#: collection returns the same shape. ``documents`` is added only by ``get_collection``.
+COLLECTION_FIELDS = "id name description kind ruleSummary documentCount createdAt updatedAt cursor"
+
+
+async def list_collections(
+    limit: int = 50, kind: str | None = None, after: str | None = None
+) -> list[dict[str, Any]]:
+    """List document collections you can see (manual groupings and smart rules).
+
+    Collections are doc-ray's native container for grouping documents — prefer
+    them over ad-hoc tags. Pass ``kind`` to filter (e.g. ``manual``); pass a
+    row's ``cursor`` as ``after`` to page.
+    """
+    data = await gql(
+        "query($l:Int!,$k:String,$a:String){collections(limit:$l,kind:$k,after:$a)"
+        f"{{{COLLECTION_FIELDS}}}}}",
+        {"l": limit, "k": kind, "a": after},
+    )
+    rows: list[dict[str, Any]] = data["collections"]
+    return rows
+
+
+async def get_collection(collection_id: str, document_limit: int = 50) -> dict[str, Any] | None:
+    """Fetch one collection with its member documents (None if unknown/not visible)."""
+    _require_uuid(collection_id, "collection_id")
+    data = await gql(
+        "query($id:ID!,$dl:Int!){collection(id:$id)"
+        f"{{{COLLECTION_FIELDS} documents(limit:$dl){{id title docType status}}}}}}",
+        {"id": collection_id, "dl": document_limit},
+    )
+    collection: dict[str, Any] | None = data["collection"]
+    return collection
+
+
 async def get_document(document_id: str) -> dict[str, Any] | None:
     """Fetch one document's metadata and counts by id."""
     _require_uuid(document_id, "document_id")
@@ -387,6 +423,8 @@ TOOLS: tuple[Callable[..., Any], ...] = (
     list_documents,
     get_document,
     get_job,
+    list_collections,
+    get_collection,
     entity_frequency,
     lexeme_kwic,
     document_images,

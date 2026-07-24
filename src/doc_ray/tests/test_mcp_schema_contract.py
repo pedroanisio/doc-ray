@@ -69,6 +69,8 @@ _READ_CALLS = [
     lambda: corpus.list_documents(),
     lambda: corpus.get_document(_DOC),
     lambda: corpus.get_job("job-1"),
+    lambda: corpus.list_collections(),
+    lambda: corpus.get_collection(_DOC),
     lambda: corpus.entity_frequency(),
     lambda: corpus.lexeme_kwic("lex-1"),
 ]
@@ -86,6 +88,9 @@ _WRITE_CALLS = [
     lambda: mutations.decide_seeds(approve_ids=["s1"]),
     lambda: mutations.decide_document_metadata_suggestions(approve_ids=["m1"]),
     lambda: mutations.seed_approved(_DOC),
+    lambda: mutations.create_collection("Dune Series", tags=["dune"]),
+    lambda: mutations.add_document_to_collection(_DOC, _DOC),
+    lambda: mutations.remove_document_from_collection(_DOC, _DOC),
 ]
 
 
@@ -113,5 +118,8 @@ async def test_every_write_tool_is_contract_checked() -> None:
         "decide_seeds",
         "decide_document_metadata_suggestions",
         "seed_approved",
+        "create_collection",
+        "add_document_to_collection",
+        "remove_document_from_collection",
     }
     assert {fn.__name__ for fn in mutations.TOOLS} == covered
