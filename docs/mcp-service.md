@@ -19,11 +19,11 @@ Exposes the doc-ray corpus to agentic AI over the **Model Context Protocol
 (MCP)**, authenticating each caller to a doc-ray principal so Postgres RLS scopes
 what they can read.
 
-**Status: live in production and verified end-to-end.** The server ships **17
-read tools** (10 corpus readers incl. `read_document_sentences`, `get_job`,
-`list_collections`, `get_collection` + 3 composition-grounding tools from
-`entrypoints/mcp/compose.py` + 4 Prism visual tools… see §3) always registered,
-plus **17 opt-in write tools**
+**Status: live in production and verified end-to-end.** The server ships **19
+read tools** (12 corpus readers incl. `read_document_sentences`, `corpus_manifest`,
+`corpus_shard`, `get_job`, `list_collections`, `get_collection` + 3
+composition-grounding tools from `entrypoints/mcp/compose.py` + 4 Prism visual
+tools… see §3) always registered, plus **17 opt-in write tools**
 (reprocessing + curation + full collection lifecycle) registered only when
 `DOCRAY_MCP_ENABLE_WRITE=true` — the default surface stays read-only. It is
 deployed via `make mcp-up`, routed at `https://doc-ray.com/mcp` behind the
@@ -117,6 +117,8 @@ for cited-briefing workflows — see that module for their signatures.
 | `get_job(job_id)` | `job` | poll a job enqueued by a write tool |
 | `list_collections(limit, kind?, after?)` | `collections` | native containers; keyset `cursor` |
 | `get_collection(collection_id, document_limit)` | `collection` | one collection + its member documents |
+| `corpus_manifest(shard_count)` | `corpusManifest` | shard map for a map-reduce sweep: per-shard counts that sum to the total |
+| `corpus_shard(shard_index, shard_count, limit, after?)` | `corpusShard` | one deterministic, disjoint slice of the corpus; keyset `cursor` |
 | `entity_frequency(document_id?, entity_type?, limit)` | `entityFrequency` | top entities |
 | `lexeme_kwic(uid, document_id?, limit)` | `lexeme { occurrences }` | KWIC is a **nested** resolver, not a root field |
 
@@ -137,6 +139,27 @@ absolute `charStart`/`charEnd` offsets so any excerpt stays citable.
 {"name": "read_document_sentences", "arguments": {"document_id": "9f14ccff-…", "limit": 200, "after": "eyJ…"}}
 // → next 200 sentences … repeat until the result is []
 ```
+
+**Sweeping the whole corpus with N workers (map-reduce).** `corpus_manifest`
+partitions the visible corpus into `shard_count` deterministic, disjoint parts
+(`hashtext(id) mod shard_count`); `corpus_shard` returns one part. Fan out one
+worker per shard, and because the per-shard counts sum to `totalDocuments` you
+can *prove* full coverage rather than assume it.
+
+```jsonc
+// 1. plan the sweep (read once)
+{"name": "corpus_manifest", "arguments": {"shard_count": 8}}
+// → {"shardCount": 8, "totalDocuments": 412, "shards": [{"index": 0, "documentCount": 51}, …]}
+
+// 2. each of the 8 workers pulls its shard, paging to exhaustion
+{"name": "corpus_shard", "arguments": {"shard_index": 3, "shard_count": 8, "limit": 100}}
+// → [{"id": "…", "title": "…", "cursor": "…"}, …]  → feed cursor back as `after` until []
+
+// 3. for each document id, pull content with read_document_sentences / get_document.
+//    Coverage check: Σ shard document counts == totalDocuments, no id in two shards.
+```
+A shard is the intersection of `hash mod N` and the caller's RLS scope, so
+"the whole corpus" always means "the whole corpus this token may read."
 
 ### Write tools (opt-in — `DOCRAY_MCP_ENABLE_WRITE=true`)
 

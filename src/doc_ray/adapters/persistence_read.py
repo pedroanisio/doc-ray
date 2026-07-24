@@ -116,6 +116,14 @@ async def get_document(conn: _AConn, document_id: str) -> Row | None:
     return document
 
 
+#: SQL fragment mapping a document id onto its shard (0..N-1) for corpus
+#: partitioning. ``%`` can go negative in Postgres, so normalize into range.
+#: ``hashtext`` is deterministic within a Postgres major version, so a document
+#: always lands in the same shard — the property that makes N-agent map-reduce
+#: complete and disjoint.
+_SHARD_EXPR = "((hashtext(d.id::text) %% %(shard_count)s) + %(shard_count)s) %% %(shard_count)s"
+
+
 async def list_documents(
     conn: _AConn,
     *,
@@ -124,6 +132,8 @@ async def list_documents(
     doc_type: str | None = None,
     status: str | None = None,
     tags: list[str] | None = None,
+    shard_index: int | None = None,
+    shard_count: int | None = None,
 ) -> list[Row]:
     """Return document summary rows (with child counts), newest first.
 
@@ -134,14 +144,19 @@ async def list_documents(
         doc_type: Optional exact ``doc_type`` filter (e.g. ``"pdf"``).
         status: Optional exact ``status`` filter (e.g. ``"extracted"``).
         tags: Optional tag filter — a document matches if it has any of these tags.
+        shard_index: When paired with *shard_count*, restrict to documents whose
+            ``hashtext(id) mod shard_count`` equals this index (0-based). Used to
+            partition the corpus into disjoint slices for parallel processing.
+        shard_count: Total number of shards; required with *shard_index*.
 
     Returns:
         Summary rows with ``n_sentences`` and ``n_provenance`` counts.
     """
     cursor = decode_cursor(after, "documents")
+    shard_filter = f"AND {_SHARD_EXPR} = %(shard_index)s" if shard_count is not None else ""
     rows = await _rows(
         conn,
-        """
+        f"""
         SELECT d.id, d.title, d.original_filename AS filename, d.doc_type, d.language,
                d.page_count, d.char_count, d.status, d.lifecycle_state,
                d.archived_at, d.deleted_at, d.created_at,
@@ -160,6 +175,7 @@ async def list_documents(
                 SELECT 1 FROM document_tags dt JOIN tags t ON t.id = dt.tag_id
                 WHERE dt.document_id = d.id AND t.tag = ANY(%(tags)s::text[])
               ))
+          {shard_filter}
         ORDER BY d.created_at DESC, d.id
         LIMIT %(limit)s
         """,
@@ -170,10 +186,37 @@ async def list_documents(
             "doc_type": doc_type,
             "status": status,
             "tags": tags,
+            "shard_index": shard_index,
+            "shard_count": shard_count,
         },
     )
     for row in rows:
         row["cursor"] = encode_cursor("documents", created_at=row["created_at"], id=row["id"])
+    return rows
+
+
+async def corpus_shard_counts(conn: _AConn, shard_count: int) -> list[Row]:
+    """Return ``{shard, n}`` — the visible document count in each shard 0..N-1.
+
+    Bounded aggregate over ``documents`` (one row per document, not a large fact
+    table — D-024 flags only the multi-million-row tables), RLS-scoped to what the
+    caller may read. Shards with zero documents are returned as ``n = 0`` so the
+    manifest always lists every shard 0..N-1.
+    """
+    rows = await _rows(
+        conn,
+        f"""
+        WITH shard_of AS (
+            SELECT {_SHARD_EXPR} AS shard FROM documents d
+        )
+        SELECT g.shard, count(shard_of.shard) AS n
+        FROM generate_series(0, %(shard_count)s - 1) AS g(shard)
+        LEFT JOIN shard_of ON shard_of.shard = g.shard
+        GROUP BY g.shard
+        ORDER BY g.shard
+        """,
+        {"shard_count": shard_count},
+    )
     return rows
 
 

@@ -338,6 +338,58 @@ async def get_collection(collection_id: str, document_limit: int = 50) -> dict[s
     return collection
 
 
+def _require_shard(shard_index: int | None, shard_count: int) -> None:
+    """Reject invalid shard arguments before any GraphQL round-trip."""
+    if shard_count < 1:
+        raise ToolCallError("bad_input", f"shard_count must be >= 1, got {shard_count}")
+    if shard_index is not None and not 0 <= shard_index < shard_count:
+        raise ToolCallError(
+            "bad_input",
+            f"shard_index must be in [0, {shard_count}), got {shard_index}",
+        )
+
+
+async def corpus_manifest(shard_count: int) -> dict[str, Any]:
+    """Plan a corpus sweep: the shard map for splitting your corpus into N parts.
+
+    Returns ``{shardCount, totalDocuments, shards:[{index, documentCount}]}`` for a
+    deterministic ``hashtext(id) mod shardCount`` partition. Read this first to fan
+    out one worker per shard, then pull each part with ``corpus_shard``; the
+    per-shard counts sum to ``totalDocuments`` so you can verify full coverage.
+    Scoped to the documents your token may read.
+    """
+    _require_shard(None, shard_count)
+    data = await gql(
+        "query($sc:Int!){corpusManifest(shardCount:$sc)"
+        "{shardCount totalDocuments shards{index documentCount}}}",
+        {"sc": shard_count},
+    )
+    manifest: dict[str, Any] = data["corpusManifest"]
+    return manifest
+
+
+async def corpus_shard(
+    shard_index: int, shard_count: int, limit: int = 50, after: str | None = None
+) -> list[dict[str, Any]]:
+    """Read one shard of the corpus — a disjoint slice of documents for map-reduce.
+
+    Returns the document summaries in shard ``shard_index`` of ``shard_count``
+    (0-based), newest first. Walk ``after`` cursors to exhaust a shard; run shards
+    ``0..shard_count-1`` (in parallel across agents) to cover the whole corpus with
+    no overlap. Each row's ``id`` feeds ``read_document_sentences``/``get_document``
+    to pull that document's content.
+    """
+    _require_shard(shard_index, shard_count)
+    data = await gql(
+        "query($si:Int!,$sc:Int!,$l:Int!,$a:String)"
+        "{corpusShard(shardIndex:$si,shardCount:$sc,limit:$l,after:$a)"
+        "{id title docType status pageCount charCount createdAt cursor}}",
+        {"si": shard_index, "sc": shard_count, "l": limit, "a": after},
+    )
+    docs: list[dict[str, Any]] = data["corpusShard"]
+    return docs
+
+
 async def get_document(document_id: str) -> dict[str, Any] | None:
     """Fetch one document's metadata and counts by id."""
     _require_uuid(document_id, "document_id")
@@ -458,6 +510,8 @@ TOOLS: tuple[Callable[..., Any], ...] = (
     get_job,
     list_collections,
     get_collection,
+    corpus_manifest,
+    corpus_shard,
     entity_frequency,
     lexeme_kwic,
     document_images,

@@ -28,6 +28,7 @@ from doc_ray.entrypoints.api.mutation_guards import _require_admin_read
 from doc_ray.entrypoints.api.security_audit import record_audit_event
 from doc_ray.entrypoints.api.security_audit_types import SecurityAuditEvent
 from doc_ray.entrypoints.api.types import (
+    CorpusManifest,
     Document,
     DocumentCollection,
     DocumentHit,
@@ -76,6 +77,50 @@ class Query(VisualQueries):
             doc_type=doc_type,
             status=status,
             tags=tags,
+        )
+        return [Document.from_row(r) for r in rows]
+
+    @strawberry.field
+    async def corpus_manifest(self, info: Info, shard_count: int) -> CorpusManifest:
+        """Return the shard map for partitioning the visible corpus into *shard_count* parts.
+
+        Deterministic and RLS-scoped: per-shard document counts (which sum to
+        ``totalDocuments``) let an orchestrator fan out one worker per shard and
+        verify complete coverage. Pair with ``corpusShard`` to pull each part.
+        """
+        if shard_count < 1:
+            raise ValueError("shardCount must be >= 1")
+        ctx = info.context
+        rows = await read.corpus_shard_counts(ctx.conn, shard_count)
+        return CorpusManifest.from_rows(shard_count, rows)
+
+    @strawberry.field
+    async def corpus_shard(
+        self,
+        info: Info,
+        shard_index: int,
+        shard_count: int,
+        limit: int = 50,
+        after: str | None = None,
+    ) -> list[Document]:
+        """Return one shard's document summaries — a keyset-paged slice of the corpus.
+
+        Documents are partitioned by ``hashtext(id) mod shardCount``; this returns
+        those in shard ``shardIndex`` (0-based), newest first. Walk ``after``
+        cursors to exhaust a shard; run shards ``0..shardCount-1`` (in parallel) to
+        cover the whole corpus, disjointly. RLS-scoped to the caller's own corpus.
+        """
+        if shard_count < 1:
+            raise ValueError("shardCount must be >= 1")
+        if not 0 <= shard_index < shard_count:
+            raise ValueError("shardIndex must be in [0, shardCount)")
+        ctx = info.context
+        rows = await read.list_documents(
+            ctx.conn,
+            limit=ctx.page_size(limit),
+            after=after,
+            shard_index=shard_index,
+            shard_count=shard_count,
         )
         return [Document.from_row(r) for r in rows]
 

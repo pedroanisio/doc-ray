@@ -73,6 +73,8 @@ _READ_CALLS = [
     lambda: corpus.get_job("job-1"),
     lambda: corpus.list_collections(),
     lambda: corpus.get_collection(_DOC),
+    lambda: corpus.corpus_manifest(4),
+    lambda: corpus.corpus_shard(0, 4),
     lambda: corpus.entity_frequency(),
     lambda: corpus.lexeme_kwic("lex-1"),
 ]
@@ -116,6 +118,18 @@ def test_api_schema_exposes_author_edit_and_collection_lifecycle() -> None:
     assert "updateDocumentMetadata(" in mutation and "authors: [String!]" in mutation
     assert "updateCollection(collectionId: ID!" in mutation
     assert "deleteCollection(collectionId: ID!): Boolean!" in mutation
+
+
+def test_api_schema_exposes_corpus_sharding() -> None:
+    """The GraphQL surface Block 2 depends on: corpusManifest + corpusShard."""
+    from doc_ray.entrypoints.api.schema import build_schema as _bs
+
+    sdl = _bs(debug=True).as_str()
+    query = re.search(r"type Query \{(.*?)\n\}", sdl, re.S).group(1)
+    assert "corpusManifest(shardCount: Int!): CorpusManifest!" in query
+    assert "corpusShard(shardIndex: Int!, shardCount: Int!" in query
+    assert query.count("corpusShard") == 1 and "): [Document!]!" in query
+    assert "type CorpusManifest {" in sdl and "type CorpusShardInfo {" in sdl
 
 
 @pytest.mark.asyncio

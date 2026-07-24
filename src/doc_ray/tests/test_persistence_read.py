@@ -71,6 +71,59 @@ def test_document_reads(pg):
     asyncio.run(check())
 
 
+def test_corpus_shard_partition_is_complete_disjoint_and_deterministic(pg):
+    conn, created = pg
+    import _itdb
+
+    ids = [_itdb.make_doc(conn, _TEXT) for _ in range(6)]
+    created.extend(ids)
+    k = 3
+
+    async def check():
+        aconn = await _aconn()
+        try:
+            # Collect every shard; a document must appear in exactly one shard.
+            placement: dict[str, int] = {}
+            for shard in range(k):
+                rows = await read.list_documents(
+                    aconn, limit=10_000, shard_index=shard, shard_count=k
+                )
+                for r in rows:
+                    doc = str(r["id"])
+                    assert doc not in placement, "a document appeared in two shards"
+                    placement[doc] = shard
+
+            # Every seeded document is placed, in the shard its hash predicts.
+            for doc in ids:
+                assert doc in placement, "a document fell into no shard (partition incomplete)"
+                expected = conn.execute(
+                    "SELECT ((hashtext(%s::text) %% %s) + %s) %% %s AS s", (doc, k, k, k)
+                ).fetchone()["s"]
+                assert placement[doc] == expected
+
+            # Determinism: re-reading a shard yields the same membership.
+            again = {
+                str(r["id"])
+                for r in await read.list_documents(
+                    aconn, limit=10_000, shard_index=0, shard_count=k
+                )
+            }
+            first = {d for d, s in placement.items() if s == 0}
+            assert again == first
+
+            # Manifest: one entry per shard 0..k-1; counts sum to the visible total.
+            counts = await read.corpus_shard_counts(aconn, k)
+            assert [r["shard"] for r in counts] == list(range(k))
+            assert sum(r["n"] for r in counts) == len(placement)
+            # each seeded doc is counted in its own shard
+            for doc in ids:
+                assert counts[placement[doc]]["n"] >= 1
+        finally:
+            await aconn.close()
+
+    asyncio.run(check())
+
+
 def test_search_reads(pg):
     doc_id = _seed(pg)
 

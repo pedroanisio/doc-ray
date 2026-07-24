@@ -175,6 +175,40 @@ class DocumentHit:
 
 
 @strawberry.type
+class CorpusShardInfo:
+    """One shard's document count in a corpus-partition manifest."""
+
+    index: int
+    document_count: int
+
+
+@strawberry.type
+class CorpusManifest:
+    """The shard map for partitioning the visible corpus into ``shardCount`` parts.
+
+    Deterministic (``hashtext(id) mod shardCount``) and disjoint, so an
+    orchestrator can fan out one worker per shard and prove coverage: the
+    per-shard counts sum to ``totalDocuments``.
+    """
+
+    shard_count: int
+    total_documents: int
+    shards: list[CorpusShardInfo]
+
+    @classmethod
+    def from_rows(cls, shard_count: int, rows: list[Row]) -> CorpusManifest:
+        """Build a manifest from ``{shard, n}`` count rows (one per shard 0..N-1)."""
+        shards = [
+            CorpusShardInfo(index=int(r["shard"]), document_count=int(r["n"])) for r in rows
+        ]
+        return cls(
+            shard_count=shard_count,
+            total_documents=sum(s.document_count for s in shards),
+            shards=shards,
+        )
+
+
+@strawberry.type
 class Job:
     """A background job's status (returned by mutations and the job query)."""
 

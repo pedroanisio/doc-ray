@@ -134,6 +134,8 @@ has a dedicated `/jobs/events` location with response buffering disabled; add
 Other query/mutation surface: `documents(docType:, status:, tags:)` /
 `document` / `documentShares` / `documentMetadataHistory` / `searchSentences` /
 `fullTextSearch` /
+`corpusManifest(shardCount:)` / `corpusShard(shardIndex:, shardCount:)`
+(deterministic corpus partitioning for parallel/map-reduce reads) /
 `lexeme(s)` / `entities` / `entityFrequency` / `job` / `jobs` /
 `documentMetadataSuggestions` / `collections` / `collection` /
 `documentImages` / `imageClassSummary` / `visualCaptions` /

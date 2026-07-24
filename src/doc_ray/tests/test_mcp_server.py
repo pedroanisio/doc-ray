@@ -20,6 +20,8 @@ _READ_TOOL_NAMES = {
     "get_job",
     "list_collections",
     "get_collection",
+    "corpus_manifest",
+    "corpus_shard",
     "entity_frequency",
     "lexeme_kwic",
     # Prism visual tools

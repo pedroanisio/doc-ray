@@ -22,6 +22,24 @@ doc-ray carries **one global version** covering both the application package
 ## [1.38.0]
 
 ### Added
+- **Corpus sharding — `corpusManifest` + `corpusShard` for map-reduce reads**
+  (Claude Opus 4.8 (1M context) via Claude Code). New GraphQL queries and MCP
+  read tools that partition the visible corpus into `shardCount` deterministic,
+  disjoint parts via `hashtext(id) mod shardCount`, so an orchestrator can fan
+  out one worker per shard over the whole corpus. `corpusManifest(shardCount)`
+  returns per-shard document counts that sum to `totalDocuments` (a verifiable
+  coverage check); `corpusShard(shardIndex, shardCount, limit, after)` returns
+  one shard's document summaries, keyset-paged, newest first. Both are
+  RLS-scoped — a shard is the intersection of the hash partition and what the
+  token may read. The shard predicate is added to the existing `list_documents`
+  keyset query; the manifest is a bounded `GROUP BY` over `documents` (a
+  dimension table, not a D-024-flagged fact table). Determinism, completeness,
+  and disjointness are proven by DB-backed tests (each seeded document lands in
+  exactly the shard its hash predicts; the shards re-union to the manifest
+  total). Composes with `read_document_sentences`: a shard yields ids, each
+  document is then read in full. See `docs/mcp-service.md` §3 for the map-reduce
+  example. No schema-version change (additive queries + existing tables).
+
 - **`read_document_sentences` — exhaustive sequential text read over MCP** (Claude
   Opus 4.8 (1M context) via Claude Code). `search_sentences` is term-filtered, so
   an agent could never walk a document end-to-end — the concrete cause of
