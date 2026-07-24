@@ -69,8 +69,17 @@ GROUPS: list[tuple[str, str, list[str]]] = [
     ),
     (
         "Entities & reference (layers 11–13)",
-        "Named-entity mentions, entity linking to a KB, and coreference chains.",
-        ["entity_mention", "entity_link", "coref_chain", "coref_mention"],
+        "Named-entity mentions, entity linking to a KB, and coreference chains. "
+        "`entity_mention` is rebuilt from scratch by every annotate run, so human "
+        "fixes live in `entity_mention_correction` — keyed by a stable span, "
+        "re-applied by the pipeline on each pass (Block A).",
+        [
+            "entity_mention",
+            "entity_mention_correction",
+            "entity_link",
+            "coref_chain",
+            "coref_mention",
+        ],
     ),
     (
         "Canonical entities & resolution",
@@ -146,6 +155,7 @@ GROUPS: list[tuple[str, str, list[str]]] = [
             "principal_credentials",
             "email_verification_tokens",
             "auth_refresh_tokens",
+            "web_auth_sessions",
             "principal_preferences",
             "email_change_requests",
             "oauth_clients",

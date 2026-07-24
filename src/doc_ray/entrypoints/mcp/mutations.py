@@ -160,6 +160,67 @@ async def bulk_tag_documents(document_ids: list[str], tags: list[str]) -> list[d
     return jobs
 
 
+async def correct_entity_mention(
+    document_id: str,
+    action: str,
+    char_start: int,
+    char_end: int,
+    entity_type: str | None = None,
+    surface: str | None = None,
+    new_char_start: int | None = None,
+    new_char_end: int | None = None,
+    original_type: str | None = None,
+    rationale: str | None = None,
+) -> dict[str, Any]:
+    """Record a durable human fix to an ML-produced NER mention; returns the queued job.
+
+    ``action`` is one of:
+
+    * ``reclassify`` — the span is a real entity of a different type; pass the
+      correct ``entity_type`` (e.g. a mention typed ``PERSON`` that is really a
+      ``GPE``).
+    * ``reject`` — the span is not an entity; it is dropped.
+    * ``add`` — a missed entity; pass its ``entity_type`` (and ``surface``).
+    * ``adjust_span`` — the entity is real but its boundaries are wrong; pass the
+      corrected ``new_char_start`` / ``new_char_end``.
+
+    ``char_start`` / ``char_end`` identify the target span by document character
+    offsets — the stable key the correction is stored under, so the fix survives
+    every future re-annotation (``entity_mention`` is otherwise rebuilt from
+    scratch each run). ``original_type`` and ``rationale`` are recorded for the
+    audit trail (PALS's Law: fixes are attributable and reversible). A cheap
+    ``apply_corrections`` job re-applies the log onto the current mentions; poll
+    it with ``get_job``. Read the log back with ``entity_mention_corrections``.
+    Requires a write grant on the document (BL-064).
+    """
+    _require_uuid(document_id, "document_id")
+    _require_nonempty(action, "action")
+    query = (
+        "mutation($id:ID!,$a:String!,$cs:Int!,$ce:Int!,$et:String,$sf:String,"
+        "$ncs:Int,$nce:Int,$ot:String,$r:String)"
+        "{correctEntityMention(documentId:$id,action:$a,charStart:$cs,charEnd:$ce,"
+        "entityType:$et,surface:$sf,newCharStart:$ncs,newCharEnd:$nce,"
+        f"originalType:$ot,rationale:$r){{{JOB_FIELDS}}}}}"
+    )
+    data = await gql(
+        query,
+        {
+            "id": document_id,
+            "a": action,
+            "cs": char_start,
+            "ce": char_end,
+            "et": entity_type,
+            "sf": surface,
+            "ncs": new_char_start,
+            "nce": new_char_end,
+            "ot": original_type,
+            "r": rationale,
+        },
+    )
+    job: dict[str, Any] = data["correctEntityMention"]
+    return job
+
+
 async def decide_seeds(
     approve_ids: list[str] | None = None, reject_ids: list[str] | None = None
 ) -> int:
@@ -297,6 +358,7 @@ TOOLS: tuple[Any, ...] = (
     suggest_document_metadata,
     update_document_metadata,
     bulk_tag_documents,
+    correct_entity_mention,
     decide_seeds,
     decide_document_metadata_suggestions,
     seed_approved,

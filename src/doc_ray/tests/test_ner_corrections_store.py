@@ -65,7 +65,9 @@ def test_apply_reclassifies_the_matching_mention(conn):
     ann = _itdb.make_annotation(conn, doc, "entity", "spacy/test")
     _ml_mention(conn, doc, ann, 16, 22, "PERSON", "London")  # the ML got the type wrong
     store.record_correction(
-        conn, doc, Correction(action=Action.RECLASSIFY, char_start=16, char_end=22, entity_type="GPE")
+        conn,
+        doc,
+        Correction(action=Action.RECLASSIFY, char_start=16, char_end=22, entity_type="GPE"),
     )
     applied = store.apply_corrections(conn, doc, ann)
     assert _types_by_span(conn, ann)[(16, 22)] == "GPE"
@@ -77,7 +79,9 @@ def test_correction_survives_a_real_reannotation(conn):
     ann1 = _itdb.make_annotation(conn, doc, "entity", "spacy/test")
     _ml_mention(conn, doc, ann1, 16, 22, "PERSON", "London")
     store.record_correction(
-        conn, doc, Correction(action=Action.RECLASSIFY, char_start=16, char_end=22, entity_type="GPE")
+        conn,
+        doc,
+        Correction(action=Action.RECLASSIFY, char_start=16, char_end=22, entity_type="GPE"),
     )
     store.apply_corrections(conn, doc, ann1)
     assert _types_by_span(conn, ann1)[(16, 22)] == "GPE"
@@ -97,7 +101,11 @@ def test_reject_removes_and_add_inserts(conn):
     _ml_mention(conn, doc, ann, 9, 13, "DATE", "1984")  # spurious per the reviewer
     store.record_correction(conn, doc, Correction(action=Action.REJECT, char_start=9, char_end=13))
     store.record_correction(
-        conn, doc, Correction(action=Action.ADD, char_start=17, char_end=24, entity_type="GPE", surface="Oceania")
+        conn,
+        doc,
+        Correction(
+            action=Action.ADD, char_start=17, char_end=24, entity_type="GPE", surface="Oceania"
+        ),
     )
     store.apply_corrections(conn, doc, ann)
     spans = _types_by_span(conn, ann)
@@ -112,3 +120,26 @@ def test_apply_with_no_corrections_is_a_noop(conn):
     before = _types_by_span(conn, ann)
     store.apply_corrections(conn, doc, ann)
     assert _types_by_span(conn, ann) == before
+
+
+def test_apply_to_document_resolves_the_annotation_itself(conn):
+    # The pipeline hook does not know the annotation id — it applies at the
+    # document level, resolving whichever annotation holds the NER mentions.
+    doc = _itdb.make_doc(conn, "Winston lived in London.")
+    ann = _itdb.make_annotation(conn, doc, "entity", "spacy/test")
+    _ml_mention(conn, doc, ann, 16, 22, "PERSON", "London")
+    store.record_correction(
+        conn,
+        doc,
+        Correction(action=Action.RECLASSIFY, char_start=16, char_end=22, entity_type="GPE"),
+    )
+    changed = store.apply_corrections_to_document(conn, doc)
+    assert changed is True
+    assert _types_by_span(conn, ann)[(16, 22)] == "GPE"
+
+
+def test_apply_to_document_is_a_noop_without_corrections(conn):
+    doc = _itdb.make_doc(conn, "Nothing to fix.")
+    ann = _itdb.make_annotation(conn, doc, "entity", "spacy/test")
+    _ml_mention(conn, doc, ann, 0, 7, "MISC", "Nothing")
+    assert store.apply_corrections_to_document(conn, doc) is False

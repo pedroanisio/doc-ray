@@ -1,6 +1,6 @@
 # doc-ray — Database ERD & Data Dictionary
 
-**Schema version `1.38.0`** (SemVer) · 111 migrations applied
+**Schema version `1.27.0`** (SemVer) · 116 migrations applied
 
 > Generated from the live schema by `scripts/gen_data_dictionary.py`. Do not edit by hand — re-run the generator.
 
@@ -658,7 +658,9 @@ has exactly one head → a function).
 
 ### 5.7 Entities & reference (layers 11–13)
 
-Named-entity mentions, entity linking to a KB, and coreference chains.
+Named-entity mentions, entity linking to a KB, and coreference chains. `entity_mention` is rebuilt
+from scratch by every annotate run, so human fixes live in `entity_mention_correction` — keyed by a
+stable span, re-applied by the pipeline on each pass (Block A).
 
 #### `entity_mention`
 
@@ -677,6 +679,35 @@ Named-entity mentions, entity linking to a KB, and coreference chains.
 - **Index** `idx_entity_mention_span`: public.entity_mention USING btree (span_id)
 - **Index** `idx_entity_mention_type_surface`: public.entity_mention USING btree (entity_type, surface)
 - **RLS:** enabled — read/write policies via *annotation_id → annotations* (FORCED)
+
+#### `entity_mention_correction`
+
+| Column | Type | Null | Key | Default | Notes |
+|---|---|---|---|---|---|
+| `id` | uuid |  | PK | `gen_random_uuid()` |  |
+| `document_id` | uuid |  | FK→documents |  |  |
+| `action` | text |  |  |  |  |
+| `char_start` | integer |  |  |  |  |
+| `char_end` | integer |  |  |  |  |
+| `entity_type` | text | yes |  |  |  |
+| `surface` | text | yes |  |  |  |
+| `new_char_start` | integer | yes |  |  |  |
+| `new_char_end` | integer | yes |  |  |  |
+| `original_type` | text | yes |  |  |  |
+| `rationale` | text | yes |  |  |  |
+| `reviewer` | uuid | yes | FK→principals |  |  |
+| `created_at` | timestamp with time zone |  |  | `now()` |  |
+
+- **Primary key:** (id)
+- **FK:** FOREIGN KEY (document_id) REFERENCES documents(id) ON DELETE CASCADE
+- **FK:** FOREIGN KEY (reviewer) REFERENCES principals(id) ON DELETE SET NULL
+- **Check:** CHECK (((action <> 'add'::text) OR (entity_type IS NOT NULL)))
+- **Check:** CHECK (((action <> 'adjust_span'::text) OR ((new_char_start IS NOT NULL) AND (new_char_end IS NOT NULL) AND (new_char_end >= new_char_start))))
+- **Check:** CHECK (((action <> 'reclassify'::text) OR (entity_type IS NOT NULL)))
+- **Check:** CHECK ((action = ANY (ARRAY['reclassify'::text, 'reject'::text, 'add'::text, 'adjust_span'::text])))
+- **Check:** CHECK ((char_end >= char_start))
+- **Index** `idx_em_correction_doc_span`: public.entity_mention_correction USING btree (document_id, char_start, char_end, created_at DESC)
+- **RLS:** enabled — read/write policies via *document_id* (FORCED)
 
 #### `entity_link`
 
@@ -1278,6 +1309,21 @@ operator-seeded; self-registered principals get the reader role only.
 - **Index** `idx_auth_refresh_tokens_family`: public.auth_refresh_tokens USING btree (family_id)
 - **Index** `idx_auth_refresh_tokens_principal`: public.auth_refresh_tokens USING btree (principal_id)
 
+#### `web_auth_sessions`
+
+| Column | Type | Null | Key | Default | Notes |
+|---|---|---|---|---|---|
+| `session_id` | text |  | PK |  |  |
+| `principal_id` | text |  |  |  |  |
+| `subject` | text |  |  |  |  |
+| `bearer_token` | text | yes |  |  |  |
+| `issued_at` | timestamp with time zone |  |  | `now()` |  |
+| `expires_at` | timestamp with time zone |  |  |  |  |
+
+- **Primary key:** (session_id)
+- **Index** `idx_web_auth_sessions_expires`: public.web_auth_sessions USING btree (expires_at)
+- **Index** `idx_web_auth_sessions_principal`: public.web_auth_sessions USING btree (principal_id)
+
 #### `principal_preferences`
 
 | Column | Type | Null | Key | Default | Notes |
@@ -1606,7 +1652,6 @@ clobbers the queue or the archive index it is reading from.
 | `attempts` | integer |  |  | `0` |  |
 | `max_attempts` | integer |  |  | `3` |  |
 | `document_id` | uuid | yes | FK→documents |  |  |
-| `enqueued_by` | uuid | yes | FK→principals |  | Principal the job acts for (the API request principal); NULL = system/worker job. Drives the `jobs` read policy's owner branch so a caller sees the jobs they enqueued — including a document-less ingest job (BL-141). |
 | `created_at` | timestamp with time zone |  |  | `now()` |  |
 | `run_after` | timestamp with time zone |  |  | `now()` |  |
 | `started_at` | timestamp with time zone | yes |  |  |  |
@@ -1617,6 +1662,7 @@ clobbers the queue or the archive index it is reading from.
 | `progress_total` | integer | yes |  |  |  |
 | `progress_stage` | text | yes |  |  |  |
 | `drain_requested_at` | timestamp with time zone | yes |  |  | Set while running when the claim-holding worker was asked to shut down; a stale-heartbeat reap of such a job requeues it without burning an attempt. |
+| `enqueued_by` | uuid | yes | FK→principals |  | Principal the job acts for (the API request principal). NULL = system/worker job with no request principal. Drives the jobs read policy's owner branch. |
 
 - **Primary key:** (id)
 - **FK:** FOREIGN KEY (document_id) REFERENCES documents(id) ON DELETE CASCADE
@@ -1629,10 +1675,10 @@ clobbers the queue or the archive index it is reading from.
 - **Check:** CHECK ((status = ANY (ARRAY['queued'::text, 'running'::text, 'succeeded'::text, 'failed'::text, 'canceled'::text])))
 - **Index** `idx_jobs_claimable`: public.jobs USING btree (priority, run_after, id) WHERE (status = 'queued'::text)
 - **Index** `idx_jobs_document`: public.jobs USING btree (document_id, id)
-- **Index** `jobs_enqueued_by_idx`: public.jobs USING btree (enqueued_by) WHERE (enqueued_by IS NOT NULL)
 - **Index** `idx_jobs_running_heartbeat`: public.jobs USING btree (heartbeat_at) WHERE (status = 'running'::text)
 - **Index** `idx_jobs_status`: public.jobs USING btree (status, id)
-- **RLS:** enabled, FORCED — **read-visibility only** (BL-141). `p_read` shows a caller jobs they enqueued (`enqueued_by`), jobs on a document they can read, or all if admin. There is **no user-facing INSERT policy**: the queue is trusted infrastructure — the API authorizes enqueue at the mutation boundary and the enqueue runs as `docray_batch` (BYPASSRLS); with FORCE RLS that denies every other role, only the trusted writer enqueues. `p_upd_cancel` still allows an admin to cancel.
+- **Index** `jobs_enqueued_by_idx`: public.jobs USING btree (enqueued_by) WHERE (enqueued_by IS NOT NULL)
+- **RLS:** enabled — read/write policies via *document_id (admin-only when NULL)* (FORCED)
 
 #### `schema_migrations`
 
@@ -1995,7 +2041,7 @@ document-scoped table. A principal may **read** a same-tenant document iff it is
 *admin* or holds any `document_acl` row on it, and may **write** iff *admin* or
 holds an `annotate`/`delete`/`admin` grant.
 
-**Enforcement.** RLS is `ENABLE`d (not `FORCE`) on 56 tables (incl. `jobs` and
+**Enforcement.** RLS is `ENABLE`d (not `FORCE`) on 57 tables (incl. `jobs` and
 `backups` since migration 043 — BL-064). The `docray`
 role is a **superuser and table owner**, so it **bypasses RLS** — the ingest
 pipeline and admin tooling use it as the trusted batch writer. End-user / API
@@ -2146,3 +2192,8 @@ owner's bypass.
 | 109 | `109_schema_version_1_37_0.sql` | advance the schema SemVer to 1.37.0 |
 | 110 | `110_org_corpus.sql` | organization corpus: documents.visibility + org-read branch |
 | 111 | `111_schema_version_1_38_0.sql` | advance the schema SemVer to 1.38.0 |
+| 112 | `112_web_auth_sessions.sql` | durable webapp auth sessions keyed by an opaque cookie id |
+| 113 | `113_jobs_trusted_writer_enqueue.sql` | jobs enqueue moves behind a definer (BL-141) |
+| 114 | `114_rls_helper_bypass_owner.sql` | SECURITY DEFINER RLS helpers run with BYPASSRLS (BL-142) |
+| 115 | `115_ner_corrections.sql` | durable human NER corrections keyed by a stable span (Block A) |
+| 116 | `116_schema_version_1_39_0.sql` | advance the schema SemVer to 1.39.0 |

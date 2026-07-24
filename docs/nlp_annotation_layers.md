@@ -202,6 +202,19 @@ Vasquez  I-PER      Berlin   B-GPE
 Entities: `Elena Vasquez` (PER), `March 2023` (DATE), `Lumière` (ORG), `Berlin`
 (GPE), plus `MIT` (ORG) in sentence 2.
 
+This layer is machine output and therefore wrong some of the time, so it carries
+a human verification layer on top: `entity_mention_correction` (migration 115).
+A reviewer can `reclassify` a type, `reject` a spurious mention, `add` a missed
+entity, or `adjust_span` a boundary. The correction is keyed by a stable span
+identity — `(document_id, char_start, char_end)` — *not* by `entity_mention.id`,
+because the mention rows are `ON DELETE CASCADE` from `annotations` and are
+rebuilt from scratch by every annotation run. The pipeline re-applies the
+correction log at the tail of each run
+(`doc_ray.domain.ner_corrections.reconcile()` — pure, deterministic, idempotent),
+so a fix made once persists across re-annotation instead of being overwritten by
+it. Corrections store the original ML value and the reviewer, keeping every
+override attributable and reversible.
+
 ### 12 · Entity linking
 Mentions resolve to knowledge‑base IDs; invented entities correctly get `NIL`.
 ```

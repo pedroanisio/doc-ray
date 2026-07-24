@@ -155,7 +155,15 @@ writes — every mutation enqueues a worker job or records a curator decision;
 poll `job(id)` for completion, never a synchronous pipeline result). Entity
 canonicalization curation: `seedSuggestions` / `canonical` /
 `canonicalSearch` / `unresolvedMentions` / `resolutionReview` (reads),
-`suggestSeeds` / `decideSeeds` / `seedApproved` (writes). Backup/restore:
+`suggestSeeds` / `decideSeeds` / `seedApproved` (writes). NER correction —
+the human verification layer over the model's entity output:
+`entityMentionCorrections(documentId:)` (read the audit log) and
+`correctEntityMention(documentId:, action:, charStart:, charEnd:, …)` (write;
+`action` is `reclassify` / `reject` / `add` / `adjust_span`). Corrections are
+stored against a stable span identity, so they are re-applied on every
+re-annotation instead of being overwritten by it — see
+[Correcting the model's entities](#correcting-the-models-entities) below.
+Backup/restore:
 `createBackup` / `restoreBackup` (see [Backup & restore](#backup--restore)
 below). Security audit readback: `auditEvents` (admin-scoped).
 
@@ -218,6 +226,49 @@ For HTTPS, `docker compose up -d nginx` starts a TLS front door on
 bootstrapped on first start — expect a browser warning until you replace it
 with a real one. Keep exposed ports inside a trusted network even when login is
 enabled, because backup/restore and operator workflows can mutate the corpus.
+
+### Correcting the model's entities
+
+Named-entity recognition is machine output, so it is wrong some of the time —
+a character mistyped as an organization, a date that isn't one, a name whose
+span stops one word short. The corpus therefore treats a human correction as
+first-class, durable data rather than a manual edit to a derived table.
+
+This matters because `entity_mention` rows are *rebuilt from scratch* by every
+annotation run. A fix written directly into them would be silently discarded the
+next time the document is re-annotated. Corrections are instead recorded against
+a **stable span identity** — the document plus the character offsets — and
+re-applied by the pipeline on every pass. Fixing something once fixes it
+permanently.
+
+Four actions cover the ways the model gets an entity wrong:
+
+| Action | Use when | Required |
+|---|---|---|
+| `reclassify` | The span is an entity, but of the wrong type | `entityType` |
+| `reject` | The span is not an entity at all | — |
+| `add` | A real entity the model missed | `entityType` |
+| `adjust_span` | Right entity, wrong boundaries | `newCharStart`, `newCharEnd` |
+
+Record one through the API — `originalType` and `rationale` are stored so every
+override is attributable and reversible:
+
+```graphql
+mutation {
+  correctEntityMention(
+    documentId: "…", action: "reclassify",
+    charStart: 16, charEnd: 22, entityType: "GPE",
+    originalType: "PERSON", rationale: "London is a place, not a person"
+  ) { id kind status }
+}
+```
+
+The mutation returns a queued `apply_corrections` job (poll `job(id)`); the
+worker re-applies the whole correction log onto the document's current mentions.
+Read the log back with `entityMentionCorrections(documentId:)`. AI agents reach
+the same capability through the MCP tools `correct_entity_mention` and
+`entity_mention_corrections` (see [`docs/mcp-service.md`](docs/mcp-service.md));
+the write tool is registered only when `DOCRAY_MCP_ENABLE_WRITE` is set.
 
 ## Backup & restore
 

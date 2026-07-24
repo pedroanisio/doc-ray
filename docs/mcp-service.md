@@ -115,6 +115,7 @@ for cited-briefing workflows — see that module for their signatures.
 | `list_documents(limit, doc_type?, status?)` | `documents` | keyset `cursor` |
 | `get_document(document_id)` | `document` | metadata + counts |
 | `get_job(job_id)` | `job` | poll a job enqueued by a write tool |
+| `entity_mention_corrections(document_id)` | `entityMentionCorrections` | the human NER-correction audit log for a document |
 | `list_collections(limit, kind?, after?)` | `collections` | native containers; keyset `cursor` |
 | `get_collection(collection_id, document_limit)` | `collection` | one collection + its member documents |
 | `corpus_manifest(shard_count)` | `corpusManifest` | shard map for a map-reduce sweep: per-shard counts that sum to the total |
@@ -248,6 +249,7 @@ engineering decision **D-030**.
 | `suggest_document_metadata(document_id)` | `suggestDocumentMetadata` | `Job` |
 | `update_document_metadata(document_id, title?, description?, tags?, authors?)` | `updateDocumentMetadata` | `Job` |
 | `bulk_tag_documents(document_ids, tags)` | `bulkTagDocuments` | `[Job]` |
+| `correct_entity_mention(document_id, action, char_start, char_end, entity_type?, surface?, new_char_start?, new_char_end?, original_type?, rationale?)` | `correctEntityMention` | `Job` (`apply_corrections`) |
 | `decide_seeds(approve_ids?, reject_ids?)` | `decideSeeds` | `Int` (rows updated) |
 | `decide_document_metadata_suggestions(approve_ids?, reject_ids?)` | `decideDocumentMetadataSuggestions` | `Int` |
 | `seed_approved(document_id)` | `seedApproved` | `Job` |
@@ -269,6 +271,38 @@ member documents are never touched (`document_collection_members` is
 `update_document_metadata` now also edits **`authors`** (an ordered list — order
 is kept; pass `[]` to clear), so an agent can correct wrong or empty author
 credits. Like `tags`, it replaces the whole set.
+
+`correct_entity_mention` is the agent-facing half of the NER verification layer.
+The model's entity output is wrong some of the time, and `entity_mention` rows
+are rebuilt by every annotation run — so a correction is recorded against the
+*stable span identity* (`document_id` + character offsets) and re-applied on
+every subsequent pass, rather than written into the derived table where the next
+run would erase it. `original_type` and `rationale` are stored, so an agent's
+override is attributable and reversible (PALS's Law). Read `entity_mention_corrections`
+first to avoid re-recording a fix that already exists.
+
+**Example — reclassify a mis-typed entity and confirm it applied:**
+
+```jsonc
+// What does the model currently say? (offsets come from search_sentences / read_document_sentences)
+{"name": "entity_mention_corrections", "arguments": {"document_id": "f0b3d10c-…"}}
+// → []  (nothing corrected yet)
+
+// "London" was tagged PERSON; it is a place.
+{"name": "correct_entity_mention", "arguments": {
+   "document_id": "f0b3d10c-…", "action": "reclassify",
+   "char_start": 16, "char_end": 22, "entity_type": "GPE",
+   "original_type": "PERSON", "rationale": "London is a place, not a person"}}
+// → {"id": "01J…", "kind": "apply_corrections", "status": "queued", "documentId": "f0b3d10c-…"}
+
+// The fix is applied by the worker — poll it.
+{"name": "get_job", "arguments": {"job_id": "01J…"}}
+// → {"id": "01J…", "status": "succeeded", "result": {"corrections_applied": true}}
+```
+
+Use `reject` for a span that is not an entity, `add` for one the model missed
+(pass `entity_type`), and `adjust_span` with `new_char_start` / `new_char_end`
+when the entity is real but its boundaries are wrong.
 
 **Example — enqueue re-annotation, then poll to completion:**
 

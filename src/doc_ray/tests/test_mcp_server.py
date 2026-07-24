@@ -29,6 +29,8 @@ _READ_TOOL_NAMES = {
     "image_class_summary",
     "cross_modal_image_search",
     "visual_captions",
+    # NER-correction audit log (Block A)
+    "entity_mention_corrections",
     # composition-grounding tools
     "briefing_pack",
     "entity_dossier",
@@ -45,6 +47,7 @@ _WRITE_TOOL_NAMES = {
     "suggest_document_metadata",
     "update_document_metadata",
     "bulk_tag_documents",
+    "correct_entity_mention",
     "decide_seeds",
     "decide_document_metadata_suggestions",
     "seed_approved",

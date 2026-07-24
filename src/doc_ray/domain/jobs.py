@@ -52,6 +52,11 @@ KIND_VISUAL_EMBED = "visual_embed"
 # Prism Tier-3: grounded VLM captions with the PALS gate (commit vs review). The
 # only tier with untrusted model output; never auto-chained (D-018).
 KIND_VISUAL_CAPTION = "visual_caption"
+# Block A: re-apply the durable human NER-correction log onto a document's
+# current ML mentions (entity_mention is worker-owned; docray_api can only
+# record the correction, so it enqueues this cheap job). No spaCy — just the
+# deterministic reconcile, so it is not long-running.
+KIND_APPLY_CORRECTIONS = "apply_corrections"
 
 # Job kinds that are expected to take enough wall-clock time to need a reserved
 # slow lane. Compose worker filters must stay in sync with this set. Visual

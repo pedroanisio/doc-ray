@@ -52,8 +52,21 @@ doc-ray carries **one global version** covering both the application package
   re-applies the correction log onto each fresh set of ML mentions. Corrections
   record the reviewer and the original ML value, so every fix is attributable
   and reversible. Design: `docs/proposals/entity-fabric-substrate-lens-projection.md`.
-  *This release ships the domain core + substrate (schema, RLS, persistence);
-  the GraphQL/MCP write surfaces are the following slice.*
+
+  The capability is now usable end to end. The annotate pipeline re-applies the
+  log automatically at the tail of every run, so a fix made once holds across
+  re-annotations. GraphQL exposes `correctEntityMention(documentId:, action:,
+  charStart:, charEnd:, …)` (write) and `entityMentionCorrections(documentId:)`
+  (the audit log); the MCP server exposes the matching
+  `correct_entity_mention` (write-gated by `DOCRAY_MCP_ENABLE_WRITE`) and
+  `entity_mention_corrections` (read) tools. Because `entity_mention` and `spans`
+  are owned by the batch worker — `docray_api`/`docray_client` hold only `SELECT`
+  on them — the API never writes mentions directly: it records the correction and
+  enqueues a cheap `apply_corrections` job (new job kind; no spaCy, just the
+  deterministic reconcile) that carries the fix through. Malformed corrections
+  (unknown action, `reclassify` without a type) are rejected and audited before
+  anything is recorded. Usage: README "Correcting the model's entities",
+  `docs/mcp-service.md` §3.
 - **A self-teaching MCP surface — server instructions, search coverage, steered
   errors (BL-145)** (Claude Opus 4.8 (1M context) via Claude Code). A user
   summarizing a full novel through the MCP server lost most of their effort to

@@ -16,9 +16,11 @@ from typing import TYPE_CHECKING, Any, cast
 
 import psycopg
 
+from doc_ray.application.document_stats import refresh_document_stats as _refresh_document_stats
 from doc_ray.domain.jobs import (
     KIND_ADD_DOCUMENT_TAGS,
     KIND_ANNOTATE,
+    KIND_APPLY_CORRECTIONS,
     KIND_ARCHIVE_DOCUMENT,
     KIND_BACKUP,
     KIND_CANONICALIZE,
@@ -51,25 +53,6 @@ _logger = logging.getLogger("doc_ray.jobs")
 
 #: A handler runs one job and returns a JSON-able result recorded on the job row.
 Handler = Callable[[psycopg.Connection[Any], ObjectStore | None, Job], dict[str, Any]]
-
-
-def _refresh_document_stats(conn: psycopg.Connection[Any], document_id: object) -> None:
-    """Refresh the corpus stat-band rollups after a document's counts change.
-
-    Keeps ``document_stats`` (per-document sentence/occurrence counts) exact and
-    debounce-refreshes the tenant's distinct-lexeme scalar (migration 095), so
-    ``GET /corpus`` reads precomputed totals instead of scanning the 17.5M-row
-    ``lexeme_occurrences`` table on every request.
-
-    Best-effort: the rollup is derived convenience data, so a refresh failure is
-    logged and swallowed rather than failing an annotation/ingest job that
-    already committed its real work — the migration backfill and the next
-    count-mutating job reconcile any drift.
-    """
-    try:
-        conn.execute("SELECT docray_refresh_stats_for_document(%s)", (str(document_id),))
-    except Exception:  # pragma: no cover - defensive; refresh must never fail a job
-        _logger.warning("corpus stat rollup refresh failed for document %s", document_id)
 
 
 def handle_delete(
@@ -252,6 +235,7 @@ def handle_annotate(
     the deployed worker can produce the ``entity_mention`` rows the
     canonicalization stages consume (spaCy loads lazily; ~sm model per language).
     """
+    from doc_ray.adapters import ner_corrections_store
     from doc_ray.adapters.annotation_spacy import SpacyAnnotator
 
     if job.document_id is None:
@@ -260,6 +244,11 @@ def handle_annotate(
     info = SpacyAnnotator().annotate(
         conn, job.document_id, lang_default=str(job.payload.get("lang", "en"))
     )
+    # PALS's Law: entity_mention is ephemeral (CASCADE from annotations), so the
+    # fresh ML pass just discarded any human fixes. Re-apply the correction log
+    # onto the new mentions before the read-model rollup sees them.
+    if ner_corrections_store.apply_corrections_to_document(conn, job.document_id):
+        info["ner_corrections_applied"] = True
     # Record the detected language on the document: the migration-016 trigger
     # then rebuilds the content tsvector with the language-aware config, so a
     # separate reannotate pass is no longer needed for stemmed search.
@@ -271,6 +260,27 @@ def handle_annotate(
         )
     _refresh_document_stats(conn, job.document_id)
     return info
+
+
+def handle_apply_corrections(
+    conn: psycopg.Connection[Any], store: ObjectStore | None, job: Job
+) -> dict[str, Any]:
+    """Re-apply the durable NER-correction log onto a document's ML mentions.
+
+    Cheap: no spaCy, just the deterministic reconcile. Enqueued by the API's
+    ``correctEntityMention`` mutation so a freshly recorded human fix takes
+    effect without a full re-annotation (docray_api may record a correction but
+    only the batch worker owns ``entity_mention``).
+    """
+    from doc_ray.adapters import ner_corrections_store
+
+    if job.document_id is None:
+        raise RuntimeError("apply_corrections requires a document_id")
+    report_progress(0, 1, "Applying NER corrections")
+    changed = ner_corrections_store.apply_corrections_to_document(conn, job.document_id)
+    if changed:
+        _refresh_document_stats(conn, job.document_id)
+    return {"document_id": job.document_id, "corrections_applied": changed}
 
 
 def handle_semantic_enrich(
@@ -518,6 +528,7 @@ def handle_restore(
 
 HANDLERS: dict[str, Handler] = {
     KIND_ANNOTATE: handle_annotate,
+    KIND_APPLY_CORRECTIONS: handle_apply_corrections,
     KIND_SEMANTIC_ENRICH: handle_semantic_enrich,
     KIND_VISUAL_EXTRACT: handle_visual_extract,
     KIND_VISUAL_EMBED: handle_visual_embed,

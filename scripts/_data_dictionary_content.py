@@ -34,6 +34,7 @@ RLS_PATH = {
     "constituent": "annotation_id → annotations",
     "dependency": "annotation_id → annotations",
     "entity_mention": "annotation_id → annotations",
+    "entity_mention_correction": "document_id",
     "entity_link": "mention_id → entity_mention → annotations",
     "srl_predicate": "annotation_id → annotations",
     "srl_argument": "span_id → spans",
@@ -276,6 +277,11 @@ MIGRATIONS = [
     ("109_schema_version_1_37_0", "advance the schema SemVer to 1.37.0"),
     ("110_org_corpus", "organization corpus: documents.visibility + org-read branch"),
     ("111_schema_version_1_38_0", "advance the schema SemVer to 1.38.0"),
+    ("112_web_auth_sessions", "durable webapp auth sessions keyed by an opaque cookie id"),
+    ("113_jobs_trusted_writer_enqueue", "jobs enqueue moves behind a definer (BL-141)"),
+    ("114_rls_helper_bypass_owner", "SECURITY DEFINER RLS helpers run with BYPASSRLS (BL-142)"),
+    ("115_ner_corrections", "durable human NER corrections keyed by a stable span (Block A)"),
+    ("116_schema_version_1_39_0", "advance the schema SemVer to 1.39.0"),
 ]
 
 # ---------------------------------------------------------------------------

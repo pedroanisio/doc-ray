@@ -43,6 +43,7 @@ def test_paid_saas_mutations_cannot_drift_outside_billing_entitlement_guard() ->
         "bulk_tag_documents": "mutation.bulk_tag_documents",
         "cancel_job": "mutation.cancel_job",
         "canonicalize_document": "mutation.canonicalize",
+        "correct_entity_mention": "mutation.correct_entity_mention",
         "create_backup": "mutation.backup",
         "create_collection": "mutation.create_collection",
         "decide_document_metadata_suggestions": ("mutation.decide_document_metadata_suggestions"),

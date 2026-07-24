@@ -14,11 +14,18 @@ Bridges the pure domain (``doc_ray.domain.ner_corrections``) to Postgres:
 
 from __future__ import annotations
 
+from typing import Any
+
+import psycopg
+
 from doc_ray.domain.ner_corrections import Action, Correction, Mention, reconcile
 from doc_ray.domain.ulid import new_ulid_str
 
 from . import persistence as db
 from .persistence import DictConnection
+
+#: The GraphQL API runs on an async psycopg connection with ``dict_row``.
+AsyncConnection = psycopg.AsyncConnection[dict[str, Any]]
 
 _LOAD_CORRECTIONS = """
     SELECT action, char_start, char_end, entity_type, surface,
@@ -135,3 +142,97 @@ def apply_corrections(conn: DictConnection, document_id: str, annotation_id: str
             ),
         )
     return corrected
+
+
+def apply_corrections_to_document(conn: DictConnection, document_id: str) -> bool:
+    """Re-apply corrections onto whichever annotation holds the doc's mentions.
+
+    The pipeline hook (and reannotate) call this — they need not know the
+    annotation id. Resolves every annotation that currently owns NER mentions
+    for the document and reconciles each. Returns True if any mention changed.
+    Safe to call unconditionally: a no-op when the document has no corrections.
+    """
+    rows = conn.execute(
+        "SELECT DISTINCT em.annotation_id AS aid FROM entity_mention em "
+        "JOIN annotations an ON an.id = em.annotation_id WHERE an.document_id = %s",
+        (document_id,),
+    ).fetchall()
+    corrections = load_corrections(conn, document_id)
+    if not corrections:
+        return False
+    changed = False
+    for r in rows:
+        before = _current_mentions(conn, r["aid"])
+        after = apply_corrections(conn, document_id, r["aid"])
+        changed = changed or after != before
+    return changed
+
+
+# --- Async variants for the GraphQL API (async psycopg) --------------------
+#
+# The API records a correction and re-applies it to the document's live
+# mentions immediately, so a curator sees the fix without waiting for the next
+# annotate pass. It reuses the same pure reconcile; only the I/O is async. The
+# sync pipeline hook remains the authority that survives full re-annotation.
+
+
+async def record_correction_async(
+    conn: AsyncConnection,
+    document_id: str,
+    correction: Correction,
+    *,
+    reviewer: str | None = None,
+    rationale: str | None = None,
+    original_type: str | None = None,
+) -> str:
+    """Async :func:`record_correction` for the GraphQL API."""
+    correction.validate()
+    cur = await conn.execute(
+        """
+        INSERT INTO entity_mention_correction
+            (document_id, action, char_start, char_end, entity_type, surface,
+             new_char_start, new_char_end, original_type, rationale, reviewer)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        RETURNING id
+        """,
+        (
+            document_id,
+            correction.action.value,
+            correction.char_start,
+            correction.char_end,
+            correction.entity_type,
+            correction.surface,
+            correction.new_char_start,
+            correction.new_char_end,
+            original_type,
+            rationale,
+            reviewer,
+        ),
+    )
+    row = await cur.fetchone()
+    assert row is not None  # INSERT ... RETURNING always yields a row
+    return str(row["id"])
+
+
+_LIST_CORRECTION_ROWS = """
+    SELECT id, document_id, action, char_start, char_end, entity_type, surface,
+           new_char_start, new_char_end, original_type, rationale, reviewer, created_at
+    FROM entity_mention_correction
+    WHERE document_id = %s
+    ORDER BY created_at, id
+"""
+
+
+async def list_correction_rows_async(
+    conn: AsyncConnection, document_id: str
+) -> list[dict[str, Any]]:
+    """Return the document's correction log as full rows (the API audit view)."""
+    cur = await conn.execute(_LIST_CORRECTION_ROWS, (document_id,))
+    return await cur.fetchall()
+
+
+# NOTE: there is deliberately no async apply. ``entity_mention``/``spans`` are
+# owned by the annotate pipeline (docray_batch); docray_api/docray_client hold
+# only SELECT on them (migration 010/032). The API therefore records the
+# correction and enqueues an ``apply_corrections`` job — the worker
+# (docray_batch) re-applies via the sync :func:`apply_corrections_to_document`.

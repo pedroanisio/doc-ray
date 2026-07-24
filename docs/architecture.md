@@ -53,10 +53,10 @@ disclaimer:
 
 | Layer | Package | Contents | May import |
 |---|---|---|---|
-| **Domain** | `doc_ray.domain` | `pdf_layout` (layout→Markdown), `sentences` (segmentation), `lexemes` (identity, tokenization, `RuleAnalyzer`, language detection), `ulid` (value object), `provenance` (events) | stdlib only |
+| **Domain** | `doc_ray.domain` | `pdf_layout` (layout→Markdown), `sentences` (segmentation), `lexemes` (identity, tokenization, `RuleAnalyzer`, language detection), `ulid` (value object), `provenance` (events), `ner_corrections` (the pure, deterministic reconcile that re-applies human NER fixes onto ML mentions) | stdlib only |
 | **Ports** | `doc_ray.ports` | `TextExtractor`, `ObjectStore`, `Repository`, `Annotator`, `ModelOutputVerifier` — `Protocol` contracts | domain |
-| **Adapters** | `doc_ray.adapters` | `extraction` (PyMuPDF + opt-in OCR + opt-in verified external math backend + pypdf + txt/html/epub/docx), `persistence` (Postgres/psycopg), `persistence_read` / `persistence_layers_read` / `persistence_canonical_read` (bounded async GraphQL read models), `object_store` (MinIO/boto3), `annotation` / `annotation_spacy`, `export`, `wikidata` / `wikipedia` (canonical-entity KB resolution), `queue_postgres` (`FOR UPDATE SKIP LOCKED` job queue) | domain, ports |
-| **Application** | `doc_ray.application` | `pipeline` (ingest use case), `reannotate`, `reextract`, `verification` (shared ML/LLM output gate), `jobs` (worker dispatch + payload-carried pipeline-chain automation), `term_scan` / `canonicalize` / `resolution` / `seed_suggest` / `canonical_seed` (entity canonicalization — see below), `semantic_enrichment` (deterministic discourse/temporal/sentiment/embedding writer), `evaluation` (snapshot + drift metrics), `backup` (corpus snapshot & restore), `corpus_health`, `db_health` (instance health), `db_analyzer` (multi-engine structure + data profiling) | ports, adapters, domain |
+| **Adapters** | `doc_ray.adapters` | `extraction` (PyMuPDF + opt-in OCR + opt-in verified external math backend + pypdf + txt/html/epub/docx), `persistence` (Postgres/psycopg), `persistence_read` / `persistence_layers_read` / `persistence_canonical_read` (bounded async GraphQL read models), `object_store` (MinIO/boto3), `annotation` / `annotation_spacy`, `export`, `wikidata` / `wikipedia` (canonical-entity KB resolution), `queue_postgres` (`FOR UPDATE SKIP LOCKED` job queue), `ner_corrections_store` (the durable NER-correction log + its re-apply hook) | domain, ports |
+| **Application** | `doc_ray.application` | `pipeline` (ingest use case), `reannotate`, `reextract`, `verification` (shared ML/LLM output gate), `jobs` (worker dispatch + payload-carried pipeline-chain automation), `term_scan` / `canonicalize` / `resolution` / `seed_suggest` / `canonical_seed` (entity canonicalization — see below), `semantic_enrichment` (deterministic discourse/temporal/sentiment/embedding writer), `document_stats` (the D-024 read-model rollup refresh shared by count-mutating jobs), `evaluation` (snapshot + drift metrics), `backup` (corpus snapshot & restore), `corpus_health`, `db_health` (instance health), `db_analyzer` (multi-engine structure + data profiling) | ports, adapters, domain |
 | **Entrypoints** | `doc_ray.entrypoints` | `cli`; `api` (GraphQL, Strawberry) and `worker` — the async-read / sync-write split every mutation runs through (see below); `migrate`, `export`, `annotate`, `annotate_spacy`, `annotate_semantic`, `evaluate`, `reannotate`, `reextract`; operational CLIs `auth_admin` and `backup_scheduler`; the diagnostics CLIs `corpus_health` / `db_health` / `db_analyze` | application |
 | **Config** | `doc_ray.config` | env-driven `Config` (shared kernel) | stdlib |
 
@@ -359,6 +359,27 @@ TimeML date/event rows, lexicon sentiment, and hash-BoW span embeddings. These
 rows are explicitly heuristic and provenance-stamped; subword tokenization,
 constituency, SRL, WSD, and AMR remain schema-only until a real model-backed
 writer lands.
+
+### Human corrections to ML entities
+
+Named-entity output is a model's guess, so the corpus carries a verification
+layer over it. The constraint that shapes the design: `entity_mention` rows are
+`ON DELETE CASCADE` from `annotations` and are rebuilt from scratch by every
+annotate run, so a correction stored there would be silently destroyed by the
+next pass. Corrections are therefore written to `entity_mention_correction`
+(migration 115) keyed by a **stable span identity** — `(document_id, char_start,
+char_end)`, the same natural key `spans` already uses — and re-applied onto each
+fresh set of mentions by `domain.ner_corrections.reconcile()`, a pure function
+with no I/O: deterministic, idempotent, and ordering-independent, so replaying
+the log always yields the same mentions.
+
+Ownership of the write follows the role split. `entity_mention` and `spans` are
+the annotate pipeline's tables — `docray_api`/`docray_client` hold only `SELECT`
+on them — so the GraphQL mutation never edits mentions directly. It records the
+correction (RLS-scoped to the document's writable set) and enqueues an
+`apply_corrections` job; the batch worker, which does own those tables, runs the
+reconcile. The same reconcile runs unconditionally at the tail of `handle_annotate`,
+which is what makes a fix survive re-annotation rather than merely precede it.
 
 `application.evaluation` records durable corpus snapshots and evaluation runs.
 It stores lexical/entity distributions and review/tool-version facts in

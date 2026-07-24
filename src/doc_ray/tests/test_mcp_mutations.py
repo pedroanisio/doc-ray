@@ -358,6 +358,7 @@ def test_tools_tuple_is_the_reprocessing_and_curation_writers() -> None:
         "suggest_document_metadata",
         "update_document_metadata",
         "bulk_tag_documents",
+        "correct_entity_mention",
         "decide_seeds",
         "decide_document_metadata_suggestions",
         "seed_approved",

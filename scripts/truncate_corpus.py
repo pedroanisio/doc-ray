@@ -66,6 +66,7 @@ WIPED_TABLES = (
     "embedding",
     "entity_link",
     "entity_mention",
+    "entity_mention_correction",
     "event",
     "sentiment",
     "srl_argument",
@@ -114,6 +115,9 @@ PRESERVED_TABLES = (
     "principal_credentials",
     "email_verification_tokens",
     "auth_refresh_tokens",
+    # Durable webapp sessions (migration 112): same rationale as refresh tokens —
+    # a corpus wipe must not sign every logged-in user out.
+    "web_auth_sessions",
     "audit_events",
     "canonical",
     "canonical_merge",

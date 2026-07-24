@@ -10,10 +10,10 @@ from __future__ import annotations
 import strawberry
 
 from doc_ray.adapters import document_metadata_suggestion_store as metadata_suggestions
+from doc_ray.adapters import ner_corrections_store, security_audit_read
 from doc_ray.adapters import persistence_canonical_read as canonical_read
 from doc_ray.adapters import persistence_read as read
 from doc_ray.adapters import queue_postgres as queue
-from doc_ray.adapters import security_audit_read
 from doc_ray.adapters import seed_suggestion_store as seeds
 from doc_ray.application import billing
 from doc_ray.entrypoints.api.audit_types import DocumentMetadataChange, DocumentMetadataSuggestion
@@ -35,6 +35,7 @@ from doc_ray.entrypoints.api.types import (
     DocumentShare,
     EntityFrequency,
     EntityMention,
+    EntityMentionCorrection,
     Info,
     Job,
     Lexeme,
@@ -260,6 +261,21 @@ class Query(VisualQueries):
             info.context.conn, doc_id, status=status
         )
         return [DocumentMetadataSuggestion.from_row(r) for r in rows]
+
+    @strawberry.field
+    async def entity_mention_corrections(
+        self, info: Info, document_id: strawberry.ID
+    ) -> list[EntityMentionCorrection]:
+        """Return a document's durable human NER corrections, oldest first (Block A).
+
+        The audit log behind ``correctEntityMention``: RLS scopes it to documents
+        the caller may read (migration 115). Empty for a malformed id.
+        """
+        doc_id = _clean_uuid(str(document_id))
+        if doc_id is None:
+            return []
+        rows = await ner_corrections_store.list_correction_rows_async(info.context.conn, doc_id)
+        return [EntityMentionCorrection.from_row(r) for r in rows]
 
     @strawberry.field
     async def search_sentences(

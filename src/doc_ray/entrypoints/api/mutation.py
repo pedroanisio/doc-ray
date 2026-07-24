@@ -41,6 +41,7 @@ from doc_ray.domain.jobs import (
 from doc_ray.entrypoints.api.context import MAX_BATCH_IDS
 from doc_ray.entrypoints.api.mutation_billing import BillingMutations
 from doc_ray.entrypoints.api.mutation_collections import CollectionMutations
+from doc_ray.entrypoints.api.mutation_corrections import CorrectionMutations
 from doc_ray.entrypoints.api.mutation_guards import (
     _audit_mutation_event,
     _clean_bulk_ids,
@@ -64,7 +65,7 @@ _PIPELINE_CHAIN = [KIND_ANNOTATE, KIND_SEMANTIC_ENRICH, KIND_CANONICALIZE, KIND_
 
 
 @strawberry.type
-class Mutation(BillingMutations, CollectionMutations, SharingMutations):
+class Mutation(BillingMutations, CollectionMutations, CorrectionMutations, SharingMutations):
     """Write operations: most enqueue background work; sharing writes ACLs directly."""
 
     @strawberry.mutation

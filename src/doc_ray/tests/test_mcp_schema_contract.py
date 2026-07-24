@@ -78,6 +78,7 @@ _READ_CALLS = [
     lambda: corpus.corpus_shard(0, 4),
     lambda: corpus.entity_frequency(),
     lambda: corpus.lexeme_kwic("lex-1"),
+    lambda: corpus.entity_mention_corrections(_DOC),
 ]
 
 _WRITE_CALLS = [
@@ -90,6 +91,12 @@ _WRITE_CALLS = [
     lambda: mutations.suggest_document_metadata(_DOC),
     lambda: mutations.update_document_metadata(_DOC, title="t", tags=["a"]),
     lambda: mutations.bulk_tag_documents([_DOC], tags=["a"]),
+    lambda: mutations.correct_entity_mention(
+        _DOC, "reclassify", 16, 22, entity_type="GPE", original_type="PERSON"
+    ),
+    lambda: mutations.correct_entity_mention(
+        _DOC, "adjust_span", 16, 22, new_char_start=16, new_char_end=26
+    ),
     lambda: mutations.decide_seeds(approve_ids=["s1"]),
     lambda: mutations.decide_document_metadata_suggestions(approve_ids=["m1"]),
     lambda: mutations.seed_approved(_DOC),
@@ -119,6 +126,20 @@ def test_api_schema_exposes_author_edit_and_collection_lifecycle() -> None:
     assert "updateDocumentMetadata(" in mutation and "authors: [String!]" in mutation
     assert "updateCollection(collectionId: ID!" in mutation
     assert "deleteCollection(collectionId: ID!): Boolean!" in mutation
+
+
+def test_api_schema_exposes_the_ner_correction_surface() -> None:
+    """Block A: record a correction (mutation) and read the log back (query)."""
+    from doc_ray.entrypoints.api.schema import build_schema as _bs
+
+    sdl = _bs(debug=True).as_str()
+    mutation = re.search(r"type Mutation \{(.*?)\n\}", sdl, re.S).group(1)
+    query = re.search(r"type Query \{(.*?)\n\}", sdl, re.S).group(1)
+    assert "correctEntityMention(" in mutation
+    for arg in ("documentId: ID!", "action: String!", "charStart: Int!", "charEnd: Int!"):
+        assert arg in mutation
+    assert "entityMentionCorrections(documentId: ID!): [EntityMentionCorrection!]!" in query
+    assert "type EntityMentionCorrection {" in sdl
 
 
 def test_api_schema_exposes_corpus_sharding() -> None:
@@ -158,6 +179,7 @@ async def test_every_write_tool_is_contract_checked() -> None:
         "suggest_document_metadata",
         "update_document_metadata",
         "bulk_tag_documents",
+        "correct_entity_mention",
         "decide_seeds",
         "decide_document_metadata_suggestions",
         "seed_approved",
