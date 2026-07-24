@@ -1,0 +1,77 @@
+"""GraphQL ``StructureQueries`` mixin — document outline + reconciled entities (BL-146).
+
+Split out of the ``Query`` root (D-015), the same pattern as ``VisualQueries``:
+``Query`` inherits this mixin so these resolvers live in their own module. Both
+fields clamp their page size and delegate to the async structure read adapter,
+RLS-scoped like every other read.
+"""
+
+from __future__ import annotations
+
+import strawberry
+
+from doc_ray.adapters import persistence_read_structure as structure_read
+from doc_ray.entrypoints.api.ids import clean_uuid
+from doc_ray.entrypoints.api.structure_types import DocumentOutline, EntityProfile
+from doc_ray.entrypoints.api.types import Info
+
+#: Returned for a malformed id — indistinguishable, by design, from a document
+#: the caller may not read.
+_UNREADABLE = {
+    "source": "empty",
+    "total_sentences": 0,
+    "entry_count": 0,
+    "note": "No such document, or it is not readable with this token.",
+    "entries": [],
+}
+
+
+@strawberry.type
+class StructureQueries:
+    """Read fields that make the rest of a document reachable."""
+
+    @strawberry.field
+    async def document_outline(
+        self, info: Info, document_id: strawberry.ID, max_entries: int = 50
+    ) -> DocumentOutline:
+        """Map a document into addressable ordinal ranges for ranged reading.
+
+        Prefers detected headings; falls back to an even split of the sentences
+        when a document has none, reporting which via ``source`` so a navigation
+        grid is never mistaken for a table of contents.
+        """
+        doc_id = clean_uuid(str(document_id))
+        if doc_id is None:
+            return DocumentOutline.from_row(_UNREADABLE)
+        row = await structure_read.document_outline(
+            info.context.conn, doc_id, max_entries=max_entries
+        )
+        return DocumentOutline.from_row(row)
+
+    @strawberry.field
+    async def entity_profiles(
+        self,
+        info: Info,
+        document_id: strawberry.ID | None = None,
+        entity_type: str | None = None,
+        limit: int = 50,
+    ) -> list[EntityProfile]:
+        """Entity frequencies reconciled to one row per entity, type spread included.
+
+        ``entityFrequency`` returns raw NER, which splits one entity across types
+        and spellings. This groups those rows and reports the disagreement as
+        ``typeConsistency`` instead of leaving the caller to notice it.
+        """
+        ctx = info.context
+        doc_id: str | None = None
+        if document_id is not None:
+            doc_id = clean_uuid(str(document_id))
+            if doc_id is None:  # malformed -> no matches, not a DB error
+                return []
+        rows = await structure_read.entity_profiles(
+            ctx.conn,
+            document_id=doc_id,
+            entity_type=entity_type,
+            limit=ctx.page_size(limit),
+        )
+        return [EntityProfile.from_row(row) for row in rows]

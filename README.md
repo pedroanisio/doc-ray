@@ -136,7 +136,13 @@ Other query/mutation surface: `documents(docType:, status:, tags:)` /
 `fullTextSearch` /
 `corpusManifest(shardCount:)` / `corpusShard(shardIndex:, shardCount:)`
 (deterministic corpus partitioning for parallel/map-reduce reads) /
-`lexeme(s)` / `entities` / `entityFrequency` / `job` / `jobs` /
+`documentOutline(documentId:, maxEntries:)` (a document's addressable ordinal
+ranges — detected headings, or an even grid where a document has none, with
+`source` saying which) /
+`lexeme(s)` / `entities` / `entityFrequency` (raw NER rows) /
+`entityProfiles(documentId:, entityType:)` (the same mentions reconciled to one
+row per entity, with the measured type spread and `typeConsistency`) /
+`job` / `jobs` /
 `documentMetadataSuggestions` / `collections` / `collection` /
 `documentImages` / `imageClassSummary` / `visualCaptions` /
 `crossModalImageSearch` (Prism visual-layer reads) / `billingStatus` /

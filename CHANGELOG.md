@@ -113,8 +113,59 @@ doc-ray carries **one global version** covering both the application package
   description under 80 characters, another fails if a tool taking a `document_id`
   does not validate it locally (`_require_uuid`) before spending a network
   round-trip. Guidance that is only documented decays; these are enforced.
+- **`read_document_outline` — the map that aims the ranged reader (BL-146)**
+  (Claude Opus 4.8 (1M context) via Claude Code). Random access by ordinal has
+  existed since Block 3a, but nothing told an agent *which* ordinals to ask for,
+  so "read the ending" stayed a guess. The new tool (GraphQL: `documentOutline`)
+  returns a short list of regions whose `ordinalStart`/`ordinalEnd` feed straight
+  back into `read_document_sentences`, plus `pageStart` for the page reader.
+  Structure comes from the ATX headings every extractor already normalizes into
+  the stored text; the honest part is `source`, which distinguishes real
+  `headings` from the `uniform` grid used where detection found none — measured
+  across the corpus, PDF heading detection finds 723 in a technical book, 70 in
+  *Princess of Dune*, and none at all in *Dune Messiah*, so an empty answer would
+  fail the documents the feature exists for. A grid is labelled a grid and its
+  titles are never presented as chapter names. No schema change: headings are
+  parsed from `document_content`, and each offset is resolved onto its sentence
+  by one indexed lookup (D-024-clean — no new fact-table aggregate).
+- **`entity_profiles` — reconciled entities with the disagreement measured
+  (BL-146)** (Claude Opus 4.8 (1M context) via Claude Code). `entity_frequency`
+  returns raw NER, which splits one real-world entity across types and spellings
+  and leaves the agent to merge it by hand. The new tool (GraphQL:
+  `entityProfiles`) returns one row per entity — merged `surfaceForms`, the full
+  `typeSpread`, the real `mentions` total — and reports `typeConsistency`, the
+  dominant type's *measured* share of those mentions, never a model score.
+  Against the live corpus `Arrakis` collapses from five rows into one at
+  consistency 0.36 (LOC 514 / GPE 495 / PERSON 209 / NORP 179 / ORG 24), and 47
+  of the top 200 entities score below 0.9. `resolved` states whether the canonical
+  registry backs the row at all. Only normalization-equivalent spellings fold
+  together (the same `form_norm` key `form_index` uses): `Duncan` and `Duncan
+  Idaho` stay separate, because relating them is coreference and guessing it
+  would be fabrication.
+- **More drift protection, and the drift it already caught** (Claude Opus 4.8
+  (1M context) via Claude Code). `test_mcp_p1.py` adds three guards: every tool
+  that embeds a GraphQL document must be exercised by the schema-contract test
+  (which validates it against the live Strawberry schema), every read tool must
+  appear in the `docs/mcp-service.md` inventory, and any tool offering
+  `response_format` must validate it. Turning them on immediately failed:
+  `document_images`, `image_class_summary`, `visual_captions`, and
+  `cross_modal_image_search` were in neither the schema-contract list nor the
+  inventory — four shipped tools whose GraphQL nobody was checking. Both gaps are
+  closed. `persistence_read_structure.py` was also added to the D-024 scan set.
 
 ### Changed
+- **`response_format: "concise" | "detailed"` on the bulk readers (BL-146)**
+  (Claude Opus 4.8 (1M context) via Claude Code). `read_document_sentences` and
+  `search_sentences` accept a verbosity argument. `detailed` is the default and
+  is byte-for-byte the historical shape, so **no existing caller changes**.
+  `concise` drops the row id and the per-row cursor (the last row keeps one — the
+  only cursor paging uses) and, for a document-scoped search, the redundant title
+  and `documentId`. Measured on a realistic 200-sentence page: 47,314 → 29,876
+  characters, a **37% reduction** (our number on our payloads; the ~⅔ figure
+  Anthropic report for their own tooling does not transfer). The saving is taken
+  on the wire too — the tool requests a smaller GraphQL selection set rather than
+  fetching and discarding. `ordinal`, `charStart`, and `charEnd` survive in every
+  mode: a cheaper answer that cannot be cited is not a cheaper answer.
 - **BREAKING (MCP tool contract): `search_sentences` returns an object, not a
   list** (Claude Opus 4.8 (1M context) via Claude Code). The tool previously
   returned a bare list of KWIC hits, which made a truncated result

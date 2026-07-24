@@ -110,7 +110,7 @@ metadata:
   generated_by:     "Claude Sonnet 5 via Claude Code (merge of Claude Opus 4.8 backlog + OpenAI Codex improvement-proposal candidates)"
   generated_on:     "2026-07-05"
   system_of_record: "docs/backlog.yml"
-  total_items:      145
+  total_items:      146
 
 items:
 
@@ -4888,3 +4888,58 @@ items:
     owner:        "shared"
     source:       "User write-up of a full-novel summarization via MCP, 2026-07-24, analysed against MCP strategy research (Claude Opus 4.8 (1M context) via Claude Code)."
     tags:         ["api", "mcp", "agent-experience", "retrieval", "feature"]
+
+  - id:          "BL-146"
+    title:        "MCP reach and honesty gaps: no document map, raw NER type-splits, no token lever on the bulk readers"
+    summary:      "P1 of the MCP improvement proposal. Random access by ordinal existed but nothing told an agent which ordinals to ask for; entity_frequency returned raw NER that splits one entity across types and spellings; and the bulk readers had no way to trade metadata for tokens. Closed with read_document_outline, entity_profiles, and response_format=concise."
+    description: |
+      Three additions, each grounded in a measurement rather than a guess:
+        - read_document_outline / GraphQL documentOutline: addressable ordinal
+          ranges from the ATX headings every extractor normalizes into the stored
+          text, with `source` distinguishing real headings from the uniform grid
+          used where detection found none. Measured: PDF heading detection finds
+          723 headings in a technical book, 70 in Princess of Dune, 0 in Dune
+          Messiah — an empty answer would fail the documents this exists for.
+        - entity_profiles / GraphQL entityProfiles: one row per entity with the
+          measured type spread and typeConsistency (dominant type's share of
+          mentions — arithmetic, not a model score). Arrakis: 1421 mentions,
+          consistency 0.36 across LOC/GPE/PERSON/NORP/ORG; 47 of the top 200
+          corpus entities score below 0.9.
+        - response_format concise/detailed on read_document_sentences and
+          search_sentences. Measured 37% payload reduction (47,314 -> 29,876
+          chars on a 200-sentence page); detailed stays the default so no caller
+          changes. Citation handles survive in every mode.
+      Two defects were found and fixed by verifying against the live corpus rather
+      than fixtures: the heading level-trim collapsed Princess of Dune to a single
+      entry spanning all 10,063 sentences, and document_outline reported "no
+      sentences" for any document whose document_stats rollup had not been
+      refreshed yet.
+      Drift protection: test_mcp_p1.py fails the build if a tool embedding a
+      GraphQL document is not exercised by the schema-contract guard, if a read
+      tool is missing from the docs/mcp-service.md inventory, or if a tool
+      offering response_format does not validate it. Enabling these immediately
+      exposed four shipped visual tools covered by neither guard; both gaps closed.
+    category:     "api"
+    type:         "feature"
+    status:       "done"
+    complexity:   "L"
+    priority:     "high"
+    rationale:    "BL-145 made the server teach the retrieval model; this gives the agent the reach to act on it. The outline is the missing half of the random-access story, and the entity profiles stop the read surface from presenting contested ML output as settled fact — the reviewer had to reconcile Duncan Idaho by hand because the tool would not."
+    acceptance_criteria:
+      - "An agent can obtain ordinal ranges for any document and read them without guessing."
+      - "The outline declares whether its structure is real or a grid, and never presents a grid as a table of contents."
+      - "Entity rows carry the measured type spread and a consistency ratio, and state whether the canonical registry backs them."
+      - "The bulk readers offer a measurably smaller payload without losing citation handles."
+      - "New MCP surface is held to the schema-contract, documentation, and validation guards by tests."
+    dependencies: ["BL-145"]
+    references:
+      - "src/doc_ray/domain/document_outline.py"
+      - "src/doc_ray/domain/entity_profiles.py"
+      - "src/doc_ray/adapters/persistence_read_structure.py"
+      - "src/doc_ray/entrypoints/api/structure_query.py"
+      - "src/doc_ray/entrypoints/mcp/structure.py"
+      - "src/doc_ray/tests/test_mcp_p1.py"
+      - "docs/proposals/mcp-layer-improvements.md"
+    owner:        "shared"
+    source:       "P1 of docs/proposals/mcp-layer-improvements.md, implemented test-first and verified against the live corpus (Claude Opus 4.8 (1M context) via Claude Code)."
+    tags:         ["api", "mcp", "agent-experience", "retrieval", "ner", "feature"]

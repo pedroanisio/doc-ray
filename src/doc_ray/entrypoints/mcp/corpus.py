@@ -172,6 +172,39 @@ def _require_nonempty(value: str, param: str) -> str:
     return value
 
 
+#: Verbosity levels for the bulk readers. ``detailed`` is the historical shape and
+#: stays the default, so nothing that exists today changes behaviour.
+RESPONSE_FORMATS = ("detailed", "concise")
+
+
+def _require_response_format(value: str) -> str:
+    """Reject an unknown response_format locally, naming the valid values.
+
+    A silently-ignored format argument is worse than no argument at all: the
+    agent believes it bought a saving it never got, and keeps budgeting for it.
+    """
+    if value not in RESPONSE_FORMATS:
+        raise ToolCallError(
+            "bad_input",
+            f"response_format must be one of {', '.join(RESPONSE_FORMATS)}, got {value!r}",
+            hint="use 'concise' to drop per-row metadata, 'detailed' for the full shape",
+        )
+    return value
+
+
+def _project_concise(rows: list[dict[str, Any]], keep: tuple[str, ...]) -> list[dict[str, Any]]:
+    """Keep only *keep* on each row, plus the final row's paging cursor.
+
+    Only the last cursor of a page is ever used to continue, so carrying one on
+    every row is pure overhead — but dropping it entirely would break paging, so
+    the last row keeps its own.
+    """
+    projected = [{k: row[k] for k in keep if k in row} for row in rows]
+    if projected and (cursor := rows[-1].get("cursor")) is not None:
+        projected[-1]["cursor"] = cursor
+    return projected
+
+
 async def gql(query: str, variables: dict[str, Any]) -> dict[str, Any]:
     """Execute a GraphQL operation, forwarding the caller's bearer token.
 
@@ -242,7 +275,11 @@ async def gql(query: str, variables: dict[str, Any]) -> dict[str, Any]:
 
 
 async def search_sentences(
-    term: str, document_id: str | None = None, limit: int = 20, after: str | None = None
+    term: str,
+    document_id: str | None = None,
+    limit: int = 20,
+    after: str | None = None,
+    response_format: str = "detailed",
 ) -> dict[str, Any]:
     """Keyword-in-context search across the corpus you can read (pre/hit/post windows).
 
@@ -257,17 +294,32 @@ async def search_sentences(
     clipped with an explicit ``… [+N chars]`` marker); ``coverage`` reports the
     hit count and ordinal span; ``note`` is a steer (or ``null``) when the result
     may be flooded.
+
+    ``response_format="concise"`` drops the row id, title, and per-row cursor
+    (the last row keeps one, which is the only cursor paging uses), leaving the
+    ordinal and the KWIC windows. ``coverage`` and ``note`` are unaffected.
     """
     _require_nonempty(term, "term")
     _require_uuid(document_id, "document_id")
+    _require_response_format(response_format)
+    concise = response_format == "concise"
+    fields = (
+        "documentId ordinal pre hit post cursor"
+        if concise
+        else ("id documentId title ordinal pre hit post cursor")
+    )
     data = await gql(
         "query($t:String!,$d:ID,$l:Int!,$a:String)"
-        "{searchSentences(term:$t,documentId:$d,limit:$l,after:$a)"
-        "{id documentId title ordinal pre hit post cursor}}",
+        f"{{searchSentences(term:$t,documentId:$d,limit:$l,after:$a){{{fields}}}}}",
         {"t": term, "d": document_id, "l": limit, "a": after},
     )
     hits = [_clip_windows(hit, ("pre", "hit", "post")) for hit in data["searchSentences"]]
     coverage, note = _search_coverage(hits, limit)
+    if concise:
+        # A corpus-wide hit is unattributable without its document, so documentId
+        # is only dropped when the caller already scoped the search to one.
+        keep = ("ordinal", "pre", "hit", "post")
+        hits = _project_concise(hits, keep if document_id else ("documentId", *keep))
     return {"hits": hits, "coverage": coverage, "note": note}
 
 
@@ -278,6 +330,7 @@ async def read_document_sentences(
     from_ordinal: int | None = None,
     to_ordinal: int | None = None,
     page: int | None = None,
+    response_format: str = "detailed",
 ) -> list[dict[str, Any]]:
     """Read a document's sentences in order — sequential walk or a random-access slice.
 
@@ -296,16 +349,28 @@ async def read_document_sentences(
     attributable to the same span whether read here or in the whole document. Text
     is returned **verbatim** (never clipped): payload is bounded by ``limit``, not
     by truncating content. Returns ``[]`` for an unknown or unreadable document.
+
+    Use ``response_format="concise"`` for bulk reading: it drops the row id and
+    the per-row cursor (the last row keeps one, which is the only cursor paging
+    uses), leaving text plus its citation handles — measurably smaller per page,
+    with attribution untouched. Aim it with ``read_document_outline``.
     """
     _require_uuid(document_id, "document_id")
+    _require_response_format(response_format)
     if from_ordinal is not None and to_ordinal is not None and from_ordinal > to_ordinal:
         raise ToolCallError(
             "bad_input", f"from_ordinal ({from_ordinal}) must be <= to_ordinal ({to_ordinal})"
         )
+    concise = response_format == "concise"
+    fields = (
+        "ordinal text charStart charEnd cursor"
+        if concise
+        else ("id ordinal text charStart charEnd cursor")
+    )
     data = await gql(
         "query($id:ID!,$l:Int!,$a:String,$fo:Int,$to:Int,$pg:Int)"
         "{document(id:$id){sentences(limit:$l,after:$a,fromOrdinal:$fo,toOrdinal:$to,page:$pg)"
-        "{id ordinal text charStart charEnd cursor}}}",
+        f"{{{fields}}}}}}}",
         {
             "id": document_id,
             "l": limit,
@@ -319,6 +384,8 @@ async def read_document_sentences(
     if doc is None:
         return []
     sentences: list[dict[str, Any]] = doc["sentences"]
+    if concise:
+        return _project_concise(sentences, ("ordinal", "text", "charStart", "charEnd"))
     return sentences
 
 

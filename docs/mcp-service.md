@@ -19,11 +19,12 @@ Exposes the doc-ray corpus to agentic AI over the **Model Context Protocol
 (MCP)**, authenticating each caller to a doc-ray principal so Postgres RLS scopes
 what they can read.
 
-**Status: live in production and verified end-to-end.** The server ships **19
-read tools** (12 corpus readers incl. `read_document_sentences`, `corpus_manifest`,
-`corpus_shard`, `get_job`, `list_collections`, `get_collection` + 3
-composition-grounding tools from `entrypoints/mcp/compose.py` + 4 Prism visual
-tools… see §3) always registered, plus **17 opt-in write tools**
+**Status: live in production and verified end-to-end.** The server ships **21
+read tools** (13 corpus readers incl. `read_document_sentences`, `corpus_manifest`,
+`corpus_shard`, `get_job`, `list_collections`, `get_collection` + 2 structure
+tools from `entrypoints/mcp/structure.py` (`read_document_outline`,
+`entity_profiles`) + 3 composition-grounding tools from
+`entrypoints/mcp/compose.py` + 4 Prism visual tools… see §3) always registered, plus **17 opt-in write tools**
 (reprocessing + curation + full collection lifecycle) registered only when
 `DOCRAY_MCP_ENABLE_WRITE=true` — the default surface stays read-only. It also
 declares MCP's **resources** primitive: 3 listable `docray://` entry points +
@@ -91,6 +92,7 @@ every other read rule.
 | `src/doc_ray/entrypoints/mcp/tokens.py` | starlette + `mcp` | Per-call bearer-token resolution: live request wins, `caller_token` contextvar is the stdio fallback |
 | `src/doc_ray/entrypoints/mcp/corpus.py` | httpx only | GraphQL-passthrough client + read-tool functions (SDK-independent) |
 | `src/doc_ray/entrypoints/mcp/auth.py` | starlette only | Bearer/JWT validation + `BearerAuthMiddleware` (reuses `tokens`) |
+| `src/doc_ray/entrypoints/mcp/structure.py` | httpx only | Structure read tools: `read_document_outline` + `entity_profiles` (split from `corpus.py` for D-015) |
 | `src/doc_ray/entrypoints/mcp/mutations.py` | httpx only | Write tools (reprocessing + curation mutations); registered only when writes are enabled |
 | `src/doc_ray/entrypoints/mcp/resources.py` | httpx only | `docray://` resources + RFC 6570 templates over the read tools (addressing layer) |
 | `src/doc_ray/entrypoints/mcp/server.py` | `mcp` (new dep) | Thin FastMCP glue: register tools, mount middleware, expose ASGI `app` |
@@ -224,6 +226,109 @@ fails the build if any registered tool has a description under 80 characters, or
 if a tool taking a `document_id` does not validate it locally (`_require_uuid`)
 before spending a round-trip. Adding a tool means writing a description that
 teaches its use — the gate is mechanical, not a review convention.
+
+### 3.2 `read_document_outline` — the map that aims the ranged reader (BL-146)
+
+Random access is only as good as the agent's ability to guess an ordinal. The
+outline supplies them: a short list of regions whose `ordinalStart`/`ordinalEnd`
+go straight back into `read_document_sentences`, and whose `pageStart` feeds the
+`page` reader.
+
+```jsonc
+{"name": "read_document_outline", "arguments": {"document_id": "1b7dcdd2-…", "max_entries": 8}}
+// → {"source": "headings", "totalSentences": 10063, "entryCount": 8,
+//    "note": "Structure from 8 detected headings. … 62 deeper heading(s) omitted …",
+//    "entries": [
+//      {"level": 1, "title": "Princess of Dune", "ordinalStart": 0,    "ordinalEnd": 945,   "pageStart": 7},
+//      {"level": 2, "title": "8",                "ordinalStart": 946,  "ordinalEnd": 2206,  "pageStart": 50},
+//      … {"level": 2, "title": "58", "ordinalStart": 8496, "ordinalEnd": 10062, "pageStart": 366}]}
+
+// "read the ending" is now the last entry's range, not a guess:
+{"name": "read_document_sentences",
+ "arguments": {"document_id": "1b7dcdd2-…", "from_ordinal": 8496, "to_ordinal": 10062,
+               "response_format": "concise"}}
+```
+
+**`source` is the honest field, and it must be read before the titles are.**
+
+| `source` | Meaning | Safe to do |
+|---|---|---|
+| `headings` | Structure detected in the document | Aim reads; cite titles as headings |
+| `uniform` | An even split of the sentences | Aim reads. **Do not** quote the titles as chapter names — they are the sentence each block opens on |
+| `empty` | Nothing to map (unknown, unreadable, or no sentences yet) | Nothing |
+
+Why the fallback exists: heading detection is heuristic — markup for
+EPUB/DOCX/MD, relative font size for PDFs ([`pdf_layout.py`](../src/doc_ray/domain/pdf_layout.py)) —
+and it is uneven in exactly the wrong direction. Measured on the live corpus it
+finds 723 headings in a technical book, 70 in *Princess of Dune*, 17 in *Dune*,
+and **none at all** in *Dune Messiah*. A tool that answered `[]` for a novel
+would fail precisely the documents this exists for, so a heading-less document
+gets an even grid that says so rather than an empty map that looks like an
+answer.
+
+When a document has more headings than `max_entries`, the deepest levels are
+dropped rather than the tail of the document — mapping the preface and calling it
+the book is worse than mapping coarsely. One refinement earned in production:
+*Princess of Dune* carries a single level-1 heading (its title) and 69 level-2
+chapters, so "keep level 1" produced one entry spanning all 10,063 sentences — an
+outline that maps nothing. A level that fits but cannot fill the budget is now
+passed over in favour of an even sample of the next level down. Whatever is
+dropped is stated in `note`; the map is never silently truncated.
+
+### 3.3 `entity_profiles` — reconciled identities, disagreement included (BL-146)
+
+`entity_frequency` returns raw NER: one row per (surface, type). That splits a
+single real-world entity across rows and leaves the agent to merge them by hand —
+the reviewer who noticed "Duncan Idaho became a person and a state" was doing the
+tool's job for it. `entity_profiles` returns one row per entity:
+
+```jsonc
+{"name": "entity_profiles", "arguments": {"limit": 50}}
+// → [{"surface": "Arrakis", "mentions": 1421, "dominantType": "LOC",
+//     "typeSpread": [{"entityType":"LOC","count":514}, {"entityType":"GPE","count":495},
+//                    {"entityType":"PERSON","count":209}, {"entityType":"NORP","count":179},
+//                    {"entityType":"ORG","count":24}],
+//     "typeConsistency": 0.36, "surfaceForms": ["Arrakis"],
+//     "canonicalId": null, "canonicalName": null, "resolved": false}, …]
+```
+
+**`typeConsistency` is arithmetic, not a model score** — the dominant type's share
+of the entity's mentions. 1.0 means the annotator never contradicted itself; 0.36
+means it contradicted itself constantly and the type is not to be relied on.
+Corpus-wide, 47 of the top 200 entities score below 0.9. That is not noise to be
+hidden; it is the measurement, and surfacing it is [PALS's Law](../CLAUDE.md)
+applied at the read surface — NER output presented as the untrusted, reconciled
+thing it is.
+
+**`resolved`** says whether the entity is backed by the canonical registry
+(`form_index` → `canonical`). `false` means the row is reconciled NER and nothing
+more. Be aware of the substrate: this corpus currently holds 3 canonical rows
+against 67k mentions, so almost everything is `resolved: false` until the
+canonicalization pipeline is run over it. The field exists so that fact is
+visible rather than implied.
+
+Only normalization-equivalent spellings fold together, via the same
+[`form_norm`](../src/doc_ray/domain/canonical_norm.py) key `form_index` uses.
+`Duncan` and `Duncan Idaho` stay separate rows: relating them is coreference, and
+guessing it would be fabrication.
+
+### 3.4 `response_format` — the token lever on the bulk readers (BL-146)
+
+`read_document_sentences` and `search_sentences` accept
+`response_format: "detailed" | "concise"`. `detailed` is the default and the
+historical shape, so nothing that exists today changes behaviour.
+
+`concise` drops the row id and the per-row cursor — only the last cursor of a page
+is ever used to continue, so the last row keeps one — and, for a
+document-scoped search, the redundant title and `documentId`. **Measured: 47,314 →
+29,876 characters on a realistic 200-sentence page, a 37% reduction.** (That is
+our number on our payloads; Anthropic report ~⅔ on different tooling, which does
+not transfer.) The saving is taken on the wire too — the tool asks GraphQL for a
+smaller selection set, it does not fetch and discard.
+
+What `concise` never drops is attribution: `ordinal`, `charStart`, and `charEnd`
+survive in every mode, because a cheaper answer that cannot be cited is not a
+cheaper answer.
 
 ### Write tools (opt-in — `DOCRAY_MCP_ENABLE_WRITE=true`)
 

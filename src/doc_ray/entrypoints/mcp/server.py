@@ -22,7 +22,7 @@ from mcp.server.transport_security import TransportSecuritySettings
 from starlette.applications import Starlette
 
 from doc_ray.config import Config
-from doc_ray.entrypoints.mcp import audit, compose, corpus, mutations, resources
+from doc_ray.entrypoints.mcp import audit, compose, corpus, mutations, resources, structure
 from doc_ray.entrypoints.mcp.auth import BearerAuthMiddleware
 
 #: Loopback patterns the SDK trusts by default — kept so local dev still works.
@@ -70,14 +70,26 @@ SERVER_INSTRUCTIONS = (
     "(ordinal + character offsets) back to an exact sentence.\n\n"
     "To cover a document completely and cheaply, prefer this path:\n"
     "1. list_documents to find the document id.\n"
-    "2. read_document_sentences with from_ordinal/to_ordinal for random access to "
+    "2. read_document_outline to get its addressable ranges — each entry's "
+    "ordinalStart/ordinalEnd goes straight into the reader, so you never guess an "
+    "ordinal. Check its `source`: 'headings' is real structure, 'uniform' is an "
+    "even grid (equally good for aiming a read, but its titles are NOT chapter "
+    "names — do not quote them as such).\n"
+    "3. read_document_sentences with from_ordinal/to_ordinal for random access to "
     "any section verbatim — it also pages sequentially (start after=None, follow "
-    "the returned cursor, stop on []) for exhaustive 100% coverage.\n"
-    "3. search_sentences with RARE, scene-specific terms to locate particular "
+    "the returned cursor, stop on []) for exhaustive 100% coverage. Pass "
+    "response_format='concise' when reading in bulk: same text and citation "
+    "offsets, roughly a third fewer characters.\n"
+    "4. search_sentences with RARE, scene-specific terms to locate particular "
     "beats. Common, high-frequency words flood one region of the text and starve "
     "coverage of the rest; its `coverage` field and `note` tell you when that has "
     "happened, so a sparse-looking result is a query problem, not missing content.\n\n"
-    "Reach for the ranged reader early rather than grinding keyword searches. "
+    "For who and what a document is about, prefer entity_profiles over "
+    "entity_frequency: raw NER splits one entity across types and spellings, and "
+    "profiles merge them and report the disagreement as typeConsistency — a low "
+    "value means the type is contested, not that the entity is unimportant.\n\n"
+    "Reach for the outline and the ranged reader early rather than grinding "
+    "keyword searches. "
     "Cursors are per-tool and NOT interchangeable — a search_sentences cursor is "
     "not valid for read_document_sentences (use ordinals there). Entity results "
     "are canonicalized with a confidence; treat low-confidence rows as untrusted."
@@ -101,7 +113,12 @@ def build_server(enable_write: bool = False) -> FastMCP:
     if (security := _transport_security()) is not None:
         # Accept the public Host behind the tunnel — the localhost-only default 421s.
         mcp.settings.transport_security = security
-    tools = (*corpus.TOOLS, *compose.TOOLS, *(mutations.TOOLS if enable_write else ()))
+    tools = (
+        *corpus.TOOLS,
+        *structure.TOOLS,
+        *compose.TOOLS,
+        *(mutations.TOOLS if enable_write else ()),
+    )
     for tool in tools:
         mcp.tool()(audit.audited(tool))
     # `docray://` resources/templates — the addressing layer over the read tools.

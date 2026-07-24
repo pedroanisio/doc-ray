@@ -20,7 +20,7 @@ from doc_ray.entrypoints.api.schema import build_schema as build_strawberry_sche
 # Import the server eagerly so the `mcp` SDK is loaded before any test patches
 # httpx.AsyncClient — tokens._current_request() lazily imports it on first tool
 # call, and the SDK evaluates `httpx.AsyncClient | None` at import time.
-from doc_ray.entrypoints.mcp import corpus, mutations, server  # noqa: F401
+from doc_ray.entrypoints.mcp import corpus, mutations, server, structure  # noqa: F401
 
 _GRAPHQL_SCHEMA = build_schema(build_strawberry_schema(debug=True).as_str())
 _DOC = "11111111-1111-1111-1111-111111111111"
@@ -71,6 +71,11 @@ _READ_CALLS = [
     lambda: corpus.get_document(_DOC),
     lambda: corpus.read_document_sentences(_DOC),
     lambda: corpus.read_document_sentences(_DOC, from_ordinal=10, to_ordinal=20, page=3),
+    lambda: corpus.read_document_sentences(_DOC, response_format="concise"),
+    lambda: corpus.search_sentences("x", response_format="concise"),
+    lambda: structure.read_document_outline(_DOC),
+    lambda: structure.entity_profiles(),
+    lambda: structure.entity_profiles(document_id=_DOC, entity_type="PERSON"),
     lambda: corpus.get_job("job-1"),
     lambda: corpus.list_collections(),
     lambda: corpus.get_collection(_DOC),
@@ -79,6 +84,10 @@ _READ_CALLS = [
     lambda: corpus.entity_frequency(),
     lambda: corpus.lexeme_kwic("lex-1"),
     lambda: corpus.entity_mention_corrections(_DOC),
+    lambda: corpus.document_images(_DOC),
+    lambda: corpus.image_class_summary(_DOC),
+    lambda: corpus.visual_captions(_DOC),
+    lambda: corpus.cross_modal_image_search("dune"),
 ]
 
 _WRITE_CALLS = [

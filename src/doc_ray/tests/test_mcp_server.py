@@ -24,6 +24,9 @@ _READ_TOOL_NAMES = {
     "corpus_shard",
     "entity_frequency",
     "lexeme_kwic",
+    # structure tools (BL-146): the map, and reconciled entities
+    "read_document_outline",
+    "entity_profiles",
     # Prism visual tools
     "document_images",
     "image_class_summary",

@@ -512,6 +512,7 @@ against.
 | BL-143 | Corpus page is a single dense table (~156px rows, ~5 docs/screen); add view modes (table/compact/gallery/grouped) + sort + density + group_by over the same rows | webapp | feature | done | M | medium | shared |
 | BL-144 | MCP tests order-dependent: tests patch httpx.AsyncClient, so a lazy mcp streamable_http import inside a patched test dies on `X or None` annotation eval | testing | bug | done | S | high | shared |
 | BL-145 | MCP layer is not self-teaching: no server instructions, no search coverage signal, opaque cursor rejections, thin tool descriptions | api | feature | done | M | high | shared |
+| BL-146 | MCP reach and honesty gaps: no document map, raw NER type-splits, no token lever on the bulk readers | api | feature | done | L | high | shared |
 
 See [`backlog.yml`](backlog.yml) for each item's full description, rationale,
 acceptance criteria, dependencies, related decisions (`D-###`), and references.

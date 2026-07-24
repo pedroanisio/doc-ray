@@ -133,6 +133,26 @@ toward … more token-efficient strategies.")
 
 ## P1 — Close the reach and honesty gaps
 
+> **SHIPPED in 1.39.0 (BL-146).** All three items are implemented, tested against
+> the live corpus, and documented — see
+> [`docs/mcp-service.md` §3.2–§3.4](../mcp-service.md). Deltas from the proposal
+> as written, all forced by what the substrate actually contains:
+> - **Item 4.** Measured **37%** payload reduction on our readers (47,314 →
+>   29,876 chars on a 200-sentence page), not the ~⅔ quoted from Anthropic's
+>   Slack tooling. `detailed` remains the default, so nothing breaks.
+> - **Item 5.** The proposal assumed headings would be there. They frequently are
+>   not: PDF detection finds 723 in a technical book, 70 in *Princess of Dune*,
+>   and **0** in *Dune Messiah*. The tool therefore ships a labelled `uniform`
+>   fallback and a `source` field, so a navigation grid is never mistaken for a
+>   table of contents.
+> - **Item 6.** The proposal said doc-ray "canonicalizes entities to shared
+>   identities". It *can*, but this corpus holds **3 canonical rows against 67k
+>   mentions** — grouping by canonical identity would have returned almost
+>   nothing. Profiles therefore group by the `form_norm` key `form_index` uses,
+>   report the measured type spread, and carry `resolved` to say plainly when no
+>   registry row backs them. The proposal's invented `confidence: 0.86` became
+>   `typeConsistency`, which is arithmetic anyone can check.
+
 ### 4. `response_format: "concise" | "detailed"` on the readers
 Add the enum to `read_document_sentences` and `search_sentences`. `concise`
 returns only text + its citation handle (ordinal, `charStart`/`charEnd`);
@@ -225,16 +245,16 @@ and return shapes above against it — that is how the SWE-bench gains were foun
 | 1 · server `instructions` | A,C,F | XS | **shipped 1.39.0** | One string; teaches every agent the model + tool order. |
 | 2 · coverage signal | A | S | **shipped 1.39.0** | Removes the single worst failure — false "missing content". |
 | 3 · cursor-error steer | D | XS | **shipped 1.39.0** | Reuses the existing typed-error path. |
-| 4 · `response_format` concise | C | S | next | ~⅔ fewer tokens on the readers. |
-| 5 · `read_document_outline` | C,F | M | next | Makes ranged reads aim-able. |
-| 6 · canonical + confidence entities | B | M | open | Ships reconciliation the agent did by hand. |
+| 4 · `response_format` concise | C | S | **shipped 1.39.0** | 37% smaller payloads (measured). |
+| 5 · `read_document_outline` | C,F | M | **shipped 1.39.0** | Makes ranged reads aim-able. |
+| 6 · canonical + confidence entities | B | M | **shipped 1.39.0** | Ships reconciliation the agent did by hand. |
 | 7 · resources layer | E | M | open | The URI-addressed reads the reviewer wanted. |
 | 8 · prompts | F | S | open | Turns the methodology into a reusable menu item. |
 | 9 · namespacing | — | S | open | Legibility; a rename + description pass. |
 | 10 · term-frequency pre-flight | A | S | open | Prevents flooding instead of diagnosing it. |
 | 11 · eval harness | all | M | open | Closes the loop; how you tune 1–6. |
 
-**Recommended first cut: items 1, 2, 3, 4.** *(1–3 shipped in 1.39.0 as BL-145; item 4 is the remaining piece of this cut.)* They are
+**Recommended first cut: items 1, 2, 3, 4.** *(All shipped in 1.39.0 — items 1–3 as BL-145, items 4–6 as BL-146. Remaining: items 7–11, the P2 block.)* They are
 mostly descriptions, return-shape tweaks, and one error branch — no new
 subsystems — and they resolve the reviewer's two sharpest complaints (the false
 "missing content" and the cursor dead-end) plus the token ceiling. Items 5–8 are
