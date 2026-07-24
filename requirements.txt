@@ -56,3 +56,11 @@ en_core_web_trf @ https://github.com/explosion/spacy-models/releases/download/en
 # French-dominant documents annotate instead of raising UnsupportedAnnotationLanguage.
 fr_core_news_sm @ https://github.com/explosion/spacy-models/releases/download/fr_core_news_sm-3.8.0/fr_core_news_sm-3.8.0-py3-none-any.whl
 pt_core_news_sm @ https://github.com/explosion/spacy-models/releases/download/pt_core_news_sm-3.8.0/pt_core_news_sm-3.8.0-py3-none-any.whl
+
+# Prism Tier-2 cross-modal encoder (adapters/vision_encoder_openclip) — the
+# CLIP/SigLIP dual tower that embeds images and sentences into one space. The
+# `visual_embed` job handler imports it lazily, so a missing package surfaced
+# only as a failing job at runtime; declaring it makes the worker image able to
+# run the kind it already dispatches. torch is already pulled in above by
+# spacy[transformers]; this adds torchvision/timm on top.
+open_clip_torch==3.*

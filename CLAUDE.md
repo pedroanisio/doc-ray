@@ -20,6 +20,14 @@ Hard rule: separate **production instructions** from **audience-facing content**
 
 ---
 
+check ENVIRONMENT.md
+
+**MANDATORY**
+
+The host machine’s `/tmp` directory is strictly off-limits. No code, generated files, build artifacts, caches, or temporary data may be written there.
+
+All ephemeral files must be stored within the relevant codebase, inside a dedicated directory excluded through `.gitignore`.
+
 
 ## Disclaimer Reference (Required in all READMEs)
 
@@ -325,6 +333,7 @@ mypy src                                                                 # D-012
 python scripts/check_file_size.py src/doc_ray webapp scripts             # D-015
 python scripts/check_version_consistency.py                              # version lockstep
 python scripts/check_read_path_aggregates.py                             # D-024 read-path aggregates
+python scripts/gen_env_samples.py --check                                # env registry ↔ samples in sync
 pytest tests src/doc_ray/tests                                           # D-013
 ```
 

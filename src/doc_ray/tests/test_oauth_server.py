@@ -219,7 +219,10 @@ def _authorized_with(principal_scopes, requested="read write"):
         }
     )
     code = svc.issue_code(
-        req, principal_id="prin-1", subject="local:ada@example.com", principal_scopes=principal_scopes
+        req,
+        principal_id="prin-1",
+        subject="local:ada@example.com",
+        principal_scopes=principal_scopes,
     )
     grant = svc.exchange_authorization_code(
         {

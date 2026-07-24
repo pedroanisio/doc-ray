@@ -4,18 +4,25 @@ from __future__ import annotations
 
 import pytest
 
-from doc_ray.adapters.annotation_capabilities import AnnotationLanguageResolution
+from doc_ray.adapters.annotation_capabilities import (
+    CAPABILITY_MODELS,
+    AnnotationLanguageResolution,
+)
 from doc_ray.adapters.annotation_validation import (
     AnnotationValidationError,
     validate_spacy_annotation_output,
 )
 
 
-def _language_resolution() -> AnnotationLanguageResolution:
+def _language_resolution(model: str | None = None) -> AnnotationLanguageResolution:
+    # Read the model from the capability registry rather than hard-coding it: the
+    # English default moved sm -> trf and a literal here turned a routine model
+    # swap into a red suite, while the mismatch branch it was meant to exercise
+    # stayed uncovered (see the dedicated rejection test below).
     return AnnotationLanguageResolution(
         requested_language="en",
         annotation_language="en",
-        model="en_core_web_sm",
+        model=model or CAPABILITY_MODELS["en"],
         fallback_policy="fail",
         fallback_used=False,
     )
@@ -45,6 +52,15 @@ def test_validate_spacy_annotation_output_accepts_consistent_rows():
     result = validate_spacy_annotation_output(**_valid_payload())
 
     assert result == {"validation_status": "passed", "validation_errors": 0}
+
+
+def test_validate_spacy_annotation_output_rejects_model_outside_the_registry():
+    """A run whose model is not the registry's model for the language is not a corpus fact."""
+    payload = _valid_payload()
+    payload["language_resolution"] = _language_resolution(model="en_core_web_sm")
+
+    with pytest.raises(AnnotationValidationError, match="annotation model mismatch"):
+        validate_spacy_annotation_output(**payload)
 
 
 def test_validate_spacy_annotation_output_rejects_out_of_bounds_spans():

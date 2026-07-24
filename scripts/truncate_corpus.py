@@ -79,6 +79,14 @@ WIPED_TABLES = (
     "chunk",
     "lexeme_occurrences",
     "lexemes",
+    # D-024 read-model rollups (migrations 095/098/100): precomputed aggregates
+    # over the corpus tables above. They are derived data, not facts of their
+    # own, so they are wiped with what they summarise — leaving them behind
+    # would have the reader and the corpus band reporting a corpus that is gone.
+    "document_stats",
+    "corpus_stats",
+    "lexeme_stats",
+    "entity_frequency_stats",
     "seed_suggestion",
     "resolution_review",
     # Prism visual layer — derived per-document corpus data, wiped with the corpus.
@@ -118,6 +126,19 @@ PRESERVED_TABLES = (
     # Durable webapp sessions (migration 112): same rationale as refresh tokens —
     # a corpus wipe must not sign every logged-in user out.
     "web_auth_sessions",
+    # Account settings and pending address changes (migration 079) belong to the
+    # principal, not the corpus.
+    "principal_preferences",
+    "email_change_requests",
+    # OAuth registrations and in-flight authorization codes (migration 082) are
+    # connector infrastructure; wiping them would break every registered client.
+    "oauth_clients",
+    "oauth_authorization_codes",
+    # Billing state (migration 080) mirrors the payment provider. A corpus wipe
+    # must never desynchronise a live subscription or replay a processed webhook.
+    "tenant_billing_accounts",
+    "tenant_subscriptions",
+    "stripe_webhook_events",
     "audit_events",
     "canonical",
     "canonical_merge",

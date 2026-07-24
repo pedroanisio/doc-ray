@@ -24,6 +24,15 @@ services:
       - "127.0.0.1:${OLLAMA_PORT:-11434}:11434"
     volumes:
       - ollama-models:/root/.ollama
+    environment:
+      # Ollama >=0.28 sizes the KV cache from the model's *declared* context
+      # unless told otherwise. qwen3-vl declares 262144 tokens, which asks for a
+      # ~92 GB allocation: the server then splits the weights across CPU and GPU
+      # (measured 51%/49% on a 48 GB card) and captioning slows by an order of
+      # magnitude. Neither consumer needs a long window — the resolver sends one
+      # mention plus its sentence, and the VLM sends one image with a ~770-token
+      # budget — so cap it and keep every layer resident on the GPU.
+      OLLAMA_CONTEXT_LENGTH: ${OLLAMA_CONTEXT_LENGTH:-8192}
     healthcheck:
       test: ["CMD-SHELL", "ollama list >/dev/null 2>&1 || exit 1"]
       interval: 15s
