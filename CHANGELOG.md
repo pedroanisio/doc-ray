@@ -27,6 +27,33 @@ doc-ray carries **one global version** covering both the application package
 > *use*, not by verification (mirrors the Prism vision encoder).
 
 ### Added
+- **MCP prompts primitive — ship the corpus methodology as selectable workflows**
+  (Claude Opus 4.8 (1M context) via Claude Code; issue #13, MCP Item 8). The server
+  now declares MCP's third and final primitive — **prompts** (user-controlled, joining
+  the model-controlled tools and application-controlled `docray://` resources) — as
+  four argument-taking workflows a user picks from their client's menu, so the
+  retrieval methodology lives in the server instead of being re-derived per session.
+  No schema change; no version bump.
+  - **`summarize_document(document_id)`** is **eager** (the primitive's justification):
+    it fetches the document's real title, sentence count, and outline, then returns a
+    plan already naming the ordinal ranges to read with `response_format="concise"` and
+    the rule that every claim cites an `ordinal`. **Honesty propagates**: a `uniform`
+    outline is disclosed as a navigation grid whose titles are **not** chapter names,
+    never laundered into a table of contents.
+  - **`ground_a_claim(claim, document_id?)`** — the search-then-verify path, with the
+    non-negotiable rule that an ungrounded claim is reported *unsupported*, never
+    asserted. **`survey_entities(document_id?)`** — `entity_profiles` over
+    `entity_frequency`, how to read `typeConsistency`, corroborate the contested.
+    **`sweep_the_corpus(shard_count=8)`** — the map-reduce plan with the coverage proof
+    (Σ per-shard counts == `totalDocuments`).
+  - **Failure is graceful** (FR-4/FR-5): a malformed id is rejected (`bad_input`) before
+    any network call; an unreadable id returns a plain "not readable — use
+    `list_documents`" message with no fabricated plan; and if the outline can't be
+    fetched the plan degrades to a self-serve one and says so. Each prompt emits **one
+    audit line** per invocation (the same `audit.audited` wrapper as tools, verified to
+    compose with `FastMCP.prompt()`), returns a single user-role message, holds no DB
+    pool, and never embeds the caller's token in its text. Each message is well under
+    ~1.5 KB. New: `entrypoints/mcp/prompts.py`; documented in `docs/mcp-service.md` §3.7.
 - **Term-frequency pre-flight — prevent search flooding instead of diagnosing it**
   (Claude Opus 4.8 (1M context) via Claude Code; issue #16, MCP Item 10). A new
   read — GraphQL `termFrequency(terms:)` and MCP tool `term_frequency` — lets an

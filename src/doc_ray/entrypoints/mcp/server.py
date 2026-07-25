@@ -27,6 +27,7 @@ from doc_ray.entrypoints.mcp import (
     compose,
     corpus,
     mutations,
+    prompts,
     resources,
     semantic,
     structure,
@@ -141,6 +142,11 @@ def build_server(enable_write: bool = False) -> FastMCP:
         mcp.resource(spec.uri, mime_type=spec.mime_type, description=spec.description)(
             audit.audited(spec.fn)
         )
+    # Prompts — MCP's user-controlled primitive: the corpus methodology as
+    # selectable workflows (prompts.py). Audited like every other caller action,
+    # and read-only: they call the read tools, holding no pool of their own.
+    for prompt in prompts.PROMPTS:
+        mcp.prompt()(audit.audited(prompt))
     return mcp
 
 

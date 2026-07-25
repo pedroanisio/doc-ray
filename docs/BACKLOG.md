@@ -516,6 +516,7 @@ against.
 | BL-147 | entity_profiles was dead for every real caller: form_index never granted to docray_client | api | bug | done | XS | high | shared |
 | BL-148 | MCP evaluation harness: measure the tool surface instead of asserting it | testing | feature | done | M | medium | shared |
 | BL-149 | MCP term-frequency pre-flight: prevent search flooding instead of diagnosing it | api | feature | done | S | medium | shared |
+| BL-150 | MCP prompts primitive: ship the corpus methodology as selectable workflows | api | feature | done | S | medium | shared |
 
 See [`backlog.yml`](backlog.yml) for each item's full description, rationale,
 acceptance criteria, dependencies, related decisions (`D-###`), and references.

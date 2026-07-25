@@ -110,7 +110,7 @@ metadata:
   generated_by:     "Claude Sonnet 5 via Claude Code (merge of Claude Opus 4.8 backlog + OpenAI Codex improvement-proposal candidates)"
   generated_on:     "2026-07-05"
   system_of_record: "docs/backlog.yml"
-  total_items:      149
+  total_items:      150
 
 items:
 
@@ -5067,3 +5067,41 @@ items:
     owner:        "shared"
     source:       "GitHub issue #16 (MCP Item 10); implemented with strict TDD (Claude Opus 4.8 (1M context) via Claude Code)."
     tags:         ["mcp", "agent-experience", "read-model", "feature"]
+
+  - id:          "BL-150"
+    title:        "MCP prompts primitive: ship the corpus methodology as selectable workflows"
+    summary:      "MCP defines three primitives by who controls them — model-controlled tools, application-controlled resources, user-controlled prompts. doc-ray shipped tools and docray:// resources; prompts were the missing third. This declares them: four argument-taking workflows (summarize_document, ground_a_claim, survey_entities, sweep_the_corpus) a user selects from their client's menu, so the retrieval methodology lives in the server instead of being re-derived per session."
+    description: |
+      New module entrypoints/mcp/prompts.py + registration in build_server(),
+      wrapped in audit.audited like every other caller action (verified to compose
+      with FastMCP.prompt() via functools.wraps/__wrapped__). Each prompt returns a
+      single user-role message (Open decision 1a). summarize_document is EAGER (Open
+      decision 2): it calls get_document + read_document_outline to parameterize the
+      plan with the document's real title, sentence count, and ordinal ranges (FR-2),
+      and stays honest about a uniform outline (FR-3: titles are not chapter names).
+      Failure is graceful (FR-4/FR-5): a malformed id is rejected bad_input before any
+      network call; an unreadable id returns a plain not-readable message with no
+      fabricated plan; a failed outline fetch degrades to a self-serve plan that says
+      so. The three methodology prompts are argument-parameterized (claim / document
+      scope / shard_count). Read-only, no DB pool, no credential in the returned text,
+      each message under ~1.5 KB. No schema change, no version bump.
+    category:     "api"
+    type:         "feature"
+    status:       "done"
+    complexity:   "S"
+    priority:     "medium"
+    rationale:    "Item 1 moved part of the methodology into SERVER_INSTRUCTIONS, which the model sees once and which cannot take arguments. Prompts are the primitive that lets a USER invoke the methodology deliberately, parameterized by a specific document's real data — the same 'put the lesson in the server' thesis (items 1-6) applied to the one primitive that was missing. Recommended after #12 so the prompts' effect is measurable, not assumed."
+    acceptance_criteria:
+      - "build_server().list_prompts returns exactly the four prompts, each with a non-empty description (test_mcp_server.py::_PROMPT_NAMES is an exact set)."
+      - "summarize_document on a real seeded document returns a message containing that document's actual sentence count and outline-derived ordinal ranges; a uniform-source document includes the do-not-quote-titles-as-chapters instruction."
+      - "A malformed id raises typed bad_input before any network call; a well-formed but unreadable id returns a plain not-readable message and no fabricated plan."
+      - "Each prompt emits exactly one audit line per invocation; the audit wrapper preserves the FastMCP-derived argument schemas."
+      - "The test_mcp_p1 documentation guard covers prompts; docs/mcp-service.md documents all four with examples and the measured character size of each message."
+    dependencies: ["BL-145"]
+    references:
+      - "src/doc_ray/entrypoints/mcp/prompts.py"
+      - "src/doc_ray/entrypoints/mcp/server.py"
+      - "docs/mcp-service.md"
+    owner:        "shared"
+    source:       "GitHub issue #13 (MCP Item 8); implemented with strict TDD (Claude Opus 4.8 (1M context) via Claude Code)."
+    tags:         ["mcp", "agent-experience", "prompts", "feature"]

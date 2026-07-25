@@ -28,7 +28,9 @@ tools from `entrypoints/mcp/structure.py` (`read_document_outline`,
 (reprocessing + curation + full collection lifecycle) registered only when
 `DOCRAY_MCP_ENABLE_WRITE=true` — the default surface stays read-only. It also
 declares MCP's **resources** primitive: 3 listable `docray://` entry points +
-5 drill-down templates (§3) addressing the same RLS-scoped reads by URI. It is
+5 drill-down templates (§3) addressing the same RLS-scoped reads by URI, and its
+**prompts** primitive: 4 user-selectable workflows (§3.7) that ship the corpus
+methodology as parameterized plans. It is
 deployed via `make mcp-up`, routed at `https://doc-ray.com/mcp` behind the
 Cloudflare tunnel, and confirmed with a real MCP client (initialize → tools/list
 → RLS-scoped tools/call). The **OAuth 2.1 Authorization Server** (originally
@@ -427,6 +429,52 @@ now** (Open decision 1(a)): passing `documentId`/`document_id` returns a typed
 `unsupported` error rather than corpus numbers mislabelled as document-scoped — a
 `document_lexeme_stats` rollup is the follow-up if the evaluation harness shows
 document-scoped triage matters.
+
+### 3.7 Prompts (always registered) — MCP's user-controlled primitive (Item 8)
+
+MCP defines three primitives by *who controls them*: **tools** are model-controlled,
+**resources** are application-controlled, and **prompts** are **user-controlled** —
+a person picks one from their client's menu. doc-ray ships the corpus methodology —
+the outline-then-ranged-read path, search-then-verify, profiles-over-frequency — as
+four selectable, argument-taking workflows, so the lesson lives in the server rather
+than being re-derived per session (the BL-145 thesis, applied to the primitive a
+*user* invokes deliberately). Each returns a single user-role message; each
+invocation emits one audit line, like every other caller action. They are read-only
+and hold no pool — they call the read tools, inheriting token forwarding and RLS.
+
+| Prompt | Arguments | What the plan carries | Size¹ |
+|---|---|---|---|
+| `summarize_document` | `document_id` (required) | **Eager**: fetches the real title, sentence count, and outline, then names the exact ordinal ranges to read with `response_format="concise"`, the rule that every claim cites an `ordinal`, and — honestly — whether the outline is `headings` or a `uniform` grid whose titles are **not** chapter names | ~0.9 KB² |
+| `ground_a_claim` | `claim` (required), `document_id` (optional) | The search-then-verify path: rare-term `search_sentences`, read the surrounding ordinal range, quote verbatim with offsets; the non-negotiable rule that an ungrounded claim is reported **unsupported**, never asserted | ~0.77 KB |
+| `survey_entities` | `document_id` (optional) | Use `entity_profiles` not `entity_frequency`; how to read `typeConsistency` (a measured share, not a model score); corroborate a contested entity before asserting its type; `resolved:false` means no registry backing | ~0.95 KB |
+| `sweep_the_corpus` | `shard_count` (optional, default 8) | The map-reduce plan over `corpus_manifest` / `corpus_shard`, including the coverage proof: Σ per-shard document counts **must** equal `totalDocuments`, or a shard was dropped | ~0.76 KB |
+
+¹ Measured length of the returned message with representative inputs. A prompt
+message is context the model pays for on every turn it is used, so each is kept well
+under ~1.5 KB of prose. ² `summarize_document` grows ~40 chars per outline entry, so
+a document with a very deep outline is larger; the ranges are the payload.
+
+**Fetch a prompt** (MCP `prompts/get`) — the client sends the name + arguments:
+
+```jsonc
+{"name": "summarize_document", "arguments": {"document_id": "1b7dcdd2-…"}}
+// → one user message, e.g.:
+//   Summarize "Dune" (4200 sentences). Work from retrieval, not memory: every claim …
+//   Coverage plan — read these ranges in order with read_document_sentences(…, response_format="concise"):
+//     - Book One: Dune: ordinals 0–1399
+//     - Book Two: Muad'Dib: ordinals 1400–2799
+//     …
+//   This is a `headings` outline built from detected structure …
+```
+
+**Honesty propagates.** On a heading-less document `summarize_document` returns a
+`uniform`-labelled plan that explicitly instructs the model not to quote the grid
+titles as chapter names — the same guarantee `read_document_outline` makes. **Failure
+is graceful**: a malformed `document_id` is rejected (`bad_input`) before any network
+call; a well-formed but unreadable id returns a plain "not readable — use
+`list_documents`" message with no fabricated plan; and if the outline can't be
+fetched, the plan degrades to one that tells the model to call `read_document_outline`
+itself and says it degraded — it never invents ranges.
 
 ### Write tools (opt-in — `DOCRAY_MCP_ENABLE_WRITE=true`)
 

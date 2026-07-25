@@ -46,6 +46,15 @@ _READ_TOOL_NAMES = {
     "document_evidence",
 }
 
+#: MCP's user-controlled primitive (Item 8): the corpus methodology as workflows.
+#: Exact set — adding a prompt without registering it here fails the build.
+_PROMPT_NAMES = {
+    "summarize_document",
+    "ground_a_claim",
+    "survey_entities",
+    "sweep_the_corpus",
+}
+
 _WRITE_TOOL_NAMES = {
     "reannotate",
     "reextract_document",
@@ -85,6 +94,31 @@ def test_build_server_adds_write_tools_when_enabled():
     mcp = server.build_server(enable_write=True)
     names = {tool.name for tool in anyio.run(mcp.list_tools)}
     assert names == _READ_TOOL_NAMES | _WRITE_TOOL_NAMES
+
+
+def test_build_server_registers_exactly_the_four_prompts_each_described():
+    """MCP's user-controlled primitive: the four workflows, each with a description."""
+    mcp = server.build_server()
+    prompts = anyio.run(mcp.list_prompts)
+    assert {p.name for p in prompts} == _PROMPT_NAMES
+    assert all((p.description or "").strip() for p in prompts)
+
+
+def test_prompts_are_registered_regardless_of_the_write_flag():
+    """Prompts are read-only workflows: present with or without write tools enabled."""
+    for enable in (False, True):
+        mcp = server.build_server(enable_write=enable)
+        assert {p.name for p in anyio.run(mcp.list_prompts)} == _PROMPT_NAMES
+
+
+def test_the_audit_wrapper_preserves_prompt_argument_schemas():
+    # The audit wrapper must not disturb FastMCP's signature-derived prompt
+    # arguments (it wraps prompts too), so the client still sees them.
+    prompts = {p.name: p for p in anyio.run(server.build_server().list_prompts)}
+    summarize_args = {a.name for a in (prompts["summarize_document"].arguments or [])}
+    assert "document_id" in summarize_args
+    sweep_args = {a.name for a in (prompts["sweep_the_corpus"].arguments or [])}
+    assert "shard_count" in sweep_args
 
 
 def test_create_app_threads_config_flag_into_registration(monkeypatch):
