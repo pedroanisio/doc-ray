@@ -101,6 +101,20 @@ python scripts/prism_live_stats.py --once
 Record both outputs. Tier-2 embedding and Tier-3 caption work require their
 configured model workers; do not infer coverage from queued jobs alone.
 
+For text-to-image search, enqueue missing Tier-2 vectors after confirming the
+vision worker can access its configured device:
+
+```bash
+python scripts/enqueue_visual_backfill.py --tier embed
+```
+
+The worker sends at most `DOCRAY_VISION_BATCH_SIZE` images or sentence texts to
+the dual encoder per call (default `16`) while retaining one atomic
+delete-then-COPY write per Document. On a memory-constrained GPU, lower the
+positive integer and restart the worker before retrying failed `visual_embed`
+jobs. Continue only when the jobs are terminal and `image_embedding` is non-zero;
+an enqueued or running job is not coverage evidence.
+
 ## Roll back
 
 Stop or drain workers before restoring. Restore the backup recorded in step 1

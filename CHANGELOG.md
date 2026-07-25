@@ -40,6 +40,11 @@ doc-ray carries **one global version** covering both the application package
 - Learned sentence embedding is routed to the long-running worker lane and the
   corpus backfill path reports evidence-ready coverage without reintroducing the
   discarded hash-BoW model.
+- Tier-2 visual embedding now streams each Document through bounded,
+  order-preserving image and text batches (default `16`, configurable with
+  `DOCRAY_VISION_BATCH_SIZE`) instead of allocating an entire large Document on
+  the GPU at once. Invalid or non-positive configuration fails before bytes are
+  loaded.
 - Model-generated Tier-3 captions remain untrusted until an attributable human
   approves them; all review reads remain RLS-scoped and all decisions are audited.
 

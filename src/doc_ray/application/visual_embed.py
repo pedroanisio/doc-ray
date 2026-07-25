@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import hashlib
 import math
+import os
 from collections.abc import Sequence
 from typing import Any, cast
 
@@ -28,6 +29,19 @@ from doc_ray.ports.vision_encoder import VisionEncoder
 
 _IMAGE_COLUMNS = ("document_image_id", "document_id", "model", "vector", "preprocessing_sha256")
 _SENTENCE_COLUMNS = ("sentence_id", "document_id", "model", "vector")
+_DEFAULT_BATCH_SIZE = 16
+
+
+def _vision_batch_size() -> int:
+    """Return the bounded encoder batch size configured for the worker."""
+    raw = os.environ.get("DOCRAY_VISION_BATCH_SIZE", str(_DEFAULT_BATCH_SIZE))
+    try:
+        batch_size = int(raw)
+    except ValueError as exc:
+        raise ValueError("DOCRAY_VISION_BATCH_SIZE must be a positive integer") from exc
+    if batch_size < 1:
+        raise ValueError("DOCRAY_VISION_BATCH_SIZE must be a positive integer")
+    return batch_size
 
 
 def to_vector_literal(vec: Sequence[float]) -> str:
@@ -61,26 +75,32 @@ def embed_document_visuals(
 ) -> dict[str, Any]:
     """Embed a document's images + sentences into the shared space. Idempotent per model."""
     model = encoder.model_id
+    batch_size = _vision_batch_size()
     report_progress(0, 3, "Loading image crops")
     image_cur = conn.execute(
         "SELECT id, object_key FROM document_image WHERE document_id = %s ORDER BY id",
         (document_id,),
     )
     image_meta = [(str(r["id"]), str(r["object_key"])) for r in image_cur.fetchall()]
-    crop_bytes = [store.get(key) for _, key in image_meta]
 
-    report_progress(1, 3, f"Embedding {len(crop_bytes)} images")
-    image_vectors = encoder.embed_images(crop_bytes) if crop_bytes else []
-    image_rows = [
-        (
-            image_id,
-            document_id,
-            model,
-            to_vector_literal(vec),
-            hashlib.sha256(crop).hexdigest(),
+    report_progress(1, 3, f"Embedding {len(image_meta)} images")
+    image_rows: list[tuple[Any, ...]] = []
+    for offset in range(0, len(image_meta), batch_size):
+        metadata_batch = image_meta[offset : offset + batch_size]
+        crops_batch = [store.get(key) for _, key in metadata_batch]
+        vectors_batch = encoder.embed_images(crops_batch)
+        image_rows.extend(
+            (
+                image_id,
+                document_id,
+                model,
+                to_vector_literal(vector),
+                hashlib.sha256(crop).hexdigest(),
+            )
+            for (image_id, _), crop, vector in zip(
+                metadata_batch, crops_batch, vectors_batch, strict=True
+            )
         )
-        for (image_id, _), crop, vec in zip(image_meta, crop_bytes, image_vectors, strict=True)
-    ]
 
     report_progress(2, 3, "Embedding sentences (text tower)")
     sentence_cur = conn.execute(
@@ -88,13 +108,14 @@ def embed_document_visuals(
         (document_id,),
     )
     sentence_meta = [(str(r["id"]), str(r["text"])) for r in sentence_cur.fetchall()]
-    sentence_vectors = (
-        encoder.embed_texts([text for _, text in sentence_meta]) if sentence_meta else []
-    )
-    sentence_rows = [
-        (sentence_id, document_id, model, to_vector_literal(vec))
-        for (sentence_id, _), vec in zip(sentence_meta, sentence_vectors, strict=True)
-    ]
+    sentence_rows: list[tuple[Any, ...]] = []
+    for offset in range(0, len(sentence_meta), batch_size):
+        metadata_batch = sentence_meta[offset : offset + batch_size]
+        vectors_batch = encoder.embed_texts([text for _, text in metadata_batch])
+        sentence_rows.extend(
+            (sentence_id, document_id, model, to_vector_literal(vector))
+            for (sentence_id, _), vector in zip(metadata_batch, vectors_batch, strict=True)
+        )
 
     with conn.transaction():
         conn.execute(

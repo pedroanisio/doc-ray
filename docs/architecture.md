@@ -486,6 +486,10 @@ explicit approval commits a caption into the trusted read.
 Image bytes never pass through a filesystem shortcut. The web gallery streams
 them from the API's authenticated asset route, while classes, captions, and
 cross-modal ranks come from the same RLS-visible Document/image ids.
+Tier-2 orchestration bounds both image- and text-tower calls with
+`DOCRAY_VISION_BATCH_SIZE` (default `16`), so Document cardinality cannot become
+one unbounded GPU allocation; the final per-Document replacement remains one
+atomic delete-then-COPY transaction.
 
 ### Cited briefing composition
 
