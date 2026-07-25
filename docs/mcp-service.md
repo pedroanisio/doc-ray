@@ -647,6 +647,16 @@ unaffected.
       Postgres directly); if added later, use `scripts/test-in-docker.sh`.
 - **End-to-end (Phase 2):** MCP Inspector or a Claude client against a running stack,
       asserting RLS scoping with two principals (one sees a doc, one doesn't).
+- **Evaluation harness (Item 11):** the surface is measured, not asserted. A fixed
+      set of grounded retrieval tasks runs against a seeded, disposable fixture
+      corpus and reports task success, tool-call count, and payload size, so a change
+      to a tool description or return shape can be *shown* to help or hurt. It calls
+      the real tool callables and routes their GraphQL over an in-process schema
+      (no API server needed). Run it with
+      `python scripts/eval_mcp.py --mode scripted [--json <path>] [--baseline <path>]`;
+      a committed baseline lives at `docs/eval/mcp-baseline.json`, and a drift guard
+      (`test_mcp_eval_tasks.py`) fails the build if any registered read tool is
+      exercised by no task. Full guide: [`docs/mcp-evaluation.md`](mcp-evaluation.md).
 - **TDD order** everywhere: failing test first, then implementation (repo mandate).
 
 ## 6. Quality gates (every commit)

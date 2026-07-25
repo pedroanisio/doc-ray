@@ -1,0 +1,418 @@
+{
+  "aggregate": {
+    "failed": 0,
+    "passed": 14,
+    "tasks": 14,
+    "total_calls": 32,
+    "total_chars": 49641,
+    "total_est_tokens": 12410
+  },
+  "mode": "scripted",
+  "tasks": [
+    {
+      "assertions": [
+        {
+          "detail": "40/40 sentences (1.00) vs required 0.99",
+          "name": "coverage",
+          "passed": true
+        },
+        {
+          "detail": "3/4 calls, 16955/20000 chars",
+          "name": "within_budget",
+          "passed": true
+        }
+      ],
+      "budget": {
+        "max_calls": 4,
+        "max_chars": 20000
+      },
+      "calls": 3,
+      "chars": 16955,
+      "est_tokens": 4239,
+      "grounded_in": "the reviewer ran out of budget on the back half of a novel",
+      "passed": true,
+      "task_id": "cover-document-exhaustively",
+      "within_budget": true
+    },
+    {
+      "assertions": [
+        {
+          "detail": "hits at ordinals 20\u201321 vs expected [18,23]",
+          "name": "hit_in_range",
+          "passed": true
+        },
+        {
+          "detail": "1/2 calls, 821/6000 chars",
+          "name": "within_budget",
+          "passed": true
+        }
+      ],
+      "budget": {
+        "max_calls": 2,
+        "max_chars": 6000
+      },
+      "calls": 1,
+      "chars": 821,
+      "est_tokens": 205,
+      "grounded_in": "the search_sentences rare-term guidance (Item 1)",
+      "passed": true,
+      "task_id": "find-rare-scene",
+      "within_budget": true
+    },
+    {
+      "assertions": [
+        {
+          "detail": "coverage.limit_reached with a steer note",
+          "name": "flood_flagged",
+          "passed": true
+        },
+        {
+          "detail": "10 sentences read past the flood",
+          "name": "content_reachable",
+          "passed": true
+        },
+        {
+          "detail": "2/3 calls, 9600/15000 chars",
+          "name": "within_budget",
+          "passed": true
+        }
+      ],
+      "budget": {
+        "max_calls": 3,
+        "max_chars": 15000
+      },
+      "calls": 2,
+      "chars": 9600,
+      "est_tokens": 2400,
+      "grounded_in": "the BL-145 keyword-flood failure: a flooded region read as missing content",
+      "passed": true,
+      "task_id": "survive-keyword-flood",
+      "within_budget": true
+    },
+    {
+      "assertions": [
+        {
+          "detail": "final read starts at ordinal 35 vs tail start 34/40",
+          "name": "addresses_ending",
+          "passed": true
+        },
+        {
+          "detail": "2/3 calls, 8264/10000 chars",
+          "name": "within_budget",
+          "passed": true
+        }
+      ],
+      "budget": {
+        "max_calls": 3,
+        "max_chars": 10000
+      },
+      "calls": 2,
+      "chars": 8264,
+      "est_tokens": 2066,
+      "grounded_in": "Item 5's reason for existing: address the final region, don't page from 0",
+      "passed": true,
+      "task_id": "read-the-ending",
+      "within_budget": true
+    },
+    {
+      "assertions": [
+        {
+          "detail": "1 row, 4 types, typeConsistency=0.42857142857142855",
+          "name": "one_contested_profile",
+          "passed": true
+        },
+        {
+          "detail": "1/2 calls, 403/8000 chars",
+          "name": "within_budget",
+          "passed": true
+        }
+      ],
+      "budget": {
+        "max_calls": 2,
+        "max_chars": 8000
+      },
+      "calls": 1,
+      "chars": 403,
+      "est_tokens": 101,
+      "grounded_in": "Item 6's reason for existing: NER splits one entity across types",
+      "passed": true,
+      "task_id": "entity-roster-not-fooled-by-type-split",
+      "within_budget": true
+    },
+    {
+      "assertions": [
+        {
+          "detail": "reader rejected the search cursor with a recovery hint",
+          "name": "cursor_steered",
+          "passed": true
+        },
+        {
+          "detail": "recovered via ordinals within 1 call(s)",
+          "name": "cursor_recovered",
+          "passed": true
+        },
+        {
+          "detail": "3/4 calls, 3261/12000 chars",
+          "name": "within_budget",
+          "passed": true
+        }
+      ],
+      "budget": {
+        "max_calls": 4,
+        "max_chars": 12000
+      },
+      "calls": 3,
+      "chars": 3261,
+      "est_tokens": 815,
+      "grounded_in": "the cursor dead-end in BL-145: a search cursor handed to the reader",
+      "passed": true,
+      "task_id": "cursor-not-interchangeable",
+      "within_budget": true
+    },
+    {
+      "assertions": [
+        {
+          "detail": "returned content",
+          "name": "full_text_search_nonempty",
+          "passed": true
+        },
+        {
+          "detail": "returned content",
+          "name": "list_documents_nonempty",
+          "passed": true
+        },
+        {
+          "detail": "returned content",
+          "name": "get_document_nonempty",
+          "passed": true
+        },
+        {
+          "detail": "3/4 calls, 1147/30000 chars",
+          "name": "within_budget",
+          "passed": true
+        }
+      ],
+      "budget": {
+        "max_calls": 4,
+        "max_chars": 30000
+      },
+      "calls": 3,
+      "chars": 1147,
+      "est_tokens": 287,
+      "grounded_in": "reachability: full_text_search / list_documents / get_document",
+      "passed": true,
+      "task_id": "coverage-document-discovery",
+      "within_budget": true
+    },
+    {
+      "assertions": [
+        {
+          "detail": "returned content",
+          "name": "list_collections_nonempty",
+          "passed": true
+        },
+        {
+          "detail": "1 call(s), all ok",
+          "name": "get_collection_ok",
+          "passed": true
+        },
+        {
+          "detail": "returned content",
+          "name": "list_lenses_nonempty",
+          "passed": true
+        },
+        {
+          "detail": "3/4 calls, 2033/20000 chars",
+          "name": "within_budget",
+          "passed": true
+        }
+      ],
+      "budget": {
+        "max_calls": 4,
+        "max_chars": 20000
+      },
+      "calls": 3,
+      "chars": 2033,
+      "est_tokens": 508,
+      "grounded_in": "reachability: list_collections / get_collection / list_lenses",
+      "passed": true,
+      "task_id": "coverage-collections-and-lenses",
+      "within_budget": true
+    },
+    {
+      "assertions": [
+        {
+          "detail": "1 call(s), all ok",
+          "name": "corpus_manifest_ok",
+          "passed": true
+        },
+        {
+          "detail": "1 call(s), all ok",
+          "name": "corpus_shard_ok",
+          "passed": true
+        },
+        {
+          "detail": "2/3 calls, 794/20000 chars",
+          "name": "within_budget",
+          "passed": true
+        }
+      ],
+      "budget": {
+        "max_calls": 3,
+        "max_chars": 20000
+      },
+      "calls": 2,
+      "chars": 794,
+      "est_tokens": 198,
+      "grounded_in": "reachability: corpus_manifest / corpus_shard",
+      "passed": true,
+      "task_id": "coverage-corpus-map",
+      "within_budget": true
+    },
+    {
+      "assertions": [
+        {
+          "detail": "returned content",
+          "name": "entity_frequency_nonempty",
+          "passed": true
+        },
+        {
+          "detail": "1 call(s), all ok",
+          "name": "lexeme_kwic_ok",
+          "passed": true
+        },
+        {
+          "detail": "1 call(s), all ok",
+          "name": "entity_mention_corrections_ok",
+          "passed": true
+        },
+        {
+          "detail": "3/4 calls, 224/20000 chars",
+          "name": "within_budget",
+          "passed": true
+        }
+      ],
+      "budget": {
+        "max_calls": 4,
+        "max_chars": 20000
+      },
+      "calls": 3,
+      "chars": 224,
+      "est_tokens": 56,
+      "grounded_in": "reachability: entity_frequency / lexeme_kwic / entity_mention_corrections",
+      "passed": true,
+      "task_id": "coverage-entities-and-lexemes",
+      "within_budget": true
+    },
+    {
+      "assertions": [
+        {
+          "detail": "returned content",
+          "name": "get_job_nonempty",
+          "passed": true
+        },
+        {
+          "detail": "1/2 calls, 331/8000 chars",
+          "name": "within_budget",
+          "passed": true
+        }
+      ],
+      "budget": {
+        "max_calls": 2,
+        "max_chars": 8000
+      },
+      "calls": 1,
+      "chars": 331,
+      "est_tokens": 83,
+      "grounded_in": "reachability: get_job",
+      "passed": true,
+      "task_id": "coverage-job-status",
+      "within_budget": true
+    },
+    {
+      "assertions": [
+        {
+          "detail": "all 4 call(s) ok",
+          "name": "all_ok",
+          "passed": true
+        },
+        {
+          "detail": "4/5 calls, 8/20000 chars",
+          "name": "within_budget",
+          "passed": true
+        }
+      ],
+      "budget": {
+        "max_calls": 5,
+        "max_chars": 20000
+      },
+      "calls": 4,
+      "chars": 8,
+      "est_tokens": 2,
+      "grounded_in": "reachability: the four Prism visual read tools",
+      "passed": true,
+      "task_id": "coverage-visual-surface",
+      "within_budget": true
+    },
+    {
+      "assertions": [
+        {
+          "detail": "1 call(s), all ok",
+          "name": "briefing_pack_ok",
+          "passed": true
+        },
+        {
+          "detail": "1 call(s), all ok",
+          "name": "entity_dossier_ok",
+          "passed": true
+        },
+        {
+          "detail": "1 call(s), all ok",
+          "name": "document_evidence_ok",
+          "passed": true
+        },
+        {
+          "detail": "3/4 calls, 5798/40000 chars",
+          "name": "within_budget",
+          "passed": true
+        }
+      ],
+      "budget": {
+        "max_calls": 4,
+        "max_chars": 40000
+      },
+      "calls": 3,
+      "chars": 5798,
+      "est_tokens": 1450,
+      "grounded_in": "reachability: briefing_pack / entity_dossier / document_evidence",
+      "passed": true,
+      "task_id": "coverage-composition-grounding",
+      "within_budget": true
+    },
+    {
+      "assertions": [
+        {
+          "detail": "ok",
+          "name": "semantic_search_sentences_reachable",
+          "passed": true
+        },
+        {
+          "detail": "1/2 calls, 2/15000 chars",
+          "name": "within_budget",
+          "passed": true
+        }
+      ],
+      "budget": {
+        "max_calls": 2,
+        "max_chars": 15000
+      },
+      "calls": 1,
+      "chars": 2,
+      "est_tokens": 0,
+      "grounded_in": "reachability: semantic_search_sentences (Layer 20, deployment-optional)",
+      "passed": true,
+      "task_id": "coverage-semantic-search",
+      "within_budget": true
+    }
+  ]
+}

@@ -26,6 +26,40 @@ doc-ray carries **one global version** covering both the application package
 > no fact into the trusted graph, so it needs no verification gate — it is safe by
 > *use*, not by verification (mirrors the Prism vision encoder).
 
+### Added
+- **MCP evaluation harness — measure the tool surface instead of asserting it**
+  (Claude Opus 4.8 (1M context) via Claude Code; issue #12, MCP Item 11). A
+  reproducible, offline harness runs a fixed set of grounded retrieval tasks
+  against a **seeded, disposable** fixture corpus and reports task success,
+  tool-call count, and payload size, so a change to a tool description or return
+  shape can be *shown* to help or hurt rather than merely asserted to — the
+  programme-level application of PALS's Law (the outputs being consumed are model
+  behaviours, unverified by default). No schema change; no version bump.
+  - **Scripted mode** (default, deterministic, CI-safe) executes a fixed call
+    sequence per task and measures the *surface*: it calls the real tool
+    callables (`corpus`/`semantic`/`structure`/`compose`) and routes their GraphQL
+    over an **in-process** Strawberry schema (the harness holds no API server), so
+    the real `corpus.gql` error-mapping path — including the cursor-steering hint —
+    is exercised. **Agentic mode** ships as a mode switch that fails with a typed
+    `EvalModeUnsupported` (no model credentials are provisioned here); it is never
+    a silent no-op.
+  - **Six grounded tasks** (FR-2), each derived from a failure this programme
+    observed — exhaustive coverage, rare-term localisation, surviving a keyword
+    flood, reading the ending, the type-split entity roster, and the cursor
+    dead-end — plus coverage tasks that exercise every *other* registered read
+    tool (including `semantic_search_sentences`, whose documented `unsupported`
+    outcome counts as reachable). A drift guard (`test_mcp_eval_tasks.py`) fails
+    the build if any registered read tool is exercised by no task.
+  - **Baseline + comparison:** a committed baseline at `docs/eval/mcp-baseline.json`
+    (produced by an actual run); `scripts/eval_mcp.py --baseline <path>` exits
+    non-zero on a regression beyond tolerance. Token counts are a documented
+    estimate (`chars ÷ 4`), never reported as a measurement.
+  - **New:** `scripts/eval_mcp.py`, `application/mcp_eval.py`,
+    `application/mcp_eval_tasks.py`, `application/mcp_eval_fixtures.py`,
+    `domain/mcp_eval_scoring.py`, and `docs/mcp-evaluation.md` (usage, how to read a
+    report, how to add a task). CI gating is **not** enabled initially (operator's
+    call once the numbers are trusted).
+
 ### Changed
 - **NLP Layer 20 — hard cutover from `hash-bow-768` to a learned sentence encoder**
   (Claude Opus 4.8 (1M context) via Claude Code; issues #20, #21). **BREAKING** for
