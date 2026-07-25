@@ -68,6 +68,12 @@ KIND_APPLY_CORRECTIONS = "apply_corrections"
 # extract renders pages (CPU) so it can be heavy on visual-dominant documents.
 LONG_RUNNING_JOB_KINDS = frozenset({KIND_ANNOTATE, KIND_REANNOTATE, KIND_VISUAL_EXTRACT})
 
+# Corpus-wide backup/restore, gated as one unit by ``Config.backup_enabled``
+# (``DOCRAY_BACKUP_ENABLED``). Every enforcement point — scheduler, GraphQL
+# mutations, archive download, worker dispatch — reads this set rather than
+# naming the kinds again, so the toggle cannot be half-applied.
+BACKUP_JOB_KINDS = frozenset({KIND_BACKUP, KIND_RESTORE})
+
 
 @dataclass(frozen=True)
 class Job:

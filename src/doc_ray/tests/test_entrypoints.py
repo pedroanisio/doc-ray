@@ -323,6 +323,8 @@ def test_backup_scheduler_main_runs_one_pass(monkeypatch, capsys):
         "Cfg",
         (),
         {
+            # The scheduler exits early unless the subsystem is switched on.
+            "backup_enabled": True,
             "backup_schedule_seconds": 99,
             "backup_retention_count": 3,
             "backup_retention_days": 30,
@@ -362,6 +364,8 @@ def test_backup_scheduler_rejects_non_positive_interval(monkeypatch):
         "Cfg",
         (),
         {
+            # The scheduler exits early unless the subsystem is switched on.
+            "backup_enabled": True,
             "backup_schedule_seconds": 99,
             "backup_retention_count": 3,
             "backup_retention_days": 30,

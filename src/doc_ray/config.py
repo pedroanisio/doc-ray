@@ -160,6 +160,13 @@ class Config:
         max_upload_bytes: Maximum accepted upload size in bytes, shared by the
             webapp's Flask route and the GraphQL ``ingestDocument`` mutation
             (BL-098) so both upload paths enforce the same ceiling.
+        backup_enabled: Master switch for the in-app corpus backup subsystem —
+            the scheduler, the ``backup``/``restore`` job kinds, the archive
+            download route, and the admin backup UI. Defaults to ``False``:
+            corpus durability is the managed database layer's responsibility,
+            and the in-app archive job is opt-in. Every enforcement point reads
+            this one flag against
+            :data:`doc_ray.domain.jobs.BACKUP_JOB_KINDS`.
         backup_schedule_seconds: Seconds between scheduled backup enqueue attempts.
         backup_retention_count: Number of newest backup archives always retained.
         backup_retention_days: Age threshold for pruning archives outside the
@@ -213,6 +220,7 @@ class Config:
     auth_expose_verification_token: bool = False
     auth_email_verification_ttl_seconds: int = 86_400
     max_upload_bytes: int = 200 * 1024 * 1024
+    backup_enabled: bool = False
     backup_schedule_seconds: int = 86_400
     backup_retention_count: int = 7
     backup_retention_days: int = 30
@@ -280,6 +288,7 @@ class Config:
                 "DOCRAY_AUTH_EMAIL_VERIFICATION_TTL_SECONDS", 86_400
             ),
             max_upload_bytes=_env_int("DOCRAY_MAX_UPLOAD_MB", 200) * 1024 * 1024,
+            backup_enabled=_env_bool("DOCRAY_BACKUP_ENABLED", False),
             backup_schedule_seconds=_env_int("DOCRAY_BACKUP_SCHEDULE_SECONDS", 86_400),
             backup_retention_count=_env_int("DOCRAY_BACKUP_RETENTION_COUNT", 7),
             backup_retention_days=_env_int("DOCRAY_BACKUP_RETENTION_DAYS", 30),

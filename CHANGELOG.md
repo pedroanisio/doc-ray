@@ -26,6 +26,42 @@ doc-ray carries **one global version** covering both the application package
 > no fact into the trusted graph, so it needs no verification gate — it is safe by
 > *use*, not by verification (mirrors the Prism vision encoder).
 
+### Changed
+- **In-app corpus backup is now a feature toggle, off by default** (Claude Opus 5
+  (1M context) via Claude Code; D-033). `DOCRAY_BACKUP_ENABLED` gates the whole
+  subsystem — the `backup-scheduler` service, the `backup`/`restore` job kinds,
+  the archive download route, and the backup UI in both the webapp and the admin
+  console. It defaults to `false`; production runs with it off and relies on the
+  managed database layer's automated backups and PITR.
+  - **Enforced at every entry point**, each reading the new
+    `domain.jobs.BACKUP_JOB_KINDS` rather than naming the kinds again: the
+    scheduler exits `0` without enqueueing or pruning; `createBackup` /
+    `restoreBackup` refuse *before* the admin check, so a disabled deployment
+    answers "the feature is off" instead of the misleading "you are not an
+    admin"; `/backups/<id>/download` 404s before touching auth or the database;
+    the webapp's four backup routes 404 and their nav entry is hidden.
+  - **Queued rows drain, they do not pile up.** A worker that claims a `backup`
+    or `restore` row while the flag is off *cancels* it with a recorded reason
+    rather than leaving it queued for a lane that will never take it.
+  - **New `backupEnabled` query field** so a client can check the capability
+    before offering the action; the admin console uses it to hide its nav entry
+    and to explain itself on a deep link.
+  - **Why:** the subsystem had never once succeeded in production — 27 failed
+    rows, 2 stuck, zero `available`, and an empty `backups/` prefix in the
+    bucket. It failed two ways: `EntityTooLarge` (the archive is built wholly in
+    memory and uploaded with a single `PutObject`, past S3's 5 GiB single-PUT
+    ceiling) and `JobExecutionTimeout` at 3600s. Worse, `backup` was claimable by
+    the only worker pool that runs `annotate`, so each attempt held that slot for
+    an hour: on 2026-07-25 a user-facing annotate job queued 39 minutes behind
+    one.
+  - **Known gap, accepted (D-033):** managed-database backups cover the database
+    only. This archive was the sole mechanism capturing object-store blobs, and
+    the production bucket has no versioning — with the flag off, original
+    document bytes have a single copy and no point-in-time recovery. Closing it
+    needs bucket versioning or a separate blob backup.
+  - No schema change; no version bump. `make prod-up` and the other `up` targets
+    no longer start `backup-scheduler`.
+
 ### Added
 - **MCP evaluation harness — measure the tool surface instead of asserting it**
   (Claude Opus 4.8 (1M context) via Claude Code; issue #12, MCP Item 11). A

@@ -7,6 +7,7 @@ monkeypatching keeps reaching the routes that moved here.
 
 from __future__ import annotations
 
+import os
 from types import ModuleType
 
 from flask import (
@@ -80,8 +81,35 @@ def operator_document_metadata_update(doc_id):
     return redirect(url_for("operator_document_metadata", doc_id=doc_id, metadata_queued=1))
 
 
+def backup_enabled() -> bool:
+    """Whether the in-app backup subsystem is switched on for this deployment.
+
+    Read from the environment on every call rather than cached at import time so
+    a recreated container picks the new value up without a code change, and so
+    tests can flip it with ``monkeypatch.setenv``. Mirrors ``Config._env_bool``
+    and the API's ``DOCRAY_BACKUP_ENABLED``; default is off.
+    """
+    return os.environ.get("DOCRAY_BACKUP_ENABLED", "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+
+def _require_backup_enabled() -> None:
+    """404 every backup route when the subsystem is switched off.
+
+    404 rather than 403: a disabled subsystem should look absent, not forbidden,
+    and the nav entry that points here is hidden under the same flag.
+    """
+    if not backup_enabled():
+        abort(404)
+
+
 def backups():
     """List backup archives with a create button and per-row restore/download."""
+    _require_backup_enabled()
     rows = _core.q(
         "SELECT id, created_at, status, object_key, archive_bytes, table_rows, "
         "       blob_count, doc_count, note, error FROM backups ORDER BY created_at DESC"
@@ -91,6 +119,7 @@ def backups():
 
 def backups_create():
     """Enqueue a full backup via the GraphQL API, then follow its job."""
+    _require_backup_enabled()
     note = (request.form.get("note") or "").strip() or None
     try:
         data = _core.gql("mutation($n: String){ createBackup(note: $n){ id } }", {"n": note})
@@ -102,6 +131,7 @@ def backups_create():
 
 def backups_restore(backup_id):
     """Enqueue a restore of the whole corpus from *backup_id* (destructive)."""
+    _require_backup_enabled()
     try:
         data = _core.gql(
             "mutation($id: ID!){ restoreBackup(backupId: $id){ id } }", {"id": backup_id}
@@ -123,6 +153,8 @@ def backups_download(backup_id):
     forward uses (``api_auth_headers``) rides along here too; a 401/403/404
     from the API propagates as the same status rather than a proxy 500.
     """
+    _require_backup_enabled()
+
     import httpx
 
     base = API_URL.rsplit("/graphql", 1)[0]
@@ -156,6 +188,9 @@ def register(app, core: ModuleType) -> None:
     """Attach the operator and backup routes to *app*, late-binding *core* (D-015 split)."""
     global _core
     _core = core
+    # Templates hide the Backups nav under the same flag the routes enforce, so
+    # the UI never offers a link that answers 404.
+    app.context_processor(lambda: {"backup_enabled": backup_enabled()})
     app.add_url_rule("/operator/health", "operator_health", operator_health)
     app.add_url_rule("/operator/health.json", "operator_health_json", operator_health_json)
     app.add_url_rule(

@@ -59,6 +59,18 @@ class Query(VisualQueries, SemanticQueries, StructureQueries, CollectionQueries)
         return __version__
 
     @strawberry.field
+    def backup_enabled(self, info: Info) -> bool:
+        """Whether the in-app backup subsystem is switched on for this deployment.
+
+        Clients read this to decide whether to *offer* backup actions at all;
+        it is a capability hint, not an authorization check. ``createBackup`` /
+        ``restoreBackup`` enforce the same flag server-side and additionally
+        require an admin principal.
+        """
+        settings = info.context.settings
+        return bool(settings is not None and settings.backup_enabled)
+
+    @strawberry.field
     async def documents(
         self,
         info: Info,

@@ -162,7 +162,10 @@ Then open <http://localhost:5001>. The sun/moon button in the header toggles the
 light ("paper") and dark ("ink") themes; the choice is remembered per browser,
 and an account default can be set in **Settings → Preferences**. The header's
 **Help** link opens the in-app guide at `/help`; technical screens also link
-directly to their relevant guide sections. Backups is visually grouped apart
+directly to their relevant guide sections. Backups appears only when the
+in-app backup subsystem is switched on (`DOCRAY_BACKUP_ENABLED`, off by default —
+D-033); with it off the entry is hidden and `/backups` returns 404. Backups is
+visually grouped apart
 from the everyday reading/search/upload navigation because restore is an
 operator/destructive surface.
 

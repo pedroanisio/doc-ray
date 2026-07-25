@@ -28,7 +28,7 @@
   <a href="#reading">Reading</a>
   <a href="#pipeline-status">Pipeline status</a>
   <a href="#domain-seeding">Domain seeding</a>
-  <a href="#backups">Backups</a>
+  {% if backup_enabled %}<a href="#backups">Backups</a>{% endif %}
   <a href="#glossary">Glossary</a>
 </div>
 
@@ -64,6 +64,7 @@
     </p>
   </div>
 
+  {% if backup_enabled %}
   <div class="card guide-card" id="backups">
     <h2>Backups</h2>
     <p>
@@ -72,6 +73,7 @@
       the target snapshot before starting a restore job.
     </p>
   </div>
+  {% endif %}
 
   <div class="card guide-card" id="glossary">
     <h2>Glossary</h2>

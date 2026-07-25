@@ -53,9 +53,11 @@
         <a href="{{ url_for('upload_form') }}" class="nav-action {{ 'on' if request.endpoint in ['upload_form','upload_submit','job_status'] }}">+ Upload</a>
         <a href="{{ url_for('help_page') }}" class="{{ 'on' if request.endpoint == 'help_page' }}">Help</a>
       </span>
+      {% if backup_enabled %}
       <span class="nav-group nav-admin">
         <a href="{{ url_for('backups') }}" class="{{ 'on' if request.endpoint in ['backups','backups_create','backups_restore','backups_download'] }}">Backups</a>
       </span>
+      {% endif %}
       {% endif %}
       {% if current_auth_session %}
       <span class="nav-group nav-account">
@@ -101,7 +103,7 @@
           <span class="footer-h">Workspace</span>
           <a href="{{ url_for('upload_form') }}">Upload a document</a>
           <a href="{{ url_for('help_page') }}">Guide</a>
-          <a href="{{ url_for('backups') }}">Backups</a>
+          {% if backup_enabled %}<a href="{{ url_for('backups') }}">Backups</a>{% endif %}
         </div>
       </nav>
       {% elif web_auth_required %}

@@ -117,11 +117,15 @@ docray-minio       Up ... (healthy)
 postgres`. The most common cause at this step is a `POSTGRES_PASSWORD` that
 still matches the rejected default — re-check Step 2.
 
-### Step 4: Start the API, worker, and backup scheduler
+### Step 4: Start the API and worker
 
 ```bash
-docker compose up -d api worker backup-scheduler
+docker compose up -d api worker
 ```
+
+(The `backup-scheduler` service is not started here: the in-app backup subsystem
+is off by default and the scheduler exits immediately unless you set
+`DOCRAY_BACKUP_ENABLED=true` — see [Backup & restore](../README.md#backup--restore).)
 
 The schema migrates automatically on first start (`migrate` runs as an
 init-once dependency of `api`). Verify with the API's own health and

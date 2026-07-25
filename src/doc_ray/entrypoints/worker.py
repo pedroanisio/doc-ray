@@ -30,6 +30,7 @@ from doc_ray.adapters import queue_postgres as queue
 from doc_ray.adapters.object_store import ObjectStore
 from doc_ray.application.jobs import run_once
 from doc_ray.config import Config
+from doc_ray.domain.jobs import BACKUP_JOB_KINDS
 from doc_ray.logging_setup import configure_logging
 
 _logger = logging.getLogger("doc_ray.worker")
@@ -97,6 +98,12 @@ def run(cfg: Config | None = None, *, worker_id: str | None = None) -> int:
     wid = worker_id or f"{socket.gethostname()}:{os.getpid()}"
     store = ObjectStore(settings)
     shutdown = threading.Event()
+    # Backup is a configuration-gated subsystem, not a lane: when it is off, a
+    # claimed backup/restore row is canceled rather than left queued, so rows
+    # enqueued before the switch was thrown drain instead of accumulating.
+    disabled_kinds = None if settings.backup_enabled else tuple(sorted(BACKUP_JOB_KINDS))
+    if disabled_kinds:
+        _logger.info("worker %s has backup disabled (DOCRAY_BACKUP_ENABLED=false)", wid)
 
     def _request_shutdown(_signum: int, _frame: FrameType | None) -> None:
         shutdown.set()
@@ -129,6 +136,7 @@ def run(cfg: Config | None = None, *, worker_id: str | None = None) -> int:
                         shutdown=shutdown,
                         only_kinds=_ONLY_KINDS,
                         exclude_kinds=_EXCLUDE_KINDS,
+                        disabled_kinds=disabled_kinds,
                     )
                     if job is None:
                         shutdown.wait(_POLL_SECONDS)  # idle: sleep, but wake on shutdown

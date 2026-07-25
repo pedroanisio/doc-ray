@@ -251,6 +251,7 @@ def run_once(
     shutdown: threading.Event | None = None,
     only_kinds: Sequence[str] | None = None,
     exclude_kinds: Sequence[str] | None = None,
+    disabled_kinds: Sequence[str] | None = None,
 ) -> Job | None:
     """Claim one job, dispatch it, and finalize it; return the job (or ``None``).
 
@@ -274,6 +275,12 @@ def run_once(
         only_kinds: When set, claim only these job kinds.
         exclude_kinds: When set, never claim these job kinds (a short-job
             lane worker passes the long-running kinds here).
+        disabled_kinds: Job kinds switched off by configuration. Unlike
+            ``exclude_kinds`` — which routes work to a different lane and leaves
+            it claimable there — a disabled kind is claimed and immediately
+            *canceled*, so rows enqueued before the switch was thrown drain out
+            instead of sitting queued forever waiting for a lane that will never
+            take them.
 
     Returns:
         The claimed :class:`Job`, or ``None`` if the queue was empty.
@@ -294,6 +301,22 @@ def run_once(
         job.max_attempts,
         request_id,
     )
+    if disabled_kinds is not None and job.kind in set(disabled_kinds):
+        _logger.warning(
+            "worker %s canceled job %s (kind=%s is disabled by configuration, "
+            "document_id=%s, request_id=%s)",
+            worker_id,
+            job.id,
+            job.kind,
+            job.document_id,
+            request_id,
+        )
+        queue.cancel(
+            conn,
+            job.id,
+            reason=f"job kind {job.kind!r} is disabled by configuration",
+        )
+        return job
     handler = registry.get(job.kind)
     if handler is None:
         _logger.error(

@@ -315,7 +315,23 @@ def test_seeding_and_backup_mutations_enqueue_on_isolated_queue(pg):
     async def check():
         aconn = await _isolated_write_conn()
         try:
-            ctx = RequestContext(conn=aconn, principal=WRITE_PRINCIPAL, loaders=Loaders(aconn))
+            ctx = RequestContext(
+                conn=aconn,
+                principal=WRITE_PRINCIPAL,
+                loaders=Loaders(aconn),
+                # createBackup/restoreBackup below are gated on the backup
+                # subsystem being on (D-033); this test is about the queue
+                # round trip, not the feature flag.
+                settings=Config(
+                    database_url=_itdb.DB_URL,
+                    s3_endpoint="http://localhost:9000",
+                    s3_access_key="key",
+                    s3_secret_key="secret",
+                    s3_bucket="documents",
+                    s3_region="us-east-1",
+                    backup_enabled=True,
+                ),
+            )
 
             r = await schema.execute(
                 "mutation($d:ID!){ suggestSeeds(documentId:$d){ kind status } }",

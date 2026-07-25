@@ -74,6 +74,18 @@ def main(argv: list[str] | None = None) -> int:
     if args.interval <= 0:
         parser.error("--interval must be greater than zero")
 
+    if not cfg.backup_enabled:
+        # Exit 0 rather than idle-loop: under `restart: unless-stopped` a clean
+        # exit leaves the container stopped instead of burning a scheduler slot
+        # waking up to do nothing. Flipping DOCRAY_BACKUP_ENABLED back on and
+        # recreating the service is what starts it again.
+        print(
+            "backup scheduler: disabled (DOCRAY_BACKUP_ENABLED=false); "
+            "no backup will be enqueued or pruned",
+            flush=True,
+        )
+        return 0
+
     store = ObjectStore(cfg)
     store.ensure_bucket()
     while True:

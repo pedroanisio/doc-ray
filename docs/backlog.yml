@@ -110,7 +110,7 @@ metadata:
   generated_by:     "Claude Sonnet 5 via Claude Code (merge of Claude Opus 4.8 backlog + OpenAI Codex improvement-proposal candidates)"
   generated_on:     "2026-07-05"
   system_of_record: "docs/backlog.yml"
-  total_items:      148
+  total_items:      150
 
 items:
 
@@ -5023,3 +5023,90 @@ items:
     owner:        "shared"
     source:       "GitHub issue #12 (MCP Item 11); implemented with strict TDD (Claude Opus 4.8 (1M context) via Claude Code)."
     tags:         ["mcp", "testing", "tooling", "agent-experience", "feature"]
+
+  - id:          "BL-149"
+    title:       "Backup archive upload is a single in-memory PutObject — fails past 5 GiB"
+    summary: >-
+      application.backup builds the whole .tar.gz in memory and
+      adapters.object_store.put issues one PutObject, so once the corpus archive
+      passed S3's 5 GiB single-PUT ceiling every backup failed with
+      EntityTooLarge. Building it also exceeded the 3600s per-job execution
+      timeout. Production recorded 27 failed backups, 2 stuck, and zero
+      available archives.
+    description: |
+      Two defects in one path, both hit in production on 2026-07-25:
+
+      1. `_build_and_upload` accumulates the entire archive in an `io.BytesIO`
+         before uploading, so peak memory scales with the whole corpus.
+      2. `ObjectStore.put` calls `put_object` once. S3 and DO Spaces cap a
+         single PUT at 5 GiB; past that the call fails with `EntityTooLarge`
+         regardless of correctness elsewhere.
+
+      Fixing it means streaming the archive (spool to disk or a pipe) and using
+      a multipart upload — `upload_fileobj`, or an explicit
+      create/upload_part/complete cycle — plus revisiting
+      `WORKER_JOB_TIMEOUT_BACKUP_SECONDS` for a corpus-scale archive.
+
+      The subsystem is off by default as of D-033, so this is no longer causing
+      live failures; it must be fixed before the flag can be recommended to
+      anyone with a non-trivial corpus.
+    category:     "ops"
+    type:         "bug"
+    status:       "ready"
+    complexity:   "M"
+    priority:     "medium"
+    rationale:    "The feature toggle (D-033) stopped the bleeding — worker starvation and daily failing jobs — but did not repair the subsystem. Anyone who switches DOCRAY_BACKUP_ENABLED on today inherits both defects."
+    acceptance_criteria:
+      - "A backup of a corpus whose archive exceeds 5 GiB completes and is catalogued as available."
+      - "Archive construction does not hold the whole archive in memory."
+      - "A test asserts the multipart path is used above the single-PUT threshold."
+    dependencies: []
+    references:
+      - "src/doc_ray/application/backup.py"
+      - "src/doc_ray/adapters/object_store.py"
+      - "engineering_decisions.yml (D-033)"
+    owner:        "unassigned"
+    source:       "Production incident 2026-07-25: backups table showed 27 failed / 2 creating / 0 available; botocore EntityTooLarge on PutObject and JobExecutionTimeout at 3600s in worker logs."
+    tags:         ["backup", "object-store", "production-incident"]
+
+  - id:          "BL-150"
+    title:       "Object-store blobs have no backup coverage once the in-app archive is off"
+    summary: >-
+      Managed-database backups cover the database only. The in-app backup
+      archive was the sole mechanism capturing content-addressed original
+      document bytes, and the production Spaces bucket has no versioning — so
+      with DOCRAY_BACKUP_ENABLED off, original uploads have a single copy and no
+      point-in-time recovery.
+    description: |
+      Accepted as a known gap when backup became a default-off toggle (D-033),
+      and recorded here so it is not mistaken for an oversight.
+
+      Options, roughly in increasing cost:
+
+      - Enable bucket versioning on the object store (provider-side, no code)
+        and set a lifecycle policy for noncurrent versions. Recovers from
+        accidental delete/overwrite; does not give a portable off-provider copy.
+      - Cross-region / cross-account bucket replication for provider-failure
+        independence.
+      - A blob-only backup job (no database dump), which sidesteps BL-149's
+        archive-size problem by copying objects rather than bundling them.
+
+      Whichever is chosen, ENVIRONMENT.md's "recovery from a bad write" note and
+      docs/production-setup.md's durability bullet must be updated to match.
+    category:     "ops"
+    type:         "infra"
+    status:       "ready"
+    complexity:   "S"
+    priority:     "high"
+    rationale:    "Original bytes are the only irreplaceable artefact in the system: text, annotations, and entities are all derived and can be recomputed by re-ingesting, but a lost original cannot be reconstructed from anything the database holds."
+    acceptance_criteria:
+      - "A documented, verified recovery path exists for original document bytes."
+      - "ENVIRONMENT.md and docs/production-setup.md state the actual coverage."
+    dependencies: []
+    references:
+      - "ENVIRONMENT.md"
+      - "docs/production-setup.md"
+      - "engineering_decisions.yml (D-033)"
+    owner:        "unassigned"
+    source:       "Verified 2026-07-25: get_bucket_versioning on the production bucket returned no Status (versioning never enabled); backups/ prefix empty."
+    tags:         ["backup", "durability", "object-store"]

@@ -12,11 +12,30 @@ import pytest
 from _mutations_common import WRITE_PRINCIPAL, _aconn, _aconn_as, _make_principal
 
 from doc_ray.adapters import persistence as db
+from doc_ray.config import Config
 from doc_ray.domain.ulid import new_ulid_str
 from doc_ray.entrypoints.api.context import RequestContext
 from doc_ray.entrypoints.api.loaders import Loaders
 from doc_ray.entrypoints.api.schema import build_schema
 from doc_ray.entrypoints.api.security import Principal
+
+
+def _backup_enabled_settings() -> Config:
+    """Settings with the backup subsystem on, so the admin gate is what answers.
+
+    ``createBackup``/``restoreBackup`` check ``DOCRAY_BACKUP_ENABLED`` before the
+    admin check; these tests are about the admin boundary, so they switch the
+    subsystem on explicitly rather than depending on the default (off).
+    """
+    return Config(
+        database_url="postgresql://localhost/docray",
+        s3_endpoint="http://localhost:9000",
+        s3_access_key="key",
+        s3_secret_key="secret",
+        s3_bucket="documents",
+        s3_region="us-east-1",
+        backup_enabled=True,
+    )
 
 
 def test_create_backup_requires_admin_not_just_write_scope(pg):
@@ -36,6 +55,7 @@ def test_create_backup_requires_admin_not_just_write_scope(pg):
                     scopes=frozenset({"read", "write"}),
                 ),
                 loaders=Loaders(aconn),
+                settings=_backup_enabled_settings(),
             )
             result = await schema.execute(
                 'mutation { createBackup(note: "x") { id } }',
@@ -346,6 +366,7 @@ def test_create_backup_allows_admin_principal(pg):
                     subject="admin", principal_id=str(admin), scopes=frozenset({"read", "write"})
                 ),
                 loaders=Loaders(aconn),
+                settings=_backup_enabled_settings(),
             )
             result = await schema.execute(
                 'mutation { createBackup(note: "x") { kind status } }',

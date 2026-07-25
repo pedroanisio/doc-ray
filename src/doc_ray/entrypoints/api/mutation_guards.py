@@ -181,15 +181,43 @@ async def _require_document_write(
         raise
 
 
-async def _require_admin(ctx: RequestContext, *, action: str = "mutation.admin") -> None:
-    """Require an admin principal, for corpus-wide mutations (backup/restore).
+async def _require_backup_enabled(ctx: RequestContext, *, action: str) -> None:
+    """Reject a backup/restore mutation when the subsystem is switched off.
 
-    Backup/restore affect the whole corpus, not one document, so there is no
-    ``document_acl`` grant that makes sense as a scope check — only admins may
-    call these (BL-064). ``jobs``/``backups`` RLS (migration 043) is the
-    backstop; this turns a raw policy violation into a clean error.
+    ``DOCRAY_BACKUP_ENABLED`` gates the whole in-app backup subsystem. Absent
+    settings count as off — a context that cannot prove the feature is on is not
+    an implicit yes. The denial is audited like any other refused corpus
+    mutation.
+
+    Ordering matters and is the caller's job (see :func:`_require_backup_admin`):
+    this runs *after* authentication/scope but *before* the admin check. Before
+    authentication it would disclose deployment configuration to an anonymous
+    caller; after the admin check it would answer "you are not an admin" to an
+    operator whose real problem is that the feature is off.
     """
-    await _require_write_audited(ctx, action=action)
+    if ctx.settings is not None and ctx.settings.backup_enabled:
+        return
+    await _audit_mutation_event(
+        ctx,
+        action=action,
+        target_type="corpus",
+        target_id=None,
+        outcome="denied",
+        details={"reason": "backup_disabled"},
+    )
+    raise PermissionError(
+        "the in-app backup subsystem is disabled (DOCRAY_BACKUP_ENABLED=false); "
+        "corpus backups are taken at the managed database layer"
+    )
+
+
+async def _assert_admin(ctx: RequestContext, *, action: str) -> None:
+    """Fail unless the bound principal is an admin, auditing the refusal.
+
+    The authentication/scope half lives in :func:`_require_write_audited`; this
+    is only the admin predicate, split out so guards can interleave a check
+    between the two without auditing the write attempt twice.
+    """
     cur = await ctx.conn.execute("SELECT docray_is_admin() AS ok")
     row = await cur.fetchone()
     if not row or not row["ok"]:
@@ -202,6 +230,31 @@ async def _require_admin(ctx: RequestContext, *, action: str = "mutation.admin")
             details={"reason": "admin_required"},
         )
         raise PermissionError("this mutation requires an admin principal")
+
+
+async def _require_admin(ctx: RequestContext, *, action: str = "mutation.admin") -> None:
+    """Require an admin principal, for corpus-wide mutations.
+
+    Corpus-wide mutations affect the whole corpus, not one document, so there is
+    no ``document_acl`` grant that makes sense as a scope check — only admins may
+    call these (BL-064). ``jobs``/``backups`` RLS (migration 043) is the
+    backstop; this turns a raw policy violation into a clean error.
+    """
+    await _require_write_audited(ctx, action=action)
+    await _assert_admin(ctx, action=action)
+
+
+async def _require_backup_admin(ctx: RequestContext, *, action: str) -> None:
+    """The full gate for createBackup/restoreBackup, in the order that matters.
+
+    Authentication, write scope, and billing entitlement first (so a disabled
+    deployment never discloses that fact to an unauthenticated caller, and a
+    billing refusal still reads as one); then the feature flag; then admin. The
+    write attempt is audited once, by ``_require_write_audited``.
+    """
+    await _require_write_audited(ctx, action=action)
+    await _require_backup_enabled(ctx, action=action)
+    await _assert_admin(ctx, action=action)
 
 
 async def _require_admin_read(ctx: RequestContext, *, action: str = "query.admin") -> None:

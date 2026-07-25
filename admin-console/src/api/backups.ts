@@ -13,6 +13,19 @@ import type { Job } from "./types";
 
 const JOB_FIELDS = `id kind status documentId createdAt startedAt finishedAt error`;
 
+/**
+ * Whether this deployment has the in-app backup subsystem switched on
+ * (`DOCRAY_BACKUP_ENABLED`, surfaced as `Query.backupEnabled`).
+ *
+ * This is a capability hint used to decide whether to *offer* the actions —
+ * never a substitute for the server-side check. createBackup/restoreBackup
+ * enforce the same flag and additionally require an admin principal.
+ */
+export async function fetchBackupEnabled(client: ApiClient): Promise<boolean> {
+  const data = await client.graphql<{ backupEnabled: boolean }>(`query { backupEnabled }`);
+  return data.backupEnabled;
+}
+
 export async function createBackup(client: ApiClient, note?: string): Promise<Job> {
   const data = await client.graphql<{ createBackup: Job }>(
     `mutation CreateBackup($note: String) {

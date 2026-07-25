@@ -11,7 +11,7 @@ doc_type: "concept"
 audience: ["end-user", "evaluator", "administrator"]
 surfaces: ["cli", "api", "config"]
 classification: "public"
-applies_to: "1.41.0"
+applies_to: "1.42.0"
 owner: "documentation-maintainer"
 last_reviewed: "2026-07-25"
 status: "current"
@@ -21,6 +21,12 @@ status: "current"
 
 This page defines a Backup, explains what it captures and how retention works, and describes restore at a conceptual level.
 
+!!! warning "Off by default"
+
+    The in-app backup subsystem is disabled unless `DOCRAY_BACKUP_ENABLED` is set to `true`. With it off, no Backup is ever created — on demand or on a schedule — and the Backups screen is hidden in both the web interface and the admin console. Everything below describes the subsystem **when it is switched on**.
+
+    Deployments running on a managed database (Doc-Ray's own hosted service included) leave it off and rely on the database provider's own automated backups and point-in-time recovery instead. Note the boundary: a managed database's backups cover the database, not the object store holding your original uploaded files. If those files need point-in-time recovery, enable versioning on the object-store bucket.
+
 ## Definition
 
 A **Backup** is a point-in-time capture of the Corpus and everything Doc-Ray holds about it: the ingested Documents, their derived layers, the entity registry, Collections, and the metadata that ties them together. A Backup is the recovery path for data that the lifecycle cannot recover on its own — in particular, a Document that has been purged.
@@ -29,7 +35,7 @@ A **Backup** is a point-in-time capture of the Corpus and everything Doc-Ray hol
 
 The document lifecycle offers recovery within limits: an `Archived` or `Deleted`-but-unpurged Document can be restored. A **Purged** Document cannot. A Backup is what recovers state past that boundary — after a purge, a mistaken bulk change, or data loss — by returning the Corpus to how it stood when the Backup was taken.
 
-Backups can be created on demand and are also taken automatically on a schedule.
+When the subsystem is enabled, Backups can be created on demand and are also taken automatically on a schedule.
 
 ## Retention
 

@@ -35,7 +35,7 @@ This is a **frontend shell** built against the API contract that exists today
 | Jobs: monitor + cancel + re-extract | ✅ wired | GraphQL `jobs`, `cancelJob`, `reextractDocuments` (admin) |
 | Documents overview | ✅ wired | GraphQL `documents` |
 | Security audit log | ✅ wired | GraphQL `auditEvents` (admin) |
-| Backups: create / restore | ✅ wired | GraphQL `createBackup`, `restoreBackup` (admin) |
+| Backups: create / restore | ✅ wired, feature-gated | GraphQL `createBackup`, `restoreBackup` (admin). Hidden from the nav and refused by the API unless `DOCRAY_BACKUP_ENABLED=true` (D-033); the console reads `backupEnabled` to decide. Off by default. |
 | **Tenants / users / roles / ACLs** | ⚠️ **no HTTP API yet** | CLI-only (`auth_admin.py`) + SCIM/OIDC/SAML |
 
 The "Tenants & users" screen is deliberately honest: tenant/principal/role/ACL
