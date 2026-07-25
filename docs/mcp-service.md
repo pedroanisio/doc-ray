@@ -124,6 +124,7 @@ for cited-briefing workflows — see that module for their signatures.
 | `entity_mention_corrections(document_id)` | `entityMentionCorrections` | the human NER-correction audit log for a document |
 | `list_collections(limit, kind?, after?)` | `collections` | native containers; keyset `cursor` |
 | `get_collection(collection_id, document_limit)` | `collection` | one collection + its member documents |
+| `list_lenses(limit, after?)` | `lenses` | the collections marked as entity-resolution scopes (Block B); keyset `cursor` — see §3.5 |
 | `corpus_manifest(shard_count)` | `corpusManifest` | shard map for a map-reduce sweep: per-shard counts that sum to the total |
 | `corpus_shard(shard_index, shard_count, limit, after?)` | `corpusShard` | one deterministic, disjoint slice of the corpus; keyset `cursor` |
 | `entity_frequency(document_id?, entity_type?, limit)` | `entityFrequency` | **raw** NER rows, one per (surface, type) — prefer `entity_profiles` |
@@ -330,6 +331,26 @@ What `concise` never drops is attribution: `ordinal`, `charStart`, and `charEnd`
 survive in every mode, because a cheaper answer that cannot be cited is not a
 cheaper answer.
 
+### 3.5 `list_lenses` — the entity-resolution scopes (Block B)
+
+A **lens** is a `document_collection` marked `isScope`: a *named scope* under
+which a later projection layer will interpret entity identity, so the fictional
+*Duncan Idaho* of one novel stays distinct from an unrelated book's Duncan. The
+reserved **`global`** lens holds real-world (Wikidata-linkable) identities shared
+corpus-wide; scope lenses are the fictional/work-local scopes beside it.
+`list_lenses` is `list_collections` narrowed to those rows.
+
+```jsonc
+{"name": "list_lenses", "arguments": {"limit": 50}}
+// → [{"id": "…", "name": "global", "isScope": true, "parentLensId": null, "documentCount": 0},
+//    {"id": "…", "name": "Dune Series", "isScope": true, "parentLensId": null, "documentCount": 6}]
+```
+
+`documentCount` is scoped to the documents your token can see; the lens rows
+themselves are shared corpus navigation metadata. Block B ships the vocabulary
+only — nothing about how entities resolve changes yet (a later projection block
+consumes it).
+
 ### Write tools (opt-in — `DOCRAY_MCP_ENABLE_WRITE=true`)
 
 Registered **only** when writes are enabled, so the default surface stays
@@ -372,6 +393,9 @@ engineering decision **D-030**.
 | `remove_document_from_collection(collection_id, document_id)` | `removeDocumentFromCollection` | `DocumentCollection` |
 | `update_collection(collection_id, name?, description?)` | `updateCollection` | `DocumentCollection` |
 | `delete_collection(collection_id)` | `deleteCollection` | `Boolean` |
+| `promote_collection_to_lens(collection_id, parent_lens_id?)` | `promoteCollectionToLens` | `DocumentCollection` |
+| `demote_lens(collection_id)` | `demoteLens` | `DocumentCollection` |
+| `set_document_default_lens(document_id, lens_id?)` | `setDocumentDefaultLens` | `Document` |
 
 Collection tools return the `DocumentCollection` shape (`id`, `name`, `kind`,
 `documentCount`, …), not a `Job` — the API applies them synchronously.
@@ -417,6 +441,31 @@ first to avoid re-recording a fix that already exists.
 Use `reject` for a span that is not an entity, `add` for one the model missed
 (pass `entity_type`), and `adjust_span` with `new_char_start` / `new_char_end`
 when the entity is real but its boundaries are wrong.
+
+The three lens tools apply **synchronously** (like the collection tools) and
+return the updated `DocumentCollection` / `Document`, not a `Job`. Promoting a
+collection to a lens is a **curation decision** — mark a collection a scope only
+when its documents share an identity world (a series, a franchise, one novel);
+an ordinary collection stays identity-neutral. The database enforces the rules:
+a default lens must be a scope the document belongs to, a parent lens must itself
+be a scope, the parent graph may not cycle, and `global` cannot be renamed,
+demoted, or deleted.
+
+**Example — promote a collection, set a document's default lens, read it back:**
+
+```jsonc
+// Promote an existing collection (a curated set of one series' books) to a lens.
+{"name": "promote_collection_to_lens", "arguments": {"collection_id": "01JADR…"}}
+// → {"id": "01JADR…", "name": "Dune Series", "isScope": true, "parentLensId": null, ...}
+
+// A member document can name it as its default lens.
+{"name": "set_document_default_lens",
+ "arguments": {"document_id": "01JADQ…", "lens_id": "01JADR…"}}
+// → {"id": "01JADQ…", "title": "Dune", "defaultLensId": "01JADR…"}
+
+// The scope shows up in list_lenses; demote_lens would now refuse (in use as a default).
+{"name": "list_lenses", "arguments": {"limit": 50}}
+```
 
 **Example — enqueue re-annotation, then poll to completion:**
 

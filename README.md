@@ -144,11 +144,17 @@ ranges — detected headings, or an even grid where a document has none, with
 row per entity, with the measured type spread and `typeConsistency`) /
 `job` / `jobs` /
 `documentMetadataSuggestions` / `collections` / `collection` /
+`lenses` (the collections marked as entity-resolution scopes — Block B) /
 `documentImages` / `imageClassSummary` / `visualCaptions` /
 `crossModalImageSearch` (Prism visual-layer reads) / `billingStatus` /
 `billingEvents` (reads);
 `createCollection` / `addDocumentToCollection` / `removeDocumentFromCollection`
 / `updateCollection` / `deleteCollection`
+/ `promoteCollectionToLens(collectionId:, parentLensId:)` /
+`demoteLens(collectionId:)` / `setDocumentDefaultLens(documentId:, lensId:)`
+(Lens Registry — mark a collection an entity-resolution scope; see
+[Lenses: naming entity-resolution scopes](#lenses-naming-entity-resolution-scopes)
+below)
 / `reannotate` / `deleteDocument` / `archiveDocument` / `restoreDocument` /
 `bulkArchiveDocuments` / `bulkTagDocuments` / `annotateDocument` /
 `reextractDocument` / `reextractDocuments` / `canonicalizeDocument(resolve:)` /
@@ -275,6 +281,48 @@ Read the log back with `entityMentionCorrections(documentId:)`. AI agents reach
 the same capability through the MCP tools `correct_entity_mention` and
 `entity_mention_corrections` (see [`docs/mcp-service.md`](docs/mcp-service.md));
 the write tool is registered only when `DOCRAY_MCP_ENABLE_WRITE` is set.
+
+## Lenses: naming entity-resolution scopes
+
+A **lens** is a *named scope* under which entity identity is interpreted. The
+corpus mixes fiction and non-fiction at scale, and a single global identity
+registry is wrong for fiction: the *Duncan Idaho* of one novel must not collapse
+into an unrelated book's Duncan. The fix is to make identity relative to a named
+scope — a lens — rather than to fragment the registry. The reserved **`global`**
+lens holds real-world (Wikidata-linkable) identities shared corpus-wide; a *scope
+lens* groups the documents whose fictional identities belong together.
+
+A lens is not a new structure — it is a `document_collection` you **promote**.
+This block (Block B) ships the vocabulary only: it does **not** change how any
+entity resolves today; a later projection layer (Block D) will consume it. See
+[`docs/proposals/entity-fabric-substrate-lens-projection.md`](docs/proposals/entity-fabric-substrate-lens-projection.md).
+
+Promote a collection, optionally set a document's default lens, and read the
+scopes back:
+
+```graphql
+# 1. Promote an existing collection to a lens.
+mutation { promoteCollectionToLens(collectionId: "01JADR…") { id name isScope } }
+
+# 2. A document that belongs to the lens can name it as its default.
+mutation {
+  setDocumentDefaultLens(documentId: "01JADQ…", lensId: "01JADR…") {
+    id defaultLensId
+  }
+}
+
+# 3. List the scopes (the reserved `global` lens is always present).
+query { lenses(limit: 50) { id name isScope parentLensId documentCount } }
+```
+
+Rules are enforced in the database: a default lens must be a scope the document
+is a member of, a parent lens must itself be a scope, the parent graph may not
+cycle, and `global` cannot be renamed, demoted, or deleted. `demoteLens` refuses
+while any document still defaults to the lens. AI agents reach the same surface
+through the MCP tools `list_lenses`, `promote_collection_to_lens`, `demote_lens`,
+and `set_document_default_lens` (the write tools require `DOCRAY_MCP_ENABLE_WRITE`).
+Promoting a collection is a **curation decision**, not a mechanical one — an
+ordinary collection stays identity-neutral.
 
 ## Backup & restore
 

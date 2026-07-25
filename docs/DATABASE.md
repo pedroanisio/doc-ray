@@ -1,6 +1,6 @@
 # doc-ray — Database ERD & Data Dictionary
 
-**Schema version `1.40.0`** (SemVer) · 120 migrations applied
+**Schema version `1.41.0`** (SemVer) · 122 migrations applied
 
 > Generated from the live schema by `scripts/gen_data_dictionary.py`. Do not edit by hand — re-run the generator.
 
@@ -216,9 +216,11 @@ format metadata) are decomposed to their own relations (4NF); blobs live in obje
 | `tenant_id` | uuid |  | FK→tenants | `docray_default_tenant_id()` |  |
 | `owner_principal_id` | uuid | yes | FK→principals |  | Owning principal (the uploader). NULL = unowned: admin-only today, reserved for the org corpus. |
 | `visibility` | text |  |  | `'private'::text` | private = owner/ACL/admin only; org = readable by every principal in the tenant. Default private. |
+| `default_lens_id` | uuid | yes | FK→document_collections |  |  |
 
 - **Primary key:** (id)
 - **Unique:** UNIQUE (content_sha256)
+- **FK:** FOREIGN KEY (default_lens_id) REFERENCES document_collections(id) ON DELETE SET NULL
 - **FK:** FOREIGN KEY (derived_from) REFERENCES documents(id) ON DELETE SET NULL
 - **FK:** FOREIGN KEY (owner_principal_id) REFERENCES principals(id) ON DELETE SET NULL
 - **FK:** FOREIGN KEY (tenant_id) REFERENCES tenants(id)
@@ -227,6 +229,7 @@ format metadata) are decomposed to their own relations (4NF); blobs live in obje
 - **Check:** CHECK ((visibility = ANY (ARRAY['private'::text, 'org'::text])))
 - **Index** `documents_content_sha256_key`: public.documents USING btree (content_sha256)
 - **Index** `documents_owner_principal_idx`: public.documents USING btree (owner_principal_id) WHERE (owner_principal_id IS NOT NULL)
+- **Index** `idx_documents_default_lens`: public.documents USING btree (default_lens_id) WHERE (default_lens_id IS NOT NULL)
 - **Index** `idx_documents_derived_from`: public.documents USING btree (derived_from)
 - **Index** `idx_documents_lifecycle_state`: public.documents USING btree (lifecycle_state, updated_at DESC)
 - **Index** `idx_documents_status`: public.documents USING btree (status)
@@ -1074,14 +1077,19 @@ reviewed-suggestion queue for LLM/heuristic metadata proposals (BL-058).
 | `rule` | jsonb |  |  | `'{}'::jsonb` |  |
 | `created_at` | timestamp with time zone |  |  | `now()` |  |
 | `updated_at` | timestamp with time zone |  |  | `now()` |  |
+| `is_scope` | boolean |  |  | `false` |  |
+| `parent_lens_id` | uuid | yes | FK→document_collections |  |  |
 
 - **Primary key:** (id)
 - **Unique:** UNIQUE (name)
+- **FK:** FOREIGN KEY (parent_lens_id) REFERENCES document_collections(id) ON DELETE SET NULL
 - **Check:** CHECK (((kind = 'smart'::text) OR (rule = '{}'::jsonb)))
 - **Check:** CHECK ((kind = ANY (ARRAY['manual'::text, 'smart'::text])))
 - **Index** `document_collections_name_key`: public.document_collections USING btree (name)
 - **Index** `idx_document_collections_kind`: public.document_collections USING btree (kind, name)
+- **Index** `idx_document_collections_parent_lens`: public.document_collections USING btree (parent_lens_id) WHERE (parent_lens_id IS NOT NULL)
 - **Index** `idx_document_collections_rule`: public.document_collections USING gin (rule jsonb_path_ops)
+- **Index** `idx_document_collections_scope`: public.document_collections USING btree (name, id) WHERE is_scope
 
 #### `document_collection_members`
 
@@ -2000,9 +2008,14 @@ SELECT a.document_id,
 | `docray_current_principal()` | `uuid` | DEFINER | sql |
 | `docray_current_tenant()` | `uuid` | DEFINER | sql |
 | `docray_default_tenant_id()` | `uuid` | DEFINER | sql |
+| `docray_document_default_lens_guard()` | `trigger` | invoker | plpgsql |
 | `docray_effective_actor()` | `name` | invoker | sql |
 | `docray_email_for_principal(pid uuid)` | `text` | DEFINER | sql |
 | `docray_is_admin()` | `boolean` | DEFINER | sql |
+| `docray_lens_collection_guard()` | `trigger` | invoker | plpgsql |
+| `docray_lens_default_document_count(lens_id uuid)` | `bigint` | DEFINER | sql |
+| `docray_lens_global_delete_guard()` | `trigger` | invoker | plpgsql |
+| `docray_membership_clears_default_lens()` | `trigger` | invoker | plpgsql |
 | `docray_prevent_audit_event_mutation()` | `trigger` | invoker | plpgsql |
 | `docray_principal_by_email(email text)` | `uuid` | DEFINER | sql |
 | `docray_readable_documents()` | `SETOF uuid` | DEFINER | sql |
@@ -2024,8 +2037,12 @@ SELECT a.document_id,
 - **audit_events** `trg_audit_events_append_only`: CREATE TRIGGER trg_audit_events_append_only BEFORE DELETE OR UPDATE …
 - **backups** `trg_backups_updated_at`: CREATE TRIGGER trg_backups_updated_at BEFORE UPDATE …
 - **canonical** `trg_canonical_updated_at`: CREATE TRIGGER trg_canonical_updated_at BEFORE UPDATE …
+- **document_collection_members** `trg_membership_clears_default_lens`: CREATE TRIGGER trg_membership_clears_default_lens BEFORE DELETE …
 - **document_collections** `trg_document_collections_updated_at`: CREATE TRIGGER trg_document_collections_updated_at BEFORE UPDATE …
+- **document_collections** `trg_lens_collection_guard`: CREATE TRIGGER trg_lens_collection_guard BEFORE INSERT OR UPDATE OF name, is_scope, parent_lens_id …
+- **document_collections** `trg_lens_global_delete_guard`: CREATE TRIGGER trg_lens_global_delete_guard BEFORE DELETE …
 - **document_content** `trg_content_fts`: CREATE TRIGGER trg_content_fts BEFORE INSERT OR UPDATE OF full_text …
+- **documents** `trg_document_default_lens_guard`: CREATE TRIGGER trg_document_default_lens_guard BEFORE INSERT OR UPDATE OF default_lens_id …
 - **documents** `trg_documents_language_fts`: CREATE TRIGGER trg_documents_language_fts AFTER UPDATE OF language …
 - **documents** `trg_documents_updated_at`: CREATE TRIGGER trg_documents_updated_at BEFORE UPDATE …
 - **principal_roles** `trg_reject_manual_scim_role_edit`: CREATE TRIGGER trg_reject_manual_scim_role_edit BEFORE INSERT OR DELETE OR UPDATE …
@@ -2201,3 +2218,5 @@ owner's bypass.
 | 118 | `118_metadata_history_authors_field.sql` | document metadata history admits the authors field |
 | 119 | `119_backup_role_default_grants.sql` | docray_batch default-privilege grants for backups |
 | 120 | `120_schema_version_1_40_0.sql` | advance the schema SemVer to 1.40.0 |
+| 121 | `121_lens_registry.sql` | Lens Registry: is_scope/parent_lens_id/default_lens_id + global lens (Block B) |
+| 122 | `122_schema_version_1_41_0.sql` | advance the schema SemVer to 1.41.0 |

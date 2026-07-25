@@ -20,6 +20,8 @@ _READ_TOOL_NAMES = {
     "get_job",
     "list_collections",
     "get_collection",
+    # Lens Registry (Block B): the scopes read side
+    "list_lenses",
     "corpus_manifest",
     "corpus_shard",
     "entity_frequency",
@@ -59,6 +61,10 @@ _WRITE_TOOL_NAMES = {
     "remove_document_from_collection",
     "update_collection",
     "delete_collection",
+    # Lens Registry (Block B): the scope-curation write side
+    "promote_collection_to_lens",
+    "demote_lens",
+    "set_document_default_lens",
 }
 
 

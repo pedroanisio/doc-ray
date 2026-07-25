@@ -454,7 +454,10 @@ async def get_job(job_id: str) -> dict[str, Any] | None:
 #: The ``DocumentCollection`` metadata selection shared by the read and write
 #: collection tools (``mutations.py``), so a listed, fetched, or mutated
 #: collection returns the same shape. ``documents`` is added only by ``get_collection``.
-COLLECTION_FIELDS = "id name description kind ruleSummary documentCount createdAt updatedAt cursor"
+COLLECTION_FIELDS = (
+    "id name description kind ruleSummary documentCount "
+    "isScope parentLensId createdAt updatedAt cursor"
+)
 
 
 async def list_collections(
@@ -472,6 +475,26 @@ async def list_collections(
         {"l": limit, "k": kind, "a": after},
     )
     rows: list[dict[str, Any]] = data["collections"]
+    return rows
+
+
+async def list_lenses(limit: int = 50, after: str | None = None) -> list[dict[str, Any]]:
+    """List the lenses — collections marked as entity-resolution scopes (Block B).
+
+    A *lens* is a named scope under which a projection layer interprets entity
+    identity: the fictional ``Duncan Idaho`` in one work stays distinct from an
+    unrelated novel's Duncan, while the reserved ``global`` lens holds real-world
+    (Wikidata-linkable) identities shared across the whole corpus. This is
+    ``list_collections`` narrowed to ``isScope`` rows. Promoting a collection to a
+    lens is a curation decision (``promote_collection_to_lens``), not a mechanical
+    one. Pass a row's ``cursor`` as ``after`` to page. ``documentCount`` is scoped
+    to the documents your token can see.
+    """
+    data = await gql(
+        f"query($l:Int!,$a:String){{lenses(limit:$l,after:$a){{{COLLECTION_FIELDS}}}}}",
+        {"l": limit, "a": after},
+    )
+    rows: list[dict[str, Any]] = data["lenses"]
     return rows
 
 
@@ -704,6 +727,7 @@ TOOLS: tuple[Callable[..., Any], ...] = (
     get_job,
     list_collections,
     get_collection,
+    list_lenses,
     corpus_manifest,
     corpus_shard,
     entity_frequency,

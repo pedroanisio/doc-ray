@@ -79,6 +79,7 @@ _READ_CALLS = [
     lambda: corpus.get_job("job-1"),
     lambda: corpus.list_collections(),
     lambda: corpus.get_collection(_DOC),
+    lambda: corpus.list_lenses(),
     lambda: corpus.corpus_manifest(4),
     lambda: corpus.corpus_shard(0, 4),
     lambda: corpus.entity_frequency(),
@@ -115,6 +116,11 @@ _WRITE_CALLS = [
     lambda: mutations.update_document_metadata(_DOC, authors=["Frank Herbert"]),
     lambda: mutations.update_collection(_DOC, name="AI & Business"),
     lambda: mutations.delete_collection(_DOC),
+    lambda: mutations.promote_collection_to_lens(_DOC),
+    lambda: mutations.promote_collection_to_lens(_DOC, parent_lens_id=_DOC),
+    lambda: mutations.demote_lens(_DOC),
+    lambda: mutations.set_document_default_lens(_DOC, lens_id=_DOC),
+    lambda: mutations.set_document_default_lens(_DOC),
 ]
 
 
@@ -149,6 +155,23 @@ def test_api_schema_exposes_the_ner_correction_surface() -> None:
         assert arg in mutation
     assert "entityMentionCorrections(documentId: ID!): [EntityMentionCorrection!]!" in query
     assert "type EntityMentionCorrection {" in sdl
+
+
+def test_api_schema_exposes_the_lens_registry_surface() -> None:
+    """Block B: promote/demote lenses, set a default, and read scopes back."""
+    from doc_ray.entrypoints.api.schema import build_schema as _bs
+
+    sdl = _bs(debug=True).as_str()
+    mutation = re.search(r"type Mutation \{(.*?)\n\}", sdl, re.S).group(1)
+    query = re.search(r"type Query \{(.*?)\n\}", sdl, re.S).group(1)
+    dc = re.search(r"type DocumentCollection \{(.*?)\n\}", sdl, re.S).group(1)
+    doc = re.search(r"type Document \{(.*?)\n\}", sdl, re.S).group(1)
+    assert "promoteCollectionToLens(collectionId: ID!, parentLensId: ID" in mutation
+    assert "demoteLens(collectionId: ID!): DocumentCollection!" in mutation
+    assert "setDocumentDefaultLens(documentId: ID!, lensId: ID" in mutation
+    assert "lenses(limit: Int! = 50, after: String" in query
+    assert "isScope: Boolean!" in dc and "parentLensId: ID" in dc
+    assert "defaultLensId: ID" in doc
 
 
 def test_api_schema_exposes_corpus_sharding() -> None:
@@ -197,5 +220,8 @@ async def test_every_write_tool_is_contract_checked() -> None:
         "remove_document_from_collection",
         "update_collection",
         "delete_collection",
+        "promote_collection_to_lens",
+        "demote_lens",
+        "set_document_default_lens",
     }
     assert {fn.__name__ for fn in mutations.TOOLS} == covered

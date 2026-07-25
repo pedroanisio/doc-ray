@@ -286,6 +286,11 @@ MIGRATIONS = [
     ("118_metadata_history_authors_field", "document metadata history admits the authors field"),
     ("119_backup_role_default_grants", "docray_batch default-privilege grants for backups"),
     ("120_schema_version_1_40_0", "advance the schema SemVer to 1.40.0"),
+    (
+        "121_lens_registry",
+        "Lens Registry: is_scope/parent_lens_id/default_lens_id + global lens (Block B)",
+    ),
+    ("122_schema_version_1_41_0", "advance the schema SemVer to 1.41.0"),
 ]
 
 # ---------------------------------------------------------------------------

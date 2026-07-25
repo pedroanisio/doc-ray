@@ -425,6 +425,7 @@ def test_tools_tuple_is_the_read_tools():
         "get_job",
         "list_collections",
         "get_collection",
+        "list_lenses",
         "corpus_manifest",
         "corpus_shard",
         "entity_frequency",

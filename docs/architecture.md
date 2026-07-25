@@ -164,6 +164,29 @@ mutation: `canonical`, `canonicalSearch`, `unresolvedMentions`, and
 fields expose annotation runs, tokens with features, dependencies, chunks,
 coreference chains, and entity links from the persisted NLP layers.
 
+## Lens registry (entity-resolution scopes)
+
+Today entity identity is **global** — one `canonical` registry for the tenant.
+That is correct for real-world entities but wrong for fiction, where the *Duncan
+Idaho* of one novel must not collapse into an unrelated book's Duncan. The fix
+(the Substrate·Lens·Projection architecture,
+[`proposals/entity-fabric-substrate-lens-projection.md`](proposals/entity-fabric-substrate-lens-projection.md))
+is to make identity **relative to a named scope — a lens** — rather than to
+fragment the registry.
+
+A **lens is a promoted collection**, not a parallel structure:
+`document_collections.is_scope` marks one as a scope, `parent_lens_id` optionally
+nests it, and `documents.default_lens_id` names a document's default. A reserved
+**`global`** lens (undeletable/unrenamable, enforced by trigger) is the
+real-world scope. Integrity — a parent lens is a scope, a default lens is a scope
+the document belongs to, no parent cycle — is enforced in the database
+(migration 121), and the `global` lens's completeness check runs BYPASSRLS as
+`docray_batch` (migration 114's pattern). **Block B ships this vocabulary only:
+no entity resolution changes; a later projection layer consumes it.** The GraphQL
+surface is `lenses` (read) and `promoteCollectionToLens` / `demoteLens` /
+`setDocumentDefaultLens` (write); MCP mirrors it with `list_lenses` and the three
+write tools.
+
 ## Access-control boundary
 
 The API authenticates inbound bearer/API-token requests with

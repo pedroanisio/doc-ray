@@ -19,6 +19,43 @@ doc-ray carries **one global version** covering both the application package
 (`docray_schema_version()`). They are kept in lockstep by
 `scripts/check_version_consistency.py`, which fails the build on any drift.
 
+## [1.41.0]
+
+### Added
+- **Lens Registry — promote collections to named entity-resolution scopes**
+  (Claude Opus 4.8 (1M context) via Claude Code; Block B, issue #5). A *lens* is a
+  `document_collections` row flagged `is_scope`: a named scope under which a later
+  projection layer (Block D) will interpret entity identity, so the fictional
+  *Duncan Idaho* of one work stays distinct from an unrelated novel's Duncan while
+  the reserved **`global`** lens holds real-world (Wikidata-linkable) identities
+  shared corpus-wide. This block ships **vocabulary and metadata only** — it does
+  not change how any entity resolves today; every existing read returns
+  byte-identical results (proposal
+  `docs/proposals/entity-fabric-substrate-lens-projection.md`, §3.2/§7).
+  - **Schema (migration 121):** `document_collections.is_scope` and
+    `parent_lens_id`; `documents.default_lens_id`; the reserved `global` lens
+    seeded idempotently. Integrity is enforced in the database, not only the app:
+    a parent lens must itself be a scope, a document's default lens must be a
+    scope it is a member of, the parent graph may not cycle, and `global` cannot
+    be renamed, demoted, or deleted — all by trigger. Deleting a lens `SET NULL`s
+    the references that point at it; unmembering a document from its default lens
+    clears the default.
+  - **GraphQL:** `DocumentCollection.isScope`/`parentLensId`, `Document.defaultLensId`,
+    a `lenses` query, and the `promoteCollectionToLens` / `demoteLens` /
+    `setDocumentDefaultLens` mutations (write-scope + per-document-ACL guarded,
+    audited on success and denial).
+  - **MCP:** the `list_lenses` read tool, and the `promote_collection_to_lens` /
+    `demote_lens` / `set_document_default_lens` write tools (gated by
+    `DOCRAY_MCP_ENABLE_WRITE`), with agent-facing docstrings explaining that
+    promotion is a curation decision, not a mechanical one.
+  - **Recorded decisions:** lenses ship flat (the `parent_lens_id` column exists
+    but resolution is not implemented — D-1); the default lives on `documents`
+    (D-2); `document_collections` remains shared, non-tenant navigation metadata,
+    so a lens *name* is visible corpus-wide while a document's `default_lens_id`
+    rides the existing `documents` RLS (D-3). The FR-2 preference for a composite
+    FK was superseded by triggers: PostgreSQL 16 rejects `ON DELETE SET NULL` on a
+    FK containing the generated companion column the composite form requires.
+
 ## [1.40.0]
 
 ### Fixed

@@ -118,7 +118,8 @@ async def list_collections(
     rows = await _rows(
         conn,
         """
-        SELECT id, name, description, kind, rule, created_at, updated_at
+        SELECT id, name, description, kind, rule, is_scope, parent_lens_id,
+               created_at, updated_at
         FROM document_collections
         WHERE (%(kind)s::text IS NULL OR kind = %(kind)s)
           AND (%(after_name)s::text IS NULL OR name > %(after_name)s
@@ -136,12 +137,50 @@ async def list_collections(
     return [await _attach_collection_projection(conn, row) for row in rows]
 
 
+async def list_lenses(
+    conn: _AConn,
+    *,
+    limit: int = 50,
+    after: str | None = None,
+) -> list[Row]:
+    """Return the scope collections (lenses), name-ordered and keyset-paginated.
+
+    A *lens* is a ``document_collections`` row flagged ``is_scope`` (Block B); this
+    is ``list_collections`` narrowed to those rows. The partial index
+    ``idx_document_collections_scope (name, id) WHERE is_scope`` (migration 121)
+    serves both the predicate and the ORDER BY, so the scan stays O(page) at the
+    10k-document target. ``document_count`` on each row is RLS-scoped to the
+    caller's visible members; the lens rows themselves are shared corpus metadata.
+    """
+    cursor = decode_cursor(after, "collections")
+    rows = await _rows(
+        conn,
+        """
+        SELECT id, name, description, kind, rule, is_scope, parent_lens_id,
+               created_at, updated_at
+        FROM document_collections
+        WHERE is_scope
+          AND (%(after_name)s::text IS NULL OR name > %(after_name)s
+               OR (name = %(after_name)s AND id > %(after_id)s::uuid))
+        ORDER BY name, id
+        LIMIT %(limit)s
+        """,
+        {
+            "limit": limit,
+            "after_name": cursor["name"] if cursor else None,
+            "after_id": cursor["id"] if cursor else None,
+        },
+    )
+    return [await _attach_collection_projection(conn, row) for row in rows]
+
+
 async def get_collection(conn: _AConn, collection_id: str) -> Row | None:
     """Return one document collection with its visible document count."""
     row = await _row(
         conn,
         """
-        SELECT id, name, description, kind, rule, created_at, updated_at
+        SELECT id, name, description, kind, rule, is_scope, parent_lens_id,
+               created_at, updated_at
         FROM document_collections
         WHERE id = %s
         """,
@@ -155,7 +194,8 @@ async def collections_for_document(conn: _AConn, document_id: str) -> list[Row]:
     rows = await _rows(
         conn,
         """
-        SELECT c.id, c.name, c.description, c.kind, c.rule, c.created_at, c.updated_at
+        SELECT c.id, c.name, c.description, c.kind, c.rule, c.is_scope,
+               c.parent_lens_id, c.created_at, c.updated_at
         FROM document_collections c
         JOIN documents d ON d.id = %(doc)s::uuid
         WHERE (
