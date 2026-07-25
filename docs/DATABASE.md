@@ -1,6 +1,6 @@
 # doc-ray — Database ERD & Data Dictionary
 
-**Schema version `1.41.0`** (SemVer) · 122 migrations applied
+**Schema version `1.41.0`** (SemVer) · 123 migrations applied
 
 > Generated from the live schema by `scripts/gen_data_dictionary.py`. Do not edit by hand — re-run the generator.
 
@@ -861,6 +861,7 @@ operator workflow queues for seeding and ambiguous-link review.
 - **Check:** CHECK ((status = ANY (ARRAY['pending'::text, 'approved'::text, 'rejected'::text, 'merged'::text])))
 - **Index** `idx_resolution_review_mention`: public.resolution_review USING btree (mention_id)
 - **Index** `idx_resolution_review_status`: public.resolution_review USING btree (status, id)
+- **RLS:** enabled — read/write policies via *mention_id → entity_mention → annotations* (FORCED)
 
 ### 5.9 Meaning, discourse, temporal & sentiment (layers 14–19)
 
@@ -2058,7 +2059,7 @@ document-scoped table. A principal may **read** a same-tenant document iff it is
 *admin* or holds any `document_acl` row on it, and may **write** iff *admin* or
 holds an `annotate`/`delete`/`admin` grant.
 
-**Enforcement.** RLS is `ENABLE`d (not `FORCE`) on 57 tables (incl. `jobs` and
+**Enforcement.** RLS is `ENABLE`d (not `FORCE`) on 58 tables (incl. `jobs` and
 `backups` since migration 043 — BL-064). The `docray`
 role is a **superuser and table owner**, so it **bypasses RLS** — the ingest
 pipeline and admin tooling use it as the trusted batch writer. End-user / API
@@ -2220,3 +2221,4 @@ owner's bypass.
 | 120 | `120_schema_version_1_40_0.sql` | advance the schema SemVer to 1.40.0 |
 | 121 | `121_lens_registry.sql` | Lens Registry: is_scope/parent_lens_id/default_lens_id + global lens (Block B) |
 | 122 | `122_schema_version_1_41_0.sql` | advance the schema SemVer to 1.41.0 |
+| 123 | `123_resolution_review_client_read.sql` | grant + RLS on resolution_review so client reads (resolutionReview) work (#15 sweep) |

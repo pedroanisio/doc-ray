@@ -22,6 +22,23 @@ doc-ray carries **one global version** covering both the application package
 ## [1.41.0]
 
 ### Fixed
+- **`resolutionReview` was dead for every client caller — `resolution_review`
+  never granted to `docray_client`, and never RLS-scoped** (Claude Opus 4.8 (1M
+  context) via Claude Code; issue #15, broader sweep). Migration 117 fixed the
+  `form_index`/`entity_profiles` instance of this class; the class-closing sweep
+  the issue asked for surfaced a second: `resolution_review` (read by the
+  `resolutionReview` GraphQL query via `list_resolution_review`) was created in
+  migration 023 — *after* both the 018 grant loop and the 018/106 RLS rollout — so
+  it had **neither** a `docray_client` SELECT grant **nor** RLS, and every real
+  caller got `permission denied for table resolution_review`. Unlike the global
+  `form_index`, `resolution_review` is per-document (via
+  `mention_id → entity_mention → annotations.document_id`), so migration 123 adds
+  **RLS scoping** (a bare grant would expose every tenant's review queue) *and* the
+  grant. A new `test_client_read_grants.py` closes the class: it asserts
+  `docray_client` holds SELECT on every table the client-facing read adapters
+  touch, so the next table added after a grant loop cannot silently repeat this.
+  No schema-structure change (grant + RLS only); `docray_schema_version()`
+  untouched, as with 117.
 - **`entity_dossier` reported a capped page as the corpus total** (Claude Opus 4.8
   (1M context) via Claude Code; issue #14). The MCP tool derived `total_mentions`,
   its `documents` roster, and `gaps` from a single `search_sentences` page capped

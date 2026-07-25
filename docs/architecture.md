@@ -207,6 +207,16 @@ an explicit `docray_batch` role carrying `BYPASSRLS`, assumed by
 `adapters/persistence.connect()`. The deployment must connect as a
 **non-superuser**: a superuser bypasses RLS regardless of `FORCE`.
 
+A recurring hazard is a table created *after* the `018_rbac` grant loop (and the
+`018`/`106` RLS rollout) that is never retrofitted: the batch role reads it, so
+ingestion works, while every `docray_client` read path that joins it fails with
+`permission denied` (this was `form_index`/`entity_profiles`, migration 117, and
+`resolution_review`/`resolutionReview`, migration 123). A per-document table needs
+**both** a client grant and an RLS policy — a grant alone would expose it across
+tenants. `test_client_read_grants.py` closes the class: it asserts `docray_client`
+holds SELECT on every table the client-facing read adapters reference, so the next
+such gap fails a test rather than a production caller.
+
 ### What a principal may read
 
 The read boundary is document **ownership** (migration 102, D-026).
