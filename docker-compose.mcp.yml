@@ -54,6 +54,11 @@ services:
       # Sourced from DOCRAY_PUBLIC_BASE_URL's host; add extras via DOCRAY_MCP_ALLOWED_HOSTS.
       DOCRAY_PUBLIC_BASE_URL: ${DOCRAY_PUBLIC_BASE_URL:-}
       DOCRAY_MCP_ALLOWED_HOSTS: ${DOCRAY_MCP_ALLOWED_HOSTS:-}
+      # Ops Phase 3 (#18): per-principal request throttling (0 disables). In-process
+      # per container; with N replicas the effective limit is N×. Never limits the
+      # /health or /readyz probes.
+      DOCRAY_MCP_RATE_LIMIT_REQUESTS: ${DOCRAY_MCP_RATE_LIMIT_REQUESTS:-120}
+      DOCRAY_MCP_RATE_LIMIT_WINDOW_SECONDS: ${DOCRAY_MCP_RATE_LIMIT_WINDOW_SECONDS:-60}
     # Override the image ENTRYPOINT (the `ingest` CLI); `command:` alone would be
     # passed as args to ingest ("unrecognized arguments") instead of running uvicorn.
     entrypoint:
@@ -61,9 +66,10 @@ services:
     ports:
       - "${MCP_PORT:-8080}:8080"
     healthcheck:
-      # uvicorn is up once the port accepts TCP — no unauthenticated MCP route to probe.
+      # Ops Phase 3 (#18): the unauthenticated /health liveness route — so a green
+      # healthcheck means the ASGI app answers, not merely that the TCP port is open.
       test:
-        ["CMD-SHELL", "python -c \"import socket,sys; sys.exit(0 if socket.socket().connect_ex(('localhost',8080))==0 else 1)\""]
+        ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8080/health',timeout=3).status==200 else 1)\""]
       interval: 15s
       timeout: 5s
       retries: 5

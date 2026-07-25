@@ -110,7 +110,7 @@ metadata:
   generated_by:     "Claude Sonnet 5 via Claude Code (merge of Claude Opus 4.8 backlog + OpenAI Codex improvement-proposal candidates)"
   generated_on:     "2026-07-05"
   system_of_record: "docs/backlog.yml"
-  total_items:      152
+  total_items:      153
 
 items:
 
@@ -5199,3 +5199,44 @@ items:
     owner:        "unassigned"
     source:       "Verified 2026-07-25: get_bucket_versioning on the production bucket returned no Status (versioning never enabled); backups/ prefix empty."
     tags:         ["backup", "durability", "object-store"]
+
+  - id:          "BL-153"
+    title:        "MCP Ops Phase 3: health, readiness, rate limiting, and the token-minting runbook"
+    summary:      "The MCP server ships live in production ahead of its ops surface: no liveness/readiness endpoints, no rate limiting, and no written token-minting/rotation procedure. This closes the four genuinely-open Phase-3 items of docs/mcp-service.md §4 so the MCP front door has the operational surface every other service in the stack already has."
+    description: |
+      New entrypoints/mcp/health.py (GET /health liveness — dependency-free, 200
+      even when the upstream is down; GET /readyz readiness — 503 naming the failed
+      check, ≤2s upstream probe, ~5s negative cache) and entrypoints/mcp/ratelimit.py
+      (per-principal fixed-window limiter, 429 + Retry-After, fingerprint-not-token
+      logging). Both probes bypass BearerAuthMiddleware and the limiter via a shared
+      health.PUBLIC_PATHS. Open decision 1: reuse — the pure limiter moved to
+      doc_ray.domain.rate_limit, shared with the webapp (webapp/rate_limit.py is a
+      re-export shim), no second implementation. Open decision 2: in-process state
+      (per container; N replicas => N×, documented). Open decision 3: 5s negative
+      readiness cache. Open decision 4: generous enabled-by-default limit (120/60s)
+      that only catches runaway loops, since the API has no limiter to mirror. Compose
+      healthcheck upgraded from a TCP probe to GET /health. Token runbook added to
+      docs/production-setup.md (mint/rotate/revoke, static vs OAuth DCR, audit trail).
+      No schema change, no version bump.
+    category:     "ops"
+    type:         "feature"
+    status:       "done"
+    complexity:   "M"
+    priority:     "medium"
+    rationale:    "The MCP server is live at doc-ray.com/mcp: without /health vs /readyz the compose healthcheck cannot tell 'process up' from 'can reach the API', a deploy cannot gate on readiness, a single runaway agent can hammer the GraphQL API through the MCP front door unbounded, and credential rotation is an improvisation. These are the operational basics every other service in the stack already has."
+    acceptance_criteria:
+      - "GET /health returns 200 unauthenticated even while the upstream API is stopped; a regression test fails if it acquires a network call."
+      - "GET /readyz returns 200 when the upstream is reachable and 503 naming the failed check when not; neither probe leaks config, host, or a stack trace."
+      - "Exceeding the configured rate returns 429 + Retry-After, logged by principal fingerprint (never the token); /health and /readyz are never rate-limited."
+      - "The compose mcp service healthcheck hits /health; gen_env_samples --check passes with the new settings; the token runbook's commands were executed against a running stack."
+      - "docs/mcp-service.md §4 Phase 3 fully ticked with evidence pointers."
+    dependencies: []
+    references:
+      - "src/doc_ray/entrypoints/mcp/health.py"
+      - "src/doc_ray/entrypoints/mcp/ratelimit.py"
+      - "src/doc_ray/domain/rate_limit.py"
+      - "docs/mcp-service.md"
+      - "docs/production-setup.md"
+    owner:        "shared"
+    source:       "GitHub issue #18 (MCP Ops Phase 3); implemented with strict TDD (Claude Opus 4.8 (1M context) via Claude Code)."
+    tags:         ["mcp", "ops", "observability", "feature"]

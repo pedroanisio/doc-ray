@@ -87,6 +87,37 @@ doc-ray carries **one global version** covering both the application package
     no longer start `backup-scheduler`.
 
 ### Added
+- **MCP Ops Phase 3 — health, readiness, rate limiting, and the token runbook**
+  (Claude Opus 4.8 (1M context) via Claude Code; issue #18). The MCP service — live
+  in production ahead of its ops surface — gains the operational surface every other
+  service in the stack already has. No schema change; no version bump.
+  - **`GET /health`** (liveness): `200 {"status":"ok","version":…}` whenever the
+    process runs, **dependency-free** — a regression test fails if it ever acquires a
+    network call, because a liveness probe that checks the upstream makes the
+    orchestrator kill a healthy process. **`GET /readyz`** (readiness): `200` only when
+    the config loaded and the GraphQL upstream answers, else `503` naming the failed
+    check; the upstream probe is a ≤2 s GET and a negative result is cached ~5 s so a
+    readiness storm cannot amplify an outage. Both are unauthenticated, information-free
+    (no host/URL/stack trace), and bypass `BearerAuthMiddleware` and the limiter via
+    `health.PUBLIC_PATHS`. `entrypoints/mcp/health.py`, mirroring the API's `/health`+`/readyz`.
+  - **Per-principal rate limiting** (`entrypoints/mcp/ratelimit.py`): `429` + `Retry-After`
+    on breach, keyed by a non-reversible token fingerprint (IP fallback), logged on
+    rejection by fingerprint — never the token. Configurable via
+    `DOCRAY_MCP_RATE_LIMIT_REQUESTS` (default `120`) / `DOCRAY_MCP_RATE_LIMIT_WINDOW_SECONDS`
+    (default `60`); `0` disables. State is in-process (per container; N replicas ⇒ N×,
+    documented). **No second limiter**: the pure fixed-window core moved to
+    `doc_ray.domain.rate_limit`, shared with the webapp (`webapp/rate_limit.py` is now a
+    re-export shim — no behaviour change).
+  - **Compose healthcheck** now hits `/health` (was a bare TCP-port check), so
+    `depends_on: condition: service_healthy` is meaningful. **Token runbook** added to
+    `docs/production-setup.md`: mint (`auth_admin token mint --principal … --scopes read`),
+    why `write` is not the default, static-token vs OAuth DCR, rotate, revoke, and reading
+    a principal's audit trail. Ops surface documented in `docs/mcp-service.md` §3.8; §4
+    Phase 3 fully ticked.
+  - **Migration guidance:** none required — rate limiting ships **enabled** with a
+    generous default that only catches runaway loops. To restore the previous unlimited
+    behaviour set `DOCRAY_MCP_RATE_LIMIT_REQUESTS=0`. New env keys are additive and
+    registered in `config/env.registry.yaml`.
 - **MCP prompts primitive — ship the corpus methodology as selectable workflows**
   (Claude Opus 4.8 (1M context) via Claude Code; issue #13, MCP Item 8). The server
   now declares MCP's third and final primitive — **prompts** (user-controlled, joining

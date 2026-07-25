@@ -39,7 +39,8 @@ Phase 4) shipped in commit `93c0e99` (`application/oauth_server.py`,
 `webapp/oauth_web.py`, migration `082_oauth_clients.sql`), so a connector like
 Claude Desktop obtains a token via Dynamic Client Registration + PKCE with no
 pre-shared secret. Sections marked **DONE** are as-built; unchecked items are
-roadmap. Remaining: Phase-3 ops polish (`/health`/`/readyz`) and optional gRPC.
+roadmap. Phase 3 (health/readiness, rate limiting, token runbook) shipped in #18
+(§3.8); the only remaining roadmap item is the optional gRPC gateway (Phase 4, gated).
 
 **Deploying it (as-built).** `make mcp-up` layers `docker-compose.mcp.yml` on the
 managed stack; the `mcp` service front-ends `api:8000/graphql`, loopback-bound on
@@ -478,6 +479,43 @@ call; a well-formed but unreadable id returns a plain "not readable — use
 fetched, the plan degrades to one that tells the model to call `read_document_outline`
 itself and says it degraded — it never invents ranges.
 
+### 3.8 Ops surface — health, readiness, and rate limiting (Ops Phase 3, #18)
+
+The MCP service carries the same operational surface as the GraphQL API, on the
+same paths and with the same response shapes (`entrypoints/api/health.py` is the
+model). All of it is **unauthenticated and information-free** — the probes are
+called by the container runtime, which holds no token — and both probes bypass
+`BearerAuthMiddleware` **and** the rate limiter via `health.PUBLIC_PATHS`.
+
+| Route | Auth | Behaviour |
+|---|---|---|
+| `GET /health` | none | **Liveness.** `200 {"status":"ok","version":…}` whenever the process runs. Never calls the network — it must stay green when the upstream is down, or the orchestrator would kill a healthy process. `version` is the value the MCP handshake already advertises; nothing else is disclosed. |
+| `GET /readyz` | none | **Readiness.** `200` only when the config loaded **and** the GraphQL upstream answers; otherwise `503` with `{"ready":false,"checks":{…}}` naming the failed check. The upstream probe is a ≤2 s GET to the API's own `/health`; a **negative** result is cached ~5 s so a readiness storm cannot amplify an upstream outage. Failures carry an error *kind* only — never the upstream host, URL, or a stack trace. |
+
+```bash
+curl -fsS localhost:8080/health   # → {"status":"ok","version":"1.42.0"}
+curl -sS -o /dev/null -w '%{http_code}\n' localhost:8080/readyz   # 200 ready, 503 if the API is unreachable
+```
+
+The compose `healthcheck` hits `/health`, so `depends_on: condition: service_healthy`
+is meaningful for anything layered on `mcp`.
+
+**Rate limiting.** A per-principal fixed-window limiter (`entrypoints/mcp/ratelimit.py`)
+wraps the shared `doc_ray.domain.rate_limit` core — the *same* implementation the
+webapp uses, not a second one. The key is a non-reversible fingerprint of the bearer
+token the auth layer resolved (falling back to the client IP for anonymous callers,
+which in practice only reach the exempt probes). On breach it returns `429` with a
+`Retry-After` header and logs the rejection on `doc_ray.mcp.ratelimit` by fingerprint
+— never the token. Configure with `DOCRAY_MCP_RATE_LIMIT_REQUESTS` (default `120`) and
+`DOCRAY_MCP_RATE_LIMIT_WINDOW_SECONDS` (default `60`); set requests to `0` to disable.
+The default is generous — it only catches runaway loops.
+
+> **State is per-process** (Open decision 2). The MCP service runs as **one**
+> container, so this is correct as deployed; if it is ever scaled to *N* replicas the
+> effective limit is *N×* the configured value (each process counts independently).
+> A shared store (Redis/Postgres) would be needed for a hard cluster-wide cap — not
+> introduced here, deliberately.
+
 ### Write tools (opt-in — `DOCRAY_MCP_ENABLE_WRITE=true`)
 
 Registered **only** when writes are enabled, so the default surface stays
@@ -735,10 +773,17 @@ unaffected.
 - [x] **TLS front door — DONE.** Served behind the Cloudflare tunnel via the
       `doc-ray.com /mcp → http://mcp:8080` route (see the Status header above); the
       `mcp` service is loopback-bound on `:8080` and never published raw.
-- [ ] Per-agent token minting doc (`auth_admin token mint`, `read` scope) + rotation guidance.
-- [ ] `/health`/`/readyz` for the MCP service; wire into the prod compose + deploy doc.
-- [ ] Optional: request rate limiting mirroring the API's `rate_limit` posture.
-- **Acceptance:** MCP service reachable only via the TLS front; ops runbook section added.
+- [x] **Per-agent token minting + rotation runbook — DONE** (#18). See
+      `docs/production-setup.md` §"MCP tokens" and §3.8 below; the exact invocation is
+      `python -m doc_ray.entrypoints.auth_admin token mint --principal <id> --scopes read`.
+- [x] **`/health` + `/readyz` — DONE** (#18). `entrypoints/mcp/health.py`: liveness is
+      dependency-free (200 even when the API is down); readiness returns 503 naming the
+      failed check. Both bypass `BearerAuthMiddleware` (`health.PUBLIC_PATHS`); the compose
+      `healthcheck` hits `/health`. See §3.8.
+- [x] **Request rate limiting — DONE** (#18). `entrypoints/mcp/ratelimit.py`, reusing the
+      shared `domain.rate_limit` limiter; per-principal, `429` + `Retry-After` on breach,
+      `DOCRAY_MCP_RATE_LIMIT_REQUESTS`/`_WINDOW_SECONDS`. See §3.8.
+- **Acceptance:** MCP service reachable only via the TLS front; ops runbook section added. ✅
 
 ### Phase 4 — v2 (post-first-version, optional)  ·  size: L
 - [x] **MCP OAuth 2.1 — DONE** (commit `93c0e99`). Shipped as a full OAuth 2.1

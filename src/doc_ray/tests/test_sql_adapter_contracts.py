@@ -132,7 +132,9 @@ def test_queue_postgres_unqualified_job_sql_columns_exist_in_migrations():
     sql_text = "\n".join(_queue_postgres_sql_literals())
     sql_text = re.sub(r"--.*", "", sql_text)
     sql_text = re.sub(r"'[^']*'", "", sql_text)
-    # Named psycopg placeholders are bind keys, not SQL identifiers or columns.
+    # psycopg named placeholders (%(doc)s) carry a parameter name, not a column
+    # name — strip them before scanning, or every named-parameter query trips
+    # this check on its own placeholders.
     sql_text = re.sub(r"%\([a-z_][a-z0-9_]*\)s", "", sql_text, flags=re.IGNORECASE)
     identifiers = set(re.findall(r"\b[a-z_][a-z0-9_]*\b", sql_text.lower()))
     allowed = (

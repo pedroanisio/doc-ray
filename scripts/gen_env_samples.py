@@ -68,6 +68,12 @@ _GROUP_TITLES = {
 
 
 def load_registry() -> list[dict]:
+    """Registry entries that belong in the tracked env samples.
+
+    ``app``-scoped keys are read by application code; ``compose``-scoped keys
+    (POSTGRES_* and friends) are consumed by docker-compose from the same .env
+    file, so both must appear in the samples. ``system``-scoped keys stay out.
+    """
     data = yaml.safe_load(REGISTRY.read_text())
     return [v for v in data["variables"] if v.get("scope", "app") in {"app", "compose"}]
 

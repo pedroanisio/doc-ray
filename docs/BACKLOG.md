@@ -519,6 +519,7 @@ against.
 | BL-150 | MCP prompts primitive: ship the corpus methodology as selectable workflows | api | feature | done | S | medium | shared |
 | BL-151 | Backup archive upload is a single in-memory PutObject — fails past 5 GiB | ops | bug | ready | M | medium | unassigned |
 | BL-152 | Object-store blobs have no backup coverage once the in-app archive is off | ops | infra | ready | S | high | unassigned |
+| BL-153 | MCP Ops Phase 3: health, readiness, rate limiting, and the token-minting runbook | ops | feature | done | M | medium | shared |
 
 See [`backlog.yml`](backlog.yml) for each item's full description, rationale,
 acceptance criteria, dependencies, related decisions (`D-###`), and references.
