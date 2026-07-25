@@ -65,9 +65,16 @@ KIND_APPLY_CORRECTIONS = "apply_corrections"
 
 # Job kinds that are expected to take enough wall-clock time to need a reserved
 # slow lane. Compose worker filters must stay in sync with this set. Visual
-# extract renders pages (CPU) so it can be heavy on visual-dominant documents.
+# extract renders pages (CPU), while visual and semantic embedding load large
+# encoders and process whole documents.
 LONG_RUNNING_JOB_KINDS = frozenset(
-    {KIND_ANNOTATE, KIND_REANNOTATE, KIND_VISUAL_EXTRACT, KIND_SEMANTIC_EMBED}
+    {
+        KIND_ANNOTATE,
+        KIND_REANNOTATE,
+        KIND_VISUAL_EXTRACT,
+        KIND_VISUAL_EMBED,
+        KIND_SEMANTIC_EMBED,
+    }
 )
 
 # Corpus-wide backup/restore, gated as one unit by ``Config.backup_enabled``

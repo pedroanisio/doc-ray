@@ -112,8 +112,12 @@ The worker sends at most `DOCRAY_VISION_BATCH_SIZE` images or sentence texts to
 the dual encoder per call (default `16`) while retaining one atomic
 delete-then-COPY write per Document. On a memory-constrained GPU, lower the
 positive integer and restart the worker before retrying failed `visual_embed`
-jobs. Continue only when the jobs are terminal and `image_embedding` is non-zero;
-an enqueued or running job is not coverage evidence.
+jobs. The default `WORKER_FAST_EXCLUDE_KINDS` includes `visual_embed`, keeping
+these jobs on the GPU-capable heavy lane. Its default wall-clock limit is four
+hours; override `WORKER_JOB_TIMEOUT_VISUAL_EMBED_SECONDS` before starting the
+worker when a larger corpus needs a longer per-Document budget. Continue only
+when the jobs are terminal and `image_embedding` is non-zero; an enqueued or
+running job is not coverage evidence.
 
 ## Roll back
 

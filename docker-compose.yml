@@ -373,6 +373,8 @@ services:
       WORKER_JOB_TIMEOUT_VISUAL_EXTRACT_SECONDS: ${WORKER_JOB_TIMEOUT_VISUAL_EXTRACT_SECONDS:-14400}
       # Learned sentence embedding loads a large model and processes whole books.
       WORKER_JOB_TIMEOUT_SEMANTIC_EMBED_SECONDS: ${WORKER_JOB_TIMEOUT_SEMANTIC_EMBED_SECONDS:-14400}
+      # Tier-2 vision embedding loads OpenCLIP and may process hundreds of images.
+      WORKER_JOB_TIMEOUT_VISUAL_EMBED_SECONDS: ${WORKER_JOB_TIMEOUT_VISUAL_EMBED_SECONDS:-14400}
       DOCRAY_RESOLVER_TIMEOUT_SECONDS: ${DOCRAY_RESOLVER_TIMEOUT_SECONDS:-60}
     entrypoint: ["python", "-m", "doc_ray.entrypoints.worker"]
 
@@ -402,10 +404,10 @@ services:
       WORKER_JOB_TIMEOUT_SECONDS: ${WORKER_JOB_TIMEOUT_SECONDS:-3600}
       # Heavy, model-loading jobs stay off the fast pool so light user-facing jobs
       # (ingest, metadata edits, backups) never queue behind them. semantic_embed
-      # loads a 420 MB sentence-transformer and embeds thousands of sentences per
-      # document — it belongs with annotate on the `worker` pool (which is also the
-      # one the GPU overlay accelerates), not here.
-      WORKER_EXCLUDE_KINDS: ${WORKER_FAST_EXCLUDE_KINDS:-annotate,reannotate,visual_extract,semantic_embed}
+      # and visual_embed load large encoders and process whole documents — they
+      # belong with annotate on the `worker` pool (which is also the one the GPU
+      # overlay accelerates), not here.
+      WORKER_EXCLUDE_KINDS: ${WORKER_FAST_EXCLUDE_KINDS:-annotate,reannotate,visual_extract,semantic_embed,visual_embed}
       DOCRAY_RESOLVER_TIMEOUT_SECONDS: ${DOCRAY_RESOLVER_TIMEOUT_SECONDS:-60}
     entrypoint: ["python", "-m", "doc_ray.entrypoints.worker"]
 

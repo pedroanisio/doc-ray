@@ -7,6 +7,8 @@
 #   * semantic_embed — the all-mpnet-base-v2 sentence encoder (sentence-transformers
 #                     auto-selects CUDA when the container can see the GPU; override
 #                     with DOCRAY_SEMANTIC_DEVICE). Routed here off the fast pool.
+#   * visual_embed  — the open_clip dual encoder for Tier-2 image/text vectors;
+#                     bounded by DOCRAY_VISION_BATCH_SIZE and routed off fast.
 #
 # `scripts/deploy_env.py` applies this overlay automatically when a GPU is usable;
 # use it via `make up` rather than hand-passing -f flags. On an 8 GB card the two
@@ -26,10 +28,10 @@
 services:
   worker:
     environment:
-      # 8 GB consumer cards fit ONE trf worker: torch (transformer) + cupy
-      # (thinc tagger/parser/ner) each hold a growing device pool, ~6 GB
-      # combined at peak. Run a single GPU worker (scale=1) — two OOM. Keep the
-      # non-GPU worker-fast pool for the rest of the queue.
+      # 8 GB consumer cards fit ONE model worker: torch/open_clip and cupy
+      # (thinc tagger/parser/ner) each hold a growing device pool. Run a single
+      # GPU worker (scale=1) — two OOM. Keep the non-GPU worker-fast pool for
+      # light jobs only.
       # expandable_segments curbs allocator fragmentation across docs of
       # varying length (the OOM hint torch itself prints).
       PYTORCH_CUDA_ALLOC_CONF: expandable_segments:True

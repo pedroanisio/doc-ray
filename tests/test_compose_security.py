@@ -64,6 +64,34 @@ _PROD_APP_SERVICES = (
 _PROD_LOCAL_INFRA = ("postgres", "minio", "createbucket")
 
 
+def test_fast_worker_excludes_every_long_running_model_job() -> None:
+    """The CPU fast lane must never claim GPU-only or hours-long model work."""
+    expected = {
+        "annotate",
+        "reannotate",
+        "visual_extract",
+        "semantic_embed",
+        "visual_embed",
+    }
+    worker_fast = _compose("docker-compose.yml")["services"]["worker-fast"]
+    configured = worker_fast["environment"]["WORKER_EXCLUDE_KINDS"]
+    default = configured.removesuffix("}").split(":-", maxsplit=1)[1]
+    assert set(default.split(",")) == expected
+
+    registry = yaml.safe_load((_ROOT / "config" / "env.registry.yaml").read_text())
+    entry = next(item for item in registry["variables"] if item["key"] == "WORKER_FAST_EXCLUDE_KINDS")
+    assert set(entry["default"].split(",")) == expected
+
+
+def test_test_postgres_healthcheck_waits_for_final_server_process() -> None:
+    """Do not report healthy while the image's temporary init server is running."""
+    healthcheck = _compose(_TEST_COMPOSE_FILE)["services"]["test-postgres"]["healthcheck"]["test"]
+    command = " ".join(healthcheck)
+
+    assert "grep -qx postgres /proc/1/comm" in command
+    assert "pg_isready" in command
+
+
 def test_postgres_image_is_pinned_to_an_immutable_digest():
     for path in _COMPOSE_FILES:
         postgres = _compose(path)["services"]["postgres"]
