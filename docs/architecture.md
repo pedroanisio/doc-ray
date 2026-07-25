@@ -404,6 +404,14 @@ encoder it carries no verification gate. Retrieval is exposed as
 which rank sentences by learned cosine similarity over the RLS-scoped `embedding`
 table — the structural answer to lexical-search flooding on common terms.
 
+Where the matrix answers *which* layers are supported,
+[`docs/nlp_architecture.md`](nlp_architecture.md) answers *how* the running
+system does NLP: the segmentation and language-detection algorithms, the spaCy
+pass and its validation gate, the deterministic-before-statistical-before-
+generative posture of the canonicalization flywheel, the verification gate behind
+each model output, the three retrieval paths and their differing semantics, and
+the known limits of each layer.
+
 ### Human corrections to ML entities
 
 Named-entity output is a model's guess, so the corpus carries a verification
