@@ -1,6 +1,6 @@
 # doc-ray — Database ERD & Data Dictionary
 
-**Schema version `1.41.0`** (SemVer) · 123 migrations applied
+**Schema version `1.42.0`** (SemVer) · 124 migrations applied
 
 > Generated from the live schema by `scripts/gen_data_dictionary.py`. Do not edit by hand — re-run the generator.
 
@@ -2222,3 +2222,4 @@ owner's bypass.
 | 121 | `121_lens_registry.sql` | Lens Registry: is_scope/parent_lens_id/default_lens_id + global lens (Block B) |
 | 122 | `122_schema_version_1_41_0.sql` | advance the schema SemVer to 1.41.0 |
 | 123 | `123_resolution_review_client_read.sql` | grant + RLS on resolution_review so client reads (resolutionReview) work (#15 sweep) |
+| 124 | `124_semantic_embedding_cutover.sql` | NLP Layer 20 hard cutover: purge discarded hash-bow-768 rows, advance schema SemVer to 1.42.0 (#20/#21) |

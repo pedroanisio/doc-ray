@@ -28,6 +28,7 @@ from doc_ray.entrypoints.api.ids import clean_uuid as _clean_uuid
 from doc_ray.entrypoints.api.mutation_guards import _require_admin_read
 from doc_ray.entrypoints.api.security_audit import record_audit_event
 from doc_ray.entrypoints.api.security_audit_types import SecurityAuditEvent
+from doc_ray.entrypoints.api.semantic_query import SemanticQueries
 from doc_ray.entrypoints.api.structure_query import StructureQueries
 from doc_ray.entrypoints.api.types import (
     CorpusManifest,
@@ -47,7 +48,7 @@ from doc_ray.entrypoints.api.visual_query import VisualQueries
 
 
 @strawberry.type
-class Query(VisualQueries, StructureQueries, CollectionQueries):
+class Query(VisualQueries, SemanticQueries, StructureQueries, CollectionQueries):
     """The GraphQL query root."""
 
     @strawberry.field

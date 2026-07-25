@@ -406,6 +406,7 @@ def test_tools_tuple_is_the_reprocessing_and_curation_writers() -> None:
         "reextract_document",
         "annotate_document",
         "semantic_enrich_document",
+        "embed_document_sentences",
         "canonicalize_document",
         "suggest_seeds",
         "suggest_document_metadata",

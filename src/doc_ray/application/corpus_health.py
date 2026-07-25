@@ -171,7 +171,10 @@ def find_issues(snapshot: dict[str, Any]) -> list[dict[str, Any]]:
             {
                 "code": "embeddings-missing",
                 "severity": "info",
-                "detail": "corpus has sentences but no embeddings — vector search unavailable",
+                "detail": (
+                    "corpus has sentences but no learned embeddings — semantic search "
+                    "unavailable; run the semantic_embed job (embedDocumentSentences)"
+                ),
             }
         )
     return issues

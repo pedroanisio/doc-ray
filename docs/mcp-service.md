@@ -24,7 +24,7 @@ read tools** (13 corpus readers incl. `read_document_sentences`, `corpus_manifes
 `corpus_shard`, `get_job`, `list_collections`, `get_collection` + 2 structure
 tools from `entrypoints/mcp/structure.py` (`read_document_outline`,
 `entity_profiles`) + 3 composition-grounding tools from
-`entrypoints/mcp/compose.py` + 4 Prism visual tools… see §3) always registered, plus **17 opt-in write tools**
+`entrypoints/mcp/compose.py` + semantic search + 4 Prism visual tools… see §3) always registered, plus **22 opt-in write tools**
 (reprocessing + curation + full collection lifecycle) registered only when
 `DOCRAY_MCP_ENABLE_WRITE=true` — the default surface stays read-only. It also
 declares MCP's **resources** primitive: 3 listable `docray://` entry points +
@@ -148,6 +148,7 @@ but had no passage cited on this page. Example:
 | `entity_frequency(document_id?, entity_type?, limit)` | `entityFrequency` | **raw** NER rows, one per (surface, type) — prefer `entity_profiles` |
 | `entity_profiles(document_id?, entity_type?, limit)` | `entityProfiles` | one row per entity: merged spellings, measured type spread, `typeConsistency` — see §3.3 |
 | `lexeme_kwic(uid, document_id?, limit)` | `lexeme { occurrences }` | KWIC is a **nested** resolver, not a root field |
+| `semantic_search_sentences(query, document_id?, limit)` | `semanticSearchSentences` | meaning-based (learned-embedding) sentence retrieval; the antidote to lexical `search_sentences` flooding. Typed `unsupported` where the sentence stack is absent |
 | `document_images(document_id, limit)` | `document { images }` | Prism visual layer: extracted/rendered page images |
 | `image_class_summary(document_id)` | `imageClassSummary` | per-document tally of image tier classes |
 | `visual_captions(document_id, limit)` | `visualCaptions` | generated captions for a document's images |
@@ -397,6 +398,7 @@ engineering decision **D-030**.
 | `reextract_document(document_id)` | `reextractDocument` | `Job` |
 | `annotate_document(document_id, lang="en")` | `annotateDocument` | `Job` |
 | `semantic_enrich_document(document_id)` | `semanticEnrichDocument` | `Job` |
+| `embed_document_sentences(document_id)` | `embedDocumentSentences` | `Job` (learned Layer-20 embed; worker sentence stack required) |
 | `canonicalize_document(document_id, resolve=False)` | `canonicalizeDocument` | `Job` (LLM only if `resolve`) |
 | `suggest_seeds(document_id, limit=40)` | `suggestSeeds` | `Job` |
 | `suggest_document_metadata(document_id)` | `suggestDocumentMetadata` | `Job` |

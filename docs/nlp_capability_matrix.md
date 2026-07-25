@@ -55,11 +55,15 @@ become visible.
 
 Semantic-enrichment note: as of `BL-006`, `application.semantic_enrichment`
 ports the deterministic subset of the remaining schema-only layers. It writes
-PDTB-style connective relations, simple TimeML date/event rows, lexicon
-sentiment, and hash-BoW embeddings under one provenance-stamped annotation run.
-Subword tokenization, constituency, SRL, WSD, and AMR remain schema-only because
-they require a dedicated tokenizer/parser/model or knowledge base rather than a
-safe deterministic fallback.
+PDTB-style connective relations, simple TimeML date/event rows, and lexicon
+sentiment under one provenance-stamped annotation run. Sentence embeddings
+(Layer 20) are NOT part of this deterministic run: after the hard cutover from
+the `hash-bow-768` placeholder (issues #20/#21), they are produced by the learned
+`application.semantic_embed` writer under the opt-in `semantic_embed` job and
+retrieved via `semanticSearchSentences`. Subword tokenization, constituency, SRL,
+WSD, and AMR remain schema-only because they require a dedicated
+tokenizer/parser/model or knowledge base rather than a safe deterministic
+fallback.
 
 ## Capability Matrix
 
@@ -84,7 +88,7 @@ safe deterministic fallback.
 | 17 | Discourse relations | `db/migrations/011_meaning_discourse.sql` | writer: `src/doc_ray/application/semantic_enrichment.py::annotate_document` | none: no read-adapter function for discourse rows | none: no GraphQL discourse field | none: not browser-exposed | none: no health signal beyond table tests | `src/doc_ray/tests/test_011_meaning.py`; `src/doc_ray/tests/test_semantic_enrichment.py` | writer-backed |
 | 18 | Temporal and event annotation | `db/migrations/011_meaning_discourse.sql` | writer: `src/doc_ray/application/semantic_enrichment.py::annotate_document` | none: no read-adapter function for temporal rows | none: no GraphQL temporal field | none: not browser-exposed | none: no health signal beyond table tests | `src/doc_ray/tests/test_011_meaning.py`; `src/doc_ray/tests/test_semantic_enrichment.py` | writer-backed |
 | 19 | Sentiment | `db/migrations/011_meaning_discourse.sql` | writer: `src/doc_ray/application/semantic_enrichment.py::annotate_document` | none: no read-adapter function for sentiment rows | none: no GraphQL sentiment field | none: not browser-exposed | none: no health signal beyond table tests | `src/doc_ray/tests/test_011_meaning.py`; `src/doc_ray/tests/test_semantic_enrichment.py` | writer-backed |
-| 20 | Embeddings | `db/migrations/012_embeddings.sql`; `db/migrations/021_canonical.sql` | writer: `src/doc_ray/application/semantic_enrichment.py::annotate_document` | none: no read-adapter function for embedding rows | none: no GraphQL embedding field | none: embedding backend is not surfaced | `src/doc_ray/application/corpus_health.py` missing-embedding issue | `src/doc_ray/tests/test_012_embeddings.py`; `src/doc_ray/tests/test_corpus_health.py`; `src/doc_ray/tests/test_semantic_enrichment.py` | writer-backed |
+| 20 | Embeddings | `db/migrations/012_embeddings.sql`; `db/migrations/124_semantic_embedding_cutover.sql` | writer: `src/doc_ray/application/semantic_embed.py::embed_document_sentences` | `src/doc_ray/adapters/persistence_semantic_read.py::semantic_search_sentences` | field: `Query.semantic_search_sentences` | none: semantic search is API/MCP-only, not browser-surfaced | `src/doc_ray/application/corpus_health.py` missing-embedding issue | `src/doc_ray/tests/test_semantic_embed_db.py`; `src/doc_ray/tests/test_semantic_search_read_db.py`; `src/doc_ray/tests/test_012_embeddings.py` | api-exposed |
 
 ## Drift Guard
 

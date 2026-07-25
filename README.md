@@ -133,7 +133,7 @@ has a dedicated `/jobs/events` location with response buffering disabled; add
 
 Other query/mutation surface: `documents(docType:, status:, tags:)` /
 `document` / `documentShares` / `documentMetadataHistory` / `searchSentences` /
-`fullTextSearch` /
+`semanticSearchSentences` / `fullTextSearch` /
 `corpusManifest(shardCount:)` / `corpusShard(shardIndex:, shardCount:)`
 (deterministic corpus partitioning for parallel/map-reduce reads) /
 `documentOutline(documentId:, maxEntries:)` (a document's addressable ordinal
@@ -158,7 +158,7 @@ below)
 / `reannotate` / `deleteDocument` / `archiveDocument` / `restoreDocument` /
 `bulkArchiveDocuments` / `bulkTagDocuments` / `annotateDocument` /
 `reextractDocument` / `reextractDocuments` / `canonicalizeDocument(resolve:)` /
-`semanticEnrichDocument` / `updateDocumentMetadata` / `suggestDocumentMetadata`
+`semanticEnrichDocument` / `embedDocumentSentences` / `updateDocumentMetadata` / `suggestDocumentMetadata`
 / `decideDocumentMetadataSuggestions` / `shareDocument` /
 `revokeDocumentShare` / `setDocumentVisibility` / `cancelJob` /
 `createBillingCheckoutSession` / `createBillingPortalSession` /
@@ -398,13 +398,21 @@ command must read PDF bytes on stdin and emit JSON containing LaTeX-bearing
 can be persisted.
 
 Deterministic semantic enrichment for the schema-backed discourse, temporal/event,
-sentiment, and embedding layers runs in the default upload pipeline after token
-annotation and before canonicalization. Operators can also queue it explicitly via
-GraphQL `semanticEnrichDocument` or run it from the host:
+and sentiment layers runs in the default upload pipeline after token annotation and
+before canonicalization. Operators can also queue it explicitly via GraphQL
+`semanticEnrichDocument` or run it from the host:
 
 ```bash
 python -m doc_ray.entrypoints.annotate_semantic --all
 ```
+
+**Semantic sentence embeddings (NLP Layer 20)** are a separate, learned capability.
+After the hard cutover from the non-learned `hash-bow-768` placeholder, sentences
+are embedded by a sentence-transformers model behind the `TextEncoder` port, run by
+the opt-in `semantic_embed` worker job (GraphQL `embedDocumentSentences`; the heavy
+stack lives in the worker only). Retrieval is then available by *meaning* — GraphQL
+`semanticSearchSentences` and the `semantic_search_sentences` MCP tool rank sentences
+by learned cosine similarity, complementing keyword `searchSentences`.
 
 Evaluation snapshots and lexical/entity drift metrics can be recorded with:
 

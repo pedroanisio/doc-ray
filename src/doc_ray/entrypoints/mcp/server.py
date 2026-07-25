@@ -22,7 +22,15 @@ from mcp.server.transport_security import TransportSecuritySettings
 from starlette.applications import Starlette
 
 from doc_ray.config import Config
-from doc_ray.entrypoints.mcp import audit, compose, corpus, mutations, resources, structure
+from doc_ray.entrypoints.mcp import (
+    audit,
+    compose,
+    corpus,
+    mutations,
+    resources,
+    semantic,
+    structure,
+)
 from doc_ray.entrypoints.mcp.auth import BearerAuthMiddleware
 
 #: Loopback patterns the SDK trusts by default — kept so local dev still works.
@@ -115,6 +123,7 @@ def build_server(enable_write: bool = False) -> FastMCP:
         mcp.settings.transport_security = security
     tools = (
         *corpus.TOOLS,
+        *semantic.TOOLS,
         *structure.TOOLS,
         *compose.TOOLS,
         *(mutations.TOOLS if enable_write else ()),

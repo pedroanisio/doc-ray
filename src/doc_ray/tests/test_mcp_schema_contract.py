@@ -20,7 +20,7 @@ from doc_ray.entrypoints.api.schema import build_schema as build_strawberry_sche
 # Import the server eagerly so the `mcp` SDK is loaded before any test patches
 # httpx.AsyncClient — tokens._current_request() lazily imports it on first tool
 # call, and the SDK evaluates `httpx.AsyncClient | None` at import time.
-from doc_ray.entrypoints.mcp import corpus, mutations, server, structure  # noqa: F401
+from doc_ray.entrypoints.mcp import corpus, mutations, semantic, server, structure  # noqa: F401
 
 _GRAPHQL_SCHEMA = build_schema(build_strawberry_schema(debug=True).as_str())
 _DOC = "11111111-1111-1111-1111-111111111111"
@@ -84,6 +84,8 @@ _READ_CALLS = [
     lambda: corpus.corpus_shard(0, 4),
     lambda: corpus.entity_frequency(),
     lambda: corpus.lexeme_kwic("lex-1"),
+    lambda: semantic.semantic_search_sentences("photosynthesis"),
+    lambda: semantic.semantic_search_sentences("photosynthesis", document_id=_DOC),
     lambda: corpus.entity_mention_corrections(_DOC),
     lambda: corpus.document_images(_DOC),
     lambda: corpus.image_class_summary(_DOC),
@@ -96,6 +98,7 @@ _WRITE_CALLS = [
     lambda: mutations.reextract_document(_DOC),
     lambda: mutations.annotate_document(_DOC),
     lambda: mutations.semantic_enrich_document(_DOC),
+    lambda: mutations.embed_document_sentences(_DOC),
     lambda: mutations.canonicalize_document(_DOC, resolve=True),
     lambda: mutations.suggest_seeds(_DOC),
     lambda: mutations.suggest_document_metadata(_DOC),
@@ -206,6 +209,7 @@ async def test_every_write_tool_is_contract_checked() -> None:
         "reextract_document",
         "annotate_document",
         "semantic_enrich_document",
+        "embed_document_sentences",
         "canonicalize_document",
         "suggest_seeds",
         "suggest_document_metadata",

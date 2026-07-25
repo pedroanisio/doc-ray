@@ -14,6 +14,10 @@ from pathlib import Path
 _ROOT = Path(__file__).resolve().parents[3]
 _MATRIX = _ROOT / "docs" / "nlp_capability_matrix.md"
 _QUERY = _ROOT / "src" / "doc_ray" / "entrypoints" / "api" / "query.py"
+#: `Query` resolvers also live in mixins inherited by the root (D-015 split):
+#: e.g. semantic retrieval in semantic_query.py. Query field refs resolve against
+#: the root plus its mixins.
+_QUERY_MIXINS = (_ROOT / "src" / "doc_ray" / "entrypoints" / "api" / "semantic_query.py",)
 _TYPES = _ROOT / "src" / "doc_ray" / "entrypoints" / "api" / "types.py"
 #: The document cluster's types moved to document_types.py (D-015 split);
 #: field refs on `Document` resolve against both files.
@@ -44,7 +48,9 @@ def _path_from_ref(ref: str) -> Path:
 
 def _source_for_graphql_type(type_name: str) -> str:
     if type_name == "Query":
-        return _QUERY.read_text(encoding="utf-8")
+        return _QUERY.read_text(encoding="utf-8") + "".join(
+            m.read_text(encoding="utf-8") for m in _QUERY_MIXINS
+        )
     return _TYPES.read_text(encoding="utf-8") + _DOCUMENT_TYPES.read_text(encoding="utf-8")
 
 

@@ -19,6 +19,43 @@ doc-ray carries **one global version** covering both the application package
 (`docray_schema_version()`). They are kept in lockstep by
 `scripts/check_version_consistency.py`, which fails the build on any drift.
 
+## [1.42.0]
+
+> ARCHITECTURAL REQUIREMENT (PALS's LAW): LLMs/ML models always produce some form
+> of error. The sentence encoder's output is used for **ranking only** and asserts
+> no fact into the trusted graph, so it needs no verification gate — it is safe by
+> *use*, not by verification (mirrors the Prism vision encoder).
+
+### Changed
+- **NLP Layer 20 — hard cutover from `hash-bow-768` to a learned sentence encoder**
+  (Claude Opus 4.8 (1M context) via Claude Code; issues #20, #21). **BREAKING** for
+  the embedding vector space. The old sentence embedding was `hash-bow-768` — a
+  deterministic BLAKE2b bag-of-words hash where distinct words landed in unrelated
+  buckets, so it carried no semantics and (verified) *no reader ever queried it*.
+  Strategy: **hard cutover / replacement** — old and new never serve production
+  traffic together, and the hash-BoW implementation is **discarded, not kept as a
+  fallback**.
+  - **Writer replaced.** `application/semantic_enrichment.py` no longer writes
+    embeddings (its `_vector_for` hash, `EMBEDDING_MODEL`, and the embedding
+    COPY/DELETE are removed). A new learned writer — `application/semantic_embed.py`
+    behind the `TextEncoder` port (`ports/text_encoder.py`) and its
+    sentence-transformers adapter — is the sole writer, run by the new opt-in,
+    never-auto-chained `semantic_embed` worker job (default model
+    `sentence-transformers/all-mpnet-base-v2`, tag `doc-ray/sbert-mpnet-768`,
+    768-dim). Heavy stack lives in the worker only; absent-stack fails
+    typed-and-actionable, never a raw `ModuleNotFoundError`.
+  - **Retrieval unlocked.** New `semanticSearchSentences` GraphQL field + MCP
+    `semantic_search_sentences` read tool rank sentences by learned cosine
+    similarity over the `embedding` table (RLS-scoped via the existing
+    span→document policy; HNSW iterative scan for correct top-N under RLS). This is
+    the antidote to lexical-search flooding on common terms.
+  - **Cutover.** Migration 124 purges the discarded `hash-bow-768` rows and bumps
+    the schema version. Re-embed the corpus by enqueuing `embedDocumentSentences`
+    per document; take a corpus backup first — that snapshot is the rollback path.
+  - **Availability.** Sentence embeddings are now a stack-gated capability: a
+    deployment without the sentence-transformers stack produces no Layer 20
+    vectors (no fake placeholder). New env `DOCRAY_SEMANTIC_MODEL`.
+
 ## [1.41.0]
 
 ### Fixed

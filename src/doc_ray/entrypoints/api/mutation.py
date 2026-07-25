@@ -33,6 +33,7 @@ from doc_ray.domain.jobs import (
     KIND_RESTORE_DOCUMENT,
     KIND_SEED_APPROVED,
     KIND_SEED_SUGGEST,
+    KIND_SEMANTIC_EMBED,
     KIND_SEMANTIC_ENRICH,
     KIND_SUGGEST_DOCUMENT_METADATA,
     KIND_UPDATE_METADATA,
@@ -79,6 +80,21 @@ class Mutation(
         job_id = await _enqueue_job(
             ctx, KIND_REANNOTATE, {"lang": lang}, document_id=str(document_id)
         )
+        return await _job_status(ctx, job_id)
+
+    @strawberry.mutation
+    async def embed_document_sentences(self, info: Info, document_id: strawberry.ID) -> Job:
+        """Enqueue a learned sentence-embedding (NLP Layer 20) run; returns the job.
+
+        Heavy, worker-only: requires the sentence-transformers stack. The job is
+        never auto-chained — embedding cost stays an explicit request. Once it
+        completes, ``semanticSearchSentences`` can retrieve against the vectors.
+        """
+        ctx = info.context
+        await _require_document_write(
+            ctx, str(document_id), action="mutation.embed_document_sentences"
+        )
+        job_id = await _enqueue_job(ctx, KIND_SEMANTIC_EMBED, {}, document_id=str(document_id))
         return await _job_status(ctx, job_id)
 
     @strawberry.mutation

@@ -79,6 +79,17 @@ async def semantic_enrich_document(document_id: str) -> dict[str, Any]:
     return await _job_mutation("semanticEnrichDocument", "", "", {"id": document_id})
 
 
+async def embed_document_sentences(document_id: str) -> dict[str, Any]:
+    """Embed a document's sentences with the learned encoder (NLP Layer 20); returns the job.
+
+    Heavy, worker-only: requires the sentence-transformers stack. Never
+    auto-chained. Once complete, ``semantic_search_sentences`` retrieves against
+    these vectors. Fails typed-and-actionable if the stack is not installed.
+    """
+    _require_uuid(document_id, "document_id")
+    return await _job_mutation("embedDocumentSentences", "", "", {"id": document_id})
+
+
 async def canonicalize_document(document_id: str, resolve: bool = False) -> dict[str, Any]:
     """Canonicalize a document (term scan + Stage-2 auto-link); returns the job.
 
@@ -414,6 +425,7 @@ TOOLS: tuple[Any, ...] = (
     reextract_document,
     annotate_document,
     semantic_enrich_document,
+    embed_document_sentences,
     canonicalize_document,
     suggest_seeds,
     suggest_document_metadata,

@@ -1,14 +1,16 @@
-"""Deterministic semantic enrichment for schema-backed NLP layers."""
+"""Deterministic semantic enrichment for schema-backed NLP layers.
+
+Discourse relations, temporal expressions, events, and lexicon sentiment only.
+Sentence embeddings (NLP Layer 20) are NOT written here: after the hard cutover
+from the hash-BoW placeholder, they are produced by the learned
+``application.semantic_embed`` writer under the ``semantic_embed`` job. This
+module stays a zero-dependency, deterministic path.
+"""
 
 from __future__ import annotations
 
-import hashlib
-import math
 import re
-from collections.abc import Sequence
 from typing import Any
-
-import psycopg
 
 from doc_ray.adapters import persistence as db
 from doc_ray.adapters.persistence import DictConnection
@@ -19,35 +21,11 @@ DiscourseRow = tuple[str, str, str, str, str, str]
 TimexRow = tuple[str, str, str, str, str | None]
 EventRow = tuple[str, str, str, str]
 SentimentRow = tuple[str, str, str, str, float]
-EmbeddingRow = tuple[str, str, str]
-
-
-def _copy_rows(
-    cur: psycopg.Cursor[Any], table: str, columns: tuple[str, ...], rows: Sequence[tuple[Any, ...]]
-) -> None:
-    """Bulk-insert *rows* into *table* via COPY — one server-side op, not N INSERTs.
-
-    psycopg3's ``executemany`` still issues one INSERT statement per row on the
-    server; with the pgvector HNSW index on ``embedding`` (768-dim vectors) that
-    per-row statement storm is what saturates the managed cluster's CPU under
-    concurrent annotation (measured ~2.7x more DB CPU than COPY on the indexed
-    table). COPY is a single bulk load. No-op on empty input. Callers must have
-    cleared any conflicting rows first — COPY has no ``ON CONFLICT`` — which
-    :func:`annotate_document` does by deleting the document's prior rows.
-    """
-    if not rows:
-        return
-    collist = ", ".join(columns)
-    with cur.copy(f"COPY {table} ({collist}) FROM STDIN") as copy:
-        for row in rows:
-            copy.write_row(row)
 
 
 TOOL_NAME = "doc-ray/semantic-heuristic"
 TOOL_VERSION = "1.0"
 LAYER_NAME = "semantic-heuristic"
-EMBEDDING_MODEL = "hash-bow-768"
-EMBEDDING_DIMENSIONS = 768
 
 _CONNECTIVES = {
     "because": "Contingency.Cause.Reason",
@@ -63,7 +41,6 @@ _TIMEX_RE = re.compile(
 )
 _POSITIVE = {"good", "great", "excellent", "success", "successful", "improved", "safe"}
 _NEGATIVE = {"bad", "failed", "failure", "error", "unsafe", "broken", "worse"}
-_WORD_RE = re.compile(r"[^\W\d_]+", re.UNICODE)
 
 
 def _full_text(conn: DictConnection, doc_id: str) -> str:
@@ -110,16 +87,6 @@ def _tokens(conn: DictConnection, doc_id: str) -> list[dict[str, Any]]:
         token["surface"] = full_text[token["char_start"] : token["char_end"]]
         tokens.append(token)
     return tokens
-
-
-def _vector_for(text: str) -> str:
-    values = [0.0] * EMBEDDING_DIMENSIONS
-    for word in _WORD_RE.findall(text.casefold()):
-        digest = hashlib.blake2b(word.encode("utf-8"), digest_size=8).digest()
-        idx = int.from_bytes(digest[:4], "big") % EMBEDDING_DIMENSIONS
-        values[idx] += 1.0
-    norm = math.sqrt(sum(v * v for v in values)) or 1.0
-    return "[" + ",".join(f"{v / norm:.8f}" for v in values) + "]"
 
 
 def _discourse_rows(
@@ -192,23 +159,11 @@ def _sentiment_rows(annotation_id: str, tokens: list[dict[str, Any]]) -> list[Se
     return rows
 
 
-def _embedding_rows(
-    conn: DictConnection, doc_id: str, sentences: list[dict[str, Any]]
-) -> list[EmbeddingRow]:
-    spans = [
-        (int(s["char_start"]), int(s["char_end"]))
-        for s in sentences
-        if s["char_end"] > s["char_start"]
-    ]
-    span_map = db.ensure_spans(conn, doc_id, spans) if spans else {}
-    return [
-        (str(span_map[(start, end)]), EMBEDDING_MODEL, _vector_for(str(sentence["text"])))
-        for sentence, (start, end) in zip(sentences, spans, strict=True)
-    ]
-
-
 def annotate_document(conn: DictConnection, doc_id: str) -> dict[str, int]:
-    """Populate deterministic discourse, temporal, sentiment, and embedding rows."""
+    """Populate deterministic discourse, temporal, event, and sentiment rows.
+
+    Sentence embeddings are no longer written here — see the module docstring.
+    """
     full_text = _full_text(conn, doc_id)
     sentences = _sentences(conn, doc_id)
     tokens = _tokens(conn, doc_id)
@@ -220,30 +175,18 @@ def annotate_document(conn: DictConnection, doc_id: str) -> dict[str, int]:
             (doc_id, LAYER_NAME, TOOL_NAME),
         )
         conn.execute(
-            """
-            DELETE FROM embedding e
-             USING spans sp
-             WHERE e.span_id = sp.id
-               AND sp.document_id = %s
-               AND e.model = %s
-            """,
-            (doc_id, EMBEDDING_MODEL),
-        )
-        conn.execute(
             "INSERT INTO annotations (id, document_id, layer, tool, tool_version) "
             "VALUES (%s, %s, %s, %s, %s)",
             (annotation_id, doc_id, LAYER_NAME, TOOL_NAME, TOOL_VERSION),
         )
-        report_progress(0, 5, "Deriving discourse relations")
+        report_progress(0, 4, "Deriving discourse relations")
         discourse = _discourse_rows(conn, doc_id, annotation_id, sentences)
-        report_progress(1, 5, "Extracting temporal expressions")
+        report_progress(1, 4, "Extracting temporal expressions")
         timexes = _timex_rows(conn, doc_id, annotation_id, full_text)
-        report_progress(2, 5, "Classifying events")
+        report_progress(2, 4, "Classifying events")
         events = _event_rows(annotation_id, tokens)
-        report_progress(3, 5, "Scoring sentiment")
+        report_progress(3, 4, "Scoring sentiment")
         sentiments = _sentiment_rows(annotation_id, tokens)
-        report_progress(4, 5, "Computing sentence embeddings")
-        embeddings = _embedding_rows(conn, doc_id, sentences)
         with conn.cursor() as cur:
             cur.executemany(
                 """
@@ -268,16 +211,11 @@ def annotate_document(conn: DictConnection, doc_id: str) -> dict[str, int]:
                 "VALUES (%s, %s, %s, %s, %s)",
                 sentiments,
             )
-            # Embeddings are the heavy write (768-dim vectors + HNSW index): use
-            # COPY, not executemany's per-row INSERT storm, to keep DB CPU sane
-            # under concurrent annotation. DELETE above cleared prior rows.
-            _copy_rows(cur, "embedding", ("span_id", "model", "vector"), embeddings)
         summary = {
             "discourse_relations": len(discourse),
             "timexes": len(timexes),
             "events": len(events),
             "sentiments": len(sentiments),
-            "embeddings": len(embeddings),
         }
         provenance_id = new_ulid_str()
         conn.execute(

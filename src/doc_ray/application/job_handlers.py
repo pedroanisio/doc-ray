@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING, Any, cast
 import psycopg
 
 from doc_ray.application.document_stats import refresh_document_stats as _refresh_document_stats
+from doc_ray.application.semantic_embed import handle_semantic_embed
 from doc_ray.domain.jobs import (
     KIND_ADD_DOCUMENT_TAGS,
     KIND_ANNOTATE,
@@ -33,6 +34,7 @@ from doc_ray.domain.jobs import (
     KIND_SEED_APPROVED,
     KIND_SEED_CANONICAL,
     KIND_SEED_SUGGEST,
+    KIND_SEMANTIC_EMBED,
     KIND_SEMANTIC_ENRICH,
     KIND_SUGGEST_DOCUMENT_METADATA,
     KIND_UPDATE_METADATA,
@@ -530,6 +532,7 @@ HANDLERS: dict[str, Handler] = {
     KIND_ANNOTATE: handle_annotate,
     KIND_APPLY_CORRECTIONS: handle_apply_corrections,
     KIND_SEMANTIC_ENRICH: handle_semantic_enrich,
+    KIND_SEMANTIC_EMBED: handle_semantic_embed,
     KIND_VISUAL_EXTRACT: handle_visual_extract,
     KIND_VISUAL_EMBED: handle_visual_embed,
     KIND_VISUAL_CAPTION: handle_visual_caption,

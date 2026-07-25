@@ -388,10 +388,21 @@ quality.
 
 `application.semantic_enrichment` now fills the deterministic subset that does
 not require a dedicated model or KB: PDTB-style connective relations, simple
-TimeML date/event rows, lexicon sentiment, and hash-BoW span embeddings. These
-rows are explicitly heuristic and provenance-stamped; subword tokenization,
-constituency, SRL, WSD, and AMR remain schema-only until a real model-backed
-writer lands.
+TimeML date/event rows, and lexicon sentiment. These rows are explicitly
+heuristic and provenance-stamped; subword tokenization, constituency, SRL, WSD,
+and AMR remain schema-only until a real model-backed writer lands.
+
+Sentence embeddings (Layer 20) took the opposite path — a **hard cutover** from
+the non-learned `hash-bow-768` placeholder to a **learned sentence encoder**
+(issues #20/#21). The `TextEncoder` port (`ports/text_encoder.py`) and its
+sentence-transformers adapter back `application.semantic_embed`, the sole writer
+of the `embedding` table, run by the opt-in, never-auto-chained `semantic_embed`
+worker job — the same worker-only, model-cost-is-explicit posture as the Prism
+vision encoder. It is **ranking-only and asserts no fact**, so like the vision
+encoder it carries no verification gate. Retrieval is exposed as
+`semanticSearchSentences` (GraphQL) and the `semantic_search_sentences` MCP tool,
+which rank sentences by learned cosine similarity over the RLS-scoped `embedding`
+table — the structural answer to lexical-search flooding on common terms.
 
 ### Human corrections to ML entities
 

@@ -26,6 +26,8 @@ _READ_TOOL_NAMES = {
     "corpus_shard",
     "entity_frequency",
     "lexeme_kwic",
+    # semantic retrieval (NLP Layer 20): meaning-based sentence search
+    "semantic_search_sentences",
     # structure tools (BL-146): the map, and reconciled entities
     "read_document_outline",
     "entity_profiles",
@@ -47,6 +49,7 @@ _WRITE_TOOL_NAMES = {
     "reextract_document",
     "annotate_document",
     "semantic_enrich_document",
+    "embed_document_sentences",
     "canonicalize_document",
     "suggest_seeds",
     "suggest_document_metadata",
