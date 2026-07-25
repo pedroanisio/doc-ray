@@ -19,16 +19,19 @@ Exposes the doc-ray corpus to agentic AI over the **Model Context Protocol
 (MCP)**, authenticating each caller to a doc-ray principal so Postgres RLS scopes
 what they can read.
 
-**Status: live in production and verified end-to-end.** The server ships **21
-read tools** (13 corpus readers incl. `read_document_sentences`, `corpus_manifest`,
-`corpus_shard`, `get_job`, `list_collections`, `get_collection` + 2 structure
-tools from `entrypoints/mcp/structure.py` (`read_document_outline`,
-`entity_profiles`) + 3 composition-grounding tools from
-`entrypoints/mcp/compose.py` + semantic search + 4 Prism visual tools… see §3) always registered, plus **22 opt-in write tools**
+**Status: live in production and verified end-to-end.** The server ships **25
+read tools** (18 from `entrypoints/mcp/corpus.py` — incl. `read_document_sentences`,
+`corpus_manifest`, `corpus_shard`, `get_job`, `list_collections`, `get_collection`,
+`entity_mention_corrections`, and the 4 Prism visual tools — + 3 structure tools from
+`entrypoints/mcp/structure.py` (`read_document_outline`, `entity_profiles`,
+`term_frequency`) + 3 composition-grounding tools from `entrypoints/mcp/compose.py`
++ 1 semantic-search tool… see §3) always registered, plus **22 opt-in write tools**
 (reprocessing + curation + full collection lifecycle) registered only when
 `DOCRAY_MCP_ENABLE_WRITE=true` — the default surface stays read-only. It also
 declares MCP's **resources** primitive: 3 listable `docray://` entry points +
-5 drill-down templates (§3) addressing the same RLS-scoped reads by URI. It is
+5 drill-down templates (§3) addressing the same RLS-scoped reads by URI, and its
+**prompts** primitive: 4 user-selectable workflows (§3.7) that ship the corpus
+methodology as parameterized plans. It is
 deployed via `make mcp-up`, routed at `https://doc-ray.com/mcp` behind the
 Cloudflare tunnel, and confirmed with a real MCP client (initialize → tools/list
 → RLS-scoped tools/call). The **OAuth 2.1 Authorization Server** (originally
@@ -147,6 +150,7 @@ but had no passage cited on this page. Example:
 | `corpus_shard(shard_index, shard_count, limit, after?)` | `corpusShard` | one deterministic, disjoint slice of the corpus; keyset `cursor` |
 | `entity_frequency(document_id?, entity_type?, limit)` | `entityFrequency` | **raw** NER rows, one per (surface, type) — prefer `entity_profiles` |
 | `entity_profiles(document_id?, entity_type?, limit)` | `entityProfiles` | one row per entity: merged spellings, measured type spread, `typeConsistency` — see §3.3 |
+| `term_frequency(terms, document_id?)` | `termFrequency` | flood-risk pre-flight: `floodRisk` verdict per candidate term BEFORE searching; corpus-wide only (`document_id` → typed `unsupported`) — see §3.6 |
 | `lexeme_kwic(uid, document_id?, limit)` | `lexeme { occurrences }` | KWIC is a **nested** resolver, not a root field |
 | `semantic_search_sentences(query, document_id?, limit)` | `semanticSearchSentences` | meaning-based (learned-embedding) sentence retrieval; the antidote to lexical `search_sentences` flooding. Typed `unsupported` where the sentence stack is absent |
 | `document_images(document_id, limit)` | `document { images }` | Prism visual layer: extracted/rendered page images |
@@ -369,6 +373,109 @@ corpus-wide; scope lenses are the fictional/work-local scopes beside it.
 themselves are shared corpus navigation metadata. Block B ships the vocabulary
 only — nothing about how entities resolve changes yet (a later projection block
 consumes it).
+
+### 3.6 `term_frequency` — the flood-risk pre-flight (Item 10)
+
+BL-145 shipped the *diagnosis*: after a `search_sentences` call floods, its
+`coverage.limit_reached` + `note` explain why. `term_frequency` ships the
+*prevention*: ask how common a term is **before** spending the call, and pick a
+rarer one for free. It reads the corpus-wide `lexemeStats` rollup (never the
+17.5M-row `lexeme_occurrences` fact table — D-024), one indexed statement for the
+whole batch.
+
+```jsonc
+{"name": "term_frequency", "arguments": {"terms": ["spice", "sandworm", "zephyrquux"]}}
+// → [{"term": "spice", "normalizedTerm": "spice", "uses": 41822, "totalUses": 5_000_000,
+//     "share": 0.0084, "floodRisk": "high", "attested": true,
+//     "note": "'spice' saturates the corpus: a keyword search will return a wall of hits …"},
+//    {"term": "sandworm", …, "uses": 2130, "share": 0.00043, "floodRisk": "low", "attested": true, "note": null},
+//    {"term": "zephyrquux", …, "uses": 0, "share": 0.0, "floodRisk": "low", "attested": false,
+//     "note": "'zephyrquux' is unattested in this corpus — a search for it will most likely return nothing. …"}]
+```
+
+**Batch by default** (`terms: [String!]!`): triage every candidate in one call, do
+not spend one round-trip per term. Each row carries the numbers behind the verdict
+(`uses`, `totalUses`, `share`) so a caller can disagree; `attested: false`
+distinguishes an unknown term (a search will return nothing) from a lookup failure.
+
+**`floodRisk` thresholds.** The verdict buckets the term's `share` of the scope's
+total lexeme uses: **`high`** at `share ≥ 0.005` (0.5%), **`moderate`** at
+`share ≥ 0.0005` (0.05%), **`low`** below. These cut points flag corpus-*saturating*
+terms — the function words plus a handful of top content lemmas clear `high`; common
+content words land in `moderate`; scene-specific vocabulary sits in `low`. They are
+parameters, not law: they live in `doc_ray.domain.term_frequency`
+(`HIGH_SHARE`/`MODERATE_SHARE`), and the payload exposes the raw numbers. **To
+re-tune against a live corpus**, compute the distribution of `uses / total_uses`
+over `lexeme_stats` and move the cut points so roughly the top ~1% land at `high`
+and the next ~9% at `moderate`; record the measured distribution when you do.
+
+**Normalization — what this measures vs. what search matches (FR-5).** The count is
+the **lexeme-lemma** frequency, keyed on `norm_lemma` (NFC + casefold) — the exact
+normalization the lexeme writer applies (`persistence.get_or_create_lexeme`), so the
+number describes the term the lexeme layer indexed. That is deliberately **not
+identical** to what the two search tools match, and the difference is a finding, not
+a bug:
+
+| Surface | Matches on | Example |
+|---|---|---|
+| `term_frequency` | lexeme lemma (`norm_lemma`) | `running` → lemma `run` |
+| `search_sentences` | **case-insensitive literal substring** (`ILIKE '%term%'`) | `run` matches `run`, `overrun`, `Brunny` |
+| `full_text_search` | **Snowball stem** (`plainto_tsquery`, per-doc config) | `running` → stem `run` |
+
+So `term_frequency` is a **corpus-saturation signal**, a strong proxy for — not an
+exact predictor of — any one tool's hit count. It is most precise for base-form
+content words (surface ≈ lemma), and diverges for inflected or substring queries;
+when in doubt, trust the exposed numbers over the bucket. **Corpus-wide only for
+now** (Open decision 1(a)): passing `documentId`/`document_id` returns a typed
+`unsupported` error rather than corpus numbers mislabelled as document-scoped — a
+`document_lexeme_stats` rollup is the follow-up if the evaluation harness shows
+document-scoped triage matters.
+
+### 3.7 Prompts (always registered) — MCP's user-controlled primitive (Item 8)
+
+MCP defines three primitives by *who controls them*: **tools** are model-controlled,
+**resources** are application-controlled, and **prompts** are **user-controlled** —
+a person picks one from their client's menu. doc-ray ships the corpus methodology —
+the outline-then-ranged-read path, search-then-verify, profiles-over-frequency — as
+four selectable, argument-taking workflows, so the lesson lives in the server rather
+than being re-derived per session (the BL-145 thesis, applied to the primitive a
+*user* invokes deliberately). Each returns a single user-role message; each
+invocation emits one audit line, like every other caller action. They are read-only
+and hold no pool — they call the read tools, inheriting token forwarding and RLS.
+
+| Prompt | Arguments | What the plan carries | Size¹ |
+|---|---|---|---|
+| `summarize_document` | `document_id` (required) | **Eager**: fetches the real title, sentence count, and outline, then names the exact ordinal ranges to read with `response_format="concise"`, the rule that every claim cites an `ordinal`, and — honestly — whether the outline is `headings` or a `uniform` grid whose titles are **not** chapter names | ~0.9 KB² |
+| `ground_a_claim` | `claim` (required), `document_id` (optional) | The search-then-verify path: rare-term `search_sentences`, read the surrounding ordinal range, quote verbatim with offsets; the non-negotiable rule that an ungrounded claim is reported **unsupported**, never asserted | ~0.77 KB |
+| `survey_entities` | `document_id` (optional) | Use `entity_profiles` not `entity_frequency`; how to read `typeConsistency` (a measured share, not a model score); corroborate a contested entity before asserting its type; `resolved:false` means no registry backing | ~0.95 KB |
+| `sweep_the_corpus` | `shard_count` (optional, default 8) | The map-reduce plan over `corpus_manifest` / `corpus_shard`, including the coverage proof: Σ per-shard document counts **must** equal `totalDocuments`, or a shard was dropped | ~0.76 KB |
+
+¹ Measured length of the returned message with representative inputs. A prompt
+message is context the model pays for on every turn it is used, so each is kept well
+under ~1.5 KB of prose. ² `summarize_document` grows ~40 chars per outline entry, so
+a document with a very deep outline is larger; the ranges are the payload.
+
+**Fetch a prompt** (MCP `prompts/get`) — the client sends the name + arguments:
+
+```jsonc
+{"name": "summarize_document", "arguments": {"document_id": "1b7dcdd2-…"}}
+// → one user message, e.g.:
+//   Summarize "Dune" (4200 sentences). Work from retrieval, not memory: every claim …
+//   Coverage plan — read these ranges in order with read_document_sentences(…, response_format="concise"):
+//     - Book One: Dune: ordinals 0–1399
+//     - Book Two: Muad'Dib: ordinals 1400–2799
+//     …
+//   This is a `headings` outline built from detected structure …
+```
+
+**Honesty propagates.** On a heading-less document `summarize_document` returns a
+`uniform`-labelled plan that explicitly instructs the model not to quote the grid
+titles as chapter names — the same guarantee `read_document_outline` makes. **Failure
+is graceful**: a malformed `document_id` is rejected (`bad_input`) before any network
+call; a well-formed but unreadable id returns a plain "not readable — use
+`list_documents`" message with no fabricated plan; and if the outline can't be
+fetched, the plan degrades to one that tells the model to call `read_document_outline`
+itself and says it degraded — it never invents ranges.
 
 ### Write tools (opt-in — `DOCRAY_MCP_ENABLE_WRITE=true`)
 
@@ -624,7 +731,9 @@ unaffected.
       coverage, version consistency); docs updated. ✅ — manual smoke test pending operator.
 
 ### Phase 3 — Ops & hardening  ·  size: S
-- [ ] TLS front door (nginx location or Cloudflare Tunnel ingress) — never publish `:8001` raw.
+- [x] **TLS front door — DONE.** Served behind the Cloudflare tunnel via the
+      `doc-ray.com /mcp → http://mcp:8080` route (see the Status header above); the
+      `mcp` service is loopback-bound on `:8080` and never published raw.
 - [ ] Per-agent token minting doc (`auth_admin token mint`, `read` scope) + rotation guidance.
 - [ ] `/health`/`/readyz` for the MCP service; wire into the prod compose + deploy doc.
 - [ ] Optional: request rate limiting mirroring the API's `rate_limit` posture.
@@ -636,7 +745,10 @@ unaffected.
       Registration → `/authorize` (browser login + consent, PKCE S256) → `/token`
       (authorization_code + PKCE), reusing the existing RLS-bound access JWTs.
       See `application/oauth_server.py`, `webapp/oauth_web.py`, migration `082`.
-- [ ] **Write tools** behind the `write` scope (ingest, tag, collections).
+- [x] **Write tools — DONE.** `mutations.TOOLS` registers 22 write tools (reprocessing
+      + curation + full collection lifecycle), advertised only when
+      `DOCRAY_MCP_ENABLE_WRITE=true`; each remains gated by the API's `write` scope and
+      per-document ACLs (`test_mcp_server.py::_WRITE_TOOL_NAMES`).
 - [ ] **gRPC gateway** (if required) — a separate service exposing the same
       `corpus.py` tool functions to gRPC clients; reuses the passthrough unchanged.
 

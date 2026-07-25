@@ -28,7 +28,15 @@ NON_ADMIN_TOKEN = "test-non-admin-token"
 
 
 def _cfg(**overrides) -> Config:
+    """A Config for the download route, with the backup subsystem switched on.
+
+    The route 404s before auth when DOCRAY_BACKUP_ENABLED is off (D-033); these
+    tests are about the auth/RLS boundary *behind* that gate, so they enable the
+    subsystem explicitly. The disabled behaviour is covered in
+    test_backup_toggle.py.
+    """
     base = Config.from_env()
+    overrides.setdefault("backup_enabled", True)
     return Config(
         database_url=_itdb.DB_URL,
         s3_endpoint=base.s3_endpoint,

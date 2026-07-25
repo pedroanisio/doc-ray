@@ -101,7 +101,7 @@ Beyond the batch `ingester` CLI, the stack ships a GraphQL API (Strawberry)
 and a Flask browser over the corpus:
 
 ```bash
-docker compose up -d postgres minio createbucket api worker backup-scheduler webapp
+docker compose up -d postgres minio createbucket api worker webapp
 ```
 
 `api` serves GraphQL at `http://localhost:8000/graphql`; `worker` is the
@@ -142,6 +142,8 @@ ranges — detected headings, or an even grid where a document has none, with
 `lexeme(s)` / `entities` / `entityFrequency` (raw NER rows) /
 `entityProfiles(documentId:, entityType:)` (the same mentions reconciled to one
 row per entity, with the measured type spread and `typeConsistency`) /
+`termFrequency(terms:)` (a flood-risk pre-flight: how common each candidate
+search term is, so an agent picks a rarer one before searching) /
 `job` / `jobs` /
 `documentMetadataSuggestions` / `collections` / `collection` /
 `lenses` (the collections marked as entity-resolution scopes — Block B) /
@@ -176,6 +178,8 @@ stored against a stable span identity, so they are re-applied on every
 re-annotation instead of being overwritten by it — see
 [Correcting the model's entities](#correcting-the-models-entities) below.
 Backup/restore:
+`backupEnabled` (read — whether this deployment has the in-app backup subsystem
+switched on; clients check it before offering the actions) /
 `createBackup` / `restoreBackup` (see [Backup & restore](#backup--restore)
 below). Security audit readback: `auditEvents` (admin-scoped).
 
@@ -328,9 +332,26 @@ ordinary collection stays identity-neutral.
 
 ## Backup & restore
 
-The whole corpus — every Postgres table plus every stored blob — can be captured
-as a single portable `.tar.gz` archive and restored later. Backups run as
-background jobs and are catalogued in the `backups` table.
+> **Off by default.** The in-app backup subsystem is gated behind
+> `DOCRAY_BACKUP_ENABLED`, which defaults to `false` (D-033). With the flag off
+> the scheduler does not start, `createBackup`/`restoreBackup` are refused, the
+> archive download route and the webapp's `/backups` pages answer `404`, and the
+> Backups nav entry is hidden in both UIs. A worker that claims a `backup` or
+> `restore` row left over from before the switch cancels it rather than running
+> it. Query `backupEnabled` to check the flag before offering the actions.
+>
+> This is intended for deployments with no managed database underneath them. On
+> a managed cluster (doc-ray's own production included), database durability
+> comes from the provider's automated backups and PITR instead. Note what that
+> does *not* cover: this archive is the only mechanism here that captures
+> object-store blobs, so with it off, your original document bytes are protected
+> only by whatever your object store provides — enable bucket versioning if you
+> need point-in-time recovery for them.
+
+Set `DOCRAY_BACKUP_ENABLED=true` to switch it on. The whole corpus — every
+Postgres table plus every stored blob — is then captured as a single portable
+`.tar.gz` archive and can be restored later. Backups run as background jobs and
+are catalogued in the `backups` table.
 
 From the webapp, open **Backups** (`/backups`) to create, download, or restore an
 archive. From the GraphQL API:
@@ -348,8 +369,9 @@ snapshot (the live job queue and the backup catalog are excluded, so in-flight
 work and the archive index survive), and it requires the archive's
 `schema_version` to match the target database.
 
-The Compose stack also runs `backup-scheduler` by default when the full service
-set is started. It enqueues a backup job every
+The Compose stack defines a `backup-scheduler` service, but no `make` target
+starts it and it exits immediately unless `DOCRAY_BACKUP_ENABLED=true`. With the
+flag on and the service started, it enqueues a backup job every
 `DOCRAY_BACKUP_SCHEDULE_SECONDS` seconds and prunes old backup archives after
 `DOCRAY_BACKUP_RETENTION_DAYS`, while always retaining the newest
 `DOCRAY_BACKUP_RETENTION_COUNT` archives. PITR/WAL archiving is intentionally

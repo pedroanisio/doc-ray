@@ -22,7 +22,7 @@ from pathlib import Path
 
 import pytest
 
-from doc_ray.entrypoints.mcp import compose, corpus, mutations, structure
+from doc_ray.entrypoints.mcp import compose, corpus, mutations, prompts, structure
 
 _DOC = "11111111-1111-1111-1111-111111111111"
 _TESTS = Path(__file__).resolve().parent
@@ -341,6 +341,14 @@ def test_every_read_tool_is_documented_in_the_tool_inventory():
         if tool.__name__ not in manual
     )
     assert not undocumented, f"missing from docs/mcp-service.md: {undocumented}"
+
+
+def test_every_prompt_is_documented_in_the_inventory():
+    # Prompts are the user-controlled primitive (Item 8): an undocumented workflow
+    # is one a user cannot discover the shape of. Same guard as the tools.
+    manual = (_REPO / "docs" / "mcp-service.md").read_text()
+    undocumented = sorted(p.__name__ for p in prompts.PROMPTS if p.__name__ not in manual)
+    assert not undocumented, f"prompts missing from docs/mcp-service.md: {undocumented}"
 
 
 def test_every_tool_offering_response_format_validates_it():

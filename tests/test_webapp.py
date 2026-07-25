@@ -285,6 +285,19 @@ def fake_q1(sql, params=()):
     return _fake_q1_row(s, params)
 
 
+@pytest.fixture(autouse=True)
+def _backup_subsystem_on(monkeypatch):
+    """Exercise this module against a backup-enabled deployment.
+
+    The in-app backup subsystem is off by default (D-033), which hides the admin
+    nav group and 404s /backups. The assertions here — nav grouping, the backup
+    routes, the graceful-503 page — were written for the enabled surface, so it
+    is switched on explicitly. The disabled surface has its own module:
+    tests/test_webapp_backup_toggle.py.
+    """
+    monkeypatch.setenv("DOCRAY_BACKUP_ENABLED", "true")
+
+
 @pytest.fixture
 def client(monkeypatch):
     monkeypatch.setattr(webapp, "q", fake_q)

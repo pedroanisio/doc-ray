@@ -11,13 +11,19 @@ doc_type: "how-to"
 audience: ["administrator", "operator"]
 surfaces: ["webapp", "api", "config"]
 classification: "restricted"
-applies_to: "1.41.0"
+applies_to: "1.42.0"
 owner: "documentation-maintainer"
 last_reviewed: "2026-07-25"
 status: "current"
 ---
 
 # Back up and restore the corpus
+
+!!! warning "Requires `DOCRAY_BACKUP_ENABLED=true`"
+
+    The backup subsystem is off by default. With it off, the Backups screen is hidden, `/backups` returns *Not Found*, and `createBackup` / `restoreBackup` are refused with a message saying the subsystem is disabled — not a permissions error. Check `backupEnabled` in the API, or ask your administrator, before following this guide.
+
+    On a managed database, database recovery is handled by the provider instead. See [Backups](../concepts/backups.md).
 
 Create a full Backup of the Corpus, review the Backups catalogue, and restore the whole Corpus from a catalogued Backup.
 

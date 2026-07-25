@@ -357,7 +357,13 @@ def register_download_routes(app: FastAPI) -> None:
         than bypassed via the raw superuser pool (BL-094). Only ``available``
         archives are served; anything else is a 404. The blocking ``get`` runs
         off the event loop.
+
+        When ``DOCRAY_BACKUP_ENABLED`` is off the route 404s before touching
+        auth or the database: a switched-off subsystem should be indistinguishable
+        from one that was never mounted.
         """
+        if not request.app.state.settings.backup_enabled:
+            raise HTTPException(status_code=404, detail="backup subsystem is disabled")
         authenticator: Authenticator = request.app.state.authenticator
         principal = await authenticator.authenticate(request)
         if principal.principal_id is None:

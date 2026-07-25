@@ -59,6 +59,18 @@ class Query(VisualQueries, SemanticQueries, StructureQueries, CollectionQueries)
         return __version__
 
     @strawberry.field
+    def backup_enabled(self, info: Info) -> bool:
+        """Whether the in-app backup subsystem is switched on for this deployment.
+
+        Clients read this to decide whether to *offer* backup actions at all;
+        it is a capability hint, not an authorization check. ``createBackup`` /
+        ``restoreBackup`` enforce the same flag server-side and additionally
+        require an admin principal.
+        """
+        settings = info.context.settings
+        return bool(settings is not None and settings.backup_enabled)
+
+    @strawberry.field
     async def documents(
         self,
         info: Info,
@@ -390,10 +402,17 @@ class Query(VisualQueries, SemanticQueries, StructureQueries, CollectionQueries)
         self,
         info: Info,
         document_id: strawberry.ID | None = None,
+        status: str | None = None,
+        kind: str | None = None,
         limit: int = 20,
         after: str | None = None,
     ) -> list[Job]:
-        """Return recent jobs, newest first — a document's pipeline progress view."""
+        """Return recent jobs, newest first — pipeline progress + the admin Jobs table.
+
+        ``status`` (e.g. ``queued``/``running``/``succeeded``/``failed``) and
+        ``kind`` (e.g. ``annotate``/``backup``) filter server-side and compose with
+        keyset pagination: walk ``after`` cursors to page through the filtered set.
+        """
         ctx = info.context
         doc_id: str | None = None
         if document_id is not None:
@@ -401,7 +420,12 @@ class Query(VisualQueries, SemanticQueries, StructureQueries, CollectionQueries)
             if doc_id is None:  # malformed -> no jobs, not a DB error
                 return []
         rows = await queue.list_async(
-            ctx.conn, document_id=doc_id, limit=ctx.page_size(limit), after=after
+            ctx.conn,
+            document_id=doc_id,
+            status=status,
+            kind=kind,
+            limit=ctx.page_size(limit),
+            after=after,
         )
         return [Job.from_row(r) for r in rows]
 

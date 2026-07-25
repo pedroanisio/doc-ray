@@ -33,7 +33,7 @@ guide when you want the data and object storage managed.
         ┌──────────────────────────────────────────┐
         │  Droplet (all app ports bind 127.0.0.1)   │
         │   cloudflared ─► webapp (gunicorn)        │
-        │   api (uvicorn) · worker · backup-scheduler│
+        │   api (uvicorn) · worker                   │
         └──────────┬────────────────────┬───────────┘
         DATABASE_URL (TLS)         S3_ENDPOINT (TLS)
                    ▼                     ▼
@@ -290,14 +290,15 @@ Then load the corpus by whichever fits:
 - **Fresh ingest from Spaces** — idempotent, content-addressed
   (`scripts/ingest_from_spaces.py`).
 - **Restore a snapshot** — `createBackup` on the old DB, `restoreBackup` on prod
-  (schema versions must match).
+  (schema versions must match). Requires `DOCRAY_BACKUP_ENABLED=true` on *both*
+  ends; the subsystem is off by default (D-033).
 - **`pg_dump`/`pg_restore`** — or DO's *"Migrate from an existing PostgreSQL
   database"* flow for a one-shot cutover.
 
 ## Step 5 — Start the production stack
 
 ```bash
-make prod-up          # migrate, then: api + webapp + worker + worker-fast + backup-scheduler
+make prod-up          # migrate, then: api + webapp + worker + worker-fast
 ```
 
 Production web tier (the base compose's dev servers are overridden in the prod
@@ -441,7 +442,7 @@ the landing page renders, not that auth is enforced.)
 | --- | --- |
 | `make prod-check` | Verify the live deployment: config, DB + migration lockstep, Spaces, API `/readyz`, webapp, MCP (local + public `/mcp`), Cloudflare Tunnel, public URL, and a real SMTP delivery (`TO=`, `NO_SEND=1`, `JSON=1`) |
 | `make prod-migrate` | Apply migrations to the managed cluster |
-| `make prod-up` | Migrate, then start api + webapp + workers + backups |
+| `make prod-up` | Migrate, then start api + webapp + workers |
 | `make prod-admin-console-up` | Build/start the loopback-only React admin console and Stripe Billing panel |
 | `make prod-admin-console-down` | Stop the separate admin console stack |
 | `make prod-tunnel` | Start the Cloudflare Tunnel ingress (no public ports) |
@@ -452,9 +453,13 @@ the landing page renders, not that auth is enforced.)
 - **Disk headroom.** Watch `db_health` (or DO's dashboard). The 32 GB → ~60 GB
   annotation growth means **resize disk to ~120 GiB before the corpus finishes
   annotating.** Resizes are in place — do it early.
-- **Backups.** DO's automated daily backups + PITR are the primary recovery path;
-  doc-ray's `backup-scheduler` adds portable object-store snapshots (keep it for
-  portability, not durability).
+- **Backups.** DO's automated daily backups + PITR are the recovery path for the
+  database. doc-ray's own `backup-scheduler` is **off** (`DOCRAY_BACKUP_ENABLED`
+  defaults to false, D-033) — it never produced a usable archive at corpus scale
+  and it monopolized a worker slot trying. Switch it on only if you want portable
+  snapshots and have accepted the cost. **Spaces is not covered by DO's database
+  backups**: enable bucket versioning if the original document bytes need
+  point-in-time recovery.
 - **Connections.** If the API/workers ever exhaust backends, add DO's PgBouncer
   pool in **session** mode (Step 1) rather than raising doc-ray's pool.
 - **Secrets.** App password, Spaces key, JWT/session secrets, and the tunnel token

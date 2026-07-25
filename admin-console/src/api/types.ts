@@ -32,6 +32,7 @@ export interface Job {
   progressCurrent: number | null;
   progressTotal: number | null;
   progressStage: string | null;
+  cursor: string;
 }
 
 // GraphQL type SecurityAuditEvent — security_audit_types.py

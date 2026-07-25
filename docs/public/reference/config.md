@@ -59,10 +59,16 @@ Only the variables below are publicly supported for direct use. Doc-Ray reads ro
 
 ## Backups
 
+### `DOCRAY_BACKUP_ENABLED`
+
+- **Default:** `false`
+- **Effect:** Master switch for the in-app backup subsystem. When false, the backup scheduler exits without enqueueing anything, `createBackup` / `restoreBackup` are refused, the archive download route and the `/backups` pages return *Not Found*, the Backups navigation entry is hidden in both interfaces, and a worker that picks up a Backup queued earlier cancels it instead of running it. The three settings below have no effect while this is false.
+- **Note:** A managed database provider's own backups cover the database only, not the object store holding original uploaded files. See [Backups](../concepts/backups.md).
+
 ### `DOCRAY_BACKUP_SCHEDULE_SECONDS`
 
 - **Default:** `86400`
-- **Effect:** The cadence, in seconds, at which the backup scheduler enqueues an automatic Backup.
+- **Effect:** The cadence, in seconds, at which the backup scheduler enqueues an automatic Backup. Requires `DOCRAY_BACKUP_ENABLED`.
 
 ### `DOCRAY_BACKUP_RETENTION_COUNT`
 

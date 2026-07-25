@@ -335,7 +335,16 @@ extractor) drops in without touching the domain or application.
 
 ## Backup & restore
 
-A corpus snapshot is **app-native**, not a `pg_dump` shell-out — the worker image
+**Off by default** (`DOCRAY_BACKUP_ENABLED=false`, D-033). The whole subsystem —
+scheduler, the `backup`/`restore` job kinds, the archive download route, and the
+backup UI in both front-ends — is gated on one flag, enforced at each of those
+points against `domain.jobs.BACKUP_JOB_KINDS`. A worker that claims a backup row
+while the flag is off cancels it rather than running it, so rows enqueued before
+the switch drain instead of accumulating. It exists for deployments with no
+managed database beneath them; on a managed cluster, database durability comes
+from the provider's backups + PITR, which do **not** cover object-store blobs.
+
+When switched on: a corpus snapshot is **app-native**, not a `pg_dump` shell-out — the worker image
 carries no Postgres client. `application.backup` dumps every corpus table with
 binary `COPY ... TO STDOUT (FORMAT binary)` (round-tripping `tsvector`,
 `vector(768)`, `jsonb`, and array columns without a text re-encode) and bundles it

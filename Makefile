@@ -81,7 +81,7 @@ up: ## Bring up the local self-hosted stack, auto-selecting GPU workers when a G
 	  files=$$($(PYTHON) scripts/deploy_env.py --assume-gpu $$gpu --compose-args); \
 	  upargs=$$($(PYTHON) scripts/deploy_env.py --assume-gpu $$gpu --up-args); \
 	  set -x; docker compose $$files up -d --build $$upargs \
-	    api mcp webapp worker worker-fast backup-scheduler
+	    api mcp webapp worker worker-fast
 
 # Runtime verification of a live deployment — the counterpart to `check`, which
 # only proves the source tree is sound. Reads .env.prod itself (the file wins over
@@ -106,8 +106,11 @@ prod-migrate: ## Apply migrations to the MANAGED cluster via the migrate contain
 prod-migrate-host: ## Apply migrations to the MANAGED cluster from the REPO working tree (reliable; use when the container path reports "0 applied" against a schema that is actually behind)
 	DATABASE_URL="$$(grep -E '^DATABASE_URL=' .env.prod | cut -d= -f2-)" PYTHONPATH=src $(PYTHON) -m doc_ray.entrypoints.migrate
 
-prod-up: prod-migrate ## Migrate, then start the managed stack (api + webapp + workers + backups)
-	$(COMPOSE_PROD) up -d --build api webapp worker worker-fast backup-scheduler
+# backup-scheduler is deliberately absent: the in-app backup subsystem is off by
+# default (DOCRAY_BACKUP_ENABLED, D-033) and the scheduler exits immediately when
+# it is. Start it explicitly if you switch the flag on.
+prod-up: prod-migrate ## Migrate, then start the managed stack (api + webapp + workers)
+	$(COMPOSE_PROD) up -d --build api webapp worker worker-fast
 
 prod-web: ## Add the public TLS front door (nginx + self-signed certgen) to a running prod stack
 	$(COMPOSE_PROD) up -d --build nginx-certgen nginx
@@ -134,7 +137,7 @@ prod-ollama-up: prod-migrate ## Migrate, then run the managed stack with the LOC
 	# to ollama via the overlay. Compose with `make gpu-up` to also put the trf
 	# annotate worker on the GPU (independent tenant; both fit the H200).
 	$(COMPOSE_PROD) -f docker-compose.ollama.yml -f docker-compose.ollama.gpu.yml \
-	  up -d --build ollama ollama-pull api webapp worker worker-fast backup-scheduler
+	  up -d --build ollama ollama-pull api webapp worker worker-fast
 
 prod-refresh-ui: ## Rebuild + recreate api + webapp to refresh the UI (templates, static assets, cover route) — preserves cloudflared/ollama/worker routing
 	$(COMPOSE_PROD_OLLAMA) up -d --build api webapp

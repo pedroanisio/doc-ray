@@ -1889,3 +1889,106 @@ decisions:
             command:     "pytest src/doc_ray/tests/test_oauth_web.py"
             expect:
               exit:      0
+
+  - id:                 "D-033"
+    title:              "In-app corpus backup is a feature toggle, off by default; durability moves to the managed database layer"
+    version_introduced: "1.42.0"
+    category:           "operations"
+    decision: |
+      The in-app backup subsystem — the backup-scheduler service, the backup and
+      restore job kinds, the archive download route, and the backup UI in both
+      the webapp and the admin console — is gated behind a single flag,
+      DOCRAY_BACKUP_ENABLED, which defaults to false. Production runs with it
+      off; corpus database durability is provided by the managed PostgreSQL
+      layer's own automated backups and PITR.
+
+      The flag is enforced at every point that could start or continue backup
+      work, each reading domain.jobs.BACKUP_JOB_KINDS rather than naming the
+      kinds again: the scheduler exits 0 without enqueueing or pruning; the
+      createBackup/restoreBackup mutations refuse before the admin check, so a
+      disabled deployment answers "the feature is off" instead of the misleading
+      "you are not an admin"; the /backups/<id>/download route 404s before
+      touching auth or the database; the webapp's four backup routes 404 and its
+      nav entry is hidden under the same flag; the admin console reads the new
+      Query.backupEnabled capability field to hide its nav entry and to explain
+      itself on a deep link. The worker does not merely decline to claim a
+      disabled kind — it claims and cancels it, so rows enqueued before the
+      switch was thrown drain out instead of sitting queued forever.
+
+      restore is gated together with backup. Splitting them would leave a
+      destructive whole-corpus verb live in a deployment that can no longer
+      produce anything for it to consume.
+    rationale: |
+      The subsystem had never once succeeded in production. At the time of this
+      decision the backups table held 27 failed rows, 2 stuck in 'creating', and
+      zero 'available'; the backups/ prefix in the production bucket was empty.
+      The failures were of two kinds: an S3 EntityTooLarge, because
+      application.backup builds the whole tar.gz in memory and
+      adapters.object_store.put issues a single PutObject (the corpus archive
+      had outgrown the 5 GiB single-PUT ceiling), and a JobExecutionTimeout,
+      because building that archive exceeded the 3600s per-job limit.
+
+      The operational cost was not confined to backups. backup was claimable by
+      the general worker pool — the only pool that runs annotate — so a backup
+      attempt occupied that slot for a full hour before timing out. On
+      2026-07-25 a user-visible annotate job sat queued for 39 minutes behind
+      one, which is the same starvation shape the worker-fast lane was
+      introduced to fix, on a kind that lane never excluded.
+
+      A toggle rather than deletion: the code is a working design for
+      self-hosted deployments that have no managed database under them, and
+      removing it would also delete the only mechanism that ever captured
+      object-store blobs. Keeping it behind a default-off flag preserves that
+      option without letting a subsystem with a 0% success rate hold a worker
+      slot. Default off (rather than on with a production override) follows the
+      D-030 precedent for capability flags and means a fresh deployment does not
+      inherit the failure.
+
+      KNOWN GAP, accepted with this decision: managed-database backups cover the
+      database only. The in-app archive was the only thing that captured the
+      content-addressed original document bytes in object storage, and the
+      production bucket does not have versioning enabled. With the flag off,
+      those originals have a single copy and no point-in-time recovery. This is
+      a deliberate, documented reduction in coverage, not an oversight; closing
+      it requires object-store versioning or a separate blob backup, tracked in
+      the backlog.
+    decision_status:    "accepted"
+    decision_date:      "2026-07-25"
+    owner:              ["pedroanisio@faz.ai"]
+    scope_path:
+      - "src/doc_ray/config.py"
+      - "src/doc_ray/domain/jobs.py"
+      - "src/doc_ray/application/jobs.py"
+      - "src/doc_ray/entrypoints/worker.py"
+      - "src/doc_ray/entrypoints/backup_scheduler.py"
+      - "src/doc_ray/entrypoints/api/mutation_guards.py"
+      - "src/doc_ray/entrypoints/api/query.py"
+      - "src/doc_ray/entrypoints/api/downloads.py"
+      - "webapp/admin_web.py"
+      - "admin-console/src/api/useBackupEnabled.ts"
+      - "config/env.registry.yaml"
+    claims:
+      - claim_id:    "D-033.k1"
+        claim_text:  "With DOCRAY_BACKUP_ENABLED off, no backup work is enqueued or executed at any entry point, and a pre-existing queued backup row is canceled rather than run."
+        auditable:   true
+        status:      "populated"
+        declared_checks_count: 2
+        checks:
+          - check_id:    "D-033.k1.c1"
+            description: "The toggle holds at config, worker dispatch, scheduler, mutation guard, and capability field, in both positions."
+            check_kind:  "shell"
+            severity:    "error"
+            context:     "ci"
+            side_effects: "reads"
+            command:     "pytest src/doc_ray/tests/test_backup_toggle.py"
+            expect:
+              exit:      0
+          - check_id:    "D-033.k1.c2"
+            description: "The webapp's backup routes 404 and its nav entry is hidden when the flag is off."
+            check_kind:  "shell"
+            severity:    "error"
+            context:     "ci"
+            side_effects: "reads"
+            command:     "pytest tests/test_webapp_backup_toggle.py"
+            expect:
+              exit:      0

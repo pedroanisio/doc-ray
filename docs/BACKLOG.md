@@ -503,7 +503,7 @@ against.
 | BL-134 | Pipeline polish: janitor reap, attempt-relative started_at, reap progress hygiene | ops | tech-debt | done | S | high | shared |
 | BL-135 | Backup heartbeat starved: progress writes rode the handler's snapshot transaction | ops | bug | done | S | high | shared |
 | BL-136 | check_version_consistency gate red on main: package version left at 1.22.0 while schema moved to 1.24.0 | tooling | bug | done | XS | high | shared |
-| BL-137 | docs-in-sync gate red on main: DATABASE.md stops at migration 094 while db/migrations holds 101 | docs | bug | ready | S | high | shared |
+| BL-137 | docs-in-sync gate red on main: DATABASE.md stops at migration 094 while db/migrations holds 101 | docs | bug | done | S | high | shared |
 | BL-138 | No table is FORCE ROW LEVEL SECURITY, so any owner-role connection bypasses RLS entirely | security | bug | done | L | high | shared |
 | BL-139 | Organization corpus: make unowned documents shareable within a tenant | security | feature | done | M | medium | shared |
 | BL-140 | tests/test_webapp.py red on main: 16 tests fail on stale copy assertions and stale SQL stubs | testing | bug | done | M | high | shared |
@@ -515,6 +515,10 @@ against.
 | BL-146 | MCP reach and honesty gaps: no document map, raw NER type-splits, no token lever on the bulk readers | api | feature | done | L | high | shared |
 | BL-147 | entity_profiles was dead for every real caller: form_index never granted to docray_client | api | bug | done | XS | high | shared |
 | BL-148 | MCP evaluation harness: measure the tool surface instead of asserting it | testing | feature | done | M | medium | shared |
+| BL-149 | MCP term-frequency pre-flight: prevent search flooding instead of diagnosing it | api | feature | done | S | medium | shared |
+| BL-150 | MCP prompts primitive: ship the corpus methodology as selectable workflows | api | feature | done | S | medium | shared |
+| BL-151 | Backup archive upload is a single in-memory PutObject — fails past 5 GiB | ops | bug | ready | M | medium | unassigned |
+| BL-152 | Object-store blobs have no backup coverage once the in-app archive is off | ops | infra | ready | S | high | unassigned |
 
 See [`backlog.yml`](backlog.yml) for each item's full description, rationale,
 acceptance criteria, dependencies, related decisions (`D-###`), and references.

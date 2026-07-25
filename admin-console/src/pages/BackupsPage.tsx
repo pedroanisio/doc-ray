@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useApiClient } from "../services";
 import { createBackup, restoreBackup } from "../api/backups";
+import { useBackupEnabled } from "../api/useBackupEnabled";
 import { PageHeader } from "../components/common";
 
 /**
@@ -11,6 +12,7 @@ import { PageHeader } from "../components/common";
  */
 export function BackupsPage() {
   const client = useApiClient();
+  const backupEnabled = useBackupEnabled();
   const [note, setNote] = useState("");
   const [restoreId, setRestoreId] = useState("");
   const [notice, setNotice] = useState<string | null>(null);
@@ -41,6 +43,22 @@ export function BackupsPage() {
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     }
+  }
+
+  // The nav entry is hidden when the subsystem is off, but the route is still
+  // reachable by deep link, so the page states the reason rather than rendering
+  // controls whose every action would be refused by the server.
+  if (backupEnabled === false) {
+    return (
+      <div>
+        <PageHeader title="Backups" />
+        <p role="status" className="alert info">
+          The in-app backup subsystem is disabled for this deployment
+          (DOCRAY_BACKUP_ENABLED=false). Corpus backups are taken at the managed
+          database layer.
+        </p>
+      </div>
+    );
   }
 
   return (

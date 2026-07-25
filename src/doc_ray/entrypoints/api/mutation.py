@@ -49,6 +49,7 @@ from doc_ray.entrypoints.api.mutation_guards import (
     _job_status,
     _read_upload_bounded,
     _require_admin,
+    _require_backup_admin,
     _require_document_write,
     _require_write_audited,
 )
@@ -421,9 +422,12 @@ class Mutation(
 
         The worker writes a ``.tar.gz`` archive to the object store and indexes it
         in the ``backups`` table. Poll ``job(id)`` for completion.
+
+        Requires ``DOCRAY_BACKUP_ENABLED``; the subsystem is opt-in and off by
+        default (see ``Query.backupEnabled`` to check before offering the action).
         """
         ctx = info.context
-        await _require_admin(ctx, action="mutation.backup")
+        await _require_backup_admin(ctx, action="mutation.backup")
         payload = {"note": note} if note else {}
         job_id = await _enqueue_job(ctx, KIND_BACKUP, payload, document_id=None)
         return await _job_status(ctx, job_id)
@@ -434,9 +438,12 @@ class Mutation(
 
         DESTRUCTIVE: the worker rewrites every corpus table and re-uploads blobs
         from the archive. The target must be at the archive's schema version.
+
+        Requires ``DOCRAY_BACKUP_ENABLED``; the subsystem is opt-in and off by
+        default (see ``Query.backupEnabled`` to check before offering the action).
         """
         ctx = info.context
-        await _require_admin(ctx, action="mutation.restore")
+        await _require_backup_admin(ctx, action="mutation.restore")
         job_id = await _enqueue_job(
             ctx, KIND_RESTORE, {"backup_id": str(backup_id)}, document_id=None
         )

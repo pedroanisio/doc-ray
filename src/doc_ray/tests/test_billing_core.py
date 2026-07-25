@@ -81,6 +81,9 @@ def test_paid_saas_mutations_cannot_drift_outside_billing_entitlement_guard() ->
             guard in source
             for guard in (
                 "_require_admin",
+                # Composes _require_write_audited + the backup feature gate +
+                # the admin predicate, in that order (D-033).
+                "_require_backup_admin",
                 "_require_document_write",
                 "_require_document_share",
                 "_require_write_audited",

@@ -16,7 +16,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
-from doc_ray.entrypoints.mcp.corpus import _require_uuid, gql
+from doc_ray.entrypoints.mcp.corpus import ToolCallError, _require_uuid, gql
 
 
 async def read_document_outline(document_id: str, max_entries: int = 50) -> dict[str, Any]:
@@ -89,5 +89,61 @@ async def entity_profiles(
     return profiles
 
 
+async def term_frequency(terms: list[str], document_id: str | None = None) -> list[dict[str, Any]]:
+    """Check how common terms are BEFORE spending a search — avoid flooding, don't just diagnose it.
+
+    ``search_sentences`` already tells you *after the fact* when a term flooded one
+    region (its ``coverage.limit_reached`` + note). This tells you *first*, for
+    free: pass a batch of candidate terms and get a ``floodRisk`` verdict
+    (``low`` | ``moderate`` | ``high``) per term, so you pick a rarer, scene-specific
+    term instead of burning a call on a common one that clusters its hits and
+    starves coverage of the rest of the document.
+
+    Batch by default — triage all your candidates in ONE call
+    (``term_frequency(terms=["spice","sandworm","kwisatz"])``); do not spend one
+    round-trip per term. Each result carries the numbers behind the verdict —
+    ``uses`` (corpus-wide count), ``totalUses`` (the scope total), ``share`` — so you
+    can judge for yourself, plus ``attested`` (false + an "unattested" note means the
+    term is absent from the lexicon, so a search will likely return nothing) and a
+    steering ``note`` on the risky ones.
+
+    The count is the lexeme-lemma frequency (matched with the lexeme layer's
+    normalization). It is a corpus-saturation signal, a strong proxy for — not an
+    exact predictor of — any one search tool's hit count. Corpus-wide only for now:
+    pass ``document_id`` and it fails with a typed ``unsupported`` error rather than
+    return corpus numbers mislabelled as document-scoped.
+
+    Returns a list of ``{term, normalizedTerm, uses, totalUses, share, floodRisk,
+    attested, note}``, one per distinct term, in input order.
+    """
+    if document_id is not None:
+        _require_uuid(document_id, "document_id")
+        raise ToolCallError(
+            "unsupported",
+            "document-scoped term frequency is not available yet — this reads the "
+            "corpus-wide lexeme_stats rollup.",
+            hint=(
+                "omit document_id for corpus-wide frequency; to navigate within one "
+                "document use read_document_outline + read_document_sentences"
+            ),
+        )
+    if not terms:
+        raise ToolCallError(
+            "bad_input",
+            "terms must contain at least one term",
+            hint='pass the candidate search terms you are triaging, e.g. ["spice","sandworm"]',
+        )
+    data = await gql(
+        "query($t:[String!]!){termFrequency(terms:$t)"
+        "{term normalizedTerm uses totalUses share floodRisk attested note}}",
+        {"t": terms},
+    )
+    return list(data["termFrequency"])
+
+
 #: Registered by ``server.build_server`` next to the corpus read tools.
-TOOLS: tuple[Callable[..., Any], ...] = (read_document_outline, entity_profiles)
+TOOLS: tuple[Callable[..., Any], ...] = (
+    read_document_outline,
+    entity_profiles,
+    term_frequency,
+)

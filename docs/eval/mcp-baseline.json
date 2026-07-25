@@ -1,11 +1,11 @@
 {
   "aggregate": {
     "failed": 0,
-    "passed": 14,
-    "tasks": 14,
-    "total_calls": 32,
-    "total_chars": 49641,
-    "total_est_tokens": 12410
+    "passed": 15,
+    "tasks": 15,
+    "total_calls": 33,
+    "total_chars": 50481,
+    "total_est_tokens": 12620
   },
   "mode": "scripted",
   "tasks": [
@@ -412,6 +412,31 @@
       "grounded_in": "reachability: semantic_search_sentences (Layer 20, deployment-optional)",
       "passed": true,
       "task_id": "coverage-semantic-search",
+      "within_budget": true
+    },
+    {
+      "assertions": [
+        {
+          "detail": "1 call(s), all ok",
+          "name": "term_frequency_ok",
+          "passed": true
+        },
+        {
+          "detail": "1/2 calls, 840/15000 chars",
+          "name": "within_budget",
+          "passed": true
+        }
+      ],
+      "budget": {
+        "max_calls": 2,
+        "max_chars": 15000
+      },
+      "calls": 1,
+      "chars": 840,
+      "est_tokens": 210,
+      "grounded_in": "reachability: term_frequency (Item 10 flood-risk pre-flight)",
+      "passed": true,
+      "task_id": "coverage-term-frequency",
       "within_budget": true
     }
   ]

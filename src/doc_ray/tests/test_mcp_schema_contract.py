@@ -76,6 +76,7 @@ _READ_CALLS = [
     lambda: structure.read_document_outline(_DOC),
     lambda: structure.entity_profiles(),
     lambda: structure.entity_profiles(document_id=_DOC, entity_type="PERSON"),
+    lambda: structure.term_frequency(["spice", "kwisatz"]),
     lambda: corpus.get_job("job-1"),
     lambda: corpus.list_collections(),
     lambda: corpus.get_collection(_DOC),

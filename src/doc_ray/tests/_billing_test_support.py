@@ -86,6 +86,10 @@ def _cfg(*, enforcement_enabled: bool = False) -> Config:
         stripe_portal_return_url="https://app.example.com/billing",
         public_base_url="https://app.example.com",
         billing_enforcement_enabled=enforcement_enabled,
+        # These tests use createBackup as their sample paid mutation, so the
+        # backup subsystem must be on or the feature gate answers before the
+        # entitlement check ever runs (D-033).
+        backup_enabled=True,
     )
 
 
