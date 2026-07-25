@@ -18,17 +18,68 @@ writer.
 from __future__ import annotations
 
 import math
-from collections.abc import Sequence
+from collections.abc import Awaitable, Callable, Sequence
 from typing import Any
 
 import psycopg
 
-from doc_ray.domain.jobs import Job
+from doc_ray.adapters import queue_postgres as queue
+from doc_ray.adapters.text_encoder_sentence_transformers import DEFAULT_MODEL_TAG
+from doc_ray.domain.jobs import KIND_SEMANTIC_EMBED, Job
 from doc_ray.domain.progress import report_progress
 from doc_ray.ports.object_store import ObjectStore
 from doc_ray.ports.text_encoder import TextEncoder
 
 _EMBEDDING_COLUMNS = ("span_id", "model", "vector")
+
+
+async def enqueue_semantic_embed_jobs(
+    conn: psycopg.AsyncConnection[Any],
+    *,
+    only_missing: bool = True,
+    priority: int = 100,
+    enqueued_by: str | None = None,
+    enqueue_document: Callable[[str], Awaitable[str]] | None = None,
+) -> list[str]:
+    """Enqueue Layer-20 jobs for every eligible sentence-bearing document.
+
+    ``only_missing`` uses one anti-join against the active model, keeping the
+    operator CLI safely re-runnable after a completed backfill. The optional
+    callback lets the GraphQL mutation retain its request correlation, billing,
+    and audit plumbing while sharing this exact corpus selection and loop.
+    """
+    missing_clause = (
+        "AND NOT EXISTS ("
+        " SELECT 1 FROM embedding e JOIN sentences s2 ON s2.span_id = e.span_id"
+        " WHERE s2.document_id = d.id AND e.model = %(model)s)"
+        if only_missing
+        else ""
+    )
+    cur = await conn.execute(
+        f"""
+        SELECT d.id
+        FROM documents d
+        WHERE EXISTS (SELECT 1 FROM sentences s WHERE s.document_id = d.id)
+          {missing_clause}
+        ORDER BY d.created_at, d.id
+        """,
+        {"model": DEFAULT_MODEL_TAG},
+    )
+    rows = await cur.fetchall()
+
+    if enqueue_document is None:
+
+        async def enqueue_document(document_id: str) -> str:
+            return await queue.enqueue_async(
+                conn,
+                KIND_SEMANTIC_EMBED,
+                {},
+                priority=priority,
+                document_id=document_id,
+                enqueued_by=enqueued_by,
+            )
+
+    return [await enqueue_document(str(row["id"])) for row in rows]
 
 
 def to_vector_literal(vec: Sequence[float]) -> str:

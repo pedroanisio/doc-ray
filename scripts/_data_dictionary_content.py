@@ -296,6 +296,11 @@ MIGRATIONS = [
         "123_resolution_review_client_read",
         "grant + RLS on resolution_review so client reads (resolutionReview) work (#15 sweep)",
     ),
+    (
+        "124_semantic_embedding_cutover",
+        "NLP Layer 20 hard cutover: purge hash-bow-768 and advance SemVer to 1.42.0",
+    ),
+    ("125_schema_version_1_43_0", "advance the schema SemVer to 1.43.0 for epic #23"),
 ]
 
 # ---------------------------------------------------------------------------

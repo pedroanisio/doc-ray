@@ -9,9 +9,9 @@ disclaimer:
 title: "Correct an entity"
 doc_type: "how-to"
 audience: ["end-user", "integrator", "developer"]
-surfaces: ["mcp", "api"]
+surfaces: ["webapp", "mcp", "api"]
 classification: "public"
-applies_to: "1.41.0"
+applies_to: "1.43.0"
 owner: "documentation-maintainer"
 last_reviewed: "2026-07-25"
 status: "current"
@@ -35,6 +35,22 @@ Record a durable, attributable fix to a machine-produced Entity Mention — recl
 - `reject` — the Span is not an entity; it is dropped.
 - `add` — a missed entity; pass its `entity_type` (and `surface`).
 - `adjust_span` — the entity is real but its boundaries are wrong; pass the corrected `new_char_start`/`new_char_end`.
+
+## Correct an Entity in the review inbox
+
+1. Open **Review** (`/review`) and choose the **Entities** lane.
+2. Optionally filter to one Document, then inspect the source Sentence and
+   character offsets before deciding.
+3. Choose the correction action, supply the corrected type or surface where the
+   action requires it, and submit.
+
+   Result: the page reports the queued correction Job. The durable correction is
+   applied through the audited GraphQL write path and will be reconciled again
+   after future annotation runs.
+
+The Metadata and Visual lanes use the same inbox envelope but different
+decision mutations. Do not approve an Entity change merely because a model
+proposed it; verify the source passage first.
 
 ## Correct an entity over MCP
 

@@ -11,7 +11,7 @@ doc_type: "reference"
 audience: ["developer", "integrator"]
 surfaces: ["api"]
 classification: "public"
-applies_to: "1.41.0"
+applies_to: "1.43.0"
 owner: "documentation-maintainer"
 last_reviewed: "2026-07-25"
 status: "current"
@@ -24,6 +24,10 @@ This page is the field-level contract for the Doc-Ray GraphQL API: the endpoint,
 ## Endpoint
 
 The GraphQL API is served at `/graphql`. All operations are sent as HTTP `POST` requests with a JSON body carrying `query` and optional `variables`.
+
+Doc-Ray publishes no client SDK in 1.43.0. Use a standard GraphQL client against
+this contract or connect through the MCP server; do not treat internal Python
+modules as a stable external SDK.
 
 ## Authentication
 
@@ -69,6 +73,7 @@ Listings are **keyset-paginated**. A list field returns objects each carrying a 
 | `documentImages` | List detected images and their visual features in a Document. | `documentId`, `limit`, `after` |
 | `imageClassSummary` | Return the `(imageClass, count)` distribution for a Document's images. | `documentId` |
 | `visualCaptions` | Return a Document's committed, grounded captions. | `documentId`, `limit` |
+| `visualReview` | List untrusted Tier-3 caption proposals and their review status. | `documentId`, `status`, `limit`, `after` |
 | `documentMetadataHistory` | Return the change log of a Document's metadata fields. | `documentId` |
 | `documentMetadataSuggestions` | List generated metadata suggestions for a Document. | `documentId`, `status` |
 | `corpusManifest` | Return the shard map for splitting the Corpus into `shardCount` parts. | `shardCount` |
@@ -80,11 +85,29 @@ Listings are **keyset-paginated**. A list field returns objects each carrying a 
 |---|---|---|
 | `fullTextSearch` | Rank whole Documents by full-text relevance. | `query`, `limit` |
 | `searchSentences` | Keyword-in-context Sentence search across the readable Corpus. | `term`, `documentId`, `limit`, `after` |
+| `semanticSearchSentences` | Rank Sentences by learned semantic similarity. | `query`, `documentId`, `limit` |
 | `crossModalImageSearch` | Find images by meaning from a text query. | `query`, `limit` |
 | `lexeme` | Fetch one Lexeme by uid, with its occurrences. | `uid` |
 | `lexemes` | Search Lexemes by form, part of speech, language, or Document. | `q`, `pos`, `lang`, `documentId`, `limit`, `after` |
 
 A result whose `coverage` field and `note` report truncation means a common term flooded one region; prefer rare, specific terms. See [Search returns too few results](../troubleshooting/search-returns-too-few-results.md).
+
+`semanticSearchSentences` requires embeddings from the active learned model. An
+empty result can mean the visible Documents have not been backfilled; operators
+should follow the corpus-embedding runbook rather than substituting legacy
+hash-BoW vectors.
+
+### Composition
+
+| Field | Purpose | Key arguments |
+|---|---|---|
+| `briefingPack` | Build a deterministic, gap-honest evidence pack with cited passages and entity frequencies. | `topic`, `maxDocuments`, `passagesPerDocument`, `maxEntities` |
+
+All three adapters delegate to the same deterministic application service;
+GraphQL maps field names to camelCase and the webapp renders the result, while
+evidence ordering, budget gaps, and citation content stay aligned. The pack is
+evidence for a human or downstream composer; Doc-Ray does not publish generated
+narrative as corpus fact.
 
 ### Entities and canonicalization
 
@@ -171,6 +194,8 @@ Every content mutation returns a Job unless noted. Poll the returned Job with th
 | `annotateDocument` | Run first-stage annotation for a Document. | `documentId`, `lang` |
 | `reannotate` | Re-run the full linguistic annotation. | `documentId`, `lang` |
 | `semanticEnrichDocument` | Run semantic enrichment for a Document. | `documentId` |
+| `embedDocumentSentences` | Enqueue learned sentence embedding for one Document. | `documentId` |
+| `embedCorpusSentences` | Enqueue one learned-embedding Job per visible Document, optionally only where the active model is missing. Returns a Job list. | `onlyMissing` |
 | `canonicalizeDocument` | Canonicalize a Document; `resolve` enables auto-linking. | `documentId`, `resolve` |
 
 ### Entities and canonicalization
@@ -203,6 +228,16 @@ Canonicalization links mentions only to entities already in the registry; seed f
 | `setDocumentDefaultLens` | Set or clear a Document's default Lens. Returns the Document. | `documentId`, `lensId` |
 
 The Global lens cannot be renamed, demoted, or deleted.
+
+### Visual review
+
+| Field | Purpose | Key arguments |
+|---|---|---|
+| `decideVisualCaptions` | Approve or reject Tier-3 caption proposals; returns the number decided. | `approveIds`, `rejectIds` |
+
+An id cannot appear in both lists, and the combined batch is capped. Approval
+commits the caption for `visualCaptions`; rejection keeps it out of trusted
+reads. The authenticated reviewer and decision are audited.
 
 ### Lifecycle
 

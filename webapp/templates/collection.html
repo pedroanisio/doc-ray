@@ -6,11 +6,30 @@
   <h1>{{ collection.name }}</h1>
   <div>
     <span class="pill">{{ collection.kind }}</span>
+    {% if collection.is_scope %}<span class="pill">Lens</span>{% endif %}
     <span class="pill">{{ rows|length }} docs</span>
     {% if collection.kind == "smart" %}<span class="pill">Smart rule · {{ collection.rule_summary }}</span>{% endif %}
   </div>
   {% if collection.description %}<p class="lede" style="margin-top:.6rem">{{ collection.description }}</p>{% endif %}
 </div>
+
+{% if error %}<div class="errbox">{{ error }}</div>{% endif %}
+{% if notice %}<div class="notice">{{ notice }}</div>{% endif %}
+<section class="card">
+  <h2>Lens registry</h2>
+  <p class="hint">Lenses name a scope for a future projection layer; they do not change search or entity resolution today. See <a href="https://github.com/pedroanisio/doc-ray/issues/8">Block D (#8)</a>.</p>
+  <form method="post" action="{{ url_for('collection_lens_update', collection_id=collection.id) }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    {% if collection.is_scope %}
+      <button name="action" value="demote" type="submit">Demote lens</button>
+    {% else %}
+      <label>Parent lens
+        <select name="parent_lens_id"><option value="">No parent</option>{% for lens in lenses %}<option value="{{ lens.id }}">{{ lens.name }}</option>{% endfor %}</select>
+      </label>
+      <button name="action" value="promote" type="submit">Promote to lens</button>
+    {% endif %}
+  </form>
+</section>
 
 {% if collection.kind == "manual" and available %}
 <details class="card collection-add">

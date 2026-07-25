@@ -69,7 +69,7 @@ _GROUP_TITLES = {
 
 def load_registry() -> list[dict]:
     data = yaml.safe_load(REGISTRY.read_text())
-    return [v for v in data["variables"] if v.get("scope", "app") == "app"]
+    return [v for v in data["variables"] if v.get("scope", "app") in {"app", "compose"}]
 
 
 def _wrap_comment(text: str) -> list[str]:

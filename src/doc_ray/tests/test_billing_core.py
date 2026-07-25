@@ -47,6 +47,7 @@ def test_paid_saas_mutations_cannot_drift_outside_billing_entitlement_guard() ->
         "create_backup": "mutation.backup",
         "create_collection": "mutation.create_collection",
         "decide_document_metadata_suggestions": ("mutation.decide_document_metadata_suggestions"),
+        "decide_visual_captions": "mutation.decide_visual_captions",
         "decide_seeds": "mutation.decide_seeds",
         "delete_collection": "mutation.delete_collection",
         "delete_document": "mutation.delete",

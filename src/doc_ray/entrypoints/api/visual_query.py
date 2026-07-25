@@ -23,6 +23,7 @@ from doc_ray.entrypoints.api.visual_types import (
     DocumentImage,
     ImageClassCount,
     VisualCaption,
+    VisualReviewItem,
 )
 from doc_ray.ports.vision_encoder import VisionEncoder
 
@@ -114,6 +115,29 @@ class VisualQueries:
         ctx = info.context
         rows = await visual_read.list_visual_captions(ctx.conn, doc_id, limit=ctx.page_size(limit))
         return [VisualCaption.from_row(r) for r in rows]
+
+    @strawberry.field
+    async def visual_review(
+        self,
+        info: Info,
+        document_id: strawberry.ID | None = None,
+        status: str = "pending",
+        limit: int = 100,
+        after: str | None = None,
+    ) -> list[VisualReviewItem]:
+        """Return untrusted Tier-3 caption proposals awaiting human review."""
+        doc_id = clean_uuid(str(document_id)) if document_id is not None else None
+        if document_id is not None and doc_id is None:
+            return []
+        ctx = info.context
+        rows = await visual_read.list_visual_review(
+            ctx.conn,
+            document_id=doc_id,
+            status=status,
+            limit=ctx.page_size(limit),
+            after=after,
+        )
+        return [VisualReviewItem.from_row(row) for row in rows]
 
     @strawberry.field
     async def cross_modal_image_search(

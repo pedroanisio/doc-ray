@@ -123,3 +123,44 @@ async def list_visual_captions(conn: _AConn, document_id: str, *, limit: int = 1
         {"doc": document_id, "limit": limit},
     )
     return await cur.fetchall()
+
+
+async def list_visual_review(
+    conn: _AConn,
+    *,
+    document_id: str | None = None,
+    status: str = "pending",
+    limit: int = 100,
+    after: str | None = None,
+) -> list[Row]:
+    """Return the RLS-scoped Tier-3 caption review queue, newest first."""
+    if status not in {"pending", "approved", "rejected"}:
+        raise ValueError("visual review status must be pending, approved, or rejected")
+    cursor = decode_cursor(after, "visual-review")
+    cur = await conn.execute(
+        """
+        SELECT vr.id, vr.document_image_id, vr.document_id, vr.proposed,
+               vr.grounding_score, vr.grounding_evidence, vr.status, vr.reviewer,
+               vr.created_at, vr.updated_at, di.page_number, di.object_key
+        FROM visual_review vr
+        JOIN document_image di ON di.id = vr.document_image_id
+        WHERE vr.status = %(status)s
+          AND (%(doc)s::uuid IS NULL OR vr.document_id = %(doc)s::uuid)
+          AND (%(after_created)s::timestamptz IS NULL
+               OR (vr.created_at, vr.id)
+                  < (%(after_created)s::timestamptz, %(after_id)s::ulid))
+        ORDER BY vr.created_at DESC, vr.id DESC
+        LIMIT %(limit)s
+        """,
+        {
+            "doc": document_id,
+            "status": status,
+            "limit": limit,
+            "after_created": cursor["created_at"] if cursor else None,
+            "after_id": cursor["id"] if cursor else None,
+        },
+    )
+    rows = await cur.fetchall()
+    for row in rows:
+        row["cursor"] = encode_cursor("visual-review", created_at=row["created_at"], id=row["id"])
+    return rows

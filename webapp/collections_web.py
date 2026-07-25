@@ -12,7 +12,7 @@ from __future__ import annotations
 import json
 from types import ModuleType
 
-from flask import abort, redirect, request, url_for
+from flask import abort, current_app, redirect, request, url_for
 
 try:
     from webapp.previews import document_preview
@@ -20,6 +20,23 @@ except ModuleNotFoundError:  # pragma: no cover - direct ``python webapp/app.py`
     from previews import document_preview
 
 _core: ModuleType
+
+_LENSES_QUERY = """
+query WebappLenses {
+  lenses(limit: 100) {
+    id name description isScope parentLensId documentCount cursor
+  }
+}
+"""
+
+
+def _lenses() -> tuple[list[dict], str | None]:
+    """Bind the public lens query and return a clean page-level error on failure."""
+    try:
+        return list(_core.gql(_LENSES_QUERY).get("lenses") or []), None
+    except Exception as exc:  # noqa: BLE001 - registry failure must not blank collections
+        current_app.logger.warning("lens registry unavailable: %s", exc)
+        return [], str(exc)
 
 
 def collection_rule_from_form(form) -> dict[str, object]:
@@ -128,7 +145,8 @@ def collections():
     """Render document collections and the create-collection form."""
     rows = _core.q(
         """
-        SELECT c.id, c.name, c.description, c.kind, c.rule,
+        SELECT c.id, c.name, c.description, c.kind, c.rule, c.is_scope,
+               c.parent_lens_id, parent.name AS parent_lens_name,
                CASE
                  WHEN c.kind = 'manual' THEN (
                    SELECT count(*) FROM document_collection_members m
@@ -137,6 +155,7 @@ def collections():
                  ELSE NULL
                END AS document_count
         FROM document_collections c
+        LEFT JOIN document_collections parent ON parent.id = c.parent_lens_id
         ORDER BY c.name
         """
     )
@@ -144,7 +163,14 @@ def collections():
         if row.get("document_count") is None:
             row["document_count"] = _smart_collection_count(row)
         row["rule_summary"] = collection_rule_summary(row.get("rule"))
-    return _core.render_template("collections.html", rows=rows, error=request.args.get("error"))
+    lenses, lens_error = _lenses()
+    return _core.render_template(
+        "collections.html",
+        rows=rows,
+        lenses=lenses,
+        error=request.args.get("error") or lens_error,
+        notice=request.args.get("notice"),
+    )
 
 
 def _smart_collection_count(collection: dict) -> int:
@@ -221,11 +247,15 @@ def collection_detail(collection_id):
             """,
             (str(collection_id),),
         )
+    lenses, lens_error = _lenses()
     return _core.render_template(
         "collection.html",
         collection=collection,
         rows=documents_in_collection,
         available=available,
+        lenses=[lens for lens in lenses if str(lens["id"]) != str(collection_id)],
+        error=request.args.get("error") or lens_error,
+        notice=request.args.get("notice"),
     )
 
 

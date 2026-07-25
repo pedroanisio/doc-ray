@@ -91,6 +91,7 @@ _READ_CALLS = [
     lambda: corpus.document_images(_DOC),
     lambda: corpus.image_class_summary(_DOC),
     lambda: corpus.visual_captions(_DOC),
+    lambda: corpus.visual_review(document_id=_DOC),
     lambda: corpus.cross_modal_image_search("dune"),
 ]
 
@@ -113,6 +114,7 @@ _WRITE_CALLS = [
     ),
     lambda: mutations.decide_seeds(approve_ids=["s1"]),
     lambda: mutations.decide_document_metadata_suggestions(approve_ids=["m1"]),
+    lambda: mutations.decide_visual_captions(approve_ids=["v1"]),
     lambda: mutations.seed_approved(_DOC),
     lambda: mutations.create_collection("Dune Series", tags=["dune"]),
     lambda: mutations.add_document_to_collection(_DOC, _DOC),
@@ -219,6 +221,7 @@ async def test_every_write_tool_is_contract_checked() -> None:
         "correct_entity_mention",
         "decide_seeds",
         "decide_document_metadata_suggestions",
+        "decide_visual_captions",
         "seed_approved",
         "create_collection",
         "add_document_to_collection",

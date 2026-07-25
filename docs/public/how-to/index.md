@@ -11,7 +11,7 @@ doc_type: "how-to"
 audience: ["end-user", "administrator", "integrator", "developer", "operator"]
 surfaces: ["webapp", "api", "mcp", "config"]
 classification: "public"
-applies_to: "1.41.0"
+applies_to: "1.43.0"
 owner: "documentation-maintainer"
 last_reviewed: "2026-07-25"
 status: "current"
@@ -29,6 +29,8 @@ Task-focused guides for working with Doc-Ray across the Corpus browser, the Grap
 
 - [Search the corpus](/docs/how-to/search-the-corpus) — pick a Document with full-text search, then find passages with keyword-in-context Sentence search and read the coverage signal.
 - [Read a document](/docs/how-to/read-a-document) — map a Document into ordinal ranges, then read any range or the whole Document verbatim with citation handles.
+- [Build a cited briefing](/docs/how-to/build-a-cited-briefing) — assemble a
+  deterministic evidence pack, verify each passage, and preserve its citation.
 
 ## Understand entities
 

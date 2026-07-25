@@ -460,6 +460,10 @@ the landing page renders, not that auth is enforced.)
   snapshots and have accepted the cost. **Spaces is not covered by DO's database
   backups**: enable bucket versioning if the original document bytes need
   point-in-time recovery.
+- **Encoder cutovers.** Follow the
+  [Corpus Embedding Backfill Runbook](runbook-corpus-embeddings.md) for the
+  required backup → enqueue → verify → visual-verify → rollback sequence when
+  changing the learned sentence encoder across an existing corpus.
 - **Connections.** If the API/workers ever exhaust backends, add DO's PgBouncer
   pool in **session** mode (Step 1) rather than raising doc-ray's pool.
 - **Secrets.** App password, Spaces key, JWT/session secrets, and the tunnel token

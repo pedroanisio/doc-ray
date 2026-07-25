@@ -435,4 +435,22 @@ def test_tools_tuple_is_the_read_tools():
         "image_class_summary",
         "cross_modal_image_search",
         "visual_captions",
+        "visual_review",
+    }
+
+
+@pytest.mark.asyncio
+async def test_visual_review_forwards_filters_and_paging(monkeypatch):
+    client = _patch(monkeypatch, {"data": {"visualReview": [{"id": "r1"}]}})
+
+    rows = await corpus.visual_review(status="pending", limit=12, after="next")
+
+    assert rows == [{"id": "r1"}]
+    body = client.calls[0][1]
+    assert "visualReview" in body["query"]
+    assert body["variables"] == {
+        "d": None,
+        "s": "pending",
+        "l": 12,
+        "a": "next",
     }

@@ -333,6 +333,7 @@ mypy src                                                                 # D-012
 python scripts/check_file_size.py src/doc_ray webapp scripts             # D-015
 python scripts/check_version_consistency.py                              # version lockstep
 python scripts/check_read_path_aggregates.py                             # D-024 read-path aggregates
+python scripts/check_surface_parity.py --strict                          # D-034 GraphQL ↔ webapp parity
 python scripts/gen_env_samples.py --check                                # env registry ↔ samples in sync
 pytest tests src/doc_ray/tests                                           # D-013
 ```

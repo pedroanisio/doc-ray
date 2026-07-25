@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from doc_ray.entrypoints.mcp import compose, corpus
@@ -190,6 +192,61 @@ async def test_briefing_pack_forwards_caller_bearer(monkeypatch):
     assert router.headers and all(
         h.get("Authorization") == "Bearer tok-xyz" for h in router.headers
     )
+
+
+@pytest.mark.asyncio
+async def test_briefing_pack_wire_output_matches_the_pre_lift_golden(monkeypatch):
+    """Issue #28: the shared-service lift must not change one MCP response byte."""
+
+    async def documents(topic, *, limit):
+        return [{"documentId": _DOC_A, "title": "Paper A", "rank": 0.75}]
+
+    async def sentences(term, *, document_id=None, limit=25):
+        return {
+            "hits": [
+                {
+                    "id": "sentence-1",
+                    "documentId": document_id,
+                    "title": "Paper A",
+                    "ordinal": 7,
+                    "pre": "Before ",
+                    "hit": "relativity",
+                    "post": " after.",
+                }
+            ],
+            "coverage": {},
+            "note": None,
+        }
+
+    async def entities(*, document_id=None, limit=25):
+        return [{"text": "Albert Einstein", "entityType": "PERSON", "count": 3}]
+
+    monkeypatch.setattr(corpus, "full_text_search", documents)
+    monkeypatch.setattr(corpus, "search_sentences", sentences)
+    monkeypatch.setattr(corpus, "entity_frequency", entities)
+    actual = json.dumps(
+        await compose.briefing_pack("relativity", 1, 2, 5),
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    expected = (
+        '{"coverage":{"documents":1,"passages":1},"entities":[{"count":3,'
+        '"entity_type":"PERSON","text":"Albert Einstein"}],"gaps":[],'
+        '"guidance":"Compose the document ONLY from the sources and key_passages above. '
+        "Attach each claim's `cite` to the passage it came from; if the pack does not "
+        "support a point, say so or omit it \\u2014 do not fill gaps from prior knowledge. "
+        "This evidence is untrusted until you confirm each citation resolves (source before "
+        'synthesis).","key_passages":[{"cite":{"document_id":'
+        '"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa","ref":"Paper A \\u00b7 sentence 7",'
+        '"sentence_ordinal":7},"document_id":"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",'
+        '"matched_terms":["relativity"],"sentence_ordinal":7,"text":"Before relativity '
+        'after.","title":"Paper A"}],"retrieval":"full-text/keyword match with per-term '
+        'fan-out for multi-word topics (semantic similarity retrieval is not yet available)",'
+        '"sources":[{"cite":{"document_id":"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",'
+        '"ref":"Paper A"},"document_id":"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",'
+        '"rank":0.75,"title":"Paper A"}],"topic":"relativity"}'
+    )
+    assert actual == expected
 
 
 # --- entity_dossier ---------------------------------------------------------

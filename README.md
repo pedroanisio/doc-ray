@@ -147,7 +147,8 @@ search term is, so an agent picks a rarer one before searching) /
 `job` / `jobs` /
 `documentMetadataSuggestions` / `collections` / `collection` /
 `lenses` (the collections marked as entity-resolution scopes — Block B) /
-`documentImages` / `imageClassSummary` / `visualCaptions` /
+`briefingPack` (gap-honest cited evidence composition) /
+`documentImages` / `imageClassSummary` / `visualCaptions` / `visualReview` /
 `crossModalImageSearch` (Prism visual-layer reads) / `billingStatus` /
 `billingEvents` (reads);
 `createCollection` / `addDocumentToCollection` / `removeDocumentFromCollection`
@@ -161,7 +162,7 @@ below)
 `bulkArchiveDocuments` / `bulkTagDocuments` / `annotateDocument` /
 `reextractDocument` / `reextractDocuments` / `canonicalizeDocument(resolve:)` /
 `semanticEnrichDocument` / `embedDocumentSentences` / `embedCorpusSentences` / `updateDocumentMetadata` / `suggestDocumentMetadata`
-/ `decideDocumentMetadataSuggestions` / `shareDocument` /
+/ `decideDocumentMetadataSuggestions` / `decideVisualCaptions` / `shareDocument` /
 `revokeDocumentShare` / `setDocumentVisibility` / `cancelJob` /
 `createBillingCheckoutSession` / `createBillingPortalSession` /
 `retryBillingEvent` (pipeline
@@ -182,6 +183,17 @@ Backup/restore:
 switched on; clients check it before offering the actions) /
 `createBackup` / `restoreBackup` (see [Backup & restore](#backup--restore)
 below). Security audit readback: `auditEvents` (admin-scoped).
+
+The 1.43.0 human surface binds these capabilities end to end: `/search` selects
+Keyword, Meaning, or Images; `/review` separates metadata, Entity, and visual
+decisions; `/briefing` assembles cited evidence; Collection and Document pages
+expose Lens controls; and each Document reader shows its RLS-checked image
+gallery and committed captions. See the [web interface manual](docs/webapp_user_manual.md)
+and [1.43.0 release notes](docs/public/release-notes/1.43.0.md).
+
+doc-ray does not publish a client SDK. Integrators use the versioned GraphQL API
+or MCP server; the internal Python repository Protocol is an application boundary,
+not a supported external SDK.
 
 API authentication is token-to-principal based. Set
 `DOCRAY_API_TOKENS='token=principal_uuid[:read+write]'` to map bearer tokens (or
@@ -447,6 +459,10 @@ possible, CPU otherwise — while heavy `semantic_embed` jobs are routed off the
 *meaning* — GraphQL `semanticSearchSentences` and the `semantic_search_sentences`
 MCP tool rank sentences by learned cosine similarity, complementing keyword
 `searchSentences`.
+
+For a corpus-wide encoder cutover, follow the ordered backup, enqueue,
+verification, visual-coverage, and rollback procedure in the
+[`Corpus Embedding Backfill Runbook`](docs/runbook-corpus-embeddings.md).
 
 Evaluation snapshots and lexical/entity drift metrics can be recorded with:
 

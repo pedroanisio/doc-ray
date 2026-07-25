@@ -28,6 +28,7 @@ def _seed_text(pg, text: str) -> tuple[Any, str]:
 
     conn, created = pg
     doc_id = _itdb.make_doc(conn, text)
+    conn.execute("SELECT docray_refresh_stats_for_document(%s)", (doc_id,))
     created.append(doc_id)
     return conn, doc_id
 
@@ -49,6 +50,7 @@ def _seed(pg) -> str:
 
     conn, created = pg
     doc_id = _itdb.make_doc(conn, _TEXT)
+    conn.execute("SELECT docray_refresh_stats_for_document(%s)", (doc_id,))
     created.append(doc_id)
     return doc_id
 
@@ -171,6 +173,7 @@ def test_document_bibliographic_and_token_count(pg):
     )
     ann = _itdb.make_annotation(conn, doc_id, "spacy", "spacy/en")
     toks = _itdb.make_tokens(conn, doc_id, ann, _TEXT)
+    conn.execute("SELECT docray_refresh_stats_for_document(%s)", (doc_id,))
     schema = build_schema()
 
     async def check():
@@ -260,6 +263,17 @@ def test_lexemes_and_occurrences_document_scope(pg):
     conn.execute(  # one occurrence in d2
         "INSERT INTO lexeme_occurrences (annotation_id, span_id, lexeme_uid) VALUES (%s,%s,%s)",
         (a2, _itdb.span_of(conn, d2, 0, 5), uid),
+    )
+    # Force the tenant-wide lexeme rollup: the production refresh deliberately
+    # debounces this expensive pass, while this fixture mutates occurrences
+    # after its documents were already refreshed moments earlier.
+    conn.execute(
+        "SELECT docray_refresh_stats_for_document(%s, interval '0 seconds')",
+        (d1,),
+    )
+    conn.execute(
+        "SELECT docray_refresh_stats_for_document(%s, interval '0 seconds')",
+        (d2,),
     )
     schema = build_schema()
 

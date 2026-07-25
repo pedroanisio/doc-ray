@@ -8,6 +8,21 @@
   as new documents match their metadata rule.
 </p>
 {% if error %}<div class="errbox">{{ error }}</div>{% endif %}
+{% if notice %}<div class="notice">{{ notice }}</div>{% endif %}
+
+<section class="card">
+  <h2>Lenses</h2>
+  <p class="lede">
+    Lenses name a scope for a future projection layer; they do not change search or
+    entity resolution today. Projection behavior belongs to
+    <a href="https://github.com/pedroanisio/doc-ray/issues/8">Block D (#8)</a>.
+  </p>
+  <div class="collection-list">
+    {% for lens in lenses %}
+      <p><a href="{{ url_for('collection_detail', collection_id=lens.id) }}">{{ lens.name }}</a> <span class="pill">Lens</span> <span class="hint">{{ lens.documentCount }} docs</span></p>
+    {% else %}<p class="hint">No visible lenses.</p>{% endfor %}
+  </div>
+</section>
 
 <div class="collection-layout">
   <section class="collection-list">
@@ -20,6 +35,8 @@
         </div>
         <div class="collection-meta">
           <span class="pill">{{ c.kind }}</span>
+          {% if c.is_scope %}<span class="pill">Lens</span>{% endif %}
+          {% if c.parent_lens_name %}<span class="pill">Parent · {{ c.parent_lens_name }}</span>{% endif %}
           <span class="pill">{{ c.document_count or 0 }} docs</span>
         </div>
       </article>

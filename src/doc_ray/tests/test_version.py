@@ -20,6 +20,14 @@ def test_version_is_semver():
     assert _SEMVER_RE.match(doc_ray.__version__), doc_ray.__version__
 
 
+def test_webapp_epic_release_is_1_43_0_with_a_marker_migration():
+    """Epic #23 ships as one explicit, deployable project/schema release."""
+    assert doc_ray.__version__ == "1.43.0"
+    marker = _ROOT / "db" / "migrations" / "125_schema_version_1_43_0.sql"
+    assert marker.is_file()
+    assert "'1.43.0'" in marker.read_text(encoding="utf-8")
+
+
 def test_all_version_surfaces_agree():
     """The offline consistency gate must pass against the current tree."""
     import check_version_consistency as gate

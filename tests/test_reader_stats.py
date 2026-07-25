@@ -42,10 +42,10 @@ def test_document_sidebar_reads_pos_top_verbs_from_rollup():
 
 def test_original_view_skips_sentence_block_annotation():
     # attach_page_blocks (sentence blocks) is only rendered in the reading views,
-    # never the original-image overlay — it must be guarded out there.
-    assert re.search(r"if not original_view:\s*\n\s*attach_page_blocks\(", _DOCUMENT), (
-        "attach_page_blocks must be skipped when original_view is set"
-    )
+    # never the original-image overlay or Images view — guard both non-text modes.
+    assert re.search(
+        r"if not original_view and not images_view:\s*\n\s*attach_page_blocks\(", _DOCUMENT
+    ), "attach_page_blocks must be skipped for original and image-only views"
 
 
 def test_page_overlays_drive_from_spans_by_document_and_page():

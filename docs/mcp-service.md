@@ -157,6 +157,7 @@ but had no passage cited on this page. Example:
 | `image_class_summary(document_id)` | `imageClassSummary` | per-document tally of image tier classes |
 | `visual_captions(document_id, limit)` | `visualCaptions` | generated captions for a document's images |
 | `cross_modal_image_search(query, limit)` | `crossModalImageSearch` | text→image search; typed `unsupported` where the vision stack is absent |
+| `visual_review(document_id?, status, limit, after?)` | `visualReview` | RLS-scoped Tier-3 caption proposals and their human-review status |
 
 **Reading a whole document, in order.** `search_sentences` is term-filtered — it
 returns only sentences matching a keyword, so it can't cover a document

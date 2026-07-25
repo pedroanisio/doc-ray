@@ -25,6 +25,7 @@ COPY README.md CHANGELOG.md engineering_decisions.yml uv.lock Makefile ./
 COPY src ./src
 COPY tests ./tests
 COPY scripts ./scripts
+COPY config ./config
 COPY static/fixtures ./static/fixtures
 COPY admin-console ./admin-console
 COPY webapp ./webapp

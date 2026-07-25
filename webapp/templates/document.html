@@ -137,6 +137,12 @@
   .reading-panel .row > .lab { flex:0 0 4.4rem; font-family:var(--mono); font-size:.64rem;
     letter-spacing:.06em; text-transform:uppercase; color:var(--ink-faint); }
   .reader p { margin:0 0 .5rem; position:relative; padding-left:3rem; }
+  .sentence-target { scroll-margin-top:8rem; }
+  .reader p:has(.sentence-target:target),
+  .reader-heading:has(.sentence-target:target),
+  .reader-list li:has(.sentence-target:target) {
+    outline:3px solid var(--accent); outline-offset:.3rem;
+    background:color-mix(in srgb, var(--accent) 10%, transparent); }
   .reader p:hover .ord,
   .reader-heading:hover .ord,
   .reader-list li:hover .ord { color:var(--accent); }
@@ -251,12 +257,14 @@
    two can never disagree about where "next" goes. Pager links land on #text:
    turning a page must not put the reader back at the top of the header it
    already read past. #}
-{% if original_view %}
+{% if images_view %}
+  {% set pager_on = false %}
+{% elif original_view %}
   {% set pager_on = overlay and overlay.kind == 'pdf' and pages and pages > 1 %}
 {% else %}
   {% set pager_on = (not full_view) and pages and pages > 1 %}
 {% endif %}
-{% set spread_view = layout == 'spread' and not original_view %}
+{% set spread_view = layout == 'spread' and not original_view and not images_view %}
 {# Chrome is hidden in either spread — text or original page images. #}
 {% set focus_spread = layout == 'spread' and (spread_view or original_spread) %}
 {# The original-view spread turns two facing pages at once. #}
@@ -349,11 +357,12 @@
   <section class="main">
     <div class="reader-bar">
       <div class="seg">
-        <a href="{{ reader_url(annotate=1, view='all' if full_view else None) }}" class="{{ 'on' if annotate and not original_view }}">Annotated</a>
-        <a href="{{ reader_url(annotate=0, view='all' if full_view else None) }}" class="{{ 'on' if (not annotate) and not original_view }}">Plain</a>
+        <a href="{{ reader_url(annotate=1, view='all' if full_view else None) }}" class="{{ 'on' if annotate and not original_view and not images_view }}">Annotated</a>
+        <a href="{{ reader_url(annotate=0, view='all' if full_view else None) }}" class="{{ 'on' if (not annotate) and not original_view and not images_view }}">Plain</a>
         <a href="{{ reader_url(view='original') }}" class="{{ 'on' if original_view }}">Original</a>
+        <a href="{{ reader_url(view='images', page=None) }}" class="{{ 'on' if images_view }}">Images</a>
       </div>
-      {% if not original_view %}
+      {% if not original_view and not images_view %}
       <div class="seg">
         <a href="{{ reader_url(view=None) }}" class="{{ 'on' if not full_view }}">Pages</a>
         <a href="{{ reader_url(view='all', page=None) }}" class="{{ 'on' if full_view }}">Full document</a>
@@ -395,7 +404,7 @@
         <a href="{{ reader_url(overlay='entities') }}" class="{{ 'on' if overlay_mode == 'entities' }}">Entities</a>
       </div>
       {% endif %}
-      {% if annotate and not original_view %}
+      {% if annotate and not original_view and not images_view %}
       <select id="pos-focus" aria-label="Focus one part of speech; the tag chips below mute a class">
         <option value="">All POS</option>
         {% for p in pos %}<option value="{{ p.pos }}">{{ p.pos }}</option>{% endfor %}
@@ -404,7 +413,7 @@
       {% if spread_view %}<span class="spread-leaf" id="spread-leaf" aria-live="polite"></span>{% endif %}
       {% if pager_on %}{{ pager(page, pages, 'pager reader-pager', pager_step) }}{% endif %}
     </div>
-    {% if annotate and not original_view %}
+    {% if annotate and not original_view and not images_view %}
     <div class="legend" id="legend" aria-label="Part-of-speech tags — click one to mute it in the text">
       {% for p in pos %}
         {{ terms.pos_pill(p.pos, 'chip') }}
@@ -413,7 +422,35 @@
     {% endif %}
     <span id="text" class="reader-anchor" tabindex="-1"></span>
 
-    {% if original_view %}
+    {% if images_view %}
+      <section class="visual-gallery" aria-label="Document images">
+        <div class="card">
+          <h2>Visual coverage</h2>
+          {% if visual_gallery.coverage_state == 'unknown' %}
+            <div class="errbox">Visual coverage is unknown: {{ visual_gallery.error }}</div>
+          {% elif visual_gallery.coverage_state == 'no_images' %}
+            <p class="lede">No extracted images were detected in this document.</p>
+          {% elif visual_gallery.coverage_state == 'backfill_not_run' %}
+            <p class="lede">Visual backfill has not run for this document. {{ visual_gallery.coverage.image_count }} extracted image{{ '' if visual_gallery.coverage.image_count == 1 else 's' }} await Tier 1 features.</p>
+          {% elif visual_gallery.coverage_state == 'partial' %}
+            <p class="lede">Tier 1 partial coverage: {{ visual_gallery.coverage.tier1_count }} of {{ visual_gallery.coverage.image_count }} images.</p>
+          {% else %}
+            <span class="pill">Tier 1 covered · {{ visual_gallery.coverage.tier1_count }}/{{ visual_gallery.coverage.image_count }}</span>
+          {% endif %}
+          <span class="pill">Tier 2 {{ 'covered · ' ~ visual_gallery.coverage.tier2_count if visual_gallery.coverage.tier2_count else 'not populated' }}</span>
+          {% for class_count in visual_gallery.classes %}<span class="pill">{{ class_count.imageClass }} · {{ class_count.count }}</span>{% endfor %}
+        </div>
+        <div class="visual-grid">
+        {% for image in visual_gallery.images %}
+          <figure class="card visual-tile" id="image-{{ image.id }}">
+            <a href="{{ url_for('document_page_image', doc_id=doc.id, page_number=image.pageNumber) }}"><img src="{{ url_for('document_image', doc_id=doc.id, image_id=image.id, ext='webp', w=320) }}" alt="{{ image.imageClass or 'Extracted image' }} from page {{ image.pageNumber }}" width="320" loading="lazy"></a>
+            <figcaption><span class="pill">{{ image.imageClass or 'unclassified' }}</span> page {{ image.pageNumber }} · {{ image.widthPx }}×{{ image.heightPx }}</figcaption>
+            {% if image.caption %}<blockquote>{{ image.caption.caption }}</blockquote><p class="kicker">Committed caption · {{ image.caption.model }} · {{ '%.1f'|format(image.caption.groundingScore * 100) }}% grounded</p>{% else %}<p class="hint">No committed caption. Untrusted proposals, if any, remain in Review.</p>{% endif %}
+          </figure>
+        {% endfor %}
+        </div>
+      </section>
+    {% elif original_view %}
       {% set fit = overlay and overlay.available and overlay.kind == "pdf" %}
       <div class="original-shell{{ ' original-fit' if fit }}"{{ ' id=fit-shell'|safe if fit }}>
         {% if fit %}
@@ -470,15 +507,15 @@
         {% for b in s.blocks %}
           {% set ord = s.ordinal if ns.first else '' %}
           {% if b.type == 'h1' %}
-            <h2 class="reader-heading h1"><span class="ord">{{ ord }}</span>{% if b.html is defined %}{{ b.html }}{% else %}{{ b.text }}{% endif %}</h2>
+            <h2 class="reader-heading h1"><span class="ord{% if ns.first %} sentence-target{% endif %}"{% if ns.first %} id="s{{ s.ordinal }}" tabindex="-1"{% endif %}>{{ ord }}</span>{% if b.html is defined %}{{ b.html }}{% else %}{{ b.text }}{% endif %}</h2>
           {% elif b.type == 'h2' %}
-            <h3 class="reader-heading h2"><span class="ord">{{ ord }}</span>{% if b.html is defined %}{{ b.html }}{% else %}{{ b.text }}{% endif %}</h3>
+            <h3 class="reader-heading h2"><span class="ord{% if ns.first %} sentence-target{% endif %}"{% if ns.first %} id="s{{ s.ordinal }}" tabindex="-1"{% endif %}>{{ ord }}</span>{% if b.html is defined %}{{ b.html }}{% else %}{{ b.text }}{% endif %}</h3>
           {% elif b.type == 'h3' %}
-            <h4 class="reader-heading h3"><span class="ord">{{ ord }}</span>{% if b.html is defined %}{{ b.html }}{% else %}{{ b.text }}{% endif %}</h4>
+            <h4 class="reader-heading h3"><span class="ord{% if ns.first %} sentence-target{% endif %}"{% if ns.first %} id="s{{ s.ordinal }}" tabindex="-1"{% endif %}>{{ ord }}</span>{% if b.html is defined %}{{ b.html }}{% else %}{{ b.text }}{% endif %}</h4>
           {% elif b.type == 'list' %}
-            <ul class="reader-list"><li><span class="ord">{{ ord }}</span>{% if b.html is defined %}{{ b.html }}{% else %}{{ b.text }}{% endif %}</li></ul>
+            <ul class="reader-list"><li><span class="ord{% if ns.first %} sentence-target{% endif %}"{% if ns.first %} id="s{{ s.ordinal }}" tabindex="-1"{% endif %}>{{ ord }}</span>{% if b.html is defined %}{{ b.html }}{% else %}{{ b.text }}{% endif %}</li></ul>
           {% else %}
-            <p><span class="ord">{{ ord }}</span>{% if b.html is defined %}{{ b.html }}{% else %}{{ b.text }}{% endif %}</p>
+            <p><span class="ord{% if ns.first %} sentence-target{% endif %}"{% if ns.first %} id="s{{ s.ordinal }}" tabindex="-1"{% endif %}>{{ ord }}</span>{% if b.html is defined %}{{ b.html }}{% else %}{{ b.text }}{% endif %}</p>
           {% endif %}
           {% set ns.first = false %}
         {% endfor %}
@@ -542,6 +579,22 @@
       </div>
     </div>
     {% endif %}
+    <div class="card">
+      <h2 style="margin-top:0">Default lens</h2>
+      <p class="hint">Lenses name a future projection scope; they do not change search or entity resolution today. See <a href="https://github.com/pedroanisio/doc-ray/issues/8">Block D (#8)</a>.</p>
+      {% if lens_notice %}<div class="notice">{{ lens_notice }}</div>{% endif %}
+      {% if lens_error %}<div class="errbox">{{ lens_error }}</div>{% endif %}
+      <form method="post" action="{{ url_for('document_default_lens', doc_id=doc.id) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <label>Lens
+          <select name="lens_id">
+            <option value="">None</option>
+            {% for lens in member_lenses %}<option value="{{ lens.id }}"{% if doc.default_lens_id|string == lens.id|string %} selected{% endif %}>{{ lens.name }}</option>{% endfor %}
+          </select>
+        </label>
+        <button type="submit">Save default lens</button>
+      </form>
+    </div>
     {% if metadata_history %}
     <div class="card">
       <h2 style="margin-top:0">Edit history</h2>
@@ -631,6 +684,13 @@
     </div>
   </aside>
 </div>
+<style>
+  .visual-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(16rem,1fr)); gap:1rem; }
+  .visual-tile { margin:0; scroll-margin-top:8rem; }
+  .visual-tile:target { outline:3px solid var(--accent); outline-offset:.25rem; }
+  .visual-tile img { display:block; width:100%; height:auto; max-height:22rem; object-fit:contain; background:var(--panel); }
+  .visual-tile figcaption { margin-top:.7rem; color:var(--ink-soft); }
+</style>
 {% endblock %}
 
 {# Declared outside `body`: a block nested inside another renders in both

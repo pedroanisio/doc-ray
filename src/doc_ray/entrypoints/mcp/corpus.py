@@ -24,7 +24,7 @@ _TIMEOUT = float(os.environ.get("DOCRAY_MCP_TIMEOUT_SECONDS", "30"))
 
 #: Re-exported for callers and tests; the request-aware resolver is
 #: :func:`~doc_ray.entrypoints.mcp.tokens.current_token`.
-__all__ = ["caller_token", "current_token"]
+__all__ = ["caller_token", "current_token", "visual_review"]
 
 #: Per-window character cap for KWIC text fields. Upstream sentence segmentation
 #: can produce mega-sentences (e.g. a whole table of contents extracted as one
@@ -717,6 +717,8 @@ async def entity_mention_corrections(document_id: str) -> list[dict[str, Any]]:
     return rows
 
 
+from doc_ray.entrypoints.mcp.visual_review import visual_review  # noqa: E402
+
 #: The read tools registered on the MCP server (see server.py).
 TOOLS: tuple[Callable[..., Any], ...] = (
     search_sentences,
@@ -736,5 +738,6 @@ TOOLS: tuple[Callable[..., Any], ...] = (
     image_class_summary,
     cross_modal_image_search,
     visual_captions,
+    visual_review,
     entity_mention_corrections,
 )

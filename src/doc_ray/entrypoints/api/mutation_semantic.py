@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import strawberry
 
+from doc_ray.application.semantic_embed import enqueue_semantic_embed_jobs
 from doc_ray.domain.jobs import KIND_SEMANTIC_EMBED
 from doc_ray.entrypoints.api.mutation_guards import (
     _audit_mutation_event,
@@ -49,32 +50,18 @@ class SemanticMutations:
         safely re-runnable. The heavy embedding runs on the worker (sentence stack
         required); each job is billing-guarded like every other paid write.
         """
-        from doc_ray.adapters.text_encoder_sentence_transformers import DEFAULT_MODEL_TAG
-
         ctx = info.context
         await _require_admin(ctx, action="mutation.embed_corpus_sentences")
-        missing_clause = (
-            "AND NOT EXISTS ("
-            " SELECT 1 FROM embedding e JOIN sentences s2 ON s2.span_id = e.span_id"
-            " WHERE s2.document_id = d.id AND e.model = %(model)s)"
-            if only_missing
-            else ""
+
+        async def enqueue_document(document_id: str) -> str:
+            return await _enqueue_job(ctx, KIND_SEMANTIC_EMBED, {}, document_id=document_id)
+
+        job_ids = await enqueue_semantic_embed_jobs(
+            ctx.conn,
+            only_missing=only_missing,
+            enqueue_document=enqueue_document,
         )
-        cur = await ctx.conn.execute(
-            f"""
-            SELECT d.id
-            FROM documents d
-            WHERE EXISTS (SELECT 1 FROM sentences s WHERE s.document_id = d.id)
-              {missing_clause}
-            ORDER BY d.created_at, d.id
-            """,
-            {"model": DEFAULT_MODEL_TAG},
-        )
-        rows = await cur.fetchall()
-        jobs: list[Job] = []
-        for row in rows:
-            job_id = await _enqueue_job(ctx, KIND_SEMANTIC_EMBED, {}, document_id=str(row["id"]))
-            jobs.append(await _job_status(ctx, job_id))
+        jobs = [await _job_status(ctx, job_id) for job_id in job_ids]
         if not jobs:
             await _audit_mutation_event(
                 ctx,

@@ -9,9 +9,9 @@ disclaimer:
 title: "Organize with lenses"
 doc_type: "how-to"
 audience: ["end-user", "developer", "integrator"]
-surfaces: ["api", "mcp"]
+surfaces: ["webapp", "api", "mcp"]
 classification: "public"
-applies_to: "1.41.0"
+applies_to: "1.43.0"
 owner: "documentation-maintainer"
 last_reviewed: "2026-07-25"
 status: "current"
@@ -30,6 +30,26 @@ Promote a Collection to a Lens — a named entity-resolution scope — and set a
 - **MCP:** `promote_collection_to_lens`, `demote_lens`, and `set_document_default_lens` are registered only when the deployment sets `DOCRAY_MCP_ENABLE_WRITE`.
 - Promoting is a curation decision, not a mechanical step: mark a Collection a Lens only when its Documents share one identity world (a series, a franchise, one work).
 - The Global lens cannot be renamed, demoted, or deleted.
+
+## Promote a Collection in the webapp
+
+1. Open **Collections**, then open the Collection you want to use as a Lens.
+2. In **Lens settings**, select **Promote to Lens** and optionally choose a
+   parent Lens.
+3. Submit the form.
+
+   Result: the Collection page shows that it is a Lens and names its parent.
+   Authorization, invariants, and audit logging are enforced by the GraphQL
+   mutation even though the action began in the webapp.
+
+4. Open a member Document. In its reader rail, select the Lens as **Default
+   lens** and save.
+
+   Result: the reader shows the selected default. Clearing the selector removes
+   the default without removing the Document from the Collection.
+
+To demote, return to the Collection's Lens settings and choose **Demote to
+Collection**. Reassign dependent Documents or child Lenses first.
 
 ## Promote a Collection to a Lens over MCP
 

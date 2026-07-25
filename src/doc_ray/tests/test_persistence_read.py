@@ -30,6 +30,7 @@ def _seed(pg) -> str:
 
     conn, created = pg
     doc_id = _itdb.make_doc(conn, _TEXT)
+    conn.execute("SELECT docray_refresh_stats_for_document(%s)", (doc_id,))
     created.append(doc_id)
     return doc_id
 
@@ -104,7 +105,8 @@ def test_list_sentences_page_filter_restricts_to_one_source_page(pg):
     doc_id = _seed(pg)
     # Put the two sentences on different source pages via their spans.
     conn.execute(
-        "UPDATE spans SET page_number = s.ordinal + 1 "
+        "UPDATE spans SET page_number = s.ordinal + 1, "
+        "bbox_x0 = 0, bbox_y0 = 0, bbox_x1 = 1, bbox_y1 = 1 "
         "FROM sentences s WHERE s.span_id = spans.id AND s.document_id = %s",
         (doc_id,),
     )

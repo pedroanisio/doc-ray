@@ -48,8 +48,10 @@
       <span class="nav-group nav-reading">
         <a href="{{ url_for('documents') }}" class="{{ 'on' if request.endpoint in ['documents','document','seeding','seeding_action'] }}">Corpus</a>
         <a href="{{ url_for('collections') }}" class="{{ 'on' if request.endpoint in ['collections','collections_create','collection_detail','collection_document_update'] }}">Collections</a>
+        <a href="{{ url_for('review') }}" class="{{ 'on' if request.endpoint in ['review','review_action'] }}">Review</a>
         <a href="{{ url_for('lexemes') }}" class="{{ 'on' if request.endpoint in ['lexemes','lexeme'] }}">Lexicon</a>
         <a href="{{ url_for('search') }}" class="{{ 'on' if request.endpoint == 'search' }}">Search</a>
+        <a href="{{ url_for('briefing') }}" class="{{ 'on' if request.endpoint == 'briefing' }}">Briefing</a>
         <a href="{{ url_for('upload_form') }}" class="nav-action {{ 'on' if request.endpoint in ['upload_form','upload_submit','job_status'] }}">+ Upload</a>
         <a href="{{ url_for('help_page') }}" class="{{ 'on' if request.endpoint == 'help_page' }}">Help</a>
       </span>
@@ -96,8 +98,10 @@
           <span class="footer-h">Corpus</span>
           <a href="{{ url_for('documents') }}">Documents</a>
           <a href="{{ url_for('collections') }}">Collections</a>
+          <a href="{{ url_for('review') }}">Review proposals</a>
           <a href="{{ url_for('lexemes') }}">Lexicon</a>
           <a href="{{ url_for('search') }}">Search</a>
+          <a href="{{ url_for('briefing') }}">Briefing</a>
         </div>
         <div class="footer-col">
           <span class="footer-h">Workspace</span>

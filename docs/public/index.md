@@ -11,7 +11,7 @@ doc_type: "concept"
 audience: ["end-user", "administrator", "developer", "integrator", "operator", "evaluator"]
 surfaces: ["webapp", "api", "mcp", "cli", "config"]
 classification: "public"
-applies_to: "1.41.0"
+applies_to: "1.43.0"
 owner: "documentation-maintainer"
 last_reviewed: "2026-07-25"
 status: "current"
@@ -24,7 +24,7 @@ queryable, linguistically annotated corpus, resolves the people, places, dates, 
 organizations inside them into shared canonical identities, and exposes the result
 to people, applications, and AI agents.
 
-This documentation applies to version 1.41.0.
+This documentation applies to version 1.43.0.
 
 ## Sections
 
@@ -34,6 +34,8 @@ This documentation applies to version 1.41.0.
   works the way it does.
 - **[Reference](reference/index.md)** — the exact contract of each surface: GraphQL
   API, MCP server, Operator CLI, and Configuration.
+- **[Release notes](release-notes/index.md)** — changes, operator actions, and
+  migration guidance by version.
 - **[Troubleshooting](troubleshooting/index.md)** — what a symptom means and how to
   resolve it.
 - **[Release notes](release-notes/index.md)** — what changed in each version.

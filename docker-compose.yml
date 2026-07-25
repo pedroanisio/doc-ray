@@ -371,6 +371,8 @@ services:
       # Prism Tier-1 renders every page of visual-dominant PDFs (CPU) — give it
       # the same 4h budget as the spaCy kinds so large scanned books don't time out.
       WORKER_JOB_TIMEOUT_VISUAL_EXTRACT_SECONDS: ${WORKER_JOB_TIMEOUT_VISUAL_EXTRACT_SECONDS:-14400}
+      # Learned sentence embedding loads a large model and processes whole books.
+      WORKER_JOB_TIMEOUT_SEMANTIC_EMBED_SECONDS: ${WORKER_JOB_TIMEOUT_SEMANTIC_EMBED_SECONDS:-14400}
       DOCRAY_RESOLVER_TIMEOUT_SECONDS: ${DOCRAY_RESOLVER_TIMEOUT_SECONDS:-60}
     entrypoint: ["python", "-m", "doc_ray.entrypoints.worker"]
 

@@ -32,6 +32,10 @@ def _seed_private_lexeme(pg) -> str:
         "INSERT INTO lexeme_occurrences (annotation_id, span_id, lexeme_uid) VALUES (%s, %s, %s)",
         (annotation_id, span_id, lexeme_uid),
     )
+    conn.execute(
+        "SELECT docray_refresh_stats_for_document(%s, interval '0 seconds')",
+        (doc_id,),
+    )
     return lexeme_uid
 
 

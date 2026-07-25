@@ -75,7 +75,7 @@ def captured():
 
     def fake_q1(sql, params=()):
         norm = " ".join(sql.split())
-        if "FROM documents) docs" in norm:
+        if "FROM documents WHERE lifecycle_state <> 'deleted') docs" in norm:
             return dict(_TOTALS)
         return {}
 

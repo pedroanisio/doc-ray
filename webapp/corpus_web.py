@@ -522,30 +522,6 @@ def lexeme(uid):
     )
 
 
-def search():
-    """Render full-text sentence search results for the ``q`` query parameter."""
-    term = request.args.get("q", "", type=str).strip()
-    per_page = 100
-    page = max(1, request.args.get("page", 1, type=int))
-    rows = []
-    has_next = False
-    if term:
-        rows = _core.q(
-            """
-            SELECT d.id AS doc_id, d.title, s.ordinal, s.text
-            FROM sentences s JOIN documents d ON d.id = s.document_id
-            WHERE s.text ILIKE %(term)s
-            ORDER BY d.title, s.ordinal LIMIT %(limit)s OFFSET %(offset)s
-            """,
-            {"term": f"%{term}%", "limit": per_page, "offset": (page - 1) * per_page},
-        )
-        has_next = len(rows) == per_page
-        for r in rows:
-            pre, _, post = r["text"].partition(term)
-            r["pre"], r["hit"], r["post"] = pre, (term if _ else ""), post
-    return _core.render_template("search.html", term=term, rows=rows, page=page, has_next=has_next)
-
-
 def register(app, core: ModuleType) -> None:
     """Attach the corpus browse routes to *app*, late-binding *core* (D-015 split)."""
     global _core
@@ -563,4 +539,3 @@ def register(app, core: ModuleType) -> None:
     )
     app.add_url_rule("/lexemes", "lexemes", lexemes)
     app.add_url_rule("/lexeme/<uid>", "lexeme", lexeme)
-    app.add_url_rule("/search", "search", search)

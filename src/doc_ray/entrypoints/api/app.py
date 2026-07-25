@@ -75,6 +75,7 @@ from doc_ray.entrypoints.api.security import (
     apply_principal,
     reset_principal,
 )
+from doc_ray.entrypoints.api.visual_assets import register_visual_asset_routes
 from doc_ray.logging_setup import configure_logging
 
 
@@ -245,6 +246,7 @@ def create_app(cfg: Config | None = None, authenticator: Authenticator | None = 
         return report
 
     register_download_routes(app)
+    register_visual_asset_routes(app)
     register_auth_token_route(app, settings)
     register_local_auth_routes(app, settings)
     register_job_events_route(app)

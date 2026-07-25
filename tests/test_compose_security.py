@@ -330,6 +330,7 @@ def test_test_dockerfile_copies_sources_tests_and_migrations_into_the_image():
     assert "COPY src ./src" in text
     assert "COPY tests ./tests" in text
     assert "COPY scripts ./scripts" in text
+    assert "COPY config ./config" in text
     assert "COPY static/fixtures ./static/fixtures" in text
     assert "COPY admin-console ./admin-console" in text
     assert "COPY webapp ./webapp" in text

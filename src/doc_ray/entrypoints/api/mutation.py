@@ -56,6 +56,7 @@ from doc_ray.entrypoints.api.mutation_guards import (
 from doc_ray.entrypoints.api.mutation_lenses import LensMutations
 from doc_ray.entrypoints.api.mutation_semantic import SemanticMutations
 from doc_ray.entrypoints.api.mutation_sharing import SharingMutations
+from doc_ray.entrypoints.api.mutation_visual_review import VisualReviewMutations
 from doc_ray.entrypoints.api.types import Info, Job
 
 #: The default post-ingest pipeline: Stage-1 annotation, deterministic semantic
@@ -75,6 +76,7 @@ class Mutation(
     LensMutations,
     SemanticMutations,
     SharingMutations,
+    VisualReviewMutations,
 ):
     """Write operations: most enqueue background work; sharing writes ACLs directly."""
 

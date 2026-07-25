@@ -8,6 +8,6 @@ from __future__ import annotations
 #: (``db/migrations`` / ``docray_schema_version()``), the changelog, and the API
 #: ``version`` field — must agree with it. ``scripts/check_version_consistency.py``
 #: enforces that agreement; bump this and the schema together, never in isolation.
-__version__ = "1.42.0"
+__version__ = "1.43.0"
 
 __all__ = ["__version__"]

@@ -19,6 +19,30 @@ doc-ray carries **one global version** covering both the application package
 (`docray_schema_version()`). They are kept in lockstep by
 `scripts/check_version_consistency.py`, which fails the build on any drift.
 
+## [1.43.0]
+
+### Added
+
+- **Webapp experience epic (#23):** shipped learned semantic search and corpus
+  backfill operations, metadata/entity and visual-caption review lanes, reusable
+  lenses, byte-stable cited briefing packs, document image delivery and gallery
+  views, and cross-modal image discovery.
+- Exposed the new capability consistently through GraphQL, the Python-facing
+  application/repository boundaries, MCP read/write tools, and the Flask webapp.
+  A strict parity checker now compares the GraphQL schema with documented and MCP
+  surfaces so a future field cannot silently ship on only one interface.
+- Added operational runbooks, public how-to guides, architecture/reference
+  updates, release notes, and a schema marker migration for the deployable
+  `1.43.0` release.
+
+### Changed
+
+- Learned sentence embedding is routed to the long-running worker lane and the
+  corpus backfill path reports evidence-ready coverage without reintroducing the
+  discarded hash-BoW model.
+- Model-generated Tier-3 captions remain untrusted until an attributable human
+  approves them; all review reads remain RLS-scoped and all decisions are audited.
+
 ## [1.42.0]
 
 > ARCHITECTURAL REQUIREMENT (PALS's LAW): LLMs/ML models always produce some form

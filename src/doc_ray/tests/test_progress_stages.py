@@ -194,7 +194,7 @@ def test_spacy_annotate_reports_fine_grained_inner_phases(monkeypatch):
     ]
 
 
-def test_semantic_enrichment_reports_per_layer_progress(pg):
+def test_deterministic_semantic_enrichment_reports_per_layer_progress(pg):
     import _itdb
 
     from doc_ray.application import semantic_enrichment
@@ -209,11 +209,13 @@ def test_semantic_enrichment_reports_per_layer_progress(pg):
     finally:
         domain_progress.reset_progress_reporter(token)
 
-    layered = [(c, t, s) for c, t, s in events if t == 5]
-    assert len(layered) >= 5, f"expected 5 layer reports on a /5 scale, got {events}"
+    # Learned sentence embeddings have their own explicit semantic_embed job;
+    # this deterministic pass now owns exactly four non-model semantic layers.
+    layered = [(c, t, s) for c, t, s in events if t == 4]
+    assert len(layered) >= 4, f"expected 4 layer reports on a /4 scale, got {events}"
     layer_currents = [c for c, _t, _s in layered if c is not None]
     assert layer_currents == sorted(layer_currents)
-    assert layer_currents[0] == 0 and layer_currents[-1] == 4
+    assert layer_currents[0] == 0 and layer_currents[-1] == 3
 
 
 def test_adapter_does_not_import_application_layer():

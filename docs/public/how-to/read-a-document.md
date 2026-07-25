@@ -11,7 +11,7 @@ doc_type: "how-to"
 audience: ["end-user", "integrator"]
 surfaces: ["webapp", "mcp"]
 classification: "public"
-applies_to: "1.41.0"
+applies_to: "1.43.0"
 owner: "documentation-maintainer"
 last_reviewed: "2026-07-25"
 status: "current"
@@ -34,7 +34,16 @@ Read a Document verbatim by first mapping it into addressable ordinal ranges, th
 
    Result: the Document page shows its title, metadata, and text.
 
-2. Scroll or page through the text to read it in order.
+2. Use the **Images** section to inspect extracted page images, Tier-1 class
+   coverage, and committed captions. Selecting a thumbnail opens the RLS-checked
+   image byte route; a pending Tier-3 proposal is never shown as a committed
+   caption.
+
+3. If the gallery says **backfill not run**, **partial**, or **unknown**, treat
+   that as a coverage state. It is not evidence that the original Document has
+   no visual content.
+
+4. Scroll or page through the text to read it in order.
 
 ## Read through MCP
 

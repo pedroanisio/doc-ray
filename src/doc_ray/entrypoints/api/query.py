@@ -18,6 +18,7 @@ from doc_ray.adapters import seed_suggestion_store as seeds
 from doc_ray.application import billing
 from doc_ray.entrypoints.api.audit_types import DocumentMetadataChange, DocumentMetadataSuggestion
 from doc_ray.entrypoints.api.billing_types import BillingEvent, BillingStatus
+from doc_ray.entrypoints.api.briefing_query import BriefingQueries
 from doc_ray.entrypoints.api.canonical_types import (
     CanonicalEntity,
     ResolutionReview,
@@ -48,7 +49,7 @@ from doc_ray.entrypoints.api.visual_query import VisualQueries
 
 
 @strawberry.type
-class Query(VisualQueries, SemanticQueries, StructureQueries, CollectionQueries):
+class Query(BriefingQueries, VisualQueries, SemanticQueries, StructureQueries, CollectionQueries):
     """The GraphQL query root."""
 
     @strawberry.field

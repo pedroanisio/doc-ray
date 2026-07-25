@@ -42,11 +42,15 @@ try:
         account_web,
         admin_web,
         auth_web,
+        briefing_web,
         collections_web,
         corpus_web,
         document_web,
+        lens_web,
         oauth_web,
         overlay_web,
+        review_web,
+        search_web,
         sharing_web,
     )
     from webapp.auth_session import (
@@ -67,11 +71,15 @@ except ModuleNotFoundError:  # pragma: no cover - direct ``python webapp/app.py`
     import account_web
     import admin_web
     import auth_web
+    import briefing_web
     import collections_web
     import corpus_web
     import document_web
+    import lens_web
     import oauth_web
     import overlay_web
+    import review_web
+    import search_web
     import sharing_web
     from auth_session import (
         AuthenticatedWebPrincipal as AuthenticatedWebPrincipal,
@@ -473,7 +481,11 @@ _SELF = sys.modules[__name__]
 overlay_web.bind(_SELF)
 auth_web.register(app, _SELF)
 corpus_web.register(app, _SELF)
+search_web.register(app, _SELF)
+briefing_web.register(app, _SELF)
+review_web.register(app, _SELF)
 document_web.register(app, _SELF)
+lens_web.register(app, _SELF)
 sharing_web.register(app, _SELF)
 collections_web.register(app, _SELF)
 admin_web.register(app, _SELF)
@@ -498,7 +510,8 @@ documents = corpus_web.documents
 document = document_web.document
 lexemes = corpus_web.lexemes
 lexeme = corpus_web.lexeme
-search = corpus_web.search
+search = search_web.search
+briefing = briefing_web.briefing
 _markup_highlights = overlay_web.markup_highlights
 _apply_markup_highlights = overlay_web.apply_markup_highlights
 

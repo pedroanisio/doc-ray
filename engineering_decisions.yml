@@ -50,9 +50,9 @@ source_schema:         "db/migrations"
 # by tenant-scoped Stripe billing status (migration 085).
 # Kept in lockstep with doc_ray.__version__
 # by scripts/check_version_consistency.py.
-source_schema_version: "1.42.0"
+source_schema_version: "1.43.0"
 target_engine:         "PostgreSQL 16"
-total_decisions:       30
+total_decisions:       33
 
 decisions:
 
@@ -1990,5 +1990,69 @@ decisions:
             context:     "ci"
             side_effects: "reads"
             command:     "pytest tests/test_webapp_backup_toggle.py"
+            expect:
+              exit:      0
+
+  - id:                 "D-034"
+    title:              "A GraphQL capability ships with a webapp surface or a reasoned exception"
+    version_introduced: "1.43.0"
+    category:           "code-quality"
+    decision: |
+      Every Query and Mutation root field is statically classified as either
+      present in the Flask webapp's GraphQL documents or listed in the explicit
+      API-only exception ledger with a non-empty reason. The offline checker
+      walks Strawberry-decorated methods in Query/Mutation and their mixins,
+      applies Strawberry's default snake_case-to-camelCase mapping, and scans
+      webapp Python source for the wire field. A stale ledger entry, empty reason,
+      parse failure, or new unbound field is a violation.
+
+      `scripts/check_surface_parity.py --strict` is a hard landing gate in both
+      `make check-static` and `make check`. Report mode remains available for
+      audits and exits zero while printing all findings. The ledger may name a
+      bounded direct-SQL browser path or the separate admin console as the human
+      surface, but must say so explicitly. This gate covers GraphQL-to-webapp
+      reachability only; MCP/CLI parity and read-model signature parity remain
+      separate concerns.
+    rationale: |
+      Epic #23 found many tested GraphQL capabilities with no browser caller.
+      Unit tests proved that each resolver worked but could not prove that a
+      person could reach it. A deterministic static ledger makes that product
+      boundary reviewable: adding a resolver now forces an intentional choice to
+      bind it for people or document why it is operational/agent-only. AST
+      inspection was chosen over importing the schema so this gate stays fast,
+      stdlib-only, offline, and usable before application dependencies or a
+      database are available. Hard-gate promotion was selected because report-
+      only output would recreate the same ignorable-drift failure the epic fixes.
+    decision_status:    "accepted"
+    decision_date:      "2026-07-25"
+    owner:              ["pedroanisio@faz.ai"]
+    scope_path:
+      - "scripts/check_surface_parity.py"
+      - "webapp/**/*.py"
+      - "src/doc_ray/entrypoints/api/**/*.py"
+      - "Makefile"
+    claims:
+      - claim_id:    "D-034.k1"
+        claim_text:  "Every GraphQL root field has a webapp binding or a current, non-empty exception reason."
+        auditable:   true
+        status:      "populated"
+        declared_checks_count: 2
+        checks:
+          - check_id:    "D-034.k1.c1"
+            description: "The strict static parity inventory is clean."
+            check_kind:  "shell"
+            severity:    "error"
+            context:     "ci"
+            side_effects: "reads"
+            command:     "python scripts/check_surface_parity.py --strict"
+            expect:
+              exit:      0
+          - check_id:    "D-034.k1.c2"
+            description: "Fixture regressions prove new fields and malformed ledger entries fail."
+            check_kind:  "shell"
+            severity:    "error"
+            context:     "ci"
+            side_effects: "reads"
+            command:     "pytest tests/test_surface_parity_guard.py"
             expect:
               exit:      0

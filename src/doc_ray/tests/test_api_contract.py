@@ -55,6 +55,15 @@ def test_graphql_exposes_document_metadata_suggestion_surface():
     assert "confidenceBand" in sdl
 
 
+def test_graphql_exposes_visual_review_surface():
+    sdl = build_schema().as_str()
+
+    assert "visualReview(" in sdl
+    assert "decideVisualCaptions(" in sdl
+    assert "type VisualReviewItem" in sdl
+    assert "groundingEvidence" in sdl
+
+
 def test_graphql_exposes_document_collections_surface():
     sdl = build_schema().as_str()
 

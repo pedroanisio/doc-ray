@@ -297,18 +297,19 @@ _VISUAL = EvalTask(
     id="coverage-visual-surface",
     kind="coverage",
     prompt="Are there images or captions in this document?",
-    grounded_in="reachability: the four Prism visual read tools",
+    grounded_in="reachability: the five Prism visual read tools",
     steps=(
         Step(corpus.document_images, lambda ctx: {"document_id": _main(ctx), "limit": 100}),
         Step(corpus.image_class_summary, lambda ctx: {"document_id": _main(ctx)}),
         Step(corpus.cross_modal_image_search, lambda ctx: {"query": "desert", "limit": 25}),
         Step(corpus.visual_captions, lambda ctx: {"document_id": _main(ctx), "limit": 100}),
+        Step(corpus.visual_review, lambda ctx: {"document_id": _main(ctx), "limit": 100}),
     ),
     assertions=(
         Assertion("all_calls_ok", scoring.check_all_ok),
-        _within(TaskBudget(max_calls=5, max_chars=20_000)),
+        _within(TaskBudget(max_calls=6, max_chars=20_000)),
     ),
-    budget=TaskBudget(max_calls=5, max_chars=20_000),
+    budget=TaskBudget(max_calls=6, max_chars=20_000),
 )
 
 _COMPOSE = EvalTask(

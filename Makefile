@@ -53,6 +53,8 @@ check-static: ## Run the static landing gates only (lint, types, size, version) 
 	  $(PYTHON) scripts/check_version_consistency.py || fail=1; \
 	echo "── read-path aggregates (D-024) ────────────────"; \
 	  $(PYTHON) scripts/check_read_path_aggregates.py || fail=1; \
+	echo "── GraphQL → webapp parity (D-034) ─────────────"; \
+	  $(PYTHON) scripts/check_surface_parity.py --strict || fail=1; \
 	if [ $$fail -ne 0 ]; then echo; echo "static gates: FAILED"; exit 1; fi; \
 	echo; echo "static gates: PASSED"
 
@@ -70,6 +72,8 @@ check: ## Run ALL landing-checklist gates (static gates + pytest); mirrors CLAUD
 	  $(PYTHON) scripts/check_version_consistency.py || fail=1; \
 	echo "── read-path aggregates (D-024) ────────────────"; \
 	  $(PYTHON) scripts/check_read_path_aggregates.py || fail=1; \
+	echo "── GraphQL → webapp parity (D-034) ─────────────"; \
+	  $(PYTHON) scripts/check_surface_parity.py --strict || fail=1; \
 	echo "── pytest (D-013) ──────────────────────────────"; \
 	  $(PYTHON) -m pytest tests src/doc_ray/tests || fail=1; \
 	if [ $$fail -ne 0 ]; then echo; echo "make check: FAILED"; exit 1; fi; \

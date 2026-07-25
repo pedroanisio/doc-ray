@@ -207,6 +207,22 @@ def test_sample_files_are_generated_from_the_registry():
     )
 
 
+def test_samples_include_compose_variables_and_production_overrides(by_key):
+    from scripts.gen_env_samples import render_all
+
+    assert by_key["POSTGRES_PASSWORD"]["scope"] == "compose"
+    rendered = {path.name: text for path, text in render_all().items()}
+    dev = rendered[".env.example"]
+    prod = rendered[".env.prod.example"]
+
+    assert "POSTGRES_PASSWORD=change-me" in dev
+    assert "POSTGRES_PASSWORD=change-me" not in prod
+    assert "POSTGRES_PASSWORD=   # SECRET" in prod
+    assert "DOCRAY_API_ALLOW_ANONYMOUS=false" in prod
+    assert "DOCRAY_WEBAPP_REQUIRE_AUTH=true" in prod
+    assert "ADMIN_CONSOLE_PORT=8080" in prod
+
+
 # --- self-tests: each guard can actually fail ------------------------------
 
 

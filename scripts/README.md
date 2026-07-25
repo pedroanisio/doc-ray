@@ -24,6 +24,7 @@ method. Neither opens a database connection.
 | `text_decomposer.py` | Self-contained `paragraphs → sentences → phrases → words` decomposer (rule-based, optional NLTK for grammatical phrase chunking). |
 | `roundtrip.py` | Fidelity check: ingest a PDF → export → re-extract fresh and compare bytes / full_text / sentences. Uses the `doc_ray` package (read-only). |
 | `gen_feature_inventory.py` | Mechanized capability inventory: enumerates GraphQL fields, MCP tools/resources, HTTP + webapp routes, job kinds, ingest formats, annotation layers, config variables and operator scripts from the live registries, with source locations and evidence-derived confidence. Markdown or JSON. See [README.feature_inventory.md](./README.feature_inventory.md). |
+| `check_surface_parity.py` | Offline GraphQL-root inventory: reports every field as webapp-surfaced, explicitly allowlisted with a reason, or unsurfaced; `--strict` is the D-034 landing gate. |
 | `showcase.sql` | Illustrative queries against the corpus. |
 
 ## Relationship to the pipeline

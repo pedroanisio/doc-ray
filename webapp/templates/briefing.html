@@ -1,0 +1,83 @@
+{% extends "base.html" %}
+{% block title %}Briefing · doc·ray{% endblock %}
+{% block body %}
+<p class="kicker">Cited evidence</p>
+<h1>Build a <span class="accent">briefing pack</span></h1>
+<p class="lede" style="max-width:46rem">
+  This is machine-composed evidence, not authored prose. It gathers checkable passages;
+  you decide what they support and verify every citation before synthesis.
+</p>
+<form class="filters" method="post" action="{{ url_for('briefing') }}">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <input type="text" name="topic" value="{{ topic }}" style="min-width:min(28rem,70vw)"
+         placeholder="topic to ground in your corpus…" autofocus>
+  <button type="submit">Gather evidence</button>
+</form>
+
+{% if notice %}<div class="notice" role="status">{{ notice }}</div>{% endif %}
+{% if not topic %}<p class="notice">Enter a topic to assemble cited evidence from documents you can read.</p>{% endif %}
+
+{% if pack %}
+<section aria-labelledby="retrieval-heading">
+  <h2 id="retrieval-heading">Retrieval</h2>
+  <p>{{ pack.retrieval }}</p>
+</section>
+
+<section aria-labelledby="sources-heading">
+  <h2 id="sources-heading">Sources</h2>
+  <div class="card table-card">
+    <table>
+      <thead><tr><th>Document</th><th>Rank</th><th>Citation</th></tr></thead>
+      <tbody>
+      {% for source in pack.sources %}
+        <tr>
+          <td><a href="{{ url_for('document', doc_id=source.documentId) }}">{{ source.title or source.documentId }}</a></td>
+          <td>{{ '%.3f'|format(source.rank) if source.rank is not none else '—' }}</td>
+          <td class="mono">{{ source.cite.ref }}</td>
+        </tr>
+      {% else %}<tr><td colspan="3">No grounded sources.</td></tr>{% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section aria-labelledby="passages-heading">
+  <h2 id="passages-heading">Key passages</h2>
+  {% for passage in pack.keyPassages %}
+    <article class="card" style="margin-bottom:1rem">
+      <p>{{ passage.text }}</p>
+      {% if passage.matchedTerms %}<p>Matched: {% for term in passage.matchedTerms %}<span class="pill">{{ term }}</span> {% endfor %}</p>{% endif %}
+      <a class="mono" href="{{ url_for('document', doc_id=passage.documentId) }}{% if passage.sentenceOrdinal is not none %}#s{{ passage.sentenceOrdinal }}{% endif %}">{{ passage.cite.ref }}</a>
+    </article>
+  {% else %}<p>No grounded passages.</p>{% endfor %}
+</section>
+
+<section aria-labelledby="entities-heading">
+  <h2 id="entities-heading">Entities</h2>
+  <ul>
+  {% for entity in pack.entities %}
+    <li><strong>{{ entity.text }}</strong> · {{ entity.entityType or 'untyped' }} · {{ entity.count }}</li>
+  {% else %}<li>No signal entities were grounded.</li>{% endfor %}
+  </ul>
+</section>
+
+<section aria-labelledby="guidance-heading">
+  <h2 id="guidance-heading">Verification guidance</h2>
+  <p>{{ pack.guidance }}</p>
+</section>
+{% endif %}
+
+<section aria-labelledby="coverage-heading">
+  <h2 id="coverage-heading">Coverage</h2>
+  <p><strong>{{ coverage.documents }} document{{ '' if coverage.documents == 1 else 's' }}</strong> ·
+     <strong>{{ coverage.passages }} passage{{ '' if coverage.passages == 1 else 's' }}</strong></p>
+</section>
+
+<section aria-labelledby="gaps-heading">
+  <h2 id="gaps-heading">Gaps</h2>
+  <ul>
+  {% for gap in gaps %}<li>{{ gap }}</li>
+  {% else %}<li>{{ 'No grounding gaps were reported.' if pack else 'No topic has been evaluated yet.' }}</li>{% endfor %}
+  </ul>
+</section>
+{% endblock %}

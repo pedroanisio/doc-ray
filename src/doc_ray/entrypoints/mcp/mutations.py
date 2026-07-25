@@ -260,6 +260,18 @@ async def decide_document_metadata_suggestions(
     return updated
 
 
+async def decide_visual_captions(
+    approve_ids: list[str] | None = None, reject_ids: list[str] | None = None
+) -> int:
+    """Commit or reject untrusted Tier-3 caption proposals after review."""
+    data = await gql(
+        "mutation($a:[ID!],$r:[ID!]){decideVisualCaptions(approveIds:$a,rejectIds:$r)}",
+        {"a": approve_ids, "r": reject_ids},
+    )
+    updated: int = data["decideVisualCaptions"]
+    return updated
+
+
 async def create_collection(
     name: str,
     description: str = "",
@@ -434,6 +446,7 @@ TOOLS: tuple[Any, ...] = (
     correct_entity_mention,
     decide_seeds,
     decide_document_metadata_suggestions,
+    decide_visual_captions,
     seed_approved,
     create_collection,
     add_document_to_collection,

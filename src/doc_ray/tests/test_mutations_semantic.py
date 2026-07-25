@@ -17,9 +17,17 @@ from doc_ray.entrypoints.api.loaders import Loaders
 from doc_ray.entrypoints.api.schema import build_schema
 
 
+def _delete_jobs(pg, job_ids: list[str]) -> None:
+    """Remove mutation-created queue rows before document fixture teardown."""
+    conn, _created = pg
+    for job_id in job_ids:
+        conn.execute("DELETE FROM jobs WHERE id = %s", (job_id,))
+
+
 def test_embed_document_sentences_enqueues_semantic_embed_job(pg) -> None:
     doc_id = _seed(pg)
     schema = build_schema()
+    job_ids: list[str] = []
 
     async def run() -> None:
         aconn = await _aconn_as(WRITE_PRINCIPAL.principal_id)
@@ -33,6 +41,7 @@ def test_embed_document_sentences_enqueues_semantic_embed_job(pg) -> None:
             )
             assert result.errors is None, result.errors
             job = result.data["embedDocumentSentences"]
+            job_ids.append(job["id"])
             assert job["kind"] == KIND_SEMANTIC_EMBED
             assert job["documentId"] == doc_id
 
@@ -45,27 +54,35 @@ def test_embed_document_sentences_enqueues_semantic_embed_job(pg) -> None:
         finally:
             await aconn.close()
 
-    asyncio.run(run())
+    try:
+        asyncio.run(run())
+    finally:
+        _delete_jobs(pg, job_ids)
 
 
 def test_embed_corpus_sentences_enqueues_a_job_per_unembedded_document(pg) -> None:
     doc_id = _seed(pg)  # a document with sentences, no embeddings yet
     schema = build_schema()
+    job_ids: list[str] = []
 
     async def run() -> None:
         aconn = await _aconn_as(WRITE_PRINCIPAL.principal_id)  # admin principal
         try:
             ctx = RequestContext(conn=aconn, principal=WRITE_PRINCIPAL, loaders=Loaders(aconn))
             result = await schema.execute(
-                "mutation { embedCorpusSentences(onlyMissing: true) { kind status documentId } }",
+                "mutation { embedCorpusSentences(onlyMissing: true) { id kind status documentId } }",
                 context_value=ctx,
             )
             assert result.errors is None, result.errors
             jobs = result.data["embedCorpusSentences"]
+            job_ids.extend(job["id"] for job in jobs)
             mine = [j for j in jobs if j["documentId"] == doc_id]
             assert len(mine) == 1, "the un-embedded seeded document must get exactly one job"
             assert mine[0]["kind"] == KIND_SEMANTIC_EMBED
         finally:
             await aconn.close()
 
-    asyncio.run(run())
+    try:
+        asyncio.run(run())
+    finally:
+        _delete_jobs(pg, job_ids)

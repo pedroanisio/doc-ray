@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
-from typing import Any
+from datetime import datetime
+from typing import Any, cast
 
 import strawberry
+from strawberry.scalars import JSON
 
 
 @strawberry.type
@@ -124,4 +126,43 @@ class VisualCaption:
             caption=str(row["caption"]),
             model=str(row["model"]),
             grounding_score=float(row["grounding_score"]),
+        )
+
+
+@strawberry.type
+class VisualReviewItem:
+    """An untrusted Tier-3 caption proposal awaiting an explicit decision."""
+
+    id: strawberry.ID
+    document_image_id: strawberry.ID
+    document_id: strawberry.ID
+    proposed: JSON
+    grounding_score: float
+    grounding_evidence: JSON
+    status: str
+    reviewer: strawberry.ID | None
+    created_at: datetime
+    updated_at: datetime
+    page_number: int
+    object_key: str
+    cursor: str
+
+    @classmethod
+    def from_row(cls, row: dict[str, Any]) -> VisualReviewItem:
+        """Map a ``persistence_visual_read.list_visual_review`` row."""
+        reviewer = row.get("reviewer")
+        return cls(
+            id=strawberry.ID(str(row["id"])),
+            document_image_id=strawberry.ID(str(row["document_image_id"])),
+            document_id=strawberry.ID(str(row["document_id"])),
+            proposed=cast(JSON, row["proposed"]),
+            grounding_score=float(row["grounding_score"]),
+            grounding_evidence=cast(JSON, row.get("grounding_evidence") or {}),
+            status=str(row["status"]),
+            reviewer=strawberry.ID(str(reviewer)) if reviewer is not None else None,
+            created_at=row["created_at"],
+            updated_at=row["updated_at"],
+            page_number=int(row["page_number"]),
+            object_key=str(row["object_key"]),
+            cursor=str(row["cursor"]),
         )

@@ -53,7 +53,7 @@ def test_read_path_reads_precomputed_rollups_not_live_scans():
 def test_lexeme_card_is_visibility_gated_not_global_registry():
     text = _CORPUS_WEB.read_text(encoding="utf-8")
     # A principal that sees no documents reads 0 — the scalar is behind this gate.
-    assert "EXISTS (SELECT 1 FROM documents)" in text, (
+    assert "EXISTS (SELECT 1 FROM documents WHERE lifecycle_state <> 'deleted')" in text, (
         "the lexeme card must be gated on the caller seeing >= 1 document"
     )
     # It must NOT count the un-scoped global `lexemes` registry as a stat total —

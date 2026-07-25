@@ -366,11 +366,11 @@ def test_webapp_header_shows_login_and_register_when_anonymous(monkeypatch) -> N
     body = resp.get_data(as_text=True)
     assert 'href="/login"' in body
     assert 'href="/register"' in body
-    assert 'href="/profile"' not in body
+    assert 'href="/settings"' not in body
     assert 'action="/logout"' not in body
 
 
-def test_webapp_header_shows_profile_and_logout_when_authenticated(monkeypatch) -> None:
+def test_webapp_header_shows_settings_and_logout_when_authenticated(monkeypatch) -> None:
     webapp.auth_sessions.reset()
     monkeypatch.setenv("DOCRAY_AUTH_LOCAL_ENABLED", "true")
     sid = webapp.auth_sessions.create(
@@ -385,13 +385,14 @@ def test_webapp_header_shows_profile_and_logout_when_authenticated(monkeypatch) 
 
     assert resp.status_code == 200
     body = resp.get_data(as_text=True)
-    assert 'href="/profile"' in body
+    assert 'href="/settings"' in body
     assert 'action="/logout"' in body
     assert 'href="/login"' not in body
 
 
-def test_webapp_profile_page_shows_current_session(monkeypatch) -> None:
+def test_webapp_profile_redirects_to_account_settings(monkeypatch) -> None:
     webapp.auth_sessions.reset()
+    monkeypatch.setenv("DOCRAY_AUTH_LOCAL_ENABLED", "true")
     sid = webapp.auth_sessions.create(
         principal_id="eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee",
         subject="local:alice@example.com",
@@ -402,10 +403,8 @@ def test_webapp_profile_page_shows_current_session(monkeypatch) -> None:
 
     resp = client.get("/profile")
 
-    assert resp.status_code == 200
-    body = resp.get_data(as_text=True)
-    assert "local:alice@example.com" in body
-    assert "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee" in body
+    assert resp.status_code == 302
+    assert resp.headers["Location"].endswith("/settings")
 
 
 def test_webapp_requires_auth_for_corpus_when_local_auth_enabled(monkeypatch) -> None:
@@ -431,7 +430,9 @@ def test_webapp_landing_is_public_when_local_auth_enabled(monkeypatch) -> None:
     resp = webapp.app.test_client().get("/")
 
     assert resp.status_code == 200
-    assert "auditable research corpus" in resp.get_data(as_text=True)
+    body = resp.get_data(as_text=True)
+    assert "connected corpus" in body
+    assert "every result traces back to the document it came from" in body
 
 
 def test_webapp_hides_app_nav_for_anonymous_when_auth_required(monkeypatch) -> None:

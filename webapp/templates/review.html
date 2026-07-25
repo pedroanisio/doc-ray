@@ -1,0 +1,115 @@
+{% extends "base.html" %}
+{% block title %}Review · doc·ray{% endblock %}
+{% block body %}
+<p class="kicker">Human verification inbox</p>
+<h1>AI proposes; a human decides</h1>
+<p class="lede" style="max-width:48rem">
+  Every item here is an untrusted machine proposal. Nothing is approved automatically;
+  your decision passes through the authorized API and becomes part of the audit trail.
+</p>
+
+<nav class="seg" aria-label="Review lanes">
+  <a class="{{ 'on' if lane == 'metadata' }}" href="{{ url_for('review', lane='metadata') }}">Metadata <span class="pill">{{ counts.metadata or 0 }}</span></a>
+  <a class="{{ 'on' if lane == 'entities' }}" href="{{ url_for('review', lane='entities') }}">Entities <span class="pill">{{ (counts.seeds or 0) + (counts.resolutions or 0) }}</span></a>
+  <a class="{{ 'on' if lane == 'visual' }}" href="{{ url_for('review', lane='visual') }}">Visual captions <span class="pill">{{ counts.visual or 0 }}</span></a>
+</nav>
+
+{% if notice %}<div class="notice" role="status">{{ notice }}</div>{% endif %}
+{% if error %}<div class="errbox" role="alert">{{ error }}</div>{% endif %}
+
+{% if lane == 'metadata' %}
+  <section class="review-layout">
+    <div class="card">
+      <h2>Documents awaiting metadata review</h2>
+      {% for d in metadata_docs|default([]) %}
+        <p><a href="{{ url_for('review', lane='metadata', document_id=d.id) }}">{{ d.title }}</a> <span class="pill">{{ d.pending_count }}</span></p>
+      {% else %}<p class="lede">Nothing pending in the metadata lane.</p>{% endfor %}
+      {% if page > 1 or has_next|default(false) %}<div class="pager">
+        {% if page > 1 %}<a href="{{ url_for('review', lane='metadata', page=page-1) }}">← prev</a>{% endif %}
+        <span>page {{ page }}</span>
+        {% if has_next|default(false) %}<a href="{{ url_for('review', lane='metadata', page=page+1) }}">next →</a>{% endif %}
+      </div>{% endif %}
+    </div>
+    <div class="card">
+      <h2>Pending proposals</h2>
+      {% if not document_id %}<p class="lede">Choose a document to inspect its proposed changes.</p>{% endif %}
+      <form method="post" action="{{ url_for('review_action') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="lane" value="metadata">
+        <input type="hidden" name="kind" value="metadata">
+        <input type="hidden" name="document_id" value="{{ document_id or '' }}">
+        {% for item in metadata_items|default([]) %}
+          <article class="review-item">
+            <label><input type="checkbox" name="item_id" value="{{ item.id }}"> <strong>{{ item.field }}</strong> → {{ item.suggestedValue }}</label>
+            <p class="hint">Current: {{ item.currentValue or 'empty' }} · {{ item.confidenceBand }} confidence ({{ '%.1f'|format(item.confidence * 100) }}%)</p>
+            <p>{{ item.reason }}</p><p class="kicker">Source · {{ item.source }}</p>
+          </article>
+        {% else %}{% if document_id %}<p class="lede">Nothing pending for this document.</p>{% endif %}{% endfor %}
+        {% if metadata_items|default([]) %}<button name="action" value="approve">Approve selected</button> <button name="action" value="reject">Reject selected</button>{% endif %}
+      </form>
+    </div>
+  </section>
+
+{% elif lane == 'entities' %}
+  <section class="card">
+    <h2>Resolution queue</h2>
+    <p class="hint">Resolution proposals remain untrusted inspection evidence; seed and mention decisions are made below.</p>
+    {% for item in resolution_items|default([]) %}
+      <article class="review-item">
+        {% set canonical = item.proposedCanonical %}
+        <strong>{{ canonical.preferred if canonical else 'No canonical proposed' }}</strong>
+        {% if canonical %}<span class="pill">{{ canonical.entityType }}</span>{% endif %}
+        <p>{{ item.reason or 'No rationale supplied.' }}{% if item.confidence is not none %} · {{ '%.1f'|format(item.confidence * 100) }}%{% endif %}</p>
+        {% if item.context %}<a href="{{ url_for('document', doc_id=item.context.document_id) }}">{{ item.context.title }}</a>{% endif %}
+      </article>
+    {% else %}<p class="lede">No resolution proposals are awaiting inspection.</p>{% endfor %}
+  </section>
+  <section class="card">
+    <h2>Seed candidates</h2>
+    <form method="post" action="{{ url_for('review_action') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="lane" value="entities"><input type="hidden" name="kind" value="seed"><input type="hidden" name="document_id" value="{{ document_id or '' }}">
+      {% for item in seed_items|default([]) %}
+        <label class="review-item"><input type="checkbox" name="item_id" value="{{ item.id }}"> <strong>{{ item.term }}</strong> · {{ item.title }}<span class="hint">{{ item.description or 'No description' }} · Source {{ item.source }}</span></label>
+      {% else %}<p class="lede">No seed candidates are awaiting a decision.</p>{% endfor %}
+      {% if seed_items|default([]) %}<button name="action" value="approve">Approve selected</button> <button name="action" value="reject">Reject selected</button>{% endif %}
+    </form>
+  </section>
+  <section class="card">
+    <h2>Unresolved mentions</h2>
+    {% if not document_id %}<p class="lede">Open this lane with a document filter to inspect and correct its unresolved mentions.</p>{% endif %}
+    {% for item in unresolved_items|default([]) %}
+      <form class="review-item" method="post" action="{{ url_for('review_action') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="lane" value="entities"><input type="hidden" name="kind" value="correction"><input type="hidden" name="document_id" value="{{ document_id }}"><input type="hidden" name="surface" value="{{ item.surface }}"><input type="hidden" name="char_start" value="{{ item.charStart }}"><input type="hidden" name="char_end" value="{{ item.charEnd }}">
+        <strong>{{ item.surface }}</strong> <span class="pill">{{ item.entityType }}</span>
+        <label>Correct type <input name="entity_type" value="{{ item.entityType }}"></label>
+        <button name="action" value="reclassify">Correct mention</button> <button name="action" value="reject">Reject mention</button>
+      </form>
+    {% else %}{% if document_id %}<p class="lede">No unresolved mentions in this document.</p>{% endif %}{% endfor %}
+  </section>
+
+{% else %}
+  <section class="card">
+    <h2>Untrusted caption proposals</h2>
+    <form method="post" action="{{ url_for('review_action') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="lane" value="visual"><input type="hidden" name="kind" value="visual"><input type="hidden" name="document_id" value="{{ document_id or '' }}">
+      {% for item in visual_items|default([]) %}
+        <article class="review-item">
+          <label><input type="checkbox" name="item_id" value="{{ item.id }}"> <strong>Untrusted caption proposal</strong></label>
+          <p>{{ item.caption }}</p>
+          <p><span class="pill">{{ item.groundingBand }} · {{ '%.1f'|format(item.groundingScore * 100) }}%</span></p>
+          <a href="{{ url_for('document_page_image', doc_id=item.documentId, page_number=item.pageNumber) }}">View image context · page {{ item.pageNumber }}</a>
+          {% if item.groundingEvidence %}<details><summary>Grounding evidence</summary><pre>{{ item.groundingEvidence|tojson(indent=2) }}</pre></details>{% endif %}
+        </article>
+      {% else %}<p class="lede">No captions are awaiting review.</p>{% endfor %}
+      {% if visual_items|default([]) %}<button name="action" value="approve">Approve selected</button> <button name="action" value="reject">Reject selected</button>{% endif %}
+    </form>
+  </section>
+{% endif %}
+<style>
+  .review-layout { display:grid; grid-template-columns:minmax(14rem,1fr) minmax(0,2fr); gap:1rem; }
+  .review-item { display:block; padding:1rem 0; border-top:1px solid var(--line); }
+  .review-item:first-of-type { border-top:0; }
+  .review-item .hint { display:block; margin:.3rem 0; }
+  @media (max-width:760px){ .review-layout { grid-template-columns:1fr; } }
+</style>
+{% endblock %}

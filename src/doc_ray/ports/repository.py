@@ -124,8 +124,16 @@ class ReadRepository(Protocol):
         doc_type: str | None = None,
         status: str | None = None,
         tags: list[str] | None = None,
+        shard_index: int | None = None,
+        shard_count: int | None = None,
     ) -> list[Row]:
         """Return document summary rows (with counts) newest-first, optionally filtered."""
+        ...
+
+    async def corpus_shard_counts(
+        self, conn: psycopg.AsyncConnection[Row], shard_count: int
+    ) -> list[Row]:
+        """Return visible-document counts for every deterministic corpus shard."""
         ...
 
     async def list_sentences(
@@ -135,6 +143,9 @@ class ReadRepository(Protocol):
         *,
         limit: int | None = None,
         after: str | None = None,
+        from_ordinal: int | None = None,
+        to_ordinal: int | None = None,
+        page: int | None = None,
     ) -> list[Row]:
         """Return a document's sentences (with span offsets) in ordinal order."""
         ...
@@ -172,6 +183,16 @@ class ReadRepository(Protocol):
         kind: str | None = None,
     ) -> list[Row]:
         """Return collection rows (with document counts) newest-first."""
+        ...
+
+    async def list_lenses(
+        self,
+        conn: psycopg.AsyncConnection[Row],
+        *,
+        limit: int = 50,
+        after: str | None = None,
+    ) -> list[Row]:
+        """Return scope collections (lenses), name-ordered and keyset-paginated."""
         ...
 
     async def get_collection(

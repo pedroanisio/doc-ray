@@ -96,6 +96,26 @@ def document_cover(doc_id):
     )
 
 
+def document_image(doc_id, image_id, ext):
+    """Stream one bounded extracted-image thumbnail through the API boundary."""
+    if ext != "webp":
+        abort(404)
+    base = API_URL.rsplit("/graphql", 1)[0]
+    width = request.args.get("w", 320, type=int)
+    upstream, pump = _stream_api_response(
+        f"{base}/documents/{doc_id}/images/{image_id}?w={width}", (401, 403, 404, 409)
+    )
+    headers = {}
+    for header in ("cache-control", "x-docray-cache"):
+        if upstream.headers.get(header):
+            headers[header.title()] = upstream.headers[header]
+    return Response(
+        stream_with_context(pump()),
+        mimetype=upstream.headers.get("content-type", "image/webp"),
+        headers=headers,
+    )
+
+
 def register(app) -> None:
     """Attach the original-asset streaming routes to *app* (D-015 split).
 
@@ -109,3 +129,8 @@ def register(app) -> None:
         document_page_image,
     )
     app.add_url_rule("/doc/<uuid:doc_id>/cover.webp", "document_cover", document_cover)
+    app.add_url_rule(
+        "/doc/<uuid:doc_id>/image/<image_id>.<ext>",
+        "document_image",
+        document_image,
+    )

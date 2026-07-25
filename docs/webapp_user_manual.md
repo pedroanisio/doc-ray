@@ -7,7 +7,7 @@ disclaimer:
   generated_by: "Claude Opus 5 (1M context) via Claude Code"
   date: "2026-07-25"
 title: "doc·ray — Web Interface and Agent (MCP) Manual"
-applies_to: "1.42.0"
+applies_to: "1.43.0"
 last_reviewed: "2026-07-25"
 ---
 
@@ -406,9 +406,9 @@ drawn on top of it rather than on re-flowed text:
   model's reason, a confidence band (High / Medium / Low) and its numeric
   confidence, plus status and source. Per PALS's Law the suggestion is a
   proposal under review, never an applied edit. **The web interface displays
-  these suggestions; it has no approve/reject control today** — decisions are
-  made through the API's `decideDocumentMetadataSuggestions` mutation or its MCP
-  equivalent (§8).
+  these suggestions and the **Review** inbox can approve or reject selected
+  proposals through `decideDocumentMetadataSuggestions`. The model never applies
+  a suggestion on its own.
 - **Reprocessing steps**, each queued individually and each disabled while its
   own job is active, with a failed last attempt reported instead of silently
   offered again:
@@ -432,9 +432,10 @@ rather than a label:
 
 A collection can be promoted to a **lens** — a named scope for entity identity
 (the reserved `global` lens holds real-world, Wikidata-linkable identities;
-scope lenses are work-local worlds). Promotion, demotion, and a document's
-default lens are API/MCP operations today (§5.6), and a lens is currently
-vocabulary: it does not yet change how entities resolve.
+scope lenses are work-local worlds). The Collection page promotes/demotes it and
+chooses an optional parent through the guarded GraphQL path; a member Document's
+reader rail sets or clears its default Lens. A Lens is currently vocabulary: it
+does not yet change how entities resolve.
 
 ### 4.9 Lexemes (`/lexemes`)
 
@@ -449,16 +450,38 @@ One dictionary entry: the lemma, its language and POS, the distinct surface
 forms observed in the corpus (up to 25), and keyword-in-context snippets of its
 occurrences (up to 80), each linking back to the source document.
 
-### 4.11 Search (`/search?q=…`)
+### 4.11 Search (`/search?q=…&mode=…`)
 
-Case-insensitive **substring** search over sentences, first 100 hits, grouped by
-document. The browser states this beside the search box and repeats the caveat in
-the zero-result state. This is a literal match — it will not find inflected
-variants of your query. Stemmed full-text search (`fullTextSearch`) and
-meaning-based retrieval (`semanticSearchSentences`) are available on the GraphQL
-API and over MCP (§5.4), not in the browser yet.
+Three explicit modes share one RLS boundary:
 
-### 4.12 Backups (`/backups`)
+- **Keyword** — case-insensitive literal Sentence matches with context.
+- **Meaning** — learned `semanticSearchSentences` ranking. When the API or active
+  model coverage is unavailable, the page says so and falls back to Keyword.
+- **Images** — cross-modal text-to-image results with actual thumbnails,
+  Document/page provenance, class, and similarity. An unavailable vision stack
+  renders an unknown coverage state rather than a false empty corpus.
+
+### 4.12 Review (`/review`)
+
+One inbox with three separately paginated lanes and persistent pending counts:
+
+- **Metadata** — approve/reject generated metadata suggestions.
+- **Entities** — inspect source context, record durable mention corrections, and
+  decide seed candidates before applying approved seeds.
+- **Visual** — inspect the proposed caption, source image, grounding evidence,
+  and score band; approve to commit or reject to keep it out of trusted reads.
+
+Every action crosses an authorized, audited GraphQL mutation. A lane read or
+count failure renders an explicit error without blanking the other decisions.
+
+### 4.13 Briefing (`/briefing`)
+
+Builds an evidence pack from visible Documents through `briefingPack`: ranked
+sources, exact Sentence passages and citations, entity frequencies, coverage,
+retrieval method, gaps, and downstream guidance. The service assembles evidence
+only; it does not generate narrative or write a derived claim into the corpus.
+
+### 4.14 Backups (`/backups`)
 
 Capture the entire corpus — every database table plus every stored blob — as one
 portable archive, or restore a previous one. The page lists catalogued archives
@@ -478,7 +501,7 @@ Like every other write, create and restore go through the API and run in the
 worker; downloads are proxied through the API too, so the browser never needs
 object-store credentials. No MCP tool can create or restore a backup (§5.8).
 
-### 4.13 Operator health (`/operator/health`)
+### 4.15 Operator health (`/operator/health`)
 
 Restricted page for read-only operational checks. Set
 `DOCRAY_OPERATOR_HEALTH_TOKEN` on the webapp process, then request the page with
@@ -497,7 +520,7 @@ the same corpus/database findings shown in the browser page. The same gate
 protects `/operator/doc/<id>/metadata`, an operator-only metadata correction form
 with the document's metadata history.
 
-### 4.14 In-app definitions and tooltips
+### 4.16 In-app definitions and tooltips
 
 The browser defines core terms in place instead of assuming prior project
 knowledge. Major feature pages include one-line descriptions for the work they
@@ -508,7 +531,7 @@ pointer, focus with a keyboard, or tap to focus on touch devices to reveal the
 plain-language definition. Screen-reader-only tooltip text is also present in the
 control.
 
-### 4.15 Admin console (separate application)
+### 4.17 Admin console (separate application)
 
 Operator backoffice for running the deployment — dashboards over `/health`,
 `/readyz` and `/operator/health.json`, job monitoring with cancel and re-extract,
@@ -622,7 +645,7 @@ what, when, and did it work" without reconstructing it from transport logs.
 | `list_collections(limit, kind?, after?)` / `get_collection(collection_id, document_limit)` | Collections and their members |
 | `list_lenses(limit, after?)` | The collections marked as entity-resolution scopes |
 | `corpus_manifest(shard_count)` / `corpus_shard(shard_index, shard_count, limit, after?)` | Deterministic, disjoint corpus partition for a map-reduce sweep |
-| `document_images(document_id, limit)` · `image_class_summary(document_id)` · `visual_captions(document_id, limit)` · `cross_modal_image_search(query, limit)` | The visual layer: extracted page images, tier-class tallies, grounded captions, text→image search (`unsupported` where the vision stack is absent) |
+| `document_images(document_id, limit)` · `image_class_summary(document_id)` · `visual_captions(document_id, limit)` · `visual_review(document_id?, status, limit, after?)` · `cross_modal_image_search(query, limit)` | The visual layer: extracted page images, tier-class tallies, committed captions, untrusted proposals, and text→image search (`unsupported` where the vision stack is absent) |
 | `get_job(job_id)` | Poll a job enqueued by a write tool |
 
 ### 5.5 Composition-grounding tools
@@ -659,6 +682,7 @@ enqueues a **reversible** job or records a curation decision.
 | **Reprocessing** (returns `Job` — poll with `get_job`) | `reannotate`, `reextract_document`, `annotate_document`, `semantic_enrich_document`, `embed_document_sentences`, `canonicalize_document(resolve=False)` |
 | **Cataloging** | `update_document_metadata(title?, description?, tags?, authors?)`, `bulk_tag_documents`, `suggest_document_metadata`, `decide_document_metadata_suggestions(approve_ids?, reject_ids?)` |
 | **Entity verification** | `correct_entity_mention(action, char_start, char_end, …)`, `suggest_seeds`, `decide_seeds`, `seed_approved` |
+| **Visual verification** | `decide_visual_captions(approve_ids?, reject_ids?)` — commits only explicitly approved proposals |
 | **Collections and lenses** (synchronous; return the container) | `create_collection`, `update_collection`, `delete_collection`, `add_document_to_collection`, `remove_document_from_collection`, `promote_collection_to_lens`, `demote_lens`, `set_document_default_lens` |
 
 `correct_entity_mention` is the agent-facing half of the NER verification layer.
@@ -751,7 +775,7 @@ whole corpus" always means "the whole corpus this token may read."
 reconciled NER and nothing more: the entity is not backed by the canonical
 registry yet (§6).
 
-**A cited briefing** — `briefing_pack` or `entity_dossier`, then honor `gaps` and
+**A cited briefing** — `/briefing`, `briefing_pack`, or `entity_dossier`, then honor `gaps` and
 `guidance`: state what the cited passages support, and say the sample was capped
 when it was.
 
@@ -881,22 +905,21 @@ cheaper than discovering it mid-task:
 | --- | --- | --- | --- |
 | Ingest by file upload | Yes | No | Yes |
 | Read with annotation overlays | Yes | Text + offsets, no rendering | Yes |
-| Stemmed / semantic search | No (substring only) | Yes | Yes |
+| Keyword / semantic / image search | Yes | Yes | Yes |
 | Corpus sharding for exhaustive sweeps | No | Yes | Yes |
 | Domain-seeding decisions | Yes | Yes (write gate) | Yes |
 | Metadata suggestions: request | Yes | Yes (write gate) | Yes |
-| Metadata suggestions: approve/reject | **No — display only** | Yes (write gate) | Yes |
-| Entity-mention corrections | No | Yes (write gate) | Yes |
+| Metadata suggestions: approve/reject | Yes (Review) | Yes (write gate) | Yes |
+| Entity-mention corrections | Yes (Review) | Yes (write gate) | Yes |
 | Collections: create/edit | Yes | Yes (write gate) | Yes |
-| Lens promotion / default lens | No | Yes (write gate) | Yes |
+| Lens promotion / default lens | Yes | Yes (write gate) | Yes |
+| Visual-caption review | Yes (Review) | Yes (write gate) | Yes |
+| Cited briefing pack | Yes | Yes | Yes |
 | Sharing and visibility | Yes | No | Yes |
 | Archive / delete / backup / restore / cancel job | Yes (operator surfaces) | **No, by design** | Yes |
 
-Two of those rows are gaps rather than decisions, and are named as such: the web
-interface can display metadata suggestions but not decide them, and it cannot
-record an entity-mention correction — both currently require the API or an
-agent with a write-scoped token. The principle the rest of the table follows is
-constant: **AI proposes, verification decides.** Suggestions arrive as
+The principle the table follows is constant: **AI proposes, verification
+decides.** Suggestions arrive as
 suggestions with a confidence and a reason. Corrections are attributable and
 reversible. Seeded identities are final and therefore human-gated. Destruction,
 publication, and access changes never reach an agent's tool list at all.

@@ -143,13 +143,12 @@ def test_webapp_lexeme_index_reads_share_reader_table_shape(monkeypatch):
         web_sql,
         read.list_lexemes,
         (
-            "FROM lexemes l",
-            "JOIN lexeme_occurrences o ON o.lexeme_uid = l.uid",
+            "FROM lexeme_stats ls",
+            "JOIN lexemes l ON l.uid = ls.lexeme_uid",
             "l.lemma ILIKE",
             "l.pos =",
             "l.lang =",
-            "GROUP BY l.uid, l.lang, l.pos, l.lemma",
-            "ORDER BY uses DESC",
+            "ORDER BY ls.uses DESC",
         ),
     )
 

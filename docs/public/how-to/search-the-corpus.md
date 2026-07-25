@@ -11,7 +11,7 @@ doc_type: "how-to"
 audience: ["end-user", "integrator"]
 surfaces: ["webapp", "mcp", "api"]
 classification: "public"
-applies_to: "1.41.0"
+applies_to: "1.43.0"
 owner: "documentation-maintainer"
 last_reviewed: "2026-07-25"
 status: "current"
@@ -19,29 +19,65 @@ status: "current"
 
 # Search the corpus
 
-Find the right Document with a full-text search, then locate exact passages inside it with a keyword-in-context Sentence search, reading the coverage signal to tell a query problem from missing content.
+Find Documents, passages, and images with the retrieval mode that matches your
+question: literal keyword search, learned semantic search, or cross-modal visual
+search.
 
 ## Prerequisites
 
 - A readable Corpus. Every search is scoped to the Documents you own or that are shared with you.
 - **MCP:** an MCP client pointed at `/mcp` with a bearer token. Search tools are read tools and are always available.
-- Two searches serve two goals. Use **full-text search** to pick a Document out of the Corpus. Use **Sentence search** to find passages inside Documents. Prefer **rare, specific terms**: a common word floods one region of a Document and starves the rest.
+- Use **full-text search** to pick a Document, **keyword Sentence search** for an
+  exact phrase, **semantic search** for meaning, and **image search** for visual
+  prior art. Prefer rare, specific terms for keyword search: a common word can
+  flood one region and starve the rest.
 
-## Full-text search versus Sentence search
+## Choose a search mode
 
 - **Full-text search** ranks whole Documents by relevance and returns one row per Document (`documentId`, `title`, `rank`) with no passage text. It answers "which Document?".
 - **Sentence search** returns keyword-in-context rows — a `pre`/`hit`/`post` window around each match, with an `ordinal` citation handle. It answers "where inside the Document?".
+- **Semantic search** ranks Sentences by learned cosine similarity, so wording
+  may differ from the query. Every row still carries a Document and Sentence
+  ordinal for verification.
+- **Image search** embeds the query through the vision model's text tower and
+  ranks visible Document images. It is discovery, not a factual assertion.
 
 ## Search through the Corpus browser
 
-1. Open **Search** (`/search`).
-2. Enter a rare, specific term and submit.
+1. Open **Search** (`/search`) and choose **Keyword**, **Meaning**, or **Images**.
+2. Enter a query and submit.
 
-   Result: the page lists matching Sentences, each shown in context with its Document title.
+   Result: Keyword and Meaning list citable Sentences; Images shows RLS-visible
+   thumbnails with Document title, page, class, and similarity.
 
 3. Refine a flooded result by adding a more distinctive term rather than a common one.
 
    Result: matches concentrate on the passages that actually discuss the topic.
+
+If Meaning has no usable vectors or the API is unavailable, the page states the
+fallback and shows keyword matches. Image search reports the visual layer as
+unavailable rather than silently presenting an empty corpus.
+
+## Meaning-based search through MCP
+
+```
+semantic_search_sentences  query="water governance under scarcity"  limit=20
+```
+
+Result: ranked Sentence rows with `documentId`, `ordinal`, text, and similarity.
+Use the ordinal with `read_document_sentences` to verify the surrounding passage.
+If the tool returns `unsupported`, the active model is unavailable on that
+deployment. If it returns no rows, ask an operator to verify corpus embedding
+coverage.
+
+For visual prior art:
+
+```
+cross_modal_image_search  query="desert irrigation schematic"  limit=25
+```
+
+Result: ranked image rows with Document and page provenance. Open the Document
+gallery in the webapp to inspect the actual image bytes and committed caption.
 
 ## Sentence search through MCP
 
@@ -102,12 +138,20 @@ Take a `documentId` from this list into `search_sentences` (scoped with `documen
 
 - A Sentence search returns `hits` whose `pre`/`hit`/`post` windows contain the term, and each `ordinal` addresses the same Sentence when read back with the reader.
 - A full-text search returns Documents in descending `rank`.
+- A semantic or image hit resolves back to an RLS-visible Document and an exact
+  Sentence ordinal or page image.
 
 ## Common failures
 
 - **A sparse result for a common term** — the term flooded one region. Read `note` and narrow the query. See [Search returns too few results](/docs/troubleshooting/result-truncated).
 - **Cursor rejected** — a Sentence-search cursor is not valid in the reader; cursors are per-tool. See [Cursor not accepted](/docs/troubleshooting/cursor-not-interchangeable).
 - **Empty results** — the Corpus you can read contains no match, or the term is too specific. Broaden the term or confirm the Document is visible to you.
+- **Meaning is empty but Keyword finds text** — the active learned embeddings are
+  missing for those Documents. Ask an operator to run the corpus backfill and
+  verify its coverage report.
+- **Images says unavailable** — the vision encoder or image embeddings are not
+  installed for this deployment; do not treat this as proof that the corpus has
+  no images.
 
 ## Next steps
 

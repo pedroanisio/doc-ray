@@ -415,6 +415,7 @@ def test_tools_tuple_is_the_reprocessing_and_curation_writers() -> None:
         "correct_entity_mention",
         "decide_seeds",
         "decide_document_metadata_suggestions",
+        "decide_visual_captions",
         "seed_approved",
         "create_collection",
         "add_document_to_collection",
@@ -428,3 +429,17 @@ def test_tools_tuple_is_the_reprocessing_and_curation_writers() -> None:
     # Destructive DOCUMENT verbs stay off MCP (delete_collection removes only the
     # container, never the documents, so it is exposed).
     assert not {"delete_document", "archive_document", "create_backup", "cancel_job"} & names
+
+
+@pytest.mark.asyncio
+async def test_decide_visual_captions_forwards(monkeypatch: pytest.MonkeyPatch) -> None:
+    client = _patch(monkeypatch, {"data": {"decideVisualCaptions": 2}})
+
+    updated = await mutations.decide_visual_captions(
+        approve_ids=["01APPROVE"], reject_ids=["01REJECT"]
+    )
+
+    assert updated == 2
+    body = client.calls[0][1]
+    assert "decideVisualCaptions" in body["query"]
+    assert body["variables"] == {"a": ["01APPROVE"], "r": ["01REJECT"]}

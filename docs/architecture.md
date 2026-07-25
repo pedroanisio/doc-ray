@@ -55,8 +55,8 @@ disclaimer:
 |---|---|---|---|
 | **Domain** | `doc_ray.domain` | `pdf_layout` (layout→Markdown), `sentences` (segmentation), `lexemes` (identity, tokenization, `RuleAnalyzer`, language detection), `ulid` (value object), `provenance` (events), `ner_corrections` (the pure, deterministic reconcile that re-applies human NER fixes onto ML mentions) | stdlib only |
 | **Ports** | `doc_ray.ports` | `TextExtractor`, `ObjectStore`, `Repository`, `Annotator`, `ModelOutputVerifier` — `Protocol` contracts | domain |
-| **Adapters** | `doc_ray.adapters` | `extraction` (PyMuPDF + opt-in OCR + opt-in verified external math backend + pypdf + txt/html/epub/docx), `persistence` (Postgres/psycopg), `persistence_read` / `persistence_layers_read` / `persistence_canonical_read` (bounded async GraphQL read models), `object_store` (MinIO/boto3), `annotation` / `annotation_spacy`, `export`, `wikidata` / `wikipedia` (canonical-entity KB resolution), `queue_postgres` (`FOR UPDATE SKIP LOCKED` job queue), `ner_corrections_store` (the durable NER-correction log + its re-apply hook) | domain, ports |
-| **Application** | `doc_ray.application` | `pipeline` (ingest use case), `reannotate`, `reextract`, `verification` (shared ML/LLM output gate), `jobs` (worker dispatch + payload-carried pipeline-chain automation), `term_scan` / `canonicalize` / `resolution` / `seed_suggest` / `canonical_seed` (entity canonicalization — see below), `semantic_enrichment` (deterministic discourse/temporal/sentiment/embedding writer), `document_stats` (the D-024 read-model rollup refresh shared by count-mutating jobs), `evaluation` (snapshot + drift metrics), `backup` (corpus snapshot & restore), `corpus_health`, `db_health` (instance health), `db_analyzer` (multi-engine structure + data profiling) | ports, adapters, domain |
+| **Adapters** | `doc_ray.adapters` | `extraction` (PyMuPDF + opt-in OCR + opt-in verified external math backend + pypdf + txt/html/epub/docx), `persistence` (Postgres/psycopg), bounded async read models including semantic and visual reads, `persistence_visual_write` (audited visual decisions), `object_store` (MinIO/boto3), `annotation` / `annotation_spacy`, `export`, `wikidata` / `wikipedia` (canonical-entity KB resolution), `queue_postgres` (`FOR UPDATE SKIP LOCKED` job queue), `ner_corrections_store` (the durable NER-correction log + its re-apply hook) | domain, ports |
+| **Application** | `doc_ray.application` | `pipeline` (ingest use case), `reannotate`, `reextract`, `verification` (shared ML/LLM output gate), `jobs` (worker dispatch + payload-carried pipeline-chain automation), `term_scan` / `canonicalize` / `resolution` / `seed_suggest` / `canonical_seed` (entity canonicalization — see below), `semantic_enrichment` (deterministic discourse/temporal/sentiment writer), `semantic_embed` (learned ranking vectors + corpus backfill), `briefing` / `composition` (deterministic cited evidence assembly), `document_stats` (the D-024 read-model rollup refresh), `evaluation`, `backup`, and health/analyzer use cases | ports, adapters, domain |
 | **Entrypoints** | `doc_ray.entrypoints` | `cli`; `api` (GraphQL, Strawberry) and `worker` — the async-read / sync-write split every mutation runs through (see below); `migrate`, `export`, `annotate`, `annotate_spacy`, `annotate_semantic`, `evaluate`, `reannotate`, `reextract`; operational CLIs `auth_admin` and `backup_scheduler`; the diagnostics CLIs `corpus_health` / `db_health` / `db_analyze` | application |
 | **Config** | `doc_ray.config` | env-driven `Config` (shared kernel) | stdlib |
 
@@ -73,6 +73,24 @@ disclaimer:
   document fields; the layouts themselves are a browser-tier concern.
 - **`scripts/`** — standalone CLI tools (`extract_phrases`, `docmodel`, …),
   independent of the pipeline.
+
+### Aligned human, API, and agent surfaces
+
+The webapp still uses bounded RLS-scoped SQL for established catalogue reads,
+but new semantic, visual, review-decision, Lens, and briefing paths deliberately
+cross the GraphQL contract where adapter parity and auditability matter. The
+same application services back GraphQL and MCP; Flask is a presentation adapter,
+not a second implementation of ranking or evidence composition.
+
+`scripts/check_surface_parity.py --strict` inventories every GraphQL root field.
+A field must be referenced from `webapp/` or carry a reasoned API-only entry for
+an agent/operations primitive. This is a reachability gate, while
+`tests/test_read_surface_parity.py` separately checks repository/read-model
+signature and SQL-shape parity.
+
+Doc-Ray publishes no client SDK. The supported integration contracts are
+GraphQL and MCP; the internal repository Protocol documents application
+boundaries but is not presented as a separately versioned client package.
 
 ## API, worker, and the job queue
 
@@ -420,6 +438,11 @@ expose a GPU to containers: `scripts/deploy_env.py` probes the environment and
 `make up` layers `docker-compose.gpu.yml` accordingly (pinning one GPU worker on an
 8 GB card — two OOM), falling back to CPU on hosts without one. sentence-transformers
 auto-selects CUDA in that case; `DOCRAY_SEMANTIC_DEVICE` overrides it explicitly.
+Corpus-wide cutovers call the same `enqueue_semantic_embed_jobs` application
+function from GraphQL `embedCorpusSentences` and
+`scripts/enqueue_semantic_backfill.py`. The operator runbook requires a backup,
+an `only_missing` enqueue pass, model-specific sentence/embedding counts, and
+rollback evidence; no CLI owns a second enumeration algorithm.
 
 Where the matrix answers *which* layers are supported,
 [`docs/nlp_architecture.md`](nlp_architecture.md) answers *how* the running
@@ -449,6 +472,30 @@ correction (RLS-scoped to the document's writable set) and enqueues an
 `apply_corrections` job; the batch worker, which does own those tables, runs the
 reconcile. The same reconcile runs unconditionally at the tail of `handle_annotate`,
 which is what makes a fix survive re-annotation rather than merely precede it.
+
+### Human trust boundary for visual captions
+
+Prism Tier-1 features and Tier-2 embeddings are deterministic/ranking data.
+Tier-3 VLM captions are different: low-confidence output lands in
+`visual_review`, not in trusted `visual_captions`. RLS-scoped reads expose that
+queue through GraphQL `visualReview`, MCP `visual_review`, and the web Review
+lane. `decideVisualCaptions` validates a bounded, non-overlapping approve/reject
+batch, records the authenticated reviewer, and audits the mutation. Only an
+explicit approval commits a caption into the trusted read.
+
+Image bytes never pass through a filesystem shortcut. The web gallery streams
+them from the API's authenticated asset route, while classes, captions, and
+cross-modal ranks come from the same RLS-visible Document/image ids.
+
+### Cited briefing composition
+
+`application.briefing` depends on a small RLS-scoped reader Protocol and builds
+one deterministic evidence contract: sources, exact Sentence passages,
+citations, entity counts, coverage, gaps, retrieval disclosure, and synthesis
+guidance. GraphQL `briefingPack`, MCP `briefing_pack`, and `/briefing` adapt that
+contract without duplicating selection logic. The service never calls a language
+model and never writes prose or claims into the corpus; a downstream composer
+must preserve citations and honor every gap.
 
 `application.evaluation` records durable corpus snapshots and evaluation runs.
 It stores lexical/entity distributions and review/tool-version facts in

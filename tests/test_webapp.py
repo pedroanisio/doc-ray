@@ -18,6 +18,7 @@ from webapp import app as webapp
 DOC_ID = "11111111-1111-1111-1111-111111111111"
 MISSING_ID = "22222222-2222-2222-2222-222222222222"
 COLLECTION_ID = "55555555-5555-5555-5555-555555555555"
+LENS_ID = "66666666-6666-6666-6666-666666666666"
 LEX_UID = "lx_en.v_say01"
 
 _DOC = {
@@ -836,6 +837,171 @@ def test_collection_detail_renders_manual_members_and_remove_controls(client, mo
     assert "orwell1984" in html
     assert f'action="/collections/{COLLECTION_ID}/documents/{DOC_ID}"' in html
     assert 'name="action" value="remove"' in html
+
+
+def test_collections_surface_lens_badges_registry_and_honest_scope_note(client, monkeypatch):
+    def lens_q(sql, params=()):
+        if "FROM document_collections c" in _norm(sql):
+            return [
+                {
+                    "id": LENS_ID,
+                    "name": "regional-history",
+                    "description": "Regional sources",
+                    "kind": "manual",
+                    "rule": {},
+                    "document_count": 3,
+                    "is_scope": True,
+                    "parent_lens_id": None,
+                    "parent_lens_name": None,
+                },
+                {
+                    "id": COLLECTION_ID,
+                    "name": "reading-list",
+                    "description": "Ordinary collection",
+                    "kind": "manual",
+                    "rule": {},
+                    "document_count": 1,
+                    "is_scope": False,
+                    "parent_lens_id": None,
+                    "parent_lens_name": None,
+                },
+            ]
+        return fake_q(sql, params)
+
+    def lens_gql(query, variables=None):
+        assert "lenses" in query
+        return {
+            "lenses": [
+                {
+                    "id": LENS_ID,
+                    "name": "regional-history",
+                    "description": "Regional sources",
+                    "isScope": True,
+                    "parentLensId": None,
+                    "documentCount": 3,
+                    "cursor": "lens-next",
+                }
+            ]
+        }
+
+    monkeypatch.setattr(webapp, "q", lens_q)
+    monkeypatch.setattr(webapp, "gql", lens_gql)
+    html = client.get("/collections").get_data(as_text=True)
+    normalized = _norm(html)
+
+    assert "Lens" in html
+    assert "regional-history" in html
+    assert "Lenses name a scope for a future projection layer" in normalized
+    assert "do not change search or entity resolution today" in normalized
+
+
+@pytest.mark.parametrize(
+    ("action", "operation"),
+    [("promote", "promoteCollectionToLens"), ("demote", "demoteLens")],
+)
+def test_collection_lens_actions_use_graphql(client, monkeypatch, action, operation):
+    captured = {}
+
+    def collection_q1(sql, params=()):
+        if "FROM document_collections WHERE id" in _norm(sql):
+            return {
+                "id": COLLECTION_ID,
+                "name": "reading-list",
+                "description": "Ordinary collection",
+                "kind": "manual",
+                "rule": {},
+                "is_scope": action == "demote",
+                "parent_lens_id": None,
+            }
+        return fake_q1(sql, params)
+
+    def lens_gql(query, variables=None):
+        if operation in query:
+            captured.update(query=query, variables=variables)
+            return {operation: {"id": COLLECTION_ID}}
+        return {"lenses": []}
+
+    monkeypatch.setattr(webapp, "q1", collection_q1)
+    monkeypatch.setattr(webapp, "gql", lens_gql)
+    page = client.get(f"/collections/{COLLECTION_ID}").get_data(as_text=True)
+    token = _csrf_token_from(page)
+    response = client.post(
+        f"/collections/{COLLECTION_ID}/lens",
+        data={"csrf_token": token, "action": action, "parent_lens_id": ""},
+    )
+
+    assert response.status_code == 302
+    assert operation in captured["query"]
+    assert captured["variables"]["collectionId"] == COLLECTION_ID
+
+
+def test_collection_lens_error_renders_cleanly(client, monkeypatch):
+    def collection_q1(sql, params=()):
+        if "FROM document_collections WHERE id" in _norm(sql):
+            return {
+                "id": COLLECTION_ID,
+                "name": "global",
+                "description": "Reserved",
+                "kind": "manual",
+                "rule": {},
+                "is_scope": True,
+                "parent_lens_id": None,
+            }
+        return fake_q1(sql, params)
+
+    def lens_gql(query, variables=None):
+        if "demoteLens" in query:
+            raise RuntimeError("the global lens cannot be demoted")
+        return {"lenses": []}
+
+    monkeypatch.setattr(webapp, "q1", collection_q1)
+    monkeypatch.setattr(webapp, "gql", lens_gql)
+    token = _csrf_token_from(client.get(f"/collections/{COLLECTION_ID}").get_data(as_text=True))
+    response = client.post(
+        f"/collections/{COLLECTION_ID}/lens",
+        data={"csrf_token": token, "action": "demote"},
+        follow_redirects=True,
+    )
+
+    assert response.status_code == 200
+    assert "the global lens cannot be demoted" in response.get_data(as_text=True)
+
+
+def test_document_default_lens_picker_and_set_clear_mutations(client, monkeypatch):
+    captured = []
+
+    def lens_q(sql, params=()):
+        if "JOIN document_collection_members" in _norm(sql) and "is_scope" in _norm(sql):
+            return [{"id": LENS_ID, "name": "regional-history"}]
+        return fake_q(sql, params)
+
+    def lens_q1(sql, params=()):
+        if "SELECT * FROM documents WHERE id" in _norm(sql):
+            return dict(_DOC, default_lens_id=LENS_ID)
+        return fake_q1(sql, params)
+
+    def lens_gql(query, variables=None):
+        captured.append((query, variables))
+        return {"setDocumentDefaultLens": {"id": DOC_ID}}
+
+    monkeypatch.setattr(webapp, "q", lens_q)
+    monkeypatch.setattr(webapp, "q1", lens_q1)
+    monkeypatch.setattr(webapp, "gql", lens_gql)
+    page = client.get(f"/doc/{DOC_ID}").get_data(as_text=True)
+    assert 'option value="66666666-6666-6666-6666-666666666666" selected' in page
+    assert "do not change search or entity resolution today" in page
+    token = _csrf_token_from(page)
+
+    for lens_id in (LENS_ID, ""):
+        response = client.post(
+            f"/doc/{DOC_ID}/default-lens",
+            data={"csrf_token": token, "lens_id": lens_id},
+        )
+        assert response.status_code == 302
+
+    assert all("setDocumentDefaultLens" in query for query, _ in captured)
+    assert captured[0][1] == {"documentId": DOC_ID, "lensId": LENS_ID}
+    assert captured[1][1] == {"documentId": DOC_ID, "lensId": None}
 
 
 def test_smart_collection_detail_uses_rule_to_render_matching_documents(client, monkeypatch):
@@ -2025,6 +2191,328 @@ def test_search_highlights_the_term(client):
     assert "Big Brother" in html
 
 
+def test_semantic_search_calls_graphql_and_renders_scored_ordinal_links(client, monkeypatch):
+    captured = {}
+
+    def semantic_gql(query, variables=None):
+        captured["query"] = query
+        captured["variables"] = variables
+        return {
+            "semanticSearchSentences": [
+                {
+                    "sentenceId": "sentence-1",
+                    "documentId": DOC_ID,
+                    "title": "orwell1984",
+                    "ordinal": 73,
+                    "text": "At last he accepted the world as it was.",
+                    "similarity": 0.8764,
+                }
+            ]
+        }
+
+    monkeypatch.setattr(webapp, "gql", semantic_gql)
+    html = client.get("/search?mode=semantic&q=how+the+story+ends").get_data(as_text=True)
+
+    assert "semanticSearchSentences" in captured["query"]
+    assert captured["variables"]["query"] == "how the story ends"
+    assert "87.6%" in html
+    assert f"/doc/{DOC_ID}#s73" in html
+    assert "At last he accepted the world as it was." in html
+
+
+def test_semantic_search_falls_back_honestly_when_stack_is_unavailable(client, monkeypatch):
+    def unavailable(*_args, **_kwargs):
+        raise RuntimeError("sentence stack not installed")
+
+    monkeypatch.setattr(webapp, "gql", unavailable)
+    html = client.get("/search?mode=semantic&q=Winston").get_data(as_text=True)
+
+    assert "Semantic search unavailable" in html
+    assert "showing keyword matches" in html
+    assert "<mark>Winston</mark>" in html
+
+
+def test_semantic_search_empty_vectors_fall_back_honestly(client, monkeypatch):
+    monkeypatch.setattr(webapp, "gql", lambda *_a, **_k: {"semanticSearchSentences": []})
+    html = client.get("/search?mode=semantic&q=Winston").get_data(as_text=True)
+
+    assert "No semantic vectors matched" in html
+    assert "showing keyword matches" in html
+    assert "<mark>Winston</mark>" in html
+
+
+def test_image_search_calls_cross_modal_graphql_and_renders_thumbnail_links(client, monkeypatch):
+    captured = {}
+
+    def image_gql(query, variables=None):
+        captured.update(query=query, variables=variables)
+        return {
+            "crossModalImageSearch": [
+                {
+                    "id": "image-1",
+                    "documentId": DOC_ID,
+                    "pageNumber": 7,
+                    "source": "pdf-xobject",
+                    "imageClass": "chart",
+                    "similarity": 0.912,
+                }
+            ]
+        }
+
+    monkeypatch.setattr(webapp, "gql", image_gql)
+    html = client.get("/search?mode=image&q=rising+revenue+chart").get_data(as_text=True)
+
+    assert "crossModalImageSearch" in captured["query"]
+    assert captured["variables"]["query"] == "rising revenue chart"
+    assert "91.2%" in html and "chart" in html
+    assert f"/doc/{DOC_ID}/image/image-1.webp?w=320" in html
+    assert f"/doc/{DOC_ID}?view=images#image-image-1" in html
+
+
+def test_image_search_no_matches_is_distinct_from_coverage_failure(client, monkeypatch):
+    monkeypatch.setattr(webapp, "gql", lambda *_a, **_k: {"crossModalImageSearch": []})
+    html = client.get("/search?mode=image&q=purple+diagram").get_data(as_text=True)
+
+    assert "No images match this visual query" in html
+    assert "backfill has not run" not in html
+
+
+def test_image_search_stack_failure_is_visible_not_a_500(client, monkeypatch):
+    monkeypatch.setattr(
+        webapp,
+        "gql",
+        lambda *_a, **_k: (_ for _ in ()).throw(RuntimeError("vision stack not installed")),
+    )
+    response = client.get("/search?mode=image&q=diagram")
+
+    assert response.status_code == 200
+    assert "Visual search unavailable" in response.get_data(as_text=True)
+
+
+def test_search_rejects_unknown_mode_and_keyword_never_calls_graphql(client, monkeypatch):
+    calls = []
+    monkeypatch.setattr(webapp, "gql", lambda *a, **k: calls.append((a, k)))
+
+    html = client.get("/search?mode=bogus&q=Winston").get_data(as_text=True)
+
+    assert calls == []
+    assert 'value="keyword" checked' in html
+
+
+def test_reader_sentences_expose_stable_ordinal_anchors(client):
+    html = client.get(f"/doc/{DOC_ID}#s0").get_data(as_text=True)
+    assert 'id="s0"' in html
+    assert 'class="ord sentence-target"' in html
+
+
+# --- briefing --------------------------------------------------------------
+
+
+def _briefing_pack():
+    return {
+        "topic": "general relativity",
+        "retrieval": "full-text/keyword match; semantic similarity is not yet available",
+        "sources": [
+            {
+                "documentId": DOC_ID,
+                "title": "Field Equations",
+                "rank": 0.9,
+                "cite": {"documentId": DOC_ID, "sentenceOrdinal": None, "ref": "Field Equations"},
+            }
+        ],
+        "keyPassages": [
+            {
+                "documentId": DOC_ID,
+                "title": "Field Equations",
+                "sentenceOrdinal": 73,
+                "text": "Gravity is curvature.",
+                "matchedTerms": ["general relativity", "relativity"],
+                "cite": {
+                    "documentId": DOC_ID,
+                    "sentenceOrdinal": 73,
+                    "ref": "Field Equations · sentence 73",
+                },
+            }
+        ],
+        "entities": [{"text": "Albert Einstein", "entityType": "PERSON", "count": 8}],
+        "coverage": {"documents": 1, "passages": 1},
+        "gaps": ["One lower-ranked passage did not fit the response budget."],
+        "guidance": "Confirm each citation before synthesis.",
+    }
+
+
+def test_briefing_get_renders_every_contract_field_and_ordinal_link(client, monkeypatch):
+    captured = {}
+
+    def fake_gql(query, variables=None):
+        captured.update(query=query, variables=variables)
+        return {"briefingPack": _briefing_pack()}
+
+    monkeypatch.setattr(webapp, "gql", fake_gql)
+    html = client.get("/briefing?topic=general+relativity").get_data(as_text=True)
+
+    assert "briefingPack" in captured["query"]
+    assert captured["variables"]["topic"] == "general relativity"
+    assert "Field Equations" in html
+    assert "Gravity is curvature." in html
+    assert "Albert Einstein" in html and "PERSON" in html
+    assert "Coverage" in html and "1 document" in html and "1 passage" in html
+    assert "Gaps" in html and "did not fit" in html
+    assert "semantic similarity is not yet available" in html
+    assert "Confirm each citation" in html
+    assert f'href="/doc/{DOC_ID}#s73"' in html
+    assert "machine-composed evidence" in html
+
+
+def test_briefing_post_redirects_to_a_shareable_topic_url(client, monkeypatch):
+    calls = []
+    monkeypatch.setattr(webapp, "gql", lambda *args, **kwargs: calls.append((args, kwargs)))
+    token = _csrf_token_from(client.get("/briefing").get_data(as_text=True))
+
+    response = client.post(
+        "/briefing",
+        data={"csrf_token": token, "topic": "black holes"},
+    )
+
+    assert response.status_code == 302
+    assert response.headers["Location"].endswith("/briefing?topic=black+holes")
+    assert calls == []
+
+
+def test_briefing_empty_and_no_grounding_states_keep_coverage_and_gaps_visible(client, monkeypatch):
+    empty = client.get("/briefing").get_data(as_text=True)
+    assert "Enter a topic" in empty
+    assert "Coverage" in empty and "Gaps" in empty
+
+    no_grounding = _briefing_pack()
+    no_grounding.update(
+        sources=[],
+        keyPassages=[],
+        entities=[],
+        coverage={"documents": 0, "passages": 0},
+        gaps=["No documents in your corpus match this topic."],
+    )
+    monkeypatch.setattr(webapp, "gql", lambda *_a, **_k: {"briefingPack": no_grounding})
+    html = client.get("/briefing?topic=missing").get_data(as_text=True)
+
+    assert "No documents in your corpus" in html
+    assert "0 documents" in html and "0 passages" in html
+
+
+def test_briefing_graphql_failure_is_an_explicit_state_not_a_500(client, monkeypatch):
+    monkeypatch.setattr(
+        webapp,
+        "gql",
+        lambda *_a, **_k: (_ for _ in ()).throw(RuntimeError("API unavailable")),
+    )
+
+    response = client.get("/briefing?topic=gravity")
+
+    assert response.status_code == 200
+    assert "Briefing unavailable" in response.get_data(as_text=True)
+
+
+def test_document_images_view_binds_visual_fields_and_committed_captions(client, monkeypatch):
+    captured = {}
+
+    def visual_q1(sql, params=()):
+        if "FROM document_image" in _norm(sql) and "tier1_count" in _norm(sql):
+            return {"image_count": 1, "tier1_count": 1, "tier2_count": 1}
+        return fake_q1(sql, params)
+
+    def visual_gql(query, variables=None):
+        captured.update(query=query, variables=variables)
+        return {
+            "documentImages": [
+                {
+                    "id": "image-1",
+                    "documentId": DOC_ID,
+                    "pageNumber": 7,
+                    "source": "pdf-xobject",
+                    "widthPx": 1200,
+                    "heightPx": 800,
+                    "imageClass": "chart",
+                    "cursor": "next-image",
+                }
+            ],
+            "imageClassSummary": [{"imageClass": "chart", "count": 1}],
+            "visualCaptions": [
+                {
+                    "id": "caption-1",
+                    "documentImageId": "image-1",
+                    "caption": "Revenue rises from left to right.",
+                    "model": "trusted-vlm",
+                    "groundingScore": 0.94,
+                    "pageNumber": 7,
+                }
+            ],
+        }
+
+    monkeypatch.setattr(webapp, "q1", visual_q1)
+    monkeypatch.setattr(webapp, "gql", visual_gql)
+    html = client.get(f"/doc/{DOC_ID}?view=images").get_data(as_text=True)
+
+    for field in ("documentImages", "imageClassSummary", "visualCaptions"):
+        assert field in captured["query"]
+    assert f'src="/doc/{DOC_ID}/image/image-1.webp?w=320"' in html
+    assert "Revenue rises from left to right." in html
+    assert "Committed caption" in html and "trusted-vlm" in html
+    assert "Tier 1 covered" in html and "Tier 2 covered" in html
+
+
+@pytest.mark.parametrize(
+    ("coverage", "copy"),
+    [
+        ({"image_count": 0, "tier1_count": 0, "tier2_count": 0}, "No extracted images"),
+        (
+            {"image_count": 2, "tier1_count": 0, "tier2_count": 0},
+            "Visual backfill has not run for this document",
+        ),
+    ],
+)
+def test_document_images_view_distinguishes_empty_coverage_states(
+    client, monkeypatch, coverage, copy
+):
+    def visual_q1(sql, params=()):
+        if "FROM document_image" in _norm(sql) and "tier1_count" in _norm(sql):
+            return coverage
+        return fake_q1(sql, params)
+
+    monkeypatch.setattr(webapp, "q1", visual_q1)
+    monkeypatch.setattr(
+        webapp,
+        "gql",
+        lambda *_a, **_k: {
+            "documentImages": [],
+            "imageClassSummary": [],
+            "visualCaptions": [],
+        },
+    )
+    html = client.get(f"/doc/{DOC_ID}?view=images").get_data(as_text=True)
+
+    assert copy in html
+
+
+def test_document_images_view_reports_unknown_coverage_on_api_failure(client, monkeypatch):
+    def visual_q1(sql, params=()):
+        if "FROM document_image" in _norm(sql) and "tier1_count" in _norm(sql):
+            return {"image_count": 1, "tier1_count": 1, "tier2_count": 0}
+        return fake_q1(sql, params)
+
+    monkeypatch.setattr(webapp, "q1", visual_q1)
+    monkeypatch.setattr(
+        webapp,
+        "gql",
+        lambda *_a, **_k: (_ for _ in ()).throw(RuntimeError("visual tables unavailable")),
+    )
+    response = client.get(f"/doc/{DOC_ID}?view=images")
+
+    assert response.status_code == 200
+    html = response.get_data(as_text=True)
+    assert "Visual coverage is unknown" in html
+    assert "visual tables unavailable" in html
+
+
 def test_search_paginates_and_shows_next_link(client, monkeypatch):
     captured = {}
     row = {
@@ -2047,8 +2535,27 @@ def test_search_paginates_and_shows_next_link(client, monkeypatch):
 
     assert captured["params"]["offset"] == 100
     assert captured["params"]["limit"] == 100
-    assert 'href="?q=Winston&page=1"' in html
-    assert 'href="?q=Winston&page=3"' in html
+    assert 'href="/search?q=Winston&amp;mode=keyword&amp;page=1"' in html
+    assert 'href="/search?q=Winston&amp;mode=keyword&amp;page=3"' in html
+
+
+def test_semantic_search_pager_preserves_mode(client, monkeypatch):
+    hits = [
+        {
+            "sentenceId": f"sentence-{ordinal}",
+            "documentId": DOC_ID,
+            "ordinal": ordinal,
+            "text": f"Passage {ordinal}",
+            "similarity": 1 - ordinal / 1000,
+        }
+        for ordinal in range(51)
+    ]
+    monkeypatch.setattr(webapp, "gql", lambda *_a, **_k: {"semanticSearchSentences": hits})
+
+    html = client.get("/search?mode=semantic&q=ending&page=2").get_data(as_text=True)
+
+    assert 'href="/search?q=ending&amp;mode=semantic&amp;page=1"' in html
+    assert 'href="/search?q=ending&amp;mode=semantic&amp;page=3"' in html
 
 
 def test_search_last_page_has_no_next_link(client):
@@ -2087,6 +2594,222 @@ def test_search_without_query_shows_no_results_table(client):
     html = client.get("/search").get_data(as_text=True)
     # The results table (and its header) render only once a term is given.
     assert "<th>Sentence</th>" not in html
+
+
+# --- human review inbox ----------------------------------------------------
+
+
+def test_review_metadata_lane_lists_documents_and_pending_proposals(client, monkeypatch):
+    def review_q(sql, params=()):
+        if "FROM document_metadata_suggestion" in _norm(sql):
+            return [{"id": DOC_ID, "title": "orwell1984", "pending_count": 2}]
+        return fake_q(sql, params)
+
+    def review_gql(query, variables=None):
+        assert "documentMetadataSuggestions" in query
+        assert variables == {"documentId": DOC_ID}
+        return {
+            "documentMetadataSuggestions": [
+                {
+                    "id": "meta-1",
+                    "documentId": DOC_ID,
+                    "field": "title",
+                    "currentValue": "orwell1984",
+                    "suggestedValue": "Nineteen Eighty-Four",
+                    "confidence": 0.93,
+                    "confidenceBand": "high",
+                    "reason": "title page evidence",
+                    "source": "metadata-verifier",
+                }
+            ]
+        }
+
+    monkeypatch.setattr(webapp, "q", review_q)
+    monkeypatch.setattr(webapp, "gql", review_gql)
+    html = client.get(f"/review?lane=metadata&document_id={DOC_ID}").get_data(as_text=True)
+
+    assert "AI proposes; a human decides" in html
+    assert "Nineteen Eighty-Four" in html
+    assert "metadata-verifier" in html
+    assert 'name="item_id" value="meta-1"' in html
+
+
+def test_review_pending_counts_use_rls_scoped_queue_without_fact_table_join(client, monkeypatch):
+    captured = {}
+
+    def review_q1(sql, params=()):
+        normalized = _norm(sql)
+        if "document_metadata_suggestion" in normalized and "visual_review" in normalized:
+            captured["sql"] = normalized
+            return {"metadata": 1, "seeds": 2, "resolutions": 3, "visual": 4}
+        return fake_q1(sql, params)
+
+    monkeypatch.setattr(webapp, "q1", review_q1)
+    response = client.get("/review?lane=metadata")
+
+    assert response.status_code == 200
+    assert "FROM resolution_review WHERE status = 'pending'" in captured["sql"]
+    assert "JOIN entity_mention" not in captured["sql"]
+
+
+@pytest.mark.parametrize(
+    ("lane", "kind", "action", "field", "operation"),
+    [
+        ("metadata", "metadata", "approve", "approveIds", "decideDocumentMetadataSuggestions"),
+        ("entities", "seed", "reject", "rejectIds", "decideSeeds"),
+        ("visual", "visual", "approve", "approveIds", "decideVisualCaptions"),
+    ],
+)
+def test_review_batch_decisions_use_graphql(
+    client, monkeypatch, lane, kind, action, field, operation
+):
+    captured = {}
+
+    def review_gql(query, variables=None):
+        captured.update(query=query, variables=variables)
+        return {operation: 1}
+
+    monkeypatch.setattr(webapp, "gql", review_gql)
+    token = _csrf_token_from(client.get(f"/review?lane={lane}").get_data(as_text=True))
+    response = client.post(
+        "/review",
+        data={
+            "csrf_token": token,
+            "lane": lane,
+            "kind": kind,
+            "action": action,
+            "item_id": ["row-1"],
+        },
+    )
+
+    assert response.status_code == 302
+    assert operation in captured["query"]
+    assert field in captured["query"]
+    assert captured["variables"] == {"ids": ["row-1"]}
+
+
+def test_review_entity_lane_renders_resolution_seed_and_unresolved_context(client, monkeypatch):
+    def entity_q(sql, params=()):
+        normalized = _norm(sql)
+        if "FROM seed_suggestion" in normalized:
+            return [
+                {
+                    "id": "seed-1",
+                    "document_id": DOC_ID,
+                    "title": "orwell1984",
+                    "term": "Winston Smith",
+                    "source": "wikidata",
+                    "description": "fictional person",
+                }
+            ]
+        if "FROM entity_mention em" in normalized:
+            return [
+                {
+                    "mention_id": "mention-1",
+                    "document_id": DOC_ID,
+                    "title": "orwell1984",
+                }
+            ]
+        return fake_q(sql, params)
+
+    def entity_gql(query, variables=None):
+        if "resolutionReview" in query:
+            return {
+                "resolutionReview": [
+                    {
+                        "id": "resolution-1",
+                        "mentionId": "mention-1",
+                        "candidates": [],
+                        "proposedCanonicalId": "42",
+                        "proposedCanonical": {
+                            "id": "42",
+                            "preferred": "Winston Smith",
+                            "entityType": "PER",
+                        },
+                        "confidence": 0.71,
+                        "reason": "ambiguous context",
+                        "cursor": "next-resolution",
+                    }
+                ]
+            }
+        assert "unresolvedMentions" in query
+        return {
+            "unresolvedMentions": [
+                {
+                    "mentionId": "mention-2",
+                    "surface": "Winston",
+                    "entityType": "PER",
+                    "charStart": 11,
+                    "charEnd": 18,
+                    "cursor": "next-mention",
+                }
+            ]
+        }
+
+    monkeypatch.setattr(webapp, "q", entity_q)
+    monkeypatch.setattr(webapp, "gql", entity_gql)
+    html = client.get(f"/review?lane=entities&document_id={DOC_ID}").get_data(as_text=True)
+
+    assert "Winston Smith" in html
+    assert "ambiguous context" in html
+    assert "fictional person" in html
+    assert 'name="action" value="reclassify"' in html
+
+
+def test_review_visual_lane_shows_untrusted_caption_grounding_and_context(client, monkeypatch):
+    def visual_gql(query, variables=None):
+        assert "visualReview" in query
+        return {
+            "visualReview": [
+                {
+                    "id": "visual-1",
+                    "documentImageId": "image-1",
+                    "documentId": DOC_ID,
+                    "proposed": {"caption": "A red line rises across the chart."},
+                    "groundingScore": 0.84,
+                    "groundingEvidence": {"ocr": "Revenue"},
+                    "pageNumber": 7,
+                    "objectKey": "images/chart.png",
+                    "cursor": "next-visual",
+                }
+            ]
+        }
+
+    monkeypatch.setattr(webapp, "gql", visual_gql)
+    html = client.get("/review?lane=visual").get_data(as_text=True)
+
+    assert "Untrusted caption proposal" in html
+    assert "A red line rises across the chart." in html
+    assert "Strong grounding · 84.0%" in html
+    assert f"/doc/{DOC_ID}/page/7.png" in html
+
+
+def test_review_denied_write_surfaces_error_without_500(client, monkeypatch):
+    def denied(query, variables=None):
+        if "decideVisualCaptions" in query:
+            raise RuntimeError("write scope required")
+        return {"visualReview": []}
+
+    monkeypatch.setattr(webapp, "gql", denied)
+    token = _csrf_token_from(client.get("/review?lane=visual").get_data(as_text=True))
+    response = client.post(
+        "/review",
+        data={
+            "csrf_token": token,
+            "lane": "visual",
+            "kind": "visual",
+            "action": "reject",
+            "item_id": "visual-1",
+        },
+        follow_redirects=True,
+    )
+
+    assert response.status_code == 200
+    assert "write scope required" in response.get_data(as_text=True)
+
+
+def test_review_post_requires_csrf(client):
+    assert client.post("/review", data={"lane": "metadata"}).status_code == 400
 
 
 # --- help / guide ----------------------------------------------------------
@@ -2931,6 +3654,50 @@ def test_document_page_image_propagates_clean_upstream_errors(client, monkeypatc
     resp = client.get(f"/doc/{DOC_ID}/page/1.png")
 
     assert resp.status_code == status
+
+
+def test_document_image_thumbnail_proxies_bounded_webp_from_api(client, monkeypatch):
+    import httpx
+
+    from webapp import graphql_client
+
+    captured = {}
+
+    def fake_send(_self, request, **_kwargs):
+        captured["url"] = str(request.url)
+        captured["authorization"] = request.headers.get("authorization")
+        return _FakeUpstreamResponse(
+            200,
+            chunks=(b"RIFF", b"-thumbnail"),
+            headers={
+                "content-type": "image/webp",
+                "cache-control": "private, max-age=31536000, immutable",
+                "x-docray-cache": "hit",
+            },
+        )
+
+    monkeypatch.setattr(httpx.Client, "send", fake_send)
+    monkeypatch.setattr(graphql_client, "API_TOKEN", "webapp-token")
+
+    response = client.get(f"/doc/{DOC_ID}/image/image-1.webp?w=320")
+
+    assert response.status_code == 200
+    assert response.data == b"RIFF-thumbnail"
+    assert captured["url"].endswith(f"/documents/{DOC_ID}/images/image-1?w=320")
+    assert captured["authorization"] == "Bearer webapp-token"
+    assert response.headers["content-type"] == "image/webp"
+    assert "immutable" in response.headers["cache-control"]
+
+
+@pytest.mark.parametrize("status", [401, 403, 404, 409])
+def test_document_image_thumbnail_propagates_clean_upstream_errors(client, monkeypatch, status):
+    import httpx
+
+    monkeypatch.setattr(
+        httpx.Client, "send", lambda _self, _request, **_kwargs: _FakeUpstreamResponse(status)
+    )
+
+    assert client.get(f"/doc/{DOC_ID}/image/image-1.webp").status_code == status
 
 
 # --- CSRF protection (BL-103) -----------------------------------------------
