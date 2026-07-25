@@ -295,21 +295,29 @@ async def list_async(
     conn: psycopg.AsyncConnection[Any],
     *,
     document_id: str | None = None,
+    status: str | None = None,
+    kind: str | None = None,
     limit: int = 20,
     after: str | None = None,
 ) -> list[dict[str, Any]]:
-    """Return recent job rows, newest first (optionally scoped to one document).
+    """Return recent job rows, newest first (optionally scoped/filtered).
 
-    The pipeline-progress read: clients poll this to render a document's
-    ingest -> annotate -> canonicalize cascade.
+    The pipeline-progress read (a document's ingest -> annotate -> canonicalize
+    cascade) and the admin-console Jobs table both use this. ``status`` and
+    ``kind`` filter in SQL — never client-side over one fetched page, which would
+    drop matches on later pages — and compose with each other and with the keyset
+    ``after`` cursor, so paging continues within the *filtered* set.
     """
     cur = await conn.execute(
         "SELECT id, kind, status, document_id, created_at, started_at, finished_at, "
         "attempts, max_attempts, error, result, "
         "progress_current, progress_total, progress_stage "
-        "FROM jobs WHERE (%s::uuid IS NULL OR document_id = %s) "
-        "AND (%s::ulid IS NULL OR id < %s::ulid) ORDER BY id DESC LIMIT %s",
-        (document_id, document_id, after, after, limit),
+        "FROM jobs WHERE (%(doc)s::uuid IS NULL OR document_id = %(doc)s) "
+        "AND (%(status)s::text IS NULL OR status = %(status)s) "
+        "AND (%(kind)s::text IS NULL OR kind = %(kind)s) "
+        "AND (%(after)s::ulid IS NULL OR id < %(after)s::ulid) "
+        "ORDER BY id DESC LIMIT %(limit)s",
+        {"doc": document_id, "status": status, "kind": kind, "after": after, "limit": limit},
     )
     rows = await cur.fetchall()
     for row in rows:

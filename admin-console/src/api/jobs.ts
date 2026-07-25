@@ -9,18 +9,32 @@ import type { Job } from "./types";
 
 const JOB_FIELDS = `
   id kind status documentId createdAt startedAt finishedAt
-  attempts maxAttempts error progressCurrent progressTotal progressStage
+  attempts maxAttempts error progressCurrent progressTotal progressStage cursor
 `;
 
 export async function listJobs(
   client: ApiClient,
-  vars: { documentId?: string; limit?: number; after?: string } = {},
+  vars: {
+    documentId?: string;
+    status?: string;
+    kind?: string;
+    limit?: number;
+    after?: string;
+  } = {},
 ): Promise<Job[]> {
   const data = await client.graphql<{ jobs: Job[] }>(
-    `query Jobs($documentId: ID, $limit: Int, $after: String) {
-       jobs(documentId: $documentId, limit: $limit, after: $after) { ${JOB_FIELDS} }
+    `query Jobs($documentId: ID, $status: String, $kind: String, $limit: Int, $after: String) {
+       jobs(documentId: $documentId, status: $status, kind: $kind, limit: $limit, after: $after) {
+         ${JOB_FIELDS}
+       }
      }`,
-    { documentId: vars.documentId ?? null, limit: vars.limit ?? 20, after: vars.after ?? null },
+    {
+      documentId: vars.documentId ?? null,
+      status: vars.status ?? null,
+      kind: vars.kind ?? null,
+      limit: vars.limit ?? 20,
+      after: vars.after ?? null,
+    },
   );
   return data.jobs;
 }
