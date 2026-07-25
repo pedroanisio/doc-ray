@@ -4513,9 +4513,13 @@ items:
       MIGRATIONS list, and rebuild docs/doc-ray-database-erd.svg if the new
       tables changed the ERD scope. Both docs-in-sync tests
       (migration count and migration-history completeness) must pass.
+      DONE: the MIGRATIONS list in scripts/_data_dictionary_content.py now runs
+      through 116_schema_version_1_39_0, so docs/DATABASE.md §9 lists every file
+      in db/migrations/ and tests/test_docs_in_sync.py passes (3 passed) — the
+      gate is green.
     category:     "docs"
     type:         "bug"
-    status:       "ready"
+    status:       "done"
     complexity:   "S"
     priority:     "high"
     rationale:    "A gate that is red on main stops gating (BL-129/BL-136's rationale, verbatim): every landing that runs tests learns to read past the docs-in-sync failures, and the database dictionary drifts further with each migration."
