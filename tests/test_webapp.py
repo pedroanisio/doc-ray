@@ -233,7 +233,7 @@ def _fake_q1_aggregate(s: str):
             "lexemes": 30013,
             "embeddings": 0,
         }
-    if "FROM documents) docs" in s:
+    if ") docs," in s and "sents," in s:
         return {"docs": 5, "sents": 15200, "lexemes": 30013, "occ": 283809}
     if "pg_database_size(current_database()) AS bytes" in s:
         return {"bytes": 1048576, "pretty": "1024 kB"}
@@ -349,6 +349,46 @@ def test_corpus_index_moved_to_corpus_path(client):
     assert 'action="/documents/bulk"' in html
 
 
+def test_corpus_listing_hides_soft_deleted_documents(monkeypatch):
+    """A soft-deleted document must not appear in the corpus browser or its count.
+
+    Regression for a production defect: soft delete sets
+    ``lifecycle_state='deleted'`` (BL-059), but the corpus listing selected
+    ``FROM documents`` with no lifecycle predicate, so a "deleted" document stayed
+    fully visible to its owner — delete was a no-op in the UI. The listing rows
+    and the "N documents" total must both exclude the deleted set. Captures the
+    exact SQL the route runs and asserts the predicate is present, since the SQL
+    lives inline in the route (there is no read-model layer to assert against).
+    """
+    captured: list[str] = []
+
+    def capturing_q(sql, params=()):
+        captured.append(_norm(sql))
+        return fake_q(sql, params)
+
+    def capturing_q1(sql, params=()):
+        captured.append(_norm(sql))
+        return fake_q1(sql, params)
+
+    monkeypatch.setattr(webapp, "q", capturing_q)
+    monkeypatch.setattr(webapp, "q1", capturing_q1)
+    webapp.app.config.update(TESTING=True)
+    webapp.app.test_client().get("/corpus")
+
+    # The corpus listing is the paginated one (OFFSET); collections use LIMIT 200.
+    listing = next((q for q in captured if "FROM documents d" in q and "OFFSET" in q), None)
+    assert listing is not None, "corpus listing query was not executed"
+    assert "lifecycle_state <> 'deleted'" in listing, (
+        "corpus listing does not exclude soft-deleted documents — they will show in the browser"
+    )
+
+    totals = next((q for q in captured if ") docs," in q and "sents," in q), None)
+    assert totals is not None, "corpus totals query was not executed"
+    assert "lifecycle_state <> 'deleted'" in totals, (
+        "corpus document count includes soft-deleted documents"
+    )
+
+
 # --- error envelopes -------------------------------------------------------
 
 
@@ -452,7 +492,8 @@ def test_home_renders_file_type_preview_fallback_and_status(client, monkeypatch)
 
 def test_corpus_header_carries_live_totals_on_one_rail(client, monkeypatch):
     def totals_41(sql, params=()):
-        if "FROM documents) docs" in _norm(sql):
+        s = _norm(sql)
+        if ") docs," in s and "sents," in s:
             return {"docs": 41, "sents": 15200, "lexemes": 30013, "occ": 283809}
         return fake_q1(sql, params)
 
@@ -477,7 +518,8 @@ def test_home_empty_corpus_shows_upload_call_to_action(client, monkeypatch):
         return fake_q(sql, params)
 
     def empty_totals(sql, params=()):
-        if "FROM documents) docs" in _norm(sql):
+        s = _norm(sql)
+        if ") docs," in s and "sents," in s:
             return {"docs": 0, "sents": 0, "lexemes": 0, "occ": 0}
         return fake_q1(sql, params)
 
