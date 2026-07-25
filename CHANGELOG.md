@@ -27,6 +27,39 @@ doc-ray carries **one global version** covering both the application package
 > *use*, not by verification (mirrors the Prism vision encoder).
 
 ### Added
+- **Term-frequency pre-flight — prevent search flooding instead of diagnosing it**
+  (Claude Opus 4.8 (1M context) via Claude Code; issue #16, MCP Item 10). A new
+  read — GraphQL `termFrequency(terms:)` and MCP tool `term_frequency` — lets an
+  agent ask how common a **batch** of candidate search terms is *before* spending a
+  search call, and get a categorical `floodRisk` (`low` | `moderate` | `high`) so it
+  picks a rarer term for free. BL-145 shipped the *diagnosis* (a flooded
+  `search_sentences` returns `coverage.limit_reached` + a note); this removes the
+  wasted call the diagnosis still costs. No schema change; no migration; no version
+  bump.
+  - **One indexed statement over the D-024 rollup:** the whole batch is served by a
+    single `unnest`/`LEFT JOIN`/`SUM` against the `lexeme_stats` rollup — never the
+    17.5M-row `lexeme_occurrences` fact table (the measured 37 s Lexicon
+    regression). RLS-scoped to the caller's tenant; a regression test fails if the
+    query ever references `lexeme_occurrences` again.
+  - **The verdict is the product (FR-2):** `floodRisk` is the term's `share` of the
+    scope's total lexeme uses, bucketed at `share ≥ 0.5%` (high) / `≥ 0.05%`
+    (moderate); the payload carries `uses`/`totalUses`/`share` so a caller can
+    disagree, and `attested: false` + an "unattested" note distinguishes an unknown
+    term from a lookup failure (FR-6). Verdict logic is a pure domain module,
+    unit-tested at every threshold boundary.
+  - **Normalization (FR-5), answered empirically and documented:** the count is the
+    lexeme-lemma frequency (`norm_lemma`), a corpus-saturation proxy that is
+    deliberately **not** identical to what `search_sentences` (case-insensitive
+    substring) or `full_text_search` (Snowball stem) match — recorded as a finding
+    in `docs/mcp-service.md` §3.6 rather than papered over.
+  - **Corpus-wide only for now** (Open decision 1a): passing `documentId` /
+    `document_id` returns a typed `unsupported` error rather than corpus numbers
+    mislabelled as document-scoped; a `document_lexeme_stats` rollup is the
+    follow-up if the evaluation harness shows document-scoped triage matters.
+  - **Surfaces:** the server instructions teach the pre-flight step; the tool is
+    registered in every MCP drift guard; and it is exercised by a new
+    `coverage-term-frequency` task in the evaluation harness (#12). New:
+    `domain/term_frequency.py`, `adapters/persistence_read_terms.py`.
 - **MCP evaluation harness — measure the tool surface instead of asserting it**
   (Claude Opus 4.8 (1M context) via Claude Code; issue #12, MCP Item 11). A
   reproducible, offline harness runs a fixed set of grounded retrieval tasks

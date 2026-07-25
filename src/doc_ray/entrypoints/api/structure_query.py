@@ -11,8 +11,10 @@ from __future__ import annotations
 import strawberry
 
 from doc_ray.adapters import persistence_read_structure as structure_read
+from doc_ray.adapters import persistence_read_terms as terms_read
+from doc_ray.domain import term_frequency as tf
 from doc_ray.entrypoints.api.ids import clean_uuid
-from doc_ray.entrypoints.api.structure_types import DocumentOutline, EntityProfile
+from doc_ray.entrypoints.api.structure_types import DocumentOutline, EntityProfile, TermFrequency
 from doc_ray.entrypoints.api.types import Info
 
 #: Returned for a malformed id — indistinguishable, by design, from a document
@@ -75,3 +77,30 @@ class StructureQueries:
             limit=ctx.page_size(limit),
         )
         return [EntityProfile.from_row(row) for row in rows]
+
+    @strawberry.field
+    async def term_frequency(
+        self, info: Info, terms: list[str], document_id: strawberry.ID | None = None
+    ) -> list[TermFrequency]:
+        """How common candidate search terms are — a flood-risk pre-flight before searching.
+
+        Returns a ``floodRisk`` verdict (``low``/``moderate``/``high``) per term from
+        its share of the corpus-wide ``lexemeStats`` rollup, so an agent can pick a
+        rarer term instead of flooding a search. Corpus-wide only for now: passing
+        ``documentId`` fails with a typed error rather than returning corpus counts
+        mislabelled as document-scoped.
+        """
+        if document_id is not None:
+            raise ValueError(
+                "term frequency is corpus-wide only; document-scoped counts are not "
+                "available yet — omit documentId"
+            )
+        try:
+            prepared = tf.prepare_terms(terms)
+        except tf.InvalidTerms as exc:
+            raise ValueError(str(exc)) from exc
+        counts, total_uses = await terms_read.term_frequencies(
+            info.context.conn, [item.key for item in prepared]
+        )
+        verdicts = tf.build_verdicts(prepared, counts, total_uses)
+        return [TermFrequency.from_verdict(verdict) for verdict in verdicts]

@@ -110,7 +110,7 @@ metadata:
   generated_by:     "Claude Sonnet 5 via Claude Code (merge of Claude Opus 4.8 backlog + OpenAI Codex improvement-proposal candidates)"
   generated_on:     "2026-07-05"
   system_of_record: "docs/backlog.yml"
-  total_items:      148
+  total_items:      149
 
 items:
 
@@ -5023,3 +5023,47 @@ items:
     owner:        "shared"
     source:       "GitHub issue #12 (MCP Item 11); implemented with strict TDD (Claude Opus 4.8 (1M context) via Claude Code)."
     tags:         ["mcp", "testing", "tooling", "agent-experience", "feature"]
+
+  - id:          "BL-149"
+    title:        "MCP term-frequency pre-flight: prevent search flooding instead of diagnosing it"
+    summary:      "BL-145 shipped the diagnosis (search_sentences returns coverage.limit_reached + a note when a common term floods one region), but the agent still spends the call to learn it. term_frequency lets an agent ask how common a batch of candidate terms is BEFORE searching — one indexed read against the lexeme_stats rollup — and get a categorical floodRisk (low|moderate|high) so it picks a rarer term for free."
+    description: |
+      New read exposed as a GraphQL field (termFrequency) and an MCP tool
+      (term_frequency), both delegating to a new read adapter
+      (persistence_read_terms) over the D-024-compliant lexeme_stats rollup — never
+      the 17.5M-row lexeme_occurrences fact table (the measured 37 s Lexicon
+      regression). The verdict lives in a pure domain module (term_frequency), so
+      the categorization is unit-tested at every threshold boundary with no DB. The
+      whole batch is one SQL statement (unnest + LEFT JOIN + SUM), RLS-scoped to the
+      caller's tenant. FR-5 answered empirically from the code: the count is the
+      lexeme-lemma frequency (norm_lemma), a corpus-saturation proxy that is
+      deliberately not identical to what search_sentences (case-insensitive
+      substring) or full_text_search (Snowball stem) match — recorded as a finding
+      in docs/mcp-service.md §3.6. Open decision 1(a): corpus-wide only for now;
+      document_id fails with a typed unsupported error (a document_lexeme_stats
+      rollup is the follow-up if the evaluation harness shows it matters). No schema
+      change, no migration, no version bump.
+    category:     "api"
+    type:         "feature"
+    status:       "done"
+    complexity:   "S"
+    priority:     "medium"
+    rationale:    "BL-145 turned the flooding failure legible but did not remove its cost: the agent still spends a call, reads the note, and only then picks a better term — the pattern that exhausted the budget on the run that motivated this programme. A cheap pre-flight against an existing rollup removes the wasted call entirely, and BL-148's survive-keyword-flood task is the ruler for whether it helps."
+    acceptance_criteria:
+      - "GraphQL exposes termFrequency; the MCP tool calls it; both are registered in every drift guard (schema-contract call list, read-tool name set, docs inventory)."
+      - "A batch of 10 terms is served by ONE SQL statement (asserted by call count in test_term_frequency_db.py)."
+      - "A common term returns high with the counts that justify it; a rare term returns low; an unattested term returns uses:0, low, and an 'unattested' note — all three proven from real seeded data."
+      - "check_read_path_aggregates passes with the new adapter registered; the query touches lexeme_stats, never lexeme_occurrences (regression test)."
+      - "An RLS test proves a caller in another/no tenant sees zero, not the real frequencies."
+      - "The FR-5 normalization question is answered empirically and documented."
+    dependencies: ["BL-145"]
+    references:
+      - "src/doc_ray/domain/term_frequency.py"
+      - "src/doc_ray/adapters/persistence_read_terms.py"
+      - "src/doc_ray/entrypoints/api/structure_query.py"
+      - "src/doc_ray/entrypoints/api/structure_types.py"
+      - "src/doc_ray/entrypoints/mcp/structure.py"
+      - "docs/mcp-service.md"
+    owner:        "shared"
+    source:       "GitHub issue #16 (MCP Item 10); implemented with strict TDD (Claude Opus 4.8 (1M context) via Claude Code)."
+    tags:         ["mcp", "agent-experience", "read-model", "feature"]

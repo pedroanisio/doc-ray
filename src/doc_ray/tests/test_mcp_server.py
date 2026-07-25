@@ -31,6 +31,8 @@ _READ_TOOL_NAMES = {
     # structure tools (BL-146): the map, and reconciled entities
     "read_document_outline",
     "entity_profiles",
+    # term-frequency pre-flight (Item 10): flood-risk before searching
+    "term_frequency",
     # Prism visual tools
     "document_images",
     "image_class_summary",
