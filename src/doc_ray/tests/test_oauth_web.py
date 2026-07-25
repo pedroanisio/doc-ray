@@ -192,10 +192,10 @@ def test_authorize_submit_bounds_a_reader_to_read(client, svc, monkeypatch):
     assert _stored_scope(svc) == "read"  # no write in RBAC -> read-only even though requested
 
 
-def test_consent_screen_shows_write_for_a_write_capable_user(client, svc, monkeypatch):
-    svc.register_client({"redirect_uris": ["https://claude.ai/cb"], "client_name": "Claude"})
-    _login_as(monkeypatch, scopes={"read", "write"})
-    resp = client.get(
+def _consent_page(client, monkeypatch, *, scopes):
+    """Render the consent screen for a logged-in user whose RBAC yields *scopes*."""
+    _login_as(monkeypatch, scopes=scopes)
+    return client.get(
         "/oauth/authorize",
         query_string={
             "client_id": "cid-test",
@@ -207,8 +207,41 @@ def test_consent_screen_shows_write_for_a_write_capable_user(client, svc, monkey
             "resource": "https://doc-ray.com/mcp",
         },
     )
+
+
+def test_consent_screen_shows_write_for_a_write_capable_user(client, svc, monkeypatch):
+    svc.register_client({"redirect_uris": ["https://claude.ai/cb"], "client_name": "Claude"})
+    resp = _consent_page(client, monkeypatch, scopes={"read", "write"})
     assert resp.status_code == 200
-    assert b"write" in resp.data
+    assert b'class="pill">write</span>' in resp.data
+
+
+def test_consent_copy_never_claims_read_only_when_write_is_granted(client, svc, monkeypatch):
+    """The prose must agree with the scopes the code will actually carry.
+
+    ``issue_code`` binds the grant to the consenting user's RBAC ∩
+    ``SUPPORTED_SCOPES``, so a ``member``/admin consent issues ``read write``.
+    The screen used to render the ``write`` pill beside hard-coded copy reading
+    "read-only" and "It cannot write to your library" — asking for consent to
+    one thing while granting another. Consent that misstates the grant is not
+    consent.
+    """
+    svc.register_client({"redirect_uris": ["https://claude.ai/cb"], "client_name": "Claude"})
+    body = _consent_page(client, monkeypatch, scopes={"read", "write"}).data
+    assert b"read-only" not in body
+    assert b"cannot write" not in body
+    assert b"read and write" in body
+    assert b"curate" in body
+
+
+def test_consent_copy_stays_read_only_for_a_reader(client, svc, monkeypatch):
+    """A ``reader`` grants read-only, and the screen must still say exactly that."""
+    svc.register_client({"redirect_uris": ["https://claude.ai/cb"], "client_name": "Claude"})
+    body = _consent_page(client, monkeypatch, scopes={"read"}).data
+    assert b'class="pill">read</span>' in body
+    assert b'class="pill">write</span>' not in body
+    assert b"read-only" in body
+    assert b"cannot change anything in your library" in body
 
 
 def test_authorize_unknown_client_is_error_not_redirect(client, svc):

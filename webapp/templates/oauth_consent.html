@@ -10,16 +10,31 @@
   <p class="lede" style="margin-top:0">
     <b>{{ req.client_name or "An application" }}</b> wants to connect to your doc·ray corpus.
   </p>
+  {# The grant is bounded to the signed-in user's RBAC (`scopes`), not to what the
+     client asked for — so the copy below is driven by `scopes` too. Stating
+     "read-only" beside a `write` pill asks for consent to one thing and grants
+     another. #}
+  {% set writable = "write" in scopes %}
   <dl class="kv">
     <dt>Signed in as</dt><dd>{{ subject }}</dd>
     <dt>Access</dt>
-    <dd>{% for s in scopes %}<span class="pill">{{ s }}</span> {% endfor %}<span class="hint" style="margin:0">read-only</span></dd>
+    <dd>{% for s in scopes %}<span class="pill">{{ s }}</span> {% endfor %}<span class="hint" style="margin:0">{{ "read and write" if writable else "read-only" }}</span></dd>
     <dt>Returns to</dt><dd class="mono" style="overflow-wrap:anywhere; font-size:.78rem">{{ req.redirect_uri }}</dd>
   </dl>
   <p class="hint">
-    Approving lets this application read the documents, entities, and search results
-    you can already see — scoped by your permissions. It cannot write to your library,
-    and you can revoke access at any time.
+    {% if writable %}
+      Approving lets this application act with your own permissions: it can read the
+      documents, entities, and search results you can already see, curate what you can
+      change — metadata, entities, collections, and processing runs — and archive or
+      delete documents you have write access to. It cannot exceed your permissions, and
+      everything it changes is attributed to your account.
+    {% else %}
+      Approving lets this application read the documents, entities, and search
+      results you can already see — scoped by your permissions.
+      It cannot change anything in your library.
+    {% endif %}
+    It signs in with short-lived tokens that it renews while the connection stays
+    active; ask an administrator to end a connection you no longer want.
   </p>
   <form method="post" action="{{ url_for('oauth_authorize_submit') }}" class="stack">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
