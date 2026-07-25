@@ -69,12 +69,12 @@ python extract_phrases.py report.pdf > sentences.txt   # sentences only in the f
 ```python
 import extract_phrases as ep
 
-text = ep.extract_text(Path("report.pdf"))   # raw text from any supported format
-sentences = ep.extract_sentences(text)       # flat list of sentences
-paragraphs = ep.extract_paragraphs(text)     # list[list[str]] — sentences grouped by paragraph
+text = ep.extract_text(Path("report.pdf"))  # raw text from any supported format
+sentences = ep.extract_sentences(text)  # flat list of sentences
+paragraphs = ep.extract_paragraphs(text)  # list[list[str]] — sentences grouped by paragraph
 # or go straight through the reflow / split steps:
-ep.reflow(raw)                 # rejoin wrapped lines (blank lines mark paragraphs)
-ep.split_sentences(reflowed)   # split already-reflowed text
+ep.reflow(raw)  # rejoin wrapped lines (blank lines mark paragraphs)
+ep.split_sentences(reflowed)  # split already-reflowed text
 ```
 
 ---
@@ -106,10 +106,10 @@ Every decompose run verifies the round-trip and exits non-zero if it ever fails.
 import docmodel as dm
 
 tree = dm.decompose(text)
-assert dm.compose(tree) == text           # lossless
-list(tree.iter_kind("sentence"))          # every sentence node
-list(tree.iter_kind("word"))              # every word leaf
-dm.Node.from_dict(tree.to_dict())         # JSON-safe, still lossless
+assert dm.compose(tree) == text  # lossless
+list(tree.iter_kind("sentence"))  # every sentence node
+list(tree.iter_kind("word"))  # every word leaf
+dm.Node.from_dict(tree.to_dict())  # JSON-safe, still lossless
 ```
 
 ---
@@ -140,9 +140,10 @@ python lexeme.py notes.txt --backend rule                 # no-dependency fallba
 
 ```python
 import lexeme as lx, docmodel as dm
+
 tree = dm.decompose(text)
 registry, occurrences = lx.annotate(tree, lx.SpacyAnalyzer("en"), doc_id="af447")
-verbs = [o for o in occurrences if o.pos == "VERB"]       # o.surface, o.lemma, o.uid, o.start, o.end
+verbs = [o for o in occurrences if o.pos == "VERB"]  # o.surface, o.lemma, o.uid, o.start, o.end
 ```
 
 > Analysis is language-specific: run the model matching the text (`--lang pt` for
