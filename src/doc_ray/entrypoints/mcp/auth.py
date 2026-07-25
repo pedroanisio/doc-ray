@@ -21,6 +21,7 @@ from starlette.types import ASGIApp
 
 from doc_ray.config import Config
 from doc_ray.entrypoints.api.security import verify_access_jwt
+from doc_ray.entrypoints.mcp.health import PUBLIC_PATHS
 from doc_ray.entrypoints.mcp.tokens import bearer_from_request, caller_token
 
 
@@ -68,6 +69,12 @@ class BearerAuthMiddleware(BaseHTTPMiddleware):
 
     async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
         """Reject bad credentials with 401; stash a valid token for the tools to forward."""
+        # Ops Phase 3 (#18): the unauthenticated liveness/readiness probes must
+        # bypass auth — the container runtime holds no token, and a probe that 401s
+        # is useless. This is a path exemption, not a change to token validation.
+        # Read the path defensively (a real Starlette request always has url.path).
+        if getattr(getattr(request, "url", None), "path", "") in PUBLIC_PATHS:
+            return await call_next(request)
         token = bearer_from_request(request)
         if token is None:
             if not self._allow_anonymous:

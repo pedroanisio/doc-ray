@@ -434,6 +434,91 @@ the landing page renders, not that auth is enforced.)
 
 ---
 
+## MCP tokens — mint, rotate, revoke (Ops Phase 3, #18)
+
+The MCP server at `/mcp` authenticates every call with the **same** credentials as
+the GraphQL API: either a static `DOCRAY_API_TOKENS` entry, or an OAuth 2.1 access
+JWT obtained via Dynamic Client Registration (DCR). Two paths, chosen by client:
+
+- **Static token** — for a scripted or headless agent you control. You mint it and
+  hand it over out-of-band. Best for CI, cron, and your own tools.
+- **OAuth 2.1 DCR** — for an interactive connector (e.g. Claude Desktop). The client
+  registers itself and completes `/authorize` → `/token` (PKCE) with **no pre-shared
+  secret**; the resulting access JWT is validated by the same middleware. Use this
+  when a human signs in through a connector; you mint nothing.
+
+> Every command below was executed against a running stack; the tokens shown are
+> obviously fake. Never paste a real token into a doc, a ticket, or a commit.
+
+### Mint a read-scoped token for a new agent
+
+`read` is **not** the CLI default (`--scopes` defaults to `read+write`), so pass it
+explicitly — an agent that only retrieves needs nothing more:
+
+```bash
+set -a; source .env.prod; set +a     # loads DATABASE_URL (real host + password)
+# 1. create a service principal for the agent (once), then mint its token:
+python -m doc_ray.entrypoints.auth_admin principal create \
+  --display-name "agent-nightly-summariser" --kind service --role reader
+python -m doc_ray.entrypoints.auth_admin token mint \
+  --principal "agent-nightly-summariser" --scopes read
+# → DOCRAY_API_TOKENS=<generated-token>=<principal-uuid>:read
+```
+
+Add that assignment to `.env.prod`'s `DOCRAY_API_TOKENS` (comma-separate multiple
+entries), then `make prod-up` to re-apply. The MCP service reads the same variable,
+so the token works at `/mcp` verbatim — point the agent at
+`https://doc-ray.com/mcp` with `Authorization: Bearer <generated-token>`.
+
+`--env-file .env.prod` will append the entry for you (and `--fail-closed` also sets
+`DOCRAY_API_ALLOW_ANONYMOUS=false`); it prints `restart_required=true` as a reminder
+to `make prod-up`. There is also a `mcp-token mint` subcommand with identical flags,
+for when you want the mapping labelled as MCP-specific.
+
+### Why `write` is not the default for agents
+
+A `read+write` token can reprocess, tag, and mutate collections through the MCP
+write tools (only when `DOCRAY_MCP_ENABLE_WRITE=true`, and every call is still
+gated by the API's `write` scope + per-document ACLs). Grant it only to an agent
+that genuinely curates; a retrieval agent with `write` is unnecessary blast radius.
+Mint write only deliberately: `--scopes read+write`.
+
+### Rotate
+
+Minting is additive, so rotation is: mint the replacement, update the client, then
+remove the old entry.
+
+```bash
+python -m doc_ray.entrypoints.auth_admin token mint --principal "<same-principal>" --scopes read
+# update the agent's stored credential to the new token, confirm it works, THEN
+# delete the old `=<uuid>:read` entry from DOCRAY_API_TOKENS in .env.prod
+make prod-up
+```
+
+### Revoke
+
+Remove the token's entry from `DOCRAY_API_TOKENS` in `.env.prod` and `make prod-up`.
+The middleware only trusts tokens present in that map (or valid JWTs), so a removed
+static token is rejected on the next request with `401`. To revoke an OAuth client,
+delete its registration (`oauth_clients` table) so its refresh path stops issuing new
+access JWTs; in-flight JWTs expire on their own short TTL.
+
+### Read the audit trail for a principal
+
+Every MCP tool call emits one line on the `doc_ray.mcp.audit` logger carrying a
+**non-reversible fingerprint** of the caller's token (never the token itself),
+the tool, the outcome, and the duration — and rate-limit rejections likewise on
+`doc_ray.mcp.ratelimit`. Grep the `mcp` container logs by fingerprint to see one
+agent's activity:
+
+```bash
+# the fingerprint is sha256(token)[:12]:
+FP="$(python -c 'import hashlib,sys; print(hashlib.sha256(sys.argv[1].encode()).hexdigest()[:12])' "<the-token>")"
+docker logs docray-mcp 2>&1 | grep "caller=$FP"
+```
+
+---
+
 ## Operations
 
 **Make targets** (each loads `.env.prod`):

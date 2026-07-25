@@ -22,12 +22,15 @@ from mcp.server.transport_security import TransportSecuritySettings
 from starlette.applications import Starlette
 
 from doc_ray.config import Config
+from doc_ray.domain.rate_limit import FixedWindowRateLimiter, rate_limit_rule_from_env
 from doc_ray.entrypoints.mcp import (
     audit,
     compose,
     corpus,
+    health,
     mutations,
     prompts,
+    ratelimit,
     resources,
     semantic,
     structure,
@@ -161,6 +164,21 @@ def create_app(cfg: Config | None = None) -> Starlette:
     """
     cfg = cfg or Config.from_env()
     app = build_server(enable_write=cfg.mcp_enable_write).streamable_http_app()
+
+    # Ops Phase 3 (#18): liveness/readiness probes, mounted as plain routes so the
+    # container runtime and a deploy gate can reach them. They bypass auth and the
+    # limiter via health.PUBLIC_PATHS (see BearerAuthMiddleware + RateLimitMiddleware).
+    for path, handler in health.ROUTES:
+        app.add_route(path, handler, methods=["GET"])
+
+    # Middleware order matters: add_middleware prepends, so the LAST added runs
+    # FIRST. Auth must run outermost (resolve the principal, set the token
+    # contextvar) BEFORE the limiter keys on that principal — so add the limiter
+    # first (inner) and auth second (outer): request → auth → rate-limit → app.
+    rule = rate_limit_rule_from_env(
+        os.environ, "DOCRAY_MCP_RATE_LIMIT", default_requests=120, default_window_seconds=60
+    )
+    app.add_middleware(ratelimit.RateLimitMiddleware, limiter=FixedWindowRateLimiter(), rule=rule)
     app.add_middleware(BearerAuthMiddleware, cfg=cfg)
     return app
 

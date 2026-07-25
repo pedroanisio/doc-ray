@@ -66,6 +66,10 @@ _INDIRECT_VARS = {
         for act in ("SEARCH", "UPLOAD", "LOGIN", "REGISTER", "RESEND")
         for suf in ("REQUESTS", "WINDOW_SECONDS")
     ),
+    # MCP rate limiter (#18): rate_limit_rule_from_env(prefix="DOCRAY_MCP_RATE_LIMIT")
+    # reads f"{prefix}_REQUESTS"/f"{prefix}_WINDOW_SECONDS" — same indirection.
+    "DOCRAY_MCP_RATE_LIMIT_REQUESTS",
+    "DOCRAY_MCP_RATE_LIMIT_WINDOW_SECONDS",
 }
 
 # Named-constant defaults resolved to their literal value (defined once in code).
