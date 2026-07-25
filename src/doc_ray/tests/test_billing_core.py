@@ -51,6 +51,7 @@ def test_paid_saas_mutations_cannot_drift_outside_billing_entitlement_guard() ->
         "delete_collection": "mutation.delete_collection",
         "delete_document": "mutation.delete",
         "demote_lens": "mutation.demote_lens",
+        "embed_corpus_sentences": "mutation.embed_corpus_sentences",
         "embed_document_sentences": "mutation.embed_document_sentences",
         "ingest_document": "mutation.ingest",
         "promote_collection_to_lens": "mutation.promote_collection_to_lens",

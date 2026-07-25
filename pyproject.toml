@@ -10,6 +10,13 @@ requires-python = ">=3.10"
 # dependencies are single-sourced from requirements.txt. Never hard-code either here.
 dynamic = ["version", "dependencies"]
 
+[project.optional-dependencies]
+# Worker-only ML stacks. Kept OUT of the base dependencies so the API image stays
+# lean; install in the worker (`pip install .[semantic]` / `uv sync --extra semantic`)
+# to run the heavy embedding jobs. Never imported at module load — the adapters
+# probe with importlib.find_spec and fail typed-and-actionable when absent.
+semantic = ["sentence-transformers>=2.2"]  # NLP Layer 20 learned sentence embeddings
+
 # src/ layout: the importable package lives under src/. The frontend (webapp/)
 # and standalone tools (scripts/) intentionally stay OUTSIDE src.
 [tool.setuptools.packages.find]

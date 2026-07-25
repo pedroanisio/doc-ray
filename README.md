@@ -158,7 +158,7 @@ below)
 / `reannotate` / `deleteDocument` / `archiveDocument` / `restoreDocument` /
 `bulkArchiveDocuments` / `bulkTagDocuments` / `annotateDocument` /
 `reextractDocument` / `reextractDocuments` / `canonicalizeDocument(resolve:)` /
-`semanticEnrichDocument` / `embedDocumentSentences` / `updateDocumentMetadata` / `suggestDocumentMetadata`
+`semanticEnrichDocument` / `embedDocumentSentences` / `embedCorpusSentences` / `updateDocumentMetadata` / `suggestDocumentMetadata`
 / `decideDocumentMetadataSuggestions` / `shareDocument` /
 `revokeDocumentShare` / `setDocumentVisibility` / `cancelJob` /
 `createBillingCheckoutSession` / `createBillingPortalSession` /
@@ -409,10 +409,13 @@ python -m doc_ray.entrypoints.annotate_semantic --all
 **Semantic sentence embeddings (NLP Layer 20)** are a separate, learned capability.
 After the hard cutover from the non-learned `hash-bow-768` placeholder, sentences
 are embedded by a sentence-transformers model behind the `TextEncoder` port, run by
-the opt-in `semantic_embed` worker job (GraphQL `embedDocumentSentences`; the heavy
-stack lives in the worker only). Retrieval is then available by *meaning* — GraphQL
-`semanticSearchSentences` and the `semantic_search_sentences` MCP tool rank sentences
-by learned cosine similarity, complementing keyword `searchSentences`.
+the opt-in `semantic_embed` worker job (GraphQL `embedDocumentSentences` per document,
+or the admin `embedCorpusSentences` to re-embed the whole corpus in one shot).
+The heavy stack lives in the worker only — install it with `pip install .[semantic]`;
+without it, no Layer 20 vectors are produced. Retrieval is then available by
+*meaning* — GraphQL `semanticSearchSentences` and the `semantic_search_sentences`
+MCP tool rank sentences by learned cosine similarity, complementing keyword
+`searchSentences`.
 
 Evaluation snapshots and lexical/entity drift metrics can be recorded with:
 

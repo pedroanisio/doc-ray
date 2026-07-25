@@ -50,11 +50,14 @@ doc-ray carries **one global version** covering both the application package
     span→document policy; HNSW iterative scan for correct top-N under RLS). This is
     the antidote to lexical-search flooding on common terms.
   - **Cutover.** Migration 124 purges the discarded `hash-bow-768` rows and bumps
-    the schema version. Re-embed the corpus by enqueuing `embedDocumentSentences`
-    per document; take a corpus backup first — that snapshot is the rollback path.
-  - **Availability.** Sentence embeddings are now a stack-gated capability: a
-    deployment without the sentence-transformers stack produces no Layer 20
-    vectors (no fake placeholder). New env `DOCRAY_SEMANTIC_MODEL`.
+    the schema version. Re-embed the whole corpus in one shot with the admin
+    mutation `embedCorpusSentences(onlyMissing: true)` (re-runnable; skips
+    already-embedded documents), or per document via `embedDocumentSentences`.
+    Take a corpus backup first — that snapshot is the rollback path.
+  - **Availability.** Sentence embeddings are now a stack-gated capability: install
+    the worker extra `pip install .[semantic]` (sentence-transformers); a
+    deployment without it produces no Layer 20 vectors (no fake placeholder). New
+    env `DOCRAY_SEMANTIC_MODEL`.
 
 ## [1.41.0]
 

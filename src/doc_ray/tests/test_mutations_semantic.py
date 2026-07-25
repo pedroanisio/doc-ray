@@ -46,3 +46,26 @@ def test_embed_document_sentences_enqueues_semantic_embed_job(pg) -> None:
             await aconn.close()
 
     asyncio.run(run())
+
+
+def test_embed_corpus_sentences_enqueues_a_job_per_unembedded_document(pg) -> None:
+    doc_id = _seed(pg)  # a document with sentences, no embeddings yet
+    schema = build_schema()
+
+    async def run() -> None:
+        aconn = await _aconn_as(WRITE_PRINCIPAL.principal_id)  # admin principal
+        try:
+            ctx = RequestContext(conn=aconn, principal=WRITE_PRINCIPAL, loaders=Loaders(aconn))
+            result = await schema.execute(
+                "mutation { embedCorpusSentences(onlyMissing: true) { kind status documentId } }",
+                context_value=ctx,
+            )
+            assert result.errors is None, result.errors
+            jobs = result.data["embedCorpusSentences"]
+            mine = [j for j in jobs if j["documentId"] == doc_id]
+            assert len(mine) == 1, "the un-embedded seeded document must get exactly one job"
+            assert mine[0]["kind"] == KIND_SEMANTIC_EMBED
+        finally:
+            await aconn.close()
+
+    asyncio.run(run())
