@@ -21,6 +21,25 @@ doc-ray carries **one global version** covering both the application package
 
 ## [1.41.0]
 
+### Fixed
+- **`entity_dossier` reported a capped page as the corpus total** (Claude Opus 4.8
+  (1M context) via Claude Code; issue #14). The MCP tool derived `total_mentions`,
+  its `documents` roster, and `gaps` from a single `search_sentences` page capped
+  at `max_mentions`, so it claimed `total_mentions == max_mentions` and a
+  single-document roster with `gaps: []` for an entity that was demonstrably in
+  more documents — a silent false negative dressed as a complete answer, the exact
+  failure mode the project's verification stance exists to prevent, and one its own
+  `guidance` string actively encouraged. The fix draws the document roster from
+  `full_text_search` (the complete set of documents containing the entity,
+  independent of the mention cap), keeps the `coverage` signal `search_sentences`
+  already returns, and reports honestly: `total_mentions` becomes `cited_mentions`
+  (the passages shown, never a total), a new `document_count` and `truncated` flag,
+  a `cited_mention_count` per roster document (0 where the entity appears but no
+  passage was cited), and `gaps` + `guidance` that name the truncation instead of
+  asserting completeness. No schema change (MCP-layer logic only). The pure
+  citation/response-budget helpers were extracted to
+  `entrypoints/mcp/compose_common.py` (D-015).
+
 ### Added
 - **Lens Registry — promote collections to named entity-resolution scopes**
   (Claude Opus 4.8 (1M context) via Claude Code; Block B, issue #5). A *lens* is a

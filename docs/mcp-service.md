@@ -112,6 +112,24 @@ composition-grounding tools** (`briefing_pack`, `document_evidence`,
 `entity_dossier`) shipped in [`entrypoints/mcp/compose.py`](../src/doc_ray/entrypoints/mcp/compose.py)
 for cited-briefing workflows — see that module for their signatures.
 
+These composition tools never present a capped page as if it were the whole
+corpus. `entity_dossier` draws its **document roster from `full_text_search`** (the
+complete set of documents containing the entity, independent of `max_mentions`)
+and returns `cited_mentions` (the passages shown — a page, not a total),
+`document_count`, and a `truncated` flag; when the cited page or the roster hits
+its cap it says so in `gaps` and tells the agent, in `guidance`, not to claim
+totals. A document in the roster with `cited_mention_count: 0` contains the entity
+but had no passage cited on this page. Example:
+
+```jsonc
+{"name": "entity_dossier", "arguments": {"name": "Scytale", "max_mentions": 3}}
+// → { "entity": "Scytale", "cited_mentions": 3, "document_count": 2, "truncated": true,
+//     "documents": [ {"document_id": "…chapterhouse…", "cited_mention_count": 3, …},
+//                    {"document_id": "…dune-messiah…", "cited_mention_count": 0, …} ],
+//     "gaps": ["Cited passages were capped at max_mentions=3; more mentions … exist. …"],
+//     "guidance": "State nothing … This is a capped sample, not the complete record …" }
+```
+
 | MCP tool | GraphQL field | Notes |
 |---|---|---|
 | `search_sentences(term, document_id?, limit, response_format?)` | `searchSentences` | KWIC pre/hit/post; term-filtered. Returns `{hits, coverage, note}` — see §3.1 |
