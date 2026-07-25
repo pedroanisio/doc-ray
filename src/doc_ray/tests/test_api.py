@@ -13,6 +13,7 @@ from typing import Any
 import psycopg
 from psycopg.rows import dict_row
 
+from doc_ray.application.document_stats import refresh_document_stats
 from doc_ray.domain.ulid import new_ulid_str
 from doc_ray.entrypoints.api.context import RequestContext
 from doc_ray.entrypoints.api.loaders import Loaders
@@ -264,17 +265,12 @@ def test_lexemes_and_occurrences_document_scope(pg):
         "INSERT INTO lexeme_occurrences (annotation_id, span_id, lexeme_uid) VALUES (%s,%s,%s)",
         (a2, _itdb.span_of(conn, d2, 0, 5), uid),
     )
-    # Force the tenant-wide lexeme rollup: the production refresh deliberately
-    # debounces this expensive pass, while this fixture mutates occurrences
-    # after its documents were already refreshed moments earlier.
-    conn.execute(
-        "SELECT docray_refresh_stats_for_document(%s, interval '0 seconds')",
-        (d1,),
-    )
-    conn.execute(
-        "SELECT docray_refresh_stats_for_document(%s, interval '0 seconds')",
-        (d2,),
-    )
+    # The corpus-wide `lexemes` query reads the lexeme_stats rollup (D-024), so
+    # the rollup has to be recomputed AFTER the occurrence rows exist — the same
+    # order the annotate job uses (write facts, then refresh). Seeding refreshed
+    # it too early to see these.
+    for doc in (d1, d2):
+        refresh_document_stats(conn, doc, corpus_max_age_seconds=0)
     schema = build_schema()
 
     async def check():

@@ -103,7 +103,11 @@ def test_list_sentences_ordinal_range_matches_the_full_walk_slice(pg):
 def test_list_sentences_page_filter_restricts_to_one_source_page(pg):
     conn, _created = pg
     doc_id = _seed(pg)
-    # Put the two sentences on different source pages via their spans.
+    # Put the two sentences on different source pages via their spans. The bbox
+    # must be written alongside page_number: migration 049's
+    # spans_page_geometry_complete CHECK makes page geometry all-or-nothing, so
+    # setting the page number by itself is rejected — a half-populated span is
+    # exactly the state that constraint exists to prevent.
     conn.execute(
         "UPDATE spans SET page_number = s.ordinal + 1, "
         "bbox_x0 = 0, bbox_y0 = 0, bbox_x1 = 1, bbox_y1 = 1 "

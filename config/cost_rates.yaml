@@ -1,0 +1,40 @@
+# doc-ray — unit prices for scripts/cost_telemetry.py
+#
+# OPERATOR-SUPPLIED. Every value ships as null on purpose: a price this
+# repository invented would be a fabricated reference, and a rate silently
+# defaulted to zero would understate the total. A rate left null makes its
+# line item report as *unpriced* and drops out of the cost total.
+#
+# Fill each `value` from your provider's current price list and record where it
+# came from in `source` plus the date you read it in `retrieved`. Prices change;
+# the retrieval date is what makes a past report auditable.
+#
+# What each rate means:
+#   gpu_host_hourly   Hourly cost of the host running the GPU worker pool
+#                     (annotate/reannotate/visual_*/semantic_embed). One job at
+#                     a time, so its hours are wall-clock hours of the batch.
+#   cpu_host_hourly   Hourly cost of the host running the fast worker pool
+#                     (ingest, canonicalize, semantic_enrich, metadata).
+#   db_gb_month       Monthly cost per GB of PostgreSQL storage, including what
+#                     the annotation graph and its indexes occupy.
+#   object_gb_month   Monthly cost per GB of object storage for original bytes.
+
+gpu_host_hourly:
+  value: null
+  source: null
+  retrieved: null
+
+cpu_host_hourly:
+  value: null
+  source: null
+  retrieved: null
+
+db_gb_month:
+  value: null
+  source: null
+  retrieved: null
+
+object_gb_month:
+  value: null
+  source: null
+  retrieved: null

@@ -385,6 +385,8 @@ def test_webapp_header_shows_settings_and_logout_when_authenticated(monkeypatch)
 
     assert resp.status_code == 200
     body = resp.get_data(as_text=True)
+    # The account entry point moved from /profile to /settings; /profile is kept
+    # only as a back-compat redirect and is no longer linked in the header.
     assert 'href="/settings"' in body
     assert 'action="/logout"' in body
     assert 'href="/login"' not in body
@@ -401,6 +403,10 @@ def test_webapp_profile_redirects_to_account_settings(monkeypatch) -> None:
     with client.session_transaction() as sess:
         sess["_auth_sid"] = sid
 
+    # /profile is a back-compat redirect; the account page it points at is
+    # covered on its own terms. Assert the redirect contract only — following it
+    # here would drag this no-database auth-wiring module into the settings
+    # page's service lookups.
     resp = client.get("/profile")
 
     assert resp.status_code == 302
@@ -430,9 +436,11 @@ def test_webapp_landing_is_public_when_local_auth_enabled(monkeypatch) -> None:
     resp = webapp.app.test_client().get("/")
 
     assert resp.status_code == 200
-    body = resp.get_data(as_text=True)
-    assert "connected corpus" in body
-    assert "every result traces back to the document it came from" in body
+    # Assert the landing template rendered, not a specific sentence: the copy
+    # here is marketing prose and has been rewritten at least twice (56745b9,
+    # d26715d), each time breaking this guard without breaking the behaviour it
+    # is meant to protect — that "/" is reachable anonymously.
+    assert 'class="lp-hero' in resp.get_data(as_text=True)
 
 
 def test_webapp_hides_app_nav_for_anonymous_when_auth_required(monkeypatch) -> None:

@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 
 from doc_ray.adapters import persistence as db
+from doc_ray.application.document_stats import refresh_document_stats
 from doc_ray.entrypoints.api.context import RequestContext
 from doc_ray.entrypoints.api.loaders import Loaders
 from doc_ray.entrypoints.api.schema import build_schema
@@ -32,10 +33,11 @@ def _seed_private_lexeme(pg) -> str:
         "INSERT INTO lexeme_occurrences (annotation_id, span_id, lexeme_uid) VALUES (%s, %s, %s)",
         (annotation_id, span_id, lexeme_uid),
     )
-    conn.execute(
-        "SELECT docray_refresh_stats_for_document(%s, interval '0 seconds')",
-        (doc_id,),
-    )
+    # The corpus-wide `lexemes` query reads the per-tenant lexeme_stats rollup
+    # (D-024, migration 098), so it has to be recomputed after the occurrence
+    # row exists — the order the annotate job uses. Without this the admin sees
+    # an empty list and the test passes its anonymous half for the wrong reason.
+    refresh_document_stats(conn, doc_id, corpus_max_age_seconds=0)
     return lexeme_uid
 
 

@@ -15,12 +15,15 @@ import os
 import signal
 import threading
 from collections.abc import Callable, Iterator, Mapping, Sequence
+from datetime import UTC, datetime
 from types import FrameType
 from typing import TYPE_CHECKING, Any
 
 import psycopg
 
 from doc_ray.adapters import queue_postgres as queue
+from doc_ray.adapters import telemetry_store
+from doc_ray.adapters.compute_device import describe_device
 from doc_ray.application.job_handlers import (
     HANDLERS as HANDLERS,
 )
@@ -79,9 +82,11 @@ from doc_ray.application.job_handlers import (
     handle_update_metadata as handle_update_metadata,
 )
 from doc_ray.correlation import request_id_from_payload
+from doc_ray.domain import telemetry
 from doc_ray.domain.jobs import (
     KIND_INGEST,
     Job,
+    lane_for_kind,
 )
 
 # The reporter lives in domain.progress (BL-123) so adapters can report
@@ -371,6 +376,9 @@ def run_once(
         )
 
     token = set_progress_reporter(_report)
+    started_at = datetime.now(UTC)
+    outcome = telemetry.OUTCOME_FAILED
+    work_units: int | None = None
     try:
         report_progress(0, None, f"Starting {job.kind}")
         with _enforce_execution_timeout(job, execution_timeout_seconds(job.kind, job_timeouts)):
@@ -379,6 +387,7 @@ def run_once(
         # roll back) together. A crash or enqueue failure here leaves the job
         # 'running', so the reaper requeues it and the step re-runs — no silent
         # pipeline stall, and no recorded-success-without-successor window.
+        work_units = telemetry.work_units_from_result(result)
         with conn.transaction():
             if queue.is_canceled(conn, job.id):
                 _logger.info(
@@ -388,12 +397,14 @@ def run_once(
                     job.kind,
                     request_id,
                 )
+                outcome = telemetry.OUTCOME_CANCELED
                 return job
             _, total, _ = last_progress
             if total is None:
                 total = last_progress[0] or 1
             report_progress(total, total, "Completed")
             if queue.complete(conn, job.id, result=result, worker_id=worker_id):
+                outcome = telemetry.OUTCOME_SUCCEEDED
                 if (
                     job.document_id is None
                     and isinstance(result, dict)
@@ -449,7 +460,40 @@ def run_once(
         reset_progress_reporter(token)
         if stop_heartbeat is not None:
             stop_heartbeat()
+        # Accounting, not correctness: recorded for every attempt — a failed one
+        # consumed the same billed machine as a successful one, and the retry
+        # that follows overwrites the jobs row that would have shown it.
+        _record_telemetry(conn, job, worker_id, started_at, outcome, work_units)
     return job
+
+
+def _record_telemetry(
+    conn: psycopg.Connection[Any],
+    job: Job,
+    worker_id: str,
+    started_at: datetime,
+    outcome: str,
+    work_units: int | None,
+) -> None:
+    """Append one execution record for this attempt (never raises)."""
+    elapsed_ms = int((datetime.now(UTC) - started_at).total_seconds() * 1000)
+    telemetry_store.record_execution(
+        conn,
+        telemetry.ExecutionRecord(
+            job_id=job.id,
+            kind=job.kind,
+            lane=lane_for_kind(job.kind),
+            outcome=outcome,
+            attempt=job.attempts,
+            document_id=job.document_id,
+            worker_id=worker_id,
+            host=worker_id.split(":", 1)[0],
+            device=describe_device(),
+            work_units=work_units,
+            duration_ms=max(0, elapsed_ms),
+            started_at=started_at,
+        ),
+    )
 
 
 def _advance_chain(conn: psycopg.Connection[Any], job: Job, result: dict[str, Any]) -> None:

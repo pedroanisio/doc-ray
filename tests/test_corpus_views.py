@@ -75,9 +75,19 @@ def captured():
 
     def fake_q1(sql, params=()):
         norm = " ".join(sql.split())
-        if "FROM documents WHERE lifecycle_state <> 'deleted') docs" in norm:
+        # Match on the projected aliases, not on the FROM clause. The previous
+        # matcher keyed off "FROM documents) docs", which stopped matching the
+        # moment the totals query grew its soft-delete filter
+        # ("FROM documents WHERE lifecycle_state <> 'deleted') docs") — the stub
+        # then returned {} and every assertion in this module died downstream in
+        # the template on `totals.docs`. Aliases are the query's contract with
+        # the template; the FROM clause is an implementation detail.
+        if ") docs," in norm and "sents," in norm:
             return dict(_TOTALS)
-        return {}
+        raise AssertionError(
+            "corpus q1 stub has no row for this query — it has drifted from the "
+            f"route's SQL and would otherwise fail far away in a template:\n{norm}"
+        )
 
     orig_q, orig_q1 = webapp.q, webapp.q1
     webapp.q, webapp.q1 = fake_q, fake_q1

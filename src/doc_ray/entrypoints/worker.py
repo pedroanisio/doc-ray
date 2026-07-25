@@ -62,6 +62,17 @@ _ONLY_KINDS = _kinds_from_env("WORKER_ONLY_KINDS")
 _EXCLUDE_KINDS = _kinds_from_env("WORKER_EXCLUDE_KINDS")
 
 
+def _host_identity() -> str:
+    """Return the billed-machine name this worker reports as.
+
+    In a container ``gethostname()`` is the container id — it changes on every
+    restart and names nothing an operator can put on an invoice. A dedicated GPU
+    host therefore sets ``DOCRAY_WORKER_HOST`` to the machine's real name, which
+    is what execution telemetry attributes cost to.
+    """
+    return os.environ.get("DOCRAY_WORKER_HOST", "").strip() or socket.gethostname()
+
+
 def _reap_once(settings: Config) -> int:
     """One janitor tick: reap stale jobs on a fresh, short-lived connection.
 
@@ -95,7 +106,7 @@ def run(cfg: Config | None = None, *, worker_id: str | None = None) -> int:
         Process exit code (0 on graceful shutdown).
     """
     settings = cfg or Config.from_env()
-    wid = worker_id or f"{socket.gethostname()}:{os.getpid()}"
+    wid = worker_id or f"{_host_identity()}:{os.getpid()}"
     store = ObjectStore(settings)
     shutdown = threading.Event()
     # Backup is a configuration-gated subsystem, not a lane: when it is off, a

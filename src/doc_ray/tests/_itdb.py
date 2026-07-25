@@ -15,6 +15,7 @@ import psycopg
 from psycopg.rows import dict_row
 
 from doc_ray.adapters import persistence as db
+from doc_ray.application.document_stats import refresh_document_stats
 from doc_ray.config import DEFAULT_DATABASE_URL
 from doc_ray.domain import lexemes as lex
 from doc_ray.domain.sentences import build_sentences
@@ -110,8 +111,18 @@ def unique_sha() -> str:
 
 
 def make_doc(conn, text: str, *, source_uri: str = "s3://it") -> str:
+    """Insert a document with sentences and refresh its stat rollup.
+
+    The refresh is part of seeding, not an extra: since D-024 (migration 098)
+    the read path takes ``n_sentences`` / ``n_lexeme_occurrences`` from the
+    ``document_stats`` rollup rather than counting the fact tables live, and
+    every count-mutating job calls ``refresh_document_stats`` before it
+    completes. A raw insert leaves those counts NULL — a state production never
+    reaches — which surfaces far downstream as "sentenceCount: 0" or
+    "assert None == 2" in whichever suite happens to read a summary.
+    """
     sents = build_sentences(text)
-    return db.insert_document(
+    doc_id = db.insert_document(
         conn,
         title="itest",
         doc_type="txt",
@@ -123,6 +134,11 @@ def make_doc(conn, text: str, *, source_uri: str = "s3://it") -> str:
         status="extracted",
         sentences=sents,
     )
+    # Force the tenant-wide recompute: production debounces it for 10 minutes so
+    # bulk re-annotation pays it once, but a test reads corpus_stats/lexeme_stats
+    # immediately after seeding and would otherwise see an empty rollup.
+    refresh_document_stats(conn, doc_id, corpus_max_age_seconds=0)
+    return doc_id
 
 
 def ensure_admin_principal(conn, principal_id: str, display_name: str) -> None:
@@ -206,4 +222,8 @@ def make_tokens(
             (tid, annotation_id, span_map[(s, e)], i, (upos or {}).get(surface)),
         )
         out.append({"id": tid, "surface": surface, "ordinal": i, "span_id": span_map[(s, e)]})
+    # Token counts are served from the read-model rollup (migration 100), not a
+    # live count over `tokens`. The annotate job refreshes after writing its
+    # facts; seeding must do the same or `tokenCount` reads 0.
+    refresh_document_stats(conn, doc_id, corpus_max_age_seconds=0)
     return out

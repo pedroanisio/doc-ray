@@ -127,7 +127,18 @@ class ReadRepository(Protocol):
         shard_index: int | None = None,
         shard_count: int | None = None,
     ) -> list[Row]:
-        """Return document summary rows (with counts) newest-first, optionally filtered."""
+        """Return document summary rows (with counts) newest-first, optionally filtered.
+
+        ``shard_index``/``shard_count`` restrict the result to one deterministic
+        partition of the visible corpus; pair with :meth:`corpus_shard_counts`
+        to fan out over disjoint shards.
+        """
+        ...
+
+    async def corpus_shard_counts(
+        self, conn: psycopg.AsyncConnection[Row], shard_count: int
+    ) -> list[Row]:
+        """Return ``{shard, n}`` — the visible document count in each shard 0..N-1."""
         ...
 
     async def corpus_shard_counts(
@@ -147,7 +158,12 @@ class ReadRepository(Protocol):
         to_ordinal: int | None = None,
         page: int | None = None,
     ) -> list[Row]:
-        """Return a document's sentences (with span offsets) in ordinal order."""
+        """Return a document's sentences (with span offsets) in ordinal order.
+
+        ``from_ordinal``/``to_ordinal`` select an inclusive ordinal range for
+        random access; ``page`` restricts to one source page. Both compose with
+        the ``after`` keyset cursor.
+        """
         ...
 
     async def document_has_position_data(

@@ -77,6 +77,20 @@ LONG_RUNNING_JOB_KINDS = frozenset(
     }
 )
 
+# Worker lanes. The deployment runs two pools and the split is exactly the set
+# above: the GPU pool serves LONG_RUNNING_JOB_KINDS, the fast pool serves the
+# rest (its WORKER_EXCLUDE_KINDS is that same set). Cost attribution needs the
+# mapping too — a GPU host-hour and a CPU host-hour are not priced alike — so it
+# lives here rather than being restated by each consumer.
+LANE_GPU = "gpu"
+LANE_CPU = "cpu"
+
+
+def lane_for_kind(kind: str) -> str:
+    """Return the worker lane *kind* is claimed by."""
+    return LANE_GPU if kind in LONG_RUNNING_JOB_KINDS else LANE_CPU
+
+
 # Corpus-wide backup/restore, gated as one unit by ``Config.backup_enabled``
 # (``DOCRAY_BACKUP_ENABLED``). Every enforcement point — scheduler, GraphQL
 # mutations, archive download, worker dispatch — reads this set rather than

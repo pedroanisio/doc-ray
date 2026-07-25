@@ -1,0 +1,80 @@
+# doc-ray — dedicated GPU worker HOST overlay (no API, no webapp, no data tier).
+#
+# For a machine whose only job is to burn through the GPU lane: an ephemeral H200
+# droplet, a rented card, a second box on the VPC. It joins the SAME managed
+# Postgres queue as the always-on tier and claims work with FOR UPDATE SKIP
+# LOCKED, so adding or destroying such a host is a supported operation, not a
+# migration — see docs/gpu-batch-processing.md for the lifecycle.
+#
+# HOW THIS DIFFERS FROM docker-compose.gpu.yml
+#   gpu.yml       adds a GPU reservation to the worker of a full stack.
+#   gpuworker.yml turns a host into a worker-ONLY node: it pins the claim filter
+#                 to the GPU lane, so this host never claims an ingest or a
+#                 metadata edit that a fast-lane worker elsewhere should take,
+#                 and it never runs the serving tier at all.
+#
+# WHY WORKER_ONLY_KINDS AND NOT WORKER_EXCLUDE_KINDS
+#   A remote GPU host claiming a fast-lane job is a latency bug: user-facing
+#   work would run on a machine that exists to be destroyed. An allowlist fails
+#   safe — a job kind added later is NOT claimed here until someone decides it
+#   belongs on GPU hardware.
+#
+# USAGE (on the GPU host, with the production .env carrying DATABASE_URL/S3_*):
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml \
+#     -f docker-compose.gpu.yml -f docker-compose.gpuworker.yml \
+#     up -d --build --scale worker=$DOCRAY_WORKERS worker
+#
+#   or: DOCRAY_WORKERS=6 make gpu-worker-up
+#
+# SIZING. Each trf worker holds ~6 GB of VRAM at peak, so an H200's 141 GB is not
+# the only bound — check all three and take the minimum:
+#   VRAM / 6 GB · host vCPU count · managed-Postgres backend headroom (2
+#   connections per worker: one claim, one heartbeat).
+# Leave real headroom: co-tenant GPU processes (an Ollama model pinned with
+# OLLAMA_KEEP_ALIVE=-1 reserves its VRAM permanently) have caused annotate jobs
+# to OOM-fail their whole retry budget in seconds.
+
+services:
+  # The data tier belongs to the always-on host; a GPU box must never start its
+  # own. `replicas: 0` keeps the service defined (so the base file's `depends_on`
+  # still resolves) while starting nothing.
+  postgres:
+    deploy:
+      replicas: 0
+  minio:
+    deploy:
+      replicas: 0
+  createbucket:
+    deploy:
+      replicas: 0
+  # Migrations are owned by the always-on tier. A transient GPU host must not
+  # race the schema: it joins an already-migrated cluster, and a worker whose
+  # code expects a newer schema is an operator error to catch on deploy, not a
+  # migration to run from a machine that will be destroyed.
+  migrate:
+    deploy:
+      replicas: 0
+
+  worker:
+    depends_on: !reset []
+    environment:
+      # The GPU lane, explicitly. Mirrors doc_ray.domain.jobs.LONG_RUNNING_JOB_KINDS;
+      # src/doc_ray/tests/test_job_kind_config.py fails if the two drift.
+      WORKER_ONLY_KINDS: ${WORKER_ONLY_KINDS:-annotate,reannotate,visual_extract,semantic_embed,visual_embed,visual_caption}
+      # Recorded on every telemetry row so cost is attributable to this machine
+      # rather than to an anonymous process id. Set it to something you can put
+      # on an invoice — the droplet name, not the container hostname.
+      DOCRAY_WORKER_HOST: ${DOCRAY_WORKER_HOST:-}
+      # Optional: overrides the probed device string when the runtime cannot see
+      # what it is really using (MIG slice, shared card).
+      DOCRAY_DEVICE_LABEL: ${DOCRAY_DEVICE_LABEL:-}
+      # A destroyed host must not take a job's retry budget with it: the drain is
+      # stamped on the row so the reaper releases it without spending an attempt.
+      # Give the drain a real window before the droplet goes away.
+    stop_grace_period: 300s
+
+  # The serving tier does not run here. These are defined in the base compose;
+  # scaling them to zero is what makes this a worker-only host.
+  worker-fast:
+    deploy:
+      replicas: 0

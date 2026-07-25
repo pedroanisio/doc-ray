@@ -114,9 +114,14 @@ def _signed_header(payload: bytes, secret: str, timestamp: int) -> str:
 
 def _prod_example_webhook_events() -> list[str]:
     text = (_MIGRATIONS.parents[1] / ".env.prod.example").read_text()
+    # Anchor on the variable, then look BACK for the marker. Anchoring on the
+    # marker first breaks whenever another entry mentions the same phrase — the
+    # samples are generated from config/env.registry.yaml and sorted
+    # alphabetically, so DOCRAY_STRIPE_SECRET_KEY (which also describes the
+    # endpoint) precedes this one and would capture everything in between.
     marker = "subscribe it to:"
-    start = text.index(marker) + len(marker)
-    end = text.index("DOCRAY_STRIPE_SECRET_KEY", start)
+    end = text.index("DOCRAY_STRIPE_WEBHOOK_SECRET=")
+    start = text.rindex(marker, 0, end) + len(marker)
     block = text[start:end]
     event_names: list[str] = []
     for raw in block.replace("\n", " ").split(","):

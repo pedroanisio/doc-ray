@@ -139,6 +139,12 @@ def test_webapp_document_reads_share_reader_table_shape(monkeypatch):
 def test_webapp_lexeme_index_reads_share_reader_table_shape(monkeypatch):
     web_sql = _record_route(monkeypatch, "/lexemes?q=say&pos=VERB&lang=en", webapp.lexemes)
 
+    # The lexeme index reads the maintained `lexeme_stats` rollup, not a live
+    # GROUP BY over the 17.5M-row `lexeme_occurrences` fact table. The previous
+    # fragments pinned that live aggregate — the very shape D-024 now forbids
+    # (scripts/check_read_path_aggregates.py), so migrating to the rollup broke
+    # this guard while satisfying the rule it exists alongside. Parity is still
+    # the point: both surfaces must issue the same shape, now the rollup's.
     _assert_fragments_in_both(
         web_sql,
         read.list_lexemes,

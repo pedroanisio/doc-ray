@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from uuid import uuid4
 
 import pytest
 
@@ -19,28 +20,65 @@ from doc_ray.domain.jobs import JobStatus
 _MIGRATIONS = Path(__file__).resolve().parents[3] / "db" / "migrations"
 
 
+#: Schema holding this test's private ``jobs`` shadow. Set by the ``qconn``
+#: fixture; read by ``_connect_in_schema`` so a second connection joins the
+#: *same* isolated queue.
+_SCHEMA: str | None = None
+
+
 def _connect_or_skip():
     import _itdb
 
     try:
-        conn = _itdb.connect()
+        return _itdb.connect()
     except Exception as exc:  # pragma: no cover - env dependent
         pytest.skip(f"DB unreachable: {exc}")
-    conn.execute((_MIGRATIONS / "020_jobs.sql").read_text())  # idempotent
-    conn.execute((_MIGRATIONS / "059_job_progress.sql").read_text())  # idempotent
-    conn.execute((_MIGRATIONS / "072_jobs_drain_requested_at.sql").read_text())  # idempotent
+
+
+def _connect_in_schema():
+    """A second connection onto this test's private ``jobs`` shadow.
+
+    Multi-worker tests (SKIP LOCKED, NOTIFY) need two connections that see the
+    *same* queue, so a session-local TEMP table cannot provide the isolation —
+    the second session would fall through to ``public.jobs`` and claim a
+    stranger's row, which is how ``test_claim_returns_none_when_only_job_is_taken``
+    failed and how its sibling passed for the wrong reason.
+    """
+    import _itdb
+
+    conn = _itdb.connect()
+    conn.execute(f"SET search_path TO {_SCHEMA}, public")
     return conn
 
 
 @pytest.fixture
 def qconn():
+    """A connection whose ``jobs`` table is a private, per-test schema shadow.
+
+    These tests assert on *which* row ``claim`` returns, which is only
+    meaningful if the queue holds nothing but what the test enqueued. Against
+    the real ``public.jobs`` any leftover row — from a killed run, a concurrent
+    module, or another developer on a shared database — is claimed first and the
+    assertion fails on a stranger's ULID. A dedicated schema earlier on the
+    search path captures the adapter's unqualified ``jobs`` SQL, and unlike a
+    TEMP table it is visible to every connection that joins it.
+    """
+    global _SCHEMA
     conn = _connect_or_skip()
-    created: list[str] = []
+    for migration in ("020_jobs.sql", "059_job_progress.sql", "072_jobs_drain_requested_at.sql"):
+        conn.execute((_MIGRATIONS / migration).read_text())  # idempotent
+    schema = f"qtest_{uuid4().hex}"
+    conn.execute(f"CREATE SCHEMA {schema}")
+    conn.execute(f"SET search_path TO {schema}, public")
+    conn.execute(f"CREATE TABLE {schema}.jobs (LIKE public.jobs INCLUDING ALL)")
+    conn.execute(f"GRANT ALL PRIVILEGES ON SCHEMA {schema} TO docray_batch")
+    conn.execute(f"GRANT ALL PRIVILEGES ON {schema}.jobs TO docray_batch")
+    _SCHEMA = schema
     try:
-        yield conn, created
+        yield conn, []
     finally:
-        for job_id in created:
-            conn.execute("DELETE FROM jobs WHERE id = %s", (job_id,))
+        _SCHEMA = None
+        conn.execute(f"DROP SCHEMA {schema} CASCADE")
         conn.close()
 
 
@@ -78,10 +116,9 @@ def test_enqueue_stamps_current_request_id_into_payload_metadata(qconn):
 
 
 def test_job_status_transitions_emit_notifications(qconn):
-    import _itdb
 
     conn, created = qconn
-    listener = _itdb.connect()
+    listener = _connect_in_schema()
     listener.execute("LISTEN docray_job_events")
     try:
         job_id = q.enqueue(conn, "ingest", {"path": "/x"}, priority=-100_000)
@@ -105,10 +142,9 @@ def test_job_status_transitions_emit_notifications(qconn):
 
 
 def test_job_progress_update_persists_and_notifies(qconn):
-    import _itdb
 
     conn, created = qconn
-    listener = _itdb.connect()
+    listener = _connect_in_schema()
     listener.execute("LISTEN docray_job_events")
     try:
         job_id = q.enqueue(conn, "ingest", {"path": "/x"}, priority=-100_000)
@@ -145,14 +181,13 @@ def test_job_progress_update_persists_and_notifies(qconn):
 
 
 def test_skip_locked_claims_are_disjoint(qconn):
-    import _itdb
 
     conn, created = qconn
     a = q.enqueue(conn, "ingest", {})
     b = q.enqueue(conn, "ingest", {})
     created += [a, b]
 
-    conn2 = _itdb.connect()
+    conn2 = _connect_in_schema()
     try:
         j1 = q.claim(conn, worker_id="w1")
         j2 = q.claim(conn2, worker_id="w2")  # must not block, must differ
@@ -163,13 +198,12 @@ def test_skip_locked_claims_are_disjoint(qconn):
 
 
 def test_claim_returns_none_when_only_job_is_taken(qconn):
-    import _itdb
 
     conn, created = qconn
     job_id = q.enqueue(conn, "ingest", {})
     created.append(job_id)
 
-    conn2 = _itdb.connect()
+    conn2 = _connect_in_schema()
     try:
         assert q.claim(conn, worker_id="w1").id == job_id
         assert q.claim(conn2, worker_id="w2") is None  # skipped, not blocked
