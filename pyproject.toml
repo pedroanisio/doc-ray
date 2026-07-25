@@ -11,10 +11,13 @@ requires-python = ">=3.10"
 dynamic = ["version", "dependencies"]
 
 [project.optional-dependencies]
-# Worker-only ML stacks. Kept OUT of the base dependencies so the API image stays
-# lean; install in the worker (`pip install .[semantic]` / `uv sync --extra semantic`)
-# to run the heavy embedding jobs. Never imported at module load — the adapters
-# probe with importlib.find_spec and fail typed-and-actionable when absent.
+# Convenience alias only. sentence-transformers is a BASE dependency (pinned in
+# requirements.txt next to open_clip_torch) so the production image — built with
+# `uv sync --locked`, which never installs extras — actually carries the encoder.
+# This extra is retained for callers that install by extra name
+# (`pip install .[semantic]`); it resolves to the same, already-baked-in package.
+# The adapter still imports lazily and probes with importlib.find_spec, failing
+# typed-and-actionable if a stripped environment somehow lacks it.
 semantic = ["sentence-transformers>=2.2"]  # NLP Layer 20 learned sentence embeddings
 
 # src/ layout: the importable package lives under src/. The frontend (webapp/)

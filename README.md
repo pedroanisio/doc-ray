@@ -411,8 +411,10 @@ After the hard cutover from the non-learned `hash-bow-768` placeholder, sentence
 are embedded by a sentence-transformers model behind the `TextEncoder` port, run by
 the opt-in `semantic_embed` worker job (GraphQL `embedDocumentSentences` per document,
 or the admin `embedCorpusSentences` to re-embed the whole corpus in one shot).
-The heavy stack lives in the worker only — install it with `pip install .[semantic]`;
-without it, no Layer 20 vectors are produced. Retrieval is then available by
+The encoder ships in the base image (pinned in `requirements.txt` next to the Prism
+`open_clip_torch` encoder, on the `torch`/`transformers` stack that `spacy` already
+pulls in), so a stock worker can run the job out of the box; the `.[semantic]` extra
+is kept only as a convenience alias for installing it by name. Retrieval is then available by
 *meaning* — GraphQL `semanticSearchSentences` and the `semantic_search_sentences`
 MCP tool rank sentences by learned cosine similarity, complementing keyword
 `searchSentences`.

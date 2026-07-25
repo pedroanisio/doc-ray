@@ -54,10 +54,14 @@ doc-ray carries **one global version** covering both the application package
     mutation `embedCorpusSentences(onlyMissing: true)` (re-runnable; skips
     already-embedded documents), or per document via `embedDocumentSentences`.
     Take a corpus backup first — that snapshot is the rollback path.
-  - **Availability.** Sentence embeddings are now a stack-gated capability: install
-    the worker extra `pip install .[semantic]` (sentence-transformers); a
-    deployment without it produces no Layer 20 vectors (no fake placeholder). New
-    env `DOCRAY_SEMANTIC_MODEL`.
+  - **Availability.** The learned encoder (`sentence-transformers`) is a **base
+    dependency**, baked into the worker image next to the Prism `open_clip_torch`
+    encoder — the production `Dockerfile` (`uv sync --locked`) never installs
+    optional extras, so shipping it only as `.[semantic]` left every `semantic_embed`
+    job failing with `SemanticStackUnavailableError`. The `.[semantic]` extra is
+    retained as a convenience alias. The heavy tensor stack (`torch`,
+    `transformers`) was already base (pulled by `spacy[transformers]`), so this
+    adds only the thin encoder layer. New env `DOCRAY_SEMANTIC_MODEL`.
 
 ## [1.41.0]
 
