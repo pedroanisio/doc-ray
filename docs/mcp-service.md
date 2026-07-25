@@ -19,12 +19,13 @@ Exposes the doc-ray corpus to agentic AI over the **Model Context Protocol
 (MCP)**, authenticating each caller to a doc-ray principal so Postgres RLS scopes
 what they can read.
 
-**Status: live in production and verified end-to-end.** The server ships **21
-read tools** (13 corpus readers incl. `read_document_sentences`, `corpus_manifest`,
-`corpus_shard`, `get_job`, `list_collections`, `get_collection` + 2 structure
-tools from `entrypoints/mcp/structure.py` (`read_document_outline`,
-`entity_profiles`) + 3 composition-grounding tools from
-`entrypoints/mcp/compose.py` + semantic search + 4 Prism visual tools… see §3) always registered, plus **22 opt-in write tools**
+**Status: live in production and verified end-to-end.** The server ships **25
+read tools** (18 from `entrypoints/mcp/corpus.py` — incl. `read_document_sentences`,
+`corpus_manifest`, `corpus_shard`, `get_job`, `list_collections`, `get_collection`,
+`entity_mention_corrections`, and the 4 Prism visual tools — + 3 structure tools from
+`entrypoints/mcp/structure.py` (`read_document_outline`, `entity_profiles`,
+`term_frequency`) + 3 composition-grounding tools from `entrypoints/mcp/compose.py`
++ 1 semantic-search tool… see §3) always registered, plus **22 opt-in write tools**
 (reprocessing + curation + full collection lifecycle) registered only when
 `DOCRAY_MCP_ENABLE_WRITE=true` — the default surface stays read-only. It also
 declares MCP's **resources** primitive: 3 listable `docray://` entry points +
@@ -730,7 +731,9 @@ unaffected.
       coverage, version consistency); docs updated. ✅ — manual smoke test pending operator.
 
 ### Phase 3 — Ops & hardening  ·  size: S
-- [ ] TLS front door (nginx location or Cloudflare Tunnel ingress) — never publish `:8001` raw.
+- [x] **TLS front door — DONE.** Served behind the Cloudflare tunnel via the
+      `doc-ray.com /mcp → http://mcp:8080` route (see the Status header above); the
+      `mcp` service is loopback-bound on `:8080` and never published raw.
 - [ ] Per-agent token minting doc (`auth_admin token mint`, `read` scope) + rotation guidance.
 - [ ] `/health`/`/readyz` for the MCP service; wire into the prod compose + deploy doc.
 - [ ] Optional: request rate limiting mirroring the API's `rate_limit` posture.
@@ -742,7 +745,10 @@ unaffected.
       Registration → `/authorize` (browser login + consent, PKCE S256) → `/token`
       (authorization_code + PKCE), reusing the existing RLS-bound access JWTs.
       See `application/oauth_server.py`, `webapp/oauth_web.py`, migration `082`.
-- [ ] **Write tools** behind the `write` scope (ingest, tag, collections).
+- [x] **Write tools — DONE.** `mutations.TOOLS` registers 22 write tools (reprocessing
+      + curation + full collection lifecycle), advertised only when
+      `DOCRAY_MCP_ENABLE_WRITE=true`; each remains gated by the API's `write` scope and
+      per-document ACLs (`test_mcp_server.py::_WRITE_TOOL_NAMES`).
 - [ ] **gRPC gateway** (if required) — a separate service exposing the same
       `corpus.py` tool functions to gRPC clients; reuses the passthrough unchanged.
 

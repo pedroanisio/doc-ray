@@ -248,13 +248,13 @@ and return shapes above against it — that is how the SWE-bench gains were foun
 | 4 · `response_format` concise | C | S | **shipped 1.39.0** | 37% smaller payloads (measured). |
 | 5 · `read_document_outline` | C,F | M | **shipped 1.39.0** | Makes ranged reads aim-able. |
 | 6 · canonical + confidence entities | B | M | **shipped 1.39.0** | Ships reconciliation the agent did by hand. |
-| 7 · resources layer | E | M | open | The URI-addressed reads the reviewer wanted. |
-| 8 · prompts | F | S | open | Turns the methodology into a reusable menu item. |
+| 7 · resources layer | E | M | **shipped 1.39.0** | The URI-addressed reads the reviewer wanted — `src/doc_ray/entrypoints/mcp/resources.py`. |
+| 8 · prompts | F | S | **shipped (BL-150)** | Turns the methodology into a reusable menu item — `src/doc_ray/entrypoints/mcp/prompts.py`. |
 | 9 · namespacing | — | S | open | Legibility; a rename + description pass. |
-| 10 · term-frequency pre-flight | A | S | open | Prevents flooding instead of diagnosing it. |
-| 11 · eval harness | all | M | open | Closes the loop; how you tune 1–6. |
+| 10 · term-frequency pre-flight | A | S | **shipped (BL-149)** | Prevents flooding instead of diagnosing it — `src/doc_ray/adapters/persistence_read_terms.py`. |
+| 11 · eval harness | all | M | **shipped (BL-148)** | Closes the loop; how you tune 1–6 — `scripts/eval_mcp.py`. |
 
-**Recommended first cut: items 1, 2, 3, 4.** *(All shipped in 1.39.0 — items 1–3 as BL-145, items 4–6 as BL-146. Remaining: items 7–11, the P2 block.)* They are
+**Recommended first cut: items 1, 2, 3, 4.** *(All shipped in 1.39.0 — items 1–3 as BL-145, items 4–6 as BL-146. Of the P2 block: item 7 shipped as the `docray://` resources layer (`src/doc_ray/entrypoints/mcp/resources.py`), and items 8, 10, 11 shipped as BL-150 / BL-149 / BL-148. Remaining: item 9, namespacing.)* They are
 mostly descriptions, return-shape tweaks, and one error branch — no new
 subsystems — and they resolve the reviewer's two sharpest complaints (the false
 "missing content" and the cursor dead-end) plus the token ceiling. Items 5–8 are
