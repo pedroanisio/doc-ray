@@ -35,7 +35,14 @@ Row = dict[str, Any]
 
 @strawberry.type
 class DocumentCollection:
-    """A manual or smart grouping of documents."""
+    """A manual or smart grouping of documents.
+
+    When ``isScope`` is true the collection is also a *lens* (Block B): a named
+    scope a later projection layer will use to interpret entity identity.
+    Ordinary collections (``isScope`` false) are identity-neutral navigation.
+    ``parentLensId`` optionally nests one lens under another; nesting is recorded
+    but resolution stays flat in this block.
+    """
 
     id: strawberry.ID
     name: str
@@ -44,6 +51,8 @@ class DocumentCollection:
     rule: JSON
     rule_summary: str
     document_count: int
+    is_scope: bool
+    parent_lens_id: strawberry.ID | None
     created_at: datetime
     updated_at: datetime
     cursor: str
@@ -51,6 +60,7 @@ class DocumentCollection:
     @classmethod
     def from_row(cls, row: Row) -> DocumentCollection:
         """Build a ``DocumentCollection`` from a read-adapter row."""
+        parent = row.get("parent_lens_id")
         return cls(
             id=strawberry.ID(str(row["id"])),
             name=row["name"],
@@ -59,6 +69,8 @@ class DocumentCollection:
             rule=cast(JSON, row.get("rule") or {}),
             rule_summary=row.get("rule_summary") or "",
             document_count=int(row.get("document_count") or 0),
+            is_scope=bool(row.get("is_scope")),
+            parent_lens_id=strawberry.ID(str(parent)) if parent else None,
             created_at=row["created_at"],
             updated_at=row["updated_at"],
             cursor=row.get("cursor") or str(row["id"]),
@@ -218,6 +230,7 @@ class Document:
     created_at: datetime
     updated_at: datetime | None
     visibility: str
+    default_lens_id: strawberry.ID | None
     cursor: str
 
     @classmethod
@@ -226,6 +239,7 @@ class Document:
 
         Detail-only columns absent from a list-summary row resolve to ``None``.
         """
+        default_lens = row.get("default_lens_id")
         return cls(
             id=strawberry.ID(str(row["id"])),
             title=row["title"],
@@ -251,6 +265,7 @@ class Document:
             created_at=row["created_at"],
             updated_at=row.get("updated_at"),
             visibility=row.get("visibility") or "private",
+            default_lens_id=strawberry.ID(str(default_lens)) if default_lens else None,
             cursor=row.get("cursor") or str(row["id"]),
         )
 

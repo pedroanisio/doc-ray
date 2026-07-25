@@ -40,6 +40,7 @@ from collections.abc import Callable
 from typing import Any
 
 from doc_ray.entrypoints.mcp import corpus
+from doc_ray.entrypoints.mcp.compose_common import _budget_gap, _budget_passages, _cite
 
 #: Cap on distinct terms fanned out per document so one topic cannot amplify
 #: into an unbounded number of GraphQL round-trips.
@@ -188,6 +189,12 @@ _BRIEFING_PASSAGE_BUDGET = 12_000
 _EVIDENCE_PASSAGE_BUDGET = 8_000
 _DOSSIER_MENTION_BUDGET = 12_000
 
+#: Cap on the entity_dossier document roster. The roster is the set of documents
+#: that contain the entity (from full-text search), kept independent of the cited
+#: mention page so a capped page can never truncate the roster (#14). Hitting this
+#: cap is itself surfaced as a gap — the roster is a floor, never a silent total.
+_DOSSIER_DOCUMENT_LIMIT = 50
+
 
 def _content_terms(text: str) -> list[str]:
     """Distinct content terms of *text* in order, stopwords and bare numbers dropped."""
@@ -271,42 +278,6 @@ def _terms_tried(terms: list[str]) -> str:
 def _clipped_passage_text(sentence: dict[str, Any]) -> str:
     """Assemble a KWIC passage, clipped to the per-passage cap with a marker."""
     return corpus.clip_text(_passage_text(sentence), _MAX_PASSAGE_CHARS) or ""
-
-
-def _budget_passages(
-    passages: list[dict[str, Any]], budget_chars: int
-) -> tuple[list[dict[str, Any]], int]:
-    """Keep the leading passages whose cumulative text fits *budget_chars*.
-
-    At least one passage always survives, and order is preserved so the
-    highest-ranked passages win. Returns ``(kept, dropped_count)``.
-    """
-    kept: list[dict[str, Any]] = []
-    total = 0
-    for index, passage in enumerate(passages):
-        size = len(str(passage.get("text") or ""))
-        if kept and total + size > budget_chars:
-            return kept, len(passages) - index
-        kept.append(passage)
-        total += size
-    return kept, 0
-
-
-def _budget_gap(dropped: int, noun: str, hint: str) -> str:
-    """A gap line reporting a response-budget drop — caps are never silent."""
-    return f"Response budget reached: dropped {dropped} lower-ranked {noun}; {hint}."
-
-
-def _cite(document_id: str, title: str | None = None, ordinal: int | None = None) -> dict[str, Any]:
-    """Build a citation handle an agent can quote and later re-verify."""
-    label = title or f"document {document_id}"
-    cite: dict[str, Any] = {"document_id": document_id}
-    if ordinal is not None:
-        cite["sentence_ordinal"] = ordinal
-        cite["ref"] = f"{label} · sentence {ordinal}"
-    else:
-        cite["ref"] = label
-    return cite
 
 
 def _passage_text(sentence: dict[str, Any]) -> str:
@@ -447,27 +418,38 @@ async def entity_dossier(name: str, max_mentions: int = 40) -> dict[str, Any]:
 
     Use this to ground a profile of a person, place, date, or organization: it
     returns each place the name appears, in context, with a `cite` to the document
-    and sentence, plus a per-document mention tally. Cite every fact you state about
-    the entity to a mention below; do not infer beyond them.
+    and sentence, plus the roster of documents that contain the entity. Cite every
+    fact you state to a mention below; do not infer beyond them.
+
+    The document **roster** comes from full-text search, so it is the complete set
+    of documents that contain the entity — independent of `max_mentions`. The
+    cited **passages** are a page capped at `max_mentions`: when that cap is hit,
+    `truncated` is true and `gaps` says so. Read the numbers precisely:
+    `cited_mentions` counts the passages shown (a page, NOT a corpus total);
+    `document_count` counts the documents in the roster; a document with
+    `cited_mention_count: 0` contains the entity but had no passage cited here
+    (raise `max_mentions` or scope by document to see it).
 
     Args:
         name: The entity name to look up (literal mention match across the corpus).
-        max_mentions: Cap on the cited mentions returned.
+        max_mentions: Cap on the cited passages returned (not on the roster).
 
     Returns:
-        A dict with `entity`, `total_mentions`, `documents`, `mentions`, `gaps`,
-        and `guidance`.
+        A dict with `entity`, `retrieval`, `cited_mentions`, `document_count`,
+        `truncated`, `documents`, `mentions`, `gaps`, and `guidance`.
     """
-    mentions = (await corpus.search_sentences(name, limit=max_mentions))["hits"]
-    by_document: dict[str, dict[str, Any]] = {}
+    search = await corpus.search_sentences(name, limit=max_mentions)
+    coverage = search.get("coverage") or {}
+    roster_rows = await corpus.full_text_search(name, limit=_DOSSIER_DOCUMENT_LIMIT)
+
+    cited_count: dict[str, int] = {}
+    cited_title: dict[str, str | None] = {}
     cited: list[dict[str, Any]] = []
-    for sentence in mentions:
+    for sentence in search["hits"]:
         document_id = str(sentence["documentId"])
         title = sentence.get("title")
-        entry = by_document.setdefault(
-            document_id, {"document_id": document_id, "title": title, "mention_count": 0}
-        )
-        entry["mention_count"] += 1
+        cited_count[document_id] = cited_count.get(document_id, 0) + 1
+        cited_title.setdefault(document_id, title)
         cited.append(
             {
                 "document_id": document_id,
@@ -477,20 +459,81 @@ async def entity_dossier(name: str, max_mentions: int = 40) -> dict[str, Any]:
                 "cite": _cite(document_id, title, sentence.get("ordinal")),
             }
         )
+
+    # The roster is the full-text-search document set (complete, cap-independent),
+    # annotated with how many of the cited passages fell in each. A document that
+    # holds a cited passage but is missing from the FTS roster (a tokenization edge
+    # between document- and sentence-level FTS) is still added — never drop a
+    # document we have evidence for.
+    documents: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for row in roster_rows:
+        document_id = str(row["documentId"])
+        seen.add(document_id)
+        documents.append(
+            {
+                "document_id": document_id,
+                "title": row.get("title") or cited_title.get(document_id),
+                "rank": row.get("rank"),
+                "cited_mention_count": cited_count.get(document_id, 0),
+            }
+        )
+    for document_id, count in cited_count.items():
+        if document_id not in seen:
+            documents.append(
+                {
+                    "document_id": document_id,
+                    "title": cited_title.get(document_id),
+                    "rank": None,
+                    "cited_mention_count": count,
+                }
+            )
+    documents.sort(key=lambda doc: (doc["cited_mention_count"], doc["rank"] or 0), reverse=True)
+
     kept, dropped = _budget_passages(cited, _DOSSIER_MENTION_BUDGET)
-    gaps = [] if cited else [f"No mentions of “{name}” found in the corpus you can read."]
+    mentions_capped = bool(coverage.get("limit_reached"))
+    roster_capped = len(roster_rows) >= _DOSSIER_DOCUMENT_LIMIT
+    uncited_documents = sum(1 for doc in documents if doc["cited_mention_count"] == 0)
+
+    gaps: list[str] = []
+    if not cited and not documents:
+        gaps.append(f"No mentions of “{name}” found in the corpus you can read.")
+    if mentions_capped:
+        gaps.append(
+            f"Cited passages were capped at max_mentions={max_mentions}; more mentions of "
+            f"“{name}” exist. Raise max_mentions or scope by document to retrieve the rest."
+        )
+    if roster_capped:
+        gaps.append(
+            f"The document roster hit its {_DOSSIER_DOCUMENT_LIMIT}-document cap; more "
+            f"documents may contain “{name}”. document_count is a floor, not a total."
+        )
+    if uncited_documents and not mentions_capped:
+        gaps.append(
+            f"{uncited_documents} document(s) contain “{name}” but no passage was cited here "
+            "(cited_mention_count 0); raise max_mentions to surface their passages."
+        )
     if dropped:
         gaps.append(_budget_gap(dropped, "mentions", "lower max_mentions or scope by document"))
+
+    guidance = "State nothing about this entity that a mention above does not support."
+    if mentions_capped or roster_capped:
+        guidance += (
+            " This is a capped sample, not the complete record: do not claim totals or "
+            "completeness. cited_mentions counts only the passages shown; document_count is a "
+            "floor when truncated is true."
+        )
+
     return {
         "entity": name,
         "retrieval": "literal mention match across the corpus you can read",
-        "total_mentions": len(cited),
-        "documents": sorted(
-            by_document.values(), key=lambda doc: doc["mention_count"], reverse=True
-        ),
+        "cited_mentions": len(cited),
+        "document_count": len(documents),
+        "truncated": mentions_capped or roster_capped,
+        "documents": documents,
         "mentions": kept,
         "gaps": gaps,
-        "guidance": "State nothing about this entity that a mention above does not support.",
+        "guidance": guidance,
     }
 
 

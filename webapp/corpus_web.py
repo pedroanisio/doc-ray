@@ -119,6 +119,7 @@ def documents():
                (SELECT string_agg(DISTINCT a.tool, ', ')
                   FROM annotations a WHERE a.document_id = d.id) AS tools
         FROM documents d
+        WHERE d.lifecycle_state <> 'deleted'
         ORDER BY {CORPUS_SORTS[sort]}
         LIMIT %(limit)s OFFSET %(offset)s
         """,
@@ -137,13 +138,23 @@ def documents():
     #     tenant). Gated on "sees >= 1 document" so a principal with no visible
     #     corpus reads 0 — preserving the confidentiality guarantee that
     #     tests/test_corpus_stats_rls.py defends (never the global registry count).
+    # Soft-deleted documents (lifecycle_state='deleted', BL-059) are excluded from
+    # every corpus-browse surface, so the headline counts and the sentence/
+    # occurrence rollup sums must not count them either — otherwise "N documents"
+    # disagrees with the list below it. The stats sums join back to the (small,
+    # RLS-scoped) documents table to drop the deleted set; this stays index-only
+    # and does not reintroduce the D-024 fact-table scan.
     totals = _core.q1(
-        "SELECT (SELECT count(*) FROM documents) docs, "
-        "(SELECT coalesce(sum(n_sentences), 0) FROM document_stats) sents, "
-        "(SELECT CASE WHEN EXISTS (SELECT 1 FROM documents) "
+        "SELECT (SELECT count(*) FROM documents WHERE lifecycle_state <> 'deleted') docs, "
+        "(SELECT coalesce(sum(ds.n_sentences), 0) FROM document_stats ds "
+        "   JOIN documents d ON d.id = ds.document_id "
+        "   WHERE d.lifecycle_state <> 'deleted') sents, "
+        "(SELECT CASE WHEN EXISTS (SELECT 1 FROM documents WHERE lifecycle_state <> 'deleted') "
         "             THEN coalesce((SELECT n_distinct_lexemes FROM corpus_stats), 0) "
         "             ELSE 0 END) lexemes, "
-        "(SELECT coalesce(sum(n_lexeme_occurrences), 0) FROM document_stats) occ"
+        "(SELECT coalesce(sum(ds.n_lexeme_occurrences), 0) FROM document_stats ds "
+        "   JOIN documents d ON d.id = ds.document_id "
+        "   WHERE d.lifecycle_state <> 'deleted') occ"
     )
     return _core.render_template(
         "documents.html",

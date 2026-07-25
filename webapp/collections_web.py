@@ -88,7 +88,8 @@ def collection_document_rows(collection: dict) -> list[dict]:
                    (SELECT string_agg(DISTINCT a.tool, ', ')
                       FROM annotations a WHERE a.document_id = d.id) AS tools
             FROM documents d
-            WHERE (%(doc_type)s::text IS NULL OR d.doc_type = %(doc_type)s)
+            WHERE d.lifecycle_state <> 'deleted'
+              AND (%(doc_type)s::text IS NULL OR d.doc_type = %(doc_type)s)
               AND (%(status)s::text IS NULL OR d.status = %(status)s)
               AND (%(tags)s::text[] IS NULL OR EXISTS (
                     SELECT 1 FROM document_tags dt JOIN tags t ON t.id = dt.tag_id
@@ -158,7 +159,8 @@ def _smart_collection_count(collection: dict) -> int:
         """
         SELECT count(*) AS n
         FROM documents d
-        WHERE (%(doc_type)s::text IS NULL OR d.doc_type = %(doc_type)s)
+        WHERE d.lifecycle_state <> 'deleted'
+          AND (%(doc_type)s::text IS NULL OR d.doc_type = %(doc_type)s)
           AND (%(status)s::text IS NULL OR d.status = %(status)s)
           AND (%(tags)s::text[] IS NULL OR EXISTS (
                 SELECT 1 FROM document_tags dt JOIN tags t ON t.id = dt.tag_id
@@ -209,7 +211,8 @@ def collection_detail(collection_id):
             """
             SELECT d.id, d.title, d.doc_type
             FROM documents d
-            WHERE NOT EXISTS (
+            WHERE d.lifecycle_state <> 'deleted'
+              AND NOT EXISTS (
                   SELECT 1 FROM document_collection_members m
                   WHERE m.collection_id = %s AND m.document_id = d.id
             )

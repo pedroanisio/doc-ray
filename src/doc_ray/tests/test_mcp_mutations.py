@@ -346,6 +346,59 @@ async def test_delete_collection_rejects_bad_uuid(monkeypatch: pytest.MonkeyPatc
     assert client.calls == []
 
 
+@pytest.mark.asyncio
+async def test_promote_collection_to_lens_forwards(monkeypatch: pytest.MonkeyPatch) -> None:
+    client = _patch(monkeypatch, {"data": {"promoteCollectionToLens": _COLLECTION}})
+    out = await mutations.promote_collection_to_lens(_COLL)
+    assert out == _COLLECTION
+    body = client.calls[0][1]
+    assert "promoteCollectionToLens(collectionId:$c,parentLensId:$p)" in body["query"]
+    assert body["variables"] == {"c": _COLL, "p": None}
+
+
+@pytest.mark.asyncio
+async def test_promote_collection_to_lens_forwards_parent(monkeypatch: pytest.MonkeyPatch) -> None:
+    client = _patch(monkeypatch, {"data": {"promoteCollectionToLens": _COLLECTION}})
+    await mutations.promote_collection_to_lens(_COLL, parent_lens_id=_DOC)
+    assert client.calls[0][1]["variables"] == {"c": _COLL, "p": _DOC}
+
+
+@pytest.mark.asyncio
+async def test_promote_collection_rejects_bad_parent(monkeypatch: pytest.MonkeyPatch) -> None:
+    client = _patch(monkeypatch, {"data": {"promoteCollectionToLens": _COLLECTION}})
+    with pytest.raises(corpus.ToolCallError):
+        await mutations.promote_collection_to_lens(_COLL, parent_lens_id="not-a-uuid")
+    assert client.calls == []
+
+
+@pytest.mark.asyncio
+async def test_demote_lens_forwards(monkeypatch: pytest.MonkeyPatch) -> None:
+    client = _patch(monkeypatch, {"data": {"demoteLens": _COLLECTION}})
+    out = await mutations.demote_lens(_COLL)
+    assert out == _COLLECTION
+    assert "demoteLens(collectionId:$c)" in client.calls[0][1]["query"]
+    assert client.calls[0][1]["variables"] == {"c": _COLL}
+
+
+@pytest.mark.asyncio
+async def test_set_document_default_lens_forwards(monkeypatch: pytest.MonkeyPatch) -> None:
+    doc = {"id": _DOC, "title": "Dune", "defaultLensId": _COLL}
+    client = _patch(monkeypatch, {"data": {"setDocumentDefaultLens": doc}})
+    out = await mutations.set_document_default_lens(_DOC, lens_id=_COLL)
+    assert out == doc
+    body = client.calls[0][1]
+    assert "setDocumentDefaultLens(documentId:$d,lensId:$l)" in body["query"]
+    assert body["variables"] == {"d": _DOC, "l": _COLL}
+
+
+@pytest.mark.asyncio
+async def test_set_document_default_lens_clears_with_null(monkeypatch: pytest.MonkeyPatch) -> None:
+    doc = {"id": _DOC, "title": "Dune", "defaultLensId": None}
+    client = _patch(monkeypatch, {"data": {"setDocumentDefaultLens": doc}})
+    await mutations.set_document_default_lens(_DOC)
+    assert client.calls[0][1]["variables"] == {"d": _DOC, "l": None}
+
+
 def test_tools_tuple_is_the_reprocessing_and_curation_writers() -> None:
     names = {tool.__name__ for tool in mutations.TOOLS}
     assert names == {
@@ -367,6 +420,9 @@ def test_tools_tuple_is_the_reprocessing_and_curation_writers() -> None:
         "remove_document_from_collection",
         "update_collection",
         "delete_collection",
+        "promote_collection_to_lens",
+        "demote_lens",
+        "set_document_default_lens",
     }
     # Destructive DOCUMENT verbs stay off MCP (delete_collection removes only the
     # container, never the documents, so it is exposed).

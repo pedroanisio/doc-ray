@@ -359,12 +359,25 @@ async def test_document_evidence_budget_drops_excess_and_reports(monkeypatch):
 @pytest.mark.asyncio
 async def test_entity_dossier_budget_keeps_tallies_and_reports(monkeypatch):
     monkeypatch.setattr(compose, "_DOSSIER_MENTION_BUDGET", 60)
-    _install(monkeypatch, lambda q, v: {"searchSentences": _BUDGET_SENTS["relativity"]})
+    roster = [
+        {
+            "documentId": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+            "title": "Relativity Papers",
+            "rank": 0.9,
+        }
+    ]
+
+    def handler(query, variables):
+        if "fullTextSearch" in query:
+            return {"fullTextSearch": roster}
+        return {"searchSentences": _BUDGET_SENTS["relativity"]}
+
+    _install(monkeypatch, handler)
     dossier = await compose.entity_dossier("relativity")
 
-    # total_mentions and per-document tallies reflect everything FOUND; only the
+    # cited_mentions and per-document tallies reflect everything CITED; only the
     # returned mention texts are budgeted.
-    assert dossier["total_mentions"] == 3
-    assert dossier["documents"][0]["mention_count"] == 3
+    assert dossier["cited_mentions"] == 3
+    assert dossier["documents"][0]["cited_mention_count"] == 3
     assert len(dossier["mentions"]) == 1
     assert any("dropped 2" in gap for gap in dossier["gaps"])

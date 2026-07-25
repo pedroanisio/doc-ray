@@ -344,6 +344,67 @@ async def delete_collection(collection_id: str) -> bool:
     return deleted
 
 
+async def promote_collection_to_lens(
+    collection_id: str, parent_lens_id: str | None = None
+) -> dict[str, Any]:
+    """Promote a collection to a *lens* — a named entity-resolution scope (Block B).
+
+    A lens is the scope under which a projection layer will later interpret entity
+    identity, so a fictional ``Duncan Idaho`` in one work stays distinct from an
+    unrelated novel's Duncan. This is a **curation decision**, not a mechanical
+    step: mark a collection a lens only when its documents share an identity world
+    (a series, a franchise, one novel). Optionally nest it under ``parent_lens_id``,
+    which must already be a lens. Nothing about how entities resolve changes today;
+    this only names the scope. Returns the updated collection (``isScope`` true).
+    """
+    _require_uuid(collection_id, "collection_id")
+    if parent_lens_id is not None:
+        _require_uuid(parent_lens_id, "parent_lens_id")
+    data = await gql(
+        "mutation($c:ID!,$p:ID){promoteCollectionToLens(collectionId:$c,parentLensId:$p)"
+        f"{{{COLLECTION_FIELDS}}}}}",
+        {"c": collection_id, "p": parent_lens_id},
+    )
+    collection: dict[str, Any] = data["promoteCollectionToLens"]
+    return collection
+
+
+async def demote_lens(collection_id: str) -> dict[str, Any]:
+    """Demote a lens back to an ordinary collection (clears ``isScope``).
+
+    Refuses for the reserved ``global`` lens, while any document still names it as
+    its default lens, and while it still parents another lens — reassign or demote
+    those first. The collection and its membership are untouched. Returns the
+    updated collection.
+    """
+    _require_uuid(collection_id, "collection_id")
+    data = await gql(
+        f"mutation($c:ID!){{demoteLens(collectionId:$c){{{COLLECTION_FIELDS}}}}}",
+        {"c": collection_id},
+    )
+    collection: dict[str, Any] = data["demoteLens"]
+    return collection
+
+
+async def set_document_default_lens(document_id: str, lens_id: str | None = None) -> dict[str, Any]:
+    """Set (or clear) a document's default lens (Block B).
+
+    The lens must be a scope collection the document already belongs to; pass a
+    null ``lens_id`` to clear the default. Requires a write grant on the document.
+    Returns the updated document (its ``defaultLensId`` reflects the change).
+    """
+    _require_uuid(document_id, "document_id")
+    if lens_id is not None:
+        _require_uuid(lens_id, "lens_id")
+    data = await gql(
+        "mutation($d:ID!,$l:ID){setDocumentDefaultLens(documentId:$d,lensId:$l)"
+        "{id title defaultLensId}}",
+        {"d": document_id, "l": lens_id},
+    )
+    document: dict[str, Any] = data["setDocumentDefaultLens"]
+    return document
+
+
 #: The write tools registered when ``DOCRAY_MCP_ENABLE_WRITE`` is set. Reprocessing
 #: (reannotate … suggest_document_metadata), curation (update_document_metadata,
 #: bulk_tag_documents, decide_*, seed_approved), and collection management
@@ -367,4 +428,7 @@ TOOLS: tuple[Any, ...] = (
     remove_document_from_collection,
     update_collection,
     delete_collection,
+    promote_collection_to_lens,
+    demote_lens,
+    set_document_default_lens,
 )

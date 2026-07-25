@@ -36,6 +36,9 @@ from doc_ray.adapters.persistence_read_collections import (
 from doc_ray.adapters.persistence_read_collections import (
     list_collections as list_collections,
 )
+from doc_ray.adapters.persistence_read_collections import (
+    list_lenses as list_lenses,
+)
 from doc_ray.adapters.read_cursors import decode_cursor, encode_cursor
 
 Row = dict[str, Any]
@@ -159,7 +162,7 @@ async def list_documents(
         f"""
         SELECT d.id, d.title, d.original_filename AS filename, d.doc_type, d.language,
                d.page_count, d.char_count, d.status, d.lifecycle_state,
-               d.archived_at, d.deleted_at, d.created_at,
+               d.archived_at, d.deleted_at, d.created_at, d.default_lens_id,
                (SELECT n_sentences FROM document_stats ds WHERE ds.document_id = d.id)
                    AS n_sentences,
                (SELECT count(*) FROM document_provenance p WHERE p.document_id = d.id)

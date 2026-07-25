@@ -52,6 +52,7 @@ from doc_ray.entrypoints.api.mutation_guards import (
     _require_document_write,
     _require_write_audited,
 )
+from doc_ray.entrypoints.api.mutation_lenses import LensMutations
 from doc_ray.entrypoints.api.mutation_sharing import SharingMutations
 from doc_ray.entrypoints.api.types import Info, Job
 
@@ -65,7 +66,9 @@ _PIPELINE_CHAIN = [KIND_ANNOTATE, KIND_SEMANTIC_ENRICH, KIND_CANONICALIZE, KIND_
 
 
 @strawberry.type
-class Mutation(BillingMutations, CollectionMutations, CorrectionMutations, SharingMutations):
+class Mutation(
+    BillingMutations, CollectionMutations, CorrectionMutations, LensMutations, SharingMutations
+):
     """Write operations: most enqueue background work; sharing writes ACLs directly."""
 
     @strawberry.mutation

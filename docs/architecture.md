@@ -164,6 +164,29 @@ mutation: `canonical`, `canonicalSearch`, `unresolvedMentions`, and
 fields expose annotation runs, tokens with features, dependencies, chunks,
 coreference chains, and entity links from the persisted NLP layers.
 
+## Lens registry (entity-resolution scopes)
+
+Today entity identity is **global** — one `canonical` registry for the tenant.
+That is correct for real-world entities but wrong for fiction, where the *Duncan
+Idaho* of one novel must not collapse into an unrelated book's Duncan. The fix
+(the Substrate·Lens·Projection architecture,
+[`proposals/entity-fabric-substrate-lens-projection.md`](proposals/entity-fabric-substrate-lens-projection.md))
+is to make identity **relative to a named scope — a lens** — rather than to
+fragment the registry.
+
+A **lens is a promoted collection**, not a parallel structure:
+`document_collections.is_scope` marks one as a scope, `parent_lens_id` optionally
+nests it, and `documents.default_lens_id` names a document's default. A reserved
+**`global`** lens (undeletable/unrenamable, enforced by trigger) is the
+real-world scope. Integrity — a parent lens is a scope, a default lens is a scope
+the document belongs to, no parent cycle — is enforced in the database
+(migration 121), and the `global` lens's completeness check runs BYPASSRLS as
+`docray_batch` (migration 114's pattern). **Block B ships this vocabulary only:
+no entity resolution changes; a later projection layer consumes it.** The GraphQL
+surface is `lenses` (read) and `promoteCollectionToLens` / `demoteLens` /
+`setDocumentDefaultLens` (write); MCP mirrors it with `list_lenses` and the three
+write tools.
+
 ## Access-control boundary
 
 The API authenticates inbound bearer/API-token requests with
@@ -183,6 +206,16 @@ annotate across every tenant with no request principal — holds its exemption a
 an explicit `docray_batch` role carrying `BYPASSRLS`, assumed by
 `adapters/persistence.connect()`. The deployment must connect as a
 **non-superuser**: a superuser bypasses RLS regardless of `FORCE`.
+
+A recurring hazard is a table created *after* the `018_rbac` grant loop (and the
+`018`/`106` RLS rollout) that is never retrofitted: the batch role reads it, so
+ingestion works, while every `docray_client` read path that joins it fails with
+`permission denied` (this was `form_index`/`entity_profiles`, migration 117, and
+`resolution_review`/`resolutionReview`, migration 123). A per-document table needs
+**both** a client grant and an RLS policy — a grant alone would expose it across
+tenants. `test_client_read_grants.py` closes the class: it asserts `docray_client`
+holds SELECT on every table the client-facing read adapters reference, so the next
+such gap fails a test rather than a production caller.
 
 ### What a principal may read
 

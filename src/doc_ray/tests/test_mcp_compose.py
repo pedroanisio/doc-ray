@@ -194,60 +194,136 @@ async def test_briefing_pack_forwards_caller_bearer(monkeypatch):
 
 # --- entity_dossier ---------------------------------------------------------
 
+_DOC_A = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+_DOC_B = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
 
-@pytest.mark.asyncio
-async def test_entity_dossier_groups_mentions_by_document(monkeypatch):
-    mentions = [
-        {
-            "documentId": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
-            "title": "Paper A",
-            "ordinal": 1,
-            "pre": "",
-            "hit": "Einstein",
-            "post": " wrote.",
-        },
-        {
-            "documentId": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
-            "title": "Paper A",
-            "ordinal": 9,
-            "pre": "and ",
-            "hit": "Einstein",
-            "post": " again.",
-        },
-        {
-            "documentId": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
-            "title": "Paper B",
-            "ordinal": 4,
-            "pre": "",
-            "hit": "Einstein",
-            "post": " noted.",
-        },
-    ]
+
+def _dossier_handler(sentences, roster):
+    """Route the dossier's two GraphQL ops: fullTextSearch (roster) + searchSentences.
+
+    ``roster`` may be a callable ``(variables) -> list`` so a test can size the
+    document roster to the requested limit and simulate roster truncation.
+    """
 
     def handler(query, variables):
-        assert "searchSentences" in query
-        return {"searchSentences": mentions}
+        if "fullTextSearch" in query:
+            docs = roster(variables) if callable(roster) else roster
+            return {"fullTextSearch": docs}
+        if "searchSentences" in query:
+            return {"searchSentences": sentences}
+        raise AssertionError(f"unexpected query: {query}")
 
-    _install(monkeypatch, handler)
-    dossier = await compose.entity_dossier("Einstein")
-    assert dossier["total_mentions"] == 3
-    docs = {d["document_id"]: d["mention_count"] for d in dossier["documents"]}
-    assert docs == {
-        "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa": 2,
-        "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb": 1,
+    return handler
+
+
+def _mention(document_id, title, ordinal, hit="Einstein"):
+    return {
+        "documentId": document_id,
+        "title": title,
+        "ordinal": ordinal,
+        "pre": "",
+        "hit": hit,
+        "post": " wrote.",
     }
-    assert (
-        dossier["documents"][0]["document_id"] == "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
-    )  # most mentions first
+
+
+@pytest.mark.asyncio
+async def test_entity_dossier_groups_cited_mentions_by_document(monkeypatch):
+    sentences = [
+        _mention(_DOC_A, "Paper A", 1),
+        _mention(_DOC_A, "Paper A", 9),
+        _mention(_DOC_B, "Paper B", 4),
+    ]
+    roster = [
+        {"documentId": _DOC_A, "title": "Paper A", "rank": 0.9},
+        {"documentId": _DOC_B, "title": "Paper B", "rank": 0.4},
+    ]
+    _install(monkeypatch, _dossier_handler(sentences, roster))
+    dossier = await compose.entity_dossier("Einstein")
+
+    # The count reflects cited passages, honestly named — never a mislabelled total.
+    assert dossier["cited_mentions"] == 3
+    assert "total_mentions" not in dossier
+    # Nothing was capped, so the dossier does not claim a truncation.
+    assert dossier["truncated"] is False
+    # The roster is the full document set, each annotated with its cited count.
+    docs = {d["document_id"]: d["cited_mention_count"] for d in dossier["documents"]}
+    assert docs == {_DOC_A: 2, _DOC_B: 1}
+    assert dossier["document_count"] == 2
+    assert dossier["documents"][0]["document_id"] == _DOC_A  # most cited first
     assert dossier["mentions"][0]["cite"]["sentence_ordinal"] == 1
 
 
 @pytest.mark.asyncio
 async def test_entity_dossier_reports_gap_when_absent(monkeypatch):
-    _install(monkeypatch, lambda q, v: {"searchSentences": []})
+    _install(monkeypatch, _dossier_handler([], []))
     dossier = await compose.entity_dossier("Nobody")
-    assert dossier["total_mentions"] == 0
+    assert dossier["cited_mentions"] == 0
+    assert dossier["document_count"] == 0
+    assert dossier["truncated"] is False
     assert dossier["gaps"] and "No mentions" in dossier["gaps"][0]
+
+
+@pytest.mark.asyncio
+async def test_entity_dossier_roster_is_complete_not_the_capped_page(monkeypatch):
+    """Regression for #14: a capped sentence page must not truncate the roster.
+
+    Scytale-style failure — every cited mention lands in one document because the
+    page filled up there, but the entity is present in a second document. The
+    roster comes from full_text_search, so the second document is never dropped,
+    and the dossier reports truncation instead of a false ``gaps: []``.
+    """
+    # max_mentions=3 and 3 hits all in Paper A -> the page is capped there.
+    sentences = [_mention(_DOC_A, "Paper A", o) for o in (1, 2, 3)]
+    roster = [
+        {"documentId": _DOC_A, "title": "Paper A", "rank": 0.9},
+        {"documentId": _DOC_B, "title": "Paper B", "rank": 0.6},
+    ]
+    _install(monkeypatch, _dossier_handler(sentences, roster))
+    dossier = await compose.entity_dossier("Scytale", max_mentions=3)
+
+    doc_ids = {d["document_id"] for d in dossier["documents"]}
+    assert doc_ids == {_DOC_A, _DOC_B}, "the roster must not be the single capped page"
+    assert dossier["document_count"] == 2
+    assert dossier["truncated"] is True
+    assert dossier["gaps"], "a capped page must surface a gap, never claim gaps: []"
+    # The precise incident invariant: an entity in two documents never returns a
+    # single-document roster with an empty gaps list.
+    assert not (len(dossier["documents"]) == 1 and dossier["gaps"] == [])
+    # Paper B is in the roster but no passage reached it -> honest zero count.
+    by_doc = {d["document_id"]: d["cited_mention_count"] for d in dossier["documents"]}
+    assert by_doc[_DOC_A] == 3 and by_doc[_DOC_B] == 0
+
+
+@pytest.mark.asyncio
+async def test_entity_dossier_cited_count_is_not_a_corpus_total(monkeypatch):
+    """cited_mentions is the shown page, not the corpus total (the #14 mislabel)."""
+    sentences = [_mention(_DOC_A, "Paper A", o) for o in range(1, 6)]  # 5 == cap
+    roster = [{"documentId": _DOC_A, "title": "Paper A", "rank": 0.9}]
+    _install(monkeypatch, _dossier_handler(sentences, roster))
+    dossier = await compose.entity_dossier("Einstein", max_mentions=5)
+    assert dossier["truncated"] is True  # coverage.limit_reached
+    assert "total_mentions" not in dossier
+    assert dossier["cited_mentions"] == 5  # honest: the passages actually cited
+
+
+@pytest.mark.asyncio
+async def test_entity_dossier_flags_a_truncated_document_roster(monkeypatch):
+    """When full_text_search itself hits its limit, the roster is flagged too."""
+    sentences = [_mention(_DOC_A, "Paper A", 1)]
+
+    def roster(variables):
+        # Return exactly `limit` documents to simulate a maxed-out roster page.
+        n = variables["l"]
+        return [
+            {"documentId": f"{i:08d}-0000-4000-8000-000000000000", "title": f"D{i}", "rank": 1.0}
+            for i in range(n)
+        ]
+
+    _install(monkeypatch, _dossier_handler(sentences, roster))
+    dossier = await compose.entity_dossier("Common")
+    assert dossier["truncated"] is True
+    assert any("document" in g.lower() for g in dossier["gaps"])
 
 
 # --- document_evidence ------------------------------------------------------

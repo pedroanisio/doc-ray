@@ -23,6 +23,7 @@ from doc_ray.entrypoints.api.canonical_types import (
     ResolutionReview,
     UnresolvedMention,
 )
+from doc_ray.entrypoints.api.collection_query import CollectionQueries
 from doc_ray.entrypoints.api.ids import clean_uuid as _clean_uuid
 from doc_ray.entrypoints.api.mutation_guards import _require_admin_read
 from doc_ray.entrypoints.api.security_audit import record_audit_event
@@ -31,7 +32,6 @@ from doc_ray.entrypoints.api.structure_query import StructureQueries
 from doc_ray.entrypoints.api.types import (
     CorpusManifest,
     Document,
-    DocumentCollection,
     DocumentHit,
     DocumentShare,
     EntityFrequency,
@@ -47,7 +47,7 @@ from doc_ray.entrypoints.api.visual_query import VisualQueries
 
 
 @strawberry.type
-class Query(VisualQueries, StructureQueries):
+class Query(VisualQueries, StructureQueries, CollectionQueries):
     """The GraphQL query root."""
 
     @strawberry.field
@@ -160,32 +160,6 @@ class Query(VisualQueries, StructureQueries):
         ctx = info.context
         rows = await read.list_document_shares(ctx.conn, doc_id)
         return [DocumentShare.from_row(row) for row in rows]
-
-    @strawberry.field
-    async def collections(
-        self,
-        info: Info,
-        limit: int = 50,
-        after: str | None = None,
-        kind: str | None = None,
-    ) -> list[DocumentCollection]:
-        """Return manual and smart document collections with visible document counts."""
-        rows = await read.list_collections(
-            info.context.conn,
-            limit=info.context.page_size(limit),
-            after=after,
-            kind=kind,
-        )
-        return [DocumentCollection.from_row(row) for row in rows]
-
-    @strawberry.field
-    async def collection(self, info: Info, id: strawberry.ID) -> DocumentCollection | None:
-        """Return one document collection, or ``None`` if *id* is malformed or unknown."""
-        collection_id = _clean_uuid(str(id))
-        if collection_id is None:
-            return None
-        row = await read.get_collection(info.context.conn, collection_id)
-        return DocumentCollection.from_row(row) if row is not None else None
 
     @strawberry.field
     async def audit_events(

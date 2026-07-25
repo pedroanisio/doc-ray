@@ -19,6 +19,79 @@ doc-ray carries **one global version** covering both the application package
 (`docray_schema_version()`). They are kept in lockstep by
 `scripts/check_version_consistency.py`, which fails the build on any drift.
 
+## [1.41.0]
+
+### Fixed
+- **`resolutionReview` was dead for every client caller — `resolution_review`
+  never granted to `docray_client`, and never RLS-scoped** (Claude Opus 4.8 (1M
+  context) via Claude Code; issue #15, broader sweep). Migration 117 fixed the
+  `form_index`/`entity_profiles` instance of this class; the class-closing sweep
+  the issue asked for surfaced a second: `resolution_review` (read by the
+  `resolutionReview` GraphQL query via `list_resolution_review`) was created in
+  migration 023 — *after* both the 018 grant loop and the 018/106 RLS rollout — so
+  it had **neither** a `docray_client` SELECT grant **nor** RLS, and every real
+  caller got `permission denied for table resolution_review`. Unlike the global
+  `form_index`, `resolution_review` is per-document (via
+  `mention_id → entity_mention → annotations.document_id`), so migration 123 adds
+  **RLS scoping** (a bare grant would expose every tenant's review queue) *and* the
+  grant. A new `test_client_read_grants.py` closes the class: it asserts
+  `docray_client` holds SELECT on every table the client-facing read adapters
+  touch, so the next table added after a grant loop cannot silently repeat this.
+  No schema-structure change (grant + RLS only); `docray_schema_version()`
+  untouched, as with 117.
+- **`entity_dossier` reported a capped page as the corpus total** (Claude Opus 4.8
+  (1M context) via Claude Code; issue #14). The MCP tool derived `total_mentions`,
+  its `documents` roster, and `gaps` from a single `search_sentences` page capped
+  at `max_mentions`, so it claimed `total_mentions == max_mentions` and a
+  single-document roster with `gaps: []` for an entity that was demonstrably in
+  more documents — a silent false negative dressed as a complete answer, the exact
+  failure mode the project's verification stance exists to prevent, and one its own
+  `guidance` string actively encouraged. The fix draws the document roster from
+  `full_text_search` (the complete set of documents containing the entity,
+  independent of the mention cap), keeps the `coverage` signal `search_sentences`
+  already returns, and reports honestly: `total_mentions` becomes `cited_mentions`
+  (the passages shown, never a total), a new `document_count` and `truncated` flag,
+  a `cited_mention_count` per roster document (0 where the entity appears but no
+  passage was cited), and `gaps` + `guidance` that name the truncation instead of
+  asserting completeness. No schema change (MCP-layer logic only). The pure
+  citation/response-budget helpers were extracted to
+  `entrypoints/mcp/compose_common.py` (D-015).
+
+### Added
+- **Lens Registry — promote collections to named entity-resolution scopes**
+  (Claude Opus 4.8 (1M context) via Claude Code; Block B, issue #5). A *lens* is a
+  `document_collections` row flagged `is_scope`: a named scope under which a later
+  projection layer (Block D) will interpret entity identity, so the fictional
+  *Duncan Idaho* of one work stays distinct from an unrelated novel's Duncan while
+  the reserved **`global`** lens holds real-world (Wikidata-linkable) identities
+  shared corpus-wide. This block ships **vocabulary and metadata only** — it does
+  not change how any entity resolves today; every existing read returns
+  byte-identical results (proposal
+  `docs/proposals/entity-fabric-substrate-lens-projection.md`, §3.2/§7).
+  - **Schema (migration 121):** `document_collections.is_scope` and
+    `parent_lens_id`; `documents.default_lens_id`; the reserved `global` lens
+    seeded idempotently. Integrity is enforced in the database, not only the app:
+    a parent lens must itself be a scope, a document's default lens must be a
+    scope it is a member of, the parent graph may not cycle, and `global` cannot
+    be renamed, demoted, or deleted — all by trigger. Deleting a lens `SET NULL`s
+    the references that point at it; unmembering a document from its default lens
+    clears the default.
+  - **GraphQL:** `DocumentCollection.isScope`/`parentLensId`, `Document.defaultLensId`,
+    a `lenses` query, and the `promoteCollectionToLens` / `demoteLens` /
+    `setDocumentDefaultLens` mutations (write-scope + per-document-ACL guarded,
+    audited on success and denial).
+  - **MCP:** the `list_lenses` read tool, and the `promote_collection_to_lens` /
+    `demote_lens` / `set_document_default_lens` write tools (gated by
+    `DOCRAY_MCP_ENABLE_WRITE`), with agent-facing docstrings explaining that
+    promotion is a curation decision, not a mechanical one.
+  - **Recorded decisions:** lenses ship flat (the `parent_lens_id` column exists
+    but resolution is not implemented — D-1); the default lives on `documents`
+    (D-2); `document_collections` remains shared, non-tenant navigation metadata,
+    so a lens *name* is visible corpus-wide while a document's `default_lens_id`
+    rides the existing `documents` RLS (D-3). The FR-2 preference for a composite
+    FK was superseded by triggers: PostgreSQL 16 rejects `ON DELETE SET NULL` on a
+    FK containing the generated companion column the composite form requires.
+
 ## [1.40.0]
 
 ### Fixed

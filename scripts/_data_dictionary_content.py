@@ -34,6 +34,7 @@ RLS_PATH = {
     "constituent": "annotation_id → annotations",
     "dependency": "annotation_id → annotations",
     "entity_mention": "annotation_id → annotations",
+    "resolution_review": "mention_id → entity_mention → annotations",
     "entity_mention_correction": "document_id",
     "entity_link": "mention_id → entity_mention → annotations",
     "srl_predicate": "annotation_id → annotations",
@@ -286,6 +287,15 @@ MIGRATIONS = [
     ("118_metadata_history_authors_field", "document metadata history admits the authors field"),
     ("119_backup_role_default_grants", "docray_batch default-privilege grants for backups"),
     ("120_schema_version_1_40_0", "advance the schema SemVer to 1.40.0"),
+    (
+        "121_lens_registry",
+        "Lens Registry: is_scope/parent_lens_id/default_lens_id + global lens (Block B)",
+    ),
+    ("122_schema_version_1_41_0", "advance the schema SemVer to 1.41.0"),
+    (
+        "123_resolution_review_client_read",
+        "grant + RLS on resolution_review so client reads (resolutionReview) work (#15 sweep)",
+    ),
 ]
 
 # ---------------------------------------------------------------------------
