@@ -229,7 +229,9 @@ curate **domain seeding** — mining a document's vocabulary, resolving each
 term to an exact Wikidata identity, and auditing the resolved description
 before anything reaches the shared canonical registry (the fuzzy-search
 alternative silently drifts, e.g. resolving "versal" to the Wikidata item
-for *Versailles*). Full walkthrough: [`docs/webapp_user_manual.md`](docs/webapp_user_manual.md).
+for *Versailles*). Full walkthrough of both human and agent surfaces — the web
+interface screen by screen and the MCP tool surface AI agents work the corpus
+through: [`docs/webapp_user_manual.md`](docs/webapp_user_manual.md).
 Entity canonicalization design: [`docs/canonicalization_pipeline.md`](docs/canonicalization_pipeline.md).
 
 For HTTPS, `docker compose up -d nginx` starts a TLS front door on

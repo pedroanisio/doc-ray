@@ -228,5 +228,5 @@ description shown as the audit surface, so a human approves or rejects before
 anything reaches `canonical` — `seed_approved` then seeds only what was
 approved through the same `canonical_seed` path this design specified. The
 webapp's `/doc/<id>/seeding` screen is this workflow's interface; see
-[`webapp_user_manual.md`](webapp_user_manual.md) §3 for the curator's-eye view
+[`webapp_user_manual.md`](webapp_user_manual.md) §6 for the curator's-eye view
 and worked examples of what the audit step actually catches.

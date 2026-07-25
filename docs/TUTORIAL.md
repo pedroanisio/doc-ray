@@ -466,8 +466,10 @@ heartbeat timeout (`WORKER_CLAIM_TIMEOUT_SECONDS`, default 120s).
 
 ## Next Steps
 
-- [docs/webapp_user_manual.md](webapp_user_manual.md) — the full webapp
-  screen-by-screen manual, including the domain-seeding curation workflow.
+- [docs/webapp_user_manual.md](webapp_user_manual.md) — the manual for both
+  product surfaces: the web interface screen by screen, and the MCP tool surface
+  AI agents work the corpus through, including the domain-seeding curation
+  workflow and where the two surfaces meet.
 - [docs/architecture.md](architecture.md) — the hexagonal/DDD internal
   design.
 - [docs/canonicalization_pipeline.md](canonicalization_pipeline.md) — how
