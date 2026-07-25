@@ -514,6 +514,7 @@ against.
 | BL-145 | MCP layer is not self-teaching: no server instructions, no search coverage signal, opaque cursor rejections, thin tool descriptions | api | feature | done | M | high | shared |
 | BL-146 | MCP reach and honesty gaps: no document map, raw NER type-splits, no token lever on the bulk readers | api | feature | done | L | high | shared |
 | BL-147 | entity_profiles was dead for every real caller: form_index never granted to docray_client | api | bug | done | XS | high | shared |
+| BL-148 | MCP evaluation harness: measure the tool surface instead of asserting it | testing | feature | done | M | medium | shared |
 
 See [`backlog.yml`](backlog.yml) for each item's full description, rationale,
 acceptance criteria, dependencies, related decisions (`D-###`), and references.
