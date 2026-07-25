@@ -515,8 +515,10 @@ against.
 | BL-146 | MCP reach and honesty gaps: no document map, raw NER type-splits, no token lever on the bulk readers | api | feature | done | L | high | shared |
 | BL-147 | entity_profiles was dead for every real caller: form_index never granted to docray_client | api | bug | done | XS | high | shared |
 | BL-148 | MCP evaluation harness: measure the tool surface instead of asserting it | testing | feature | done | M | medium | shared |
-| BL-149 | Backup archive upload is a single in-memory PutObject — fails past 5 GiB | ops | bug | ready | M | medium | unassigned |
-| BL-150 | Object-store blobs have no backup coverage once the in-app archive is off | ops | infra | ready | S | high | unassigned |
+| BL-149 | MCP term-frequency pre-flight: prevent search flooding instead of diagnosing it | api | feature | done | S | medium | shared |
+| BL-150 | MCP prompts primitive: ship the corpus methodology as selectable workflows | api | feature | done | S | medium | shared |
+| BL-151 | Backup archive upload is a single in-memory PutObject — fails past 5 GiB | ops | bug | ready | M | medium | unassigned |
+| BL-152 | Object-store blobs have no backup coverage once the in-app archive is off | ops | infra | ready | S | high | unassigned |
 
 See [`backlog.yml`](backlog.yml) for each item's full description, rationale,
 acceptance criteria, dependencies, related decisions (`D-###`), and references.

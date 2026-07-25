@@ -63,6 +63,66 @@ doc-ray carries **one global version** covering both the application package
     no longer start `backup-scheduler`.
 
 ### Added
+- **MCP prompts primitive — ship the corpus methodology as selectable workflows**
+  (Claude Opus 4.8 (1M context) via Claude Code; issue #13, MCP Item 8). The server
+  now declares MCP's third and final primitive — **prompts** (user-controlled, joining
+  the model-controlled tools and application-controlled `docray://` resources) — as
+  four argument-taking workflows a user picks from their client's menu, so the
+  retrieval methodology lives in the server instead of being re-derived per session.
+  No schema change; no version bump.
+  - **`summarize_document(document_id)`** is **eager** (the primitive's justification):
+    it fetches the document's real title, sentence count, and outline, then returns a
+    plan already naming the ordinal ranges to read with `response_format="concise"` and
+    the rule that every claim cites an `ordinal`. **Honesty propagates**: a `uniform`
+    outline is disclosed as a navigation grid whose titles are **not** chapter names,
+    never laundered into a table of contents.
+  - **`ground_a_claim(claim, document_id?)`** — the search-then-verify path, with the
+    non-negotiable rule that an ungrounded claim is reported *unsupported*, never
+    asserted. **`survey_entities(document_id?)`** — `entity_profiles` over
+    `entity_frequency`, how to read `typeConsistency`, corroborate the contested.
+    **`sweep_the_corpus(shard_count=8)`** — the map-reduce plan with the coverage proof
+    (Σ per-shard counts == `totalDocuments`).
+  - **Failure is graceful** (FR-4/FR-5): a malformed id is rejected (`bad_input`) before
+    any network call; an unreadable id returns a plain "not readable — use
+    `list_documents`" message with no fabricated plan; and if the outline can't be
+    fetched the plan degrades to a self-serve one and says so. Each prompt emits **one
+    audit line** per invocation (the same `audit.audited` wrapper as tools, verified to
+    compose with `FastMCP.prompt()`), returns a single user-role message, holds no DB
+    pool, and never embeds the caller's token in its text. Each message is well under
+    ~1.5 KB. New: `entrypoints/mcp/prompts.py`; documented in `docs/mcp-service.md` §3.7.
+- **Term-frequency pre-flight — prevent search flooding instead of diagnosing it**
+  (Claude Opus 4.8 (1M context) via Claude Code; issue #16, MCP Item 10). A new
+  read — GraphQL `termFrequency(terms:)` and MCP tool `term_frequency` — lets an
+  agent ask how common a **batch** of candidate search terms is *before* spending a
+  search call, and get a categorical `floodRisk` (`low` | `moderate` | `high`) so it
+  picks a rarer term for free. BL-145 shipped the *diagnosis* (a flooded
+  `search_sentences` returns `coverage.limit_reached` + a note); this removes the
+  wasted call the diagnosis still costs. No schema change; no migration; no version
+  bump.
+  - **One indexed statement over the D-024 rollup:** the whole batch is served by a
+    single `unnest`/`LEFT JOIN`/`SUM` against the `lexeme_stats` rollup — never the
+    17.5M-row `lexeme_occurrences` fact table (the measured 37 s Lexicon
+    regression). RLS-scoped to the caller's tenant; a regression test fails if the
+    query ever references `lexeme_occurrences` again.
+  - **The verdict is the product (FR-2):** `floodRisk` is the term's `share` of the
+    scope's total lexeme uses, bucketed at `share ≥ 0.5%` (high) / `≥ 0.05%`
+    (moderate); the payload carries `uses`/`totalUses`/`share` so a caller can
+    disagree, and `attested: false` + an "unattested" note distinguishes an unknown
+    term from a lookup failure (FR-6). Verdict logic is a pure domain module,
+    unit-tested at every threshold boundary.
+  - **Normalization (FR-5), answered empirically and documented:** the count is the
+    lexeme-lemma frequency (`norm_lemma`), a corpus-saturation proxy that is
+    deliberately **not** identical to what `search_sentences` (case-insensitive
+    substring) or `full_text_search` (Snowball stem) match — recorded as a finding
+    in `docs/mcp-service.md` §3.6 rather than papered over.
+  - **Corpus-wide only for now** (Open decision 1a): passing `documentId` /
+    `document_id` returns a typed `unsupported` error rather than corpus numbers
+    mislabelled as document-scoped; a `document_lexeme_stats` rollup is the
+    follow-up if the evaluation harness shows document-scoped triage matters.
+  - **Surfaces:** the server instructions teach the pre-flight step; the tool is
+    registered in every MCP drift guard; and it is exercised by a new
+    `coverage-term-frequency` task in the evaluation harness (#12). New:
+    `domain/term_frequency.py`, `adapters/persistence_read_terms.py`.
 - **MCP evaluation harness — measure the tool surface instead of asserting it**
   (Claude Opus 4.8 (1M context) via Claude Code; issue #12, MCP Item 11). A
   reproducible, offline harness runs a fixed set of grounded retrieval tasks

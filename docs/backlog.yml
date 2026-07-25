@@ -110,7 +110,7 @@ metadata:
   generated_by:     "Claude Sonnet 5 via Claude Code (merge of Claude Opus 4.8 backlog + OpenAI Codex improvement-proposal candidates)"
   generated_on:     "2026-07-05"
   system_of_record: "docs/backlog.yml"
-  total_items:      150
+  total_items:      152
 
 items:
 
@@ -5025,6 +5025,88 @@ items:
     tags:         ["mcp", "testing", "tooling", "agent-experience", "feature"]
 
   - id:          "BL-149"
+    title:        "MCP term-frequency pre-flight: prevent search flooding instead of diagnosing it"
+    summary:      "BL-145 shipped the diagnosis (search_sentences returns coverage.limit_reached + a note when a common term floods one region), but the agent still spends the call to learn it. term_frequency lets an agent ask how common a batch of candidate terms is BEFORE searching — one indexed read against the lexeme_stats rollup — and get a categorical floodRisk (low|moderate|high) so it picks a rarer term for free."
+    description: |
+      New read exposed as a GraphQL field (termFrequency) and an MCP tool
+      (term_frequency), both delegating to a new read adapter
+      (persistence_read_terms) over the D-024-compliant lexeme_stats rollup — never
+      the 17.5M-row lexeme_occurrences fact table (the measured 37 s Lexicon
+      regression). The verdict lives in a pure domain module (term_frequency), so
+      the categorization is unit-tested at every threshold boundary with no DB. The
+      whole batch is one SQL statement (unnest + LEFT JOIN + SUM), RLS-scoped to the
+      caller's tenant. FR-5 answered empirically from the code: the count is the
+      lexeme-lemma frequency (norm_lemma), a corpus-saturation proxy that is
+      deliberately not identical to what search_sentences (case-insensitive
+      substring) or full_text_search (Snowball stem) match — recorded as a finding
+      in docs/mcp-service.md §3.6. Open decision 1(a): corpus-wide only for now;
+      document_id fails with a typed unsupported error (a document_lexeme_stats
+      rollup is the follow-up if the evaluation harness shows it matters). No schema
+      change, no migration, no version bump.
+    category:     "api"
+    type:         "feature"
+    status:       "done"
+    complexity:   "S"
+    priority:     "medium"
+    rationale:    "BL-145 turned the flooding failure legible but did not remove its cost: the agent still spends a call, reads the note, and only then picks a better term — the pattern that exhausted the budget on the run that motivated this programme. A cheap pre-flight against an existing rollup removes the wasted call entirely, and BL-148's survive-keyword-flood task is the ruler for whether it helps."
+    acceptance_criteria:
+      - "GraphQL exposes termFrequency; the MCP tool calls it; both are registered in every drift guard (schema-contract call list, read-tool name set, docs inventory)."
+      - "A batch of 10 terms is served by ONE SQL statement (asserted by call count in test_term_frequency_db.py)."
+      - "A common term returns high with the counts that justify it; a rare term returns low; an unattested term returns uses:0, low, and an 'unattested' note — all three proven from real seeded data."
+      - "check_read_path_aggregates passes with the new adapter registered; the query touches lexeme_stats, never lexeme_occurrences (regression test)."
+      - "An RLS test proves a caller in another/no tenant sees zero, not the real frequencies."
+      - "The FR-5 normalization question is answered empirically and documented."
+    dependencies: ["BL-145"]
+    references:
+      - "src/doc_ray/domain/term_frequency.py"
+      - "src/doc_ray/adapters/persistence_read_terms.py"
+      - "src/doc_ray/entrypoints/api/structure_query.py"
+      - "src/doc_ray/entrypoints/api/structure_types.py"
+      - "src/doc_ray/entrypoints/mcp/structure.py"
+      - "docs/mcp-service.md"
+    owner:        "shared"
+    source:       "GitHub issue #16 (MCP Item 10); implemented with strict TDD (Claude Opus 4.8 (1M context) via Claude Code)."
+    tags:         ["mcp", "agent-experience", "read-model", "feature"]
+
+  - id:          "BL-150"
+    title:        "MCP prompts primitive: ship the corpus methodology as selectable workflows"
+    summary:      "MCP defines three primitives by who controls them — model-controlled tools, application-controlled resources, user-controlled prompts. doc-ray shipped tools and docray:// resources; prompts were the missing third. This declares them: four argument-taking workflows (summarize_document, ground_a_claim, survey_entities, sweep_the_corpus) a user selects from their client's menu, so the retrieval methodology lives in the server instead of being re-derived per session."
+    description: |
+      New module entrypoints/mcp/prompts.py + registration in build_server(),
+      wrapped in audit.audited like every other caller action (verified to compose
+      with FastMCP.prompt() via functools.wraps/__wrapped__). Each prompt returns a
+      single user-role message (Open decision 1a). summarize_document is EAGER (Open
+      decision 2): it calls get_document + read_document_outline to parameterize the
+      plan with the document's real title, sentence count, and ordinal ranges (FR-2),
+      and stays honest about a uniform outline (FR-3: titles are not chapter names).
+      Failure is graceful (FR-4/FR-5): a malformed id is rejected bad_input before any
+      network call; an unreadable id returns a plain not-readable message with no
+      fabricated plan; a failed outline fetch degrades to a self-serve plan that says
+      so. The three methodology prompts are argument-parameterized (claim / document
+      scope / shard_count). Read-only, no DB pool, no credential in the returned text,
+      each message under ~1.5 KB. No schema change, no version bump.
+    category:     "api"
+    type:         "feature"
+    status:       "done"
+    complexity:   "S"
+    priority:     "medium"
+    rationale:    "Item 1 moved part of the methodology into SERVER_INSTRUCTIONS, which the model sees once and which cannot take arguments. Prompts are the primitive that lets a USER invoke the methodology deliberately, parameterized by a specific document's real data — the same 'put the lesson in the server' thesis (items 1-6) applied to the one primitive that was missing. Recommended after #12 so the prompts' effect is measurable, not assumed."
+    acceptance_criteria:
+      - "build_server().list_prompts returns exactly the four prompts, each with a non-empty description (test_mcp_server.py::_PROMPT_NAMES is an exact set)."
+      - "summarize_document on a real seeded document returns a message containing that document's actual sentence count and outline-derived ordinal ranges; a uniform-source document includes the do-not-quote-titles-as-chapters instruction."
+      - "A malformed id raises typed bad_input before any network call; a well-formed but unreadable id returns a plain not-readable message and no fabricated plan."
+      - "Each prompt emits exactly one audit line per invocation; the audit wrapper preserves the FastMCP-derived argument schemas."
+      - "The test_mcp_p1 documentation guard covers prompts; docs/mcp-service.md documents all four with examples and the measured character size of each message."
+    dependencies: ["BL-145"]
+    references:
+      - "src/doc_ray/entrypoints/mcp/prompts.py"
+      - "src/doc_ray/entrypoints/mcp/server.py"
+      - "docs/mcp-service.md"
+    owner:        "shared"
+    source:       "GitHub issue #13 (MCP Item 8); implemented with strict TDD (Claude Opus 4.8 (1M context) via Claude Code)."
+    tags:         ["mcp", "agent-experience", "prompts", "feature"]
+
+  - id:          "BL-151"
     title:       "Backup archive upload is a single in-memory PutObject — fails past 5 GiB"
     summary: >-
       application.backup builds the whole .tar.gz in memory and
@@ -5069,7 +5151,7 @@ items:
     source:       "Production incident 2026-07-25: backups table showed 27 failed / 2 creating / 0 available; botocore EntityTooLarge on PutObject and JobExecutionTimeout at 3600s in worker logs."
     tags:         ["backup", "object-store", "production-incident"]
 
-  - id:          "BL-150"
+  - id:          "BL-152"
     title:       "Object-store blobs have no backup coverage once the in-app archive is off"
     summary: >-
       Managed-database backups cover the database only. The in-app backup
@@ -5088,7 +5170,7 @@ items:
         accidental delete/overwrite; does not give a portable off-provider copy.
       - Cross-region / cross-account bucket replication for provider-failure
         independence.
-      - A blob-only backup job (no database dump), which sidesteps BL-149's
+      - A blob-only backup job (no database dump), which sidesteps BL-151's
         archive-size problem by copying objects rather than bundling them.
 
       Whichever is chosen, ENVIRONMENT.md's "recovery from a bad write" note and

@@ -27,6 +27,7 @@ from doc_ray.entrypoints.mcp import (
     compose,
     corpus,
     mutations,
+    prompts,
     resources,
     semantic,
     structure,
@@ -91,7 +92,11 @@ SERVER_INSTRUCTIONS = (
     "4. search_sentences with RARE, scene-specific terms to locate particular "
     "beats. Common, high-frequency words flood one region of the text and starve "
     "coverage of the rest; its `coverage` field and `note` tell you when that has "
-    "happened, so a sparse-looking result is a query problem, not missing content.\n\n"
+    "happened, so a sparse-looking result is a query problem, not missing content. "
+    "To avoid the wasted call entirely, run term_frequency FIRST on your candidate "
+    "terms (batch them in one call): a `high` floodRisk means pick a rarer one, and "
+    "an unattested term (attested=false) means the search will likely return "
+    "nothing.\n\n"
     "For who and what a document is about, prefer entity_profiles over "
     "entity_frequency: raw NER splits one entity across types and spellings, and "
     "profiles merge them and report the disagreement as typeConsistency — a low "
@@ -137,6 +142,11 @@ def build_server(enable_write: bool = False) -> FastMCP:
         mcp.resource(spec.uri, mime_type=spec.mime_type, description=spec.description)(
             audit.audited(spec.fn)
         )
+    # Prompts — MCP's user-controlled primitive: the corpus methodology as
+    # selectable workflows (prompts.py). Audited like every other caller action,
+    # and read-only: they call the read tools, holding no pool of their own.
+    for prompt in prompts.PROMPTS:
+        mcp.prompt()(audit.audited(prompt))
     return mcp
 
 

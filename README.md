@@ -142,6 +142,8 @@ ranges — detected headings, or an even grid where a document has none, with
 `lexeme(s)` / `entities` / `entityFrequency` (raw NER rows) /
 `entityProfiles(documentId:, entityType:)` (the same mentions reconciled to one
 row per entity, with the measured type spread and `typeConsistency`) /
+`termFrequency(terms:)` (a flood-risk pre-flight: how common each candidate
+search term is, so an agent picks a rarer one before searching) /
 `job` / `jobs` /
 `documentMetadataSuggestions` / `collections` / `collection` /
 `lenses` (the collections marked as entity-resolution scopes — Block B) /
