@@ -34,7 +34,7 @@ COMPOSE_PROD_MCP := $(COMPOSE_PROD_OLLAMA) -f docker-compose.mcp.yml
 .PHONY: help check check-static prod-check db-dump truncate-db workers-up workers-status \
         prod-migrate prod-migrate-host prod-up prod-web prod-admin-console-up \
         prod-admin-console-down prod-tunnel prod-down gpu-up prod-ollama-up \
-        prod-refresh-ui prod-restart-ui mcp-up pgadmin-up
+        prod-refresh-ui prod-restart-ui mcp-up pgadmin-up up
 
 help: ## List available tasks
 	@grep -E '^[a-z][a-zA-Z_-]*:.*## ' $(MAKEFILE_LIST) | awk -F ':.*## ' '{printf "  %-17s %s\n", $$1, $$2}'
@@ -74,6 +74,14 @@ check: ## Run ALL landing-checklist gates (static gates + pytest); mirrors CLAUD
 	  $(PYTHON) -m pytest tests src/doc_ray/tests || fail=1; \
 	if [ $$fail -ne 0 ]; then echo; echo "make check: FAILED"; exit 1; fi; \
 	echo; echo "make check: PASSED"
+
+up: ## Bring up the local self-hosted stack, auto-selecting GPU workers when a GPU is usable (else CPU). Environment-assessed by scripts/deploy_env.py — no hand-passed -f flags.
+	@gpu=$$($(PYTHON) scripts/deploy_env.py --detect >/dev/null 2>&1 && echo yes || echo no); \
+	  $(PYTHON) scripts/deploy_env.py --assume-gpu $$gpu; \
+	  files=$$($(PYTHON) scripts/deploy_env.py --assume-gpu $$gpu --compose-args); \
+	  upargs=$$($(PYTHON) scripts/deploy_env.py --assume-gpu $$gpu --up-args); \
+	  set -x; docker compose $$files up -d --build $$upargs \
+	    api mcp webapp worker worker-fast backup-scheduler
 
 # Runtime verification of a live deployment — the counterpart to `check`, which
 # only proves the source tree is sound. Reads .env.prod itself (the file wins over

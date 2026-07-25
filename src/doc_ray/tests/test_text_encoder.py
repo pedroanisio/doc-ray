@@ -11,6 +11,9 @@ from __future__ import annotations
 
 import hashlib
 
+import pytest
+
+from doc_ray.adapters.text_encoder_sentence_transformers import resolve_device
 from doc_ray.ports.text_encoder import TextEncoder
 
 
@@ -47,3 +50,31 @@ def test_embed_texts_is_deterministic_and_correct_dimension() -> None:
     assert first == second  # reproducible: same input → same vectors
     assert all(len(vec) == encoder.dim for vec in first)
     assert len(first) == 2  # one vector per input text
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        (None, None),  # unset → let sentence-transformers auto-select (CUDA if present)
+        ("", None),
+        ("auto", None),
+        ("AUTO", None),
+        ("  auto  ", None),
+        ("cpu", "cpu"),  # explicit override wins over auto-detection
+        ("cuda", "cuda"),
+        ("CUDA", "cuda"),
+        ("cuda:1", "cuda:1"),  # device index preserved
+        ("mps", "mps"),
+    ],
+)
+def test_resolve_device_maps_env_to_sentence_transformers_arg(
+    raw: str | None, expected: str | None
+) -> None:
+    """DOCRAY_SEMANTIC_DEVICE=auto/unset → None (auto); anything else → that device.
+
+    This is the app-layer half of the environment assessment: the deploy layer
+    grants (or withholds) the GPU to the container; this lets an operator force a
+    device explicitly — e.g. CPU when an 8 GB card is already held by trf
+    annotation — without touching code.
+    """
+    assert resolve_device(raw) == expected

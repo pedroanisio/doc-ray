@@ -1,0 +1,132 @@
+#!/usr/bin/env python3
+"""Environment-aware Docker Compose selection: GPU workers when possible, CPU otherwise.
+
+doc-ray's base stack is CPU-only so it boots on any host. But its heavy workers —
+transformer annotation (``en_core_web_trf``) and sentence embedding
+(``all-mpnet-base-v2``) — run an order of magnitude faster on a GPU. This module
+*assesses the runtime environment*: when an NVIDIA GPU is actually exposed to
+containers, it layers ``docker-compose.gpu.yml`` on top of the base files and pins
+the GPU ``worker`` pool to a single replica (an 8 GB consumer card fits exactly one
+heavy GPU worker — two OOM; the CPU ``worker-fast`` pool keeps draining light jobs
+in parallel). On a CPU-only host it selects the base files unchanged.
+
+The intent is a hybrid fleet without hand-editing ``-f`` flags per host:
+
+    docker compose $(python scripts/deploy_env.py --compose-args) \
+        up -d $(python scripts/deploy_env.py --up-args)
+
+Design: the DECISION (:func:`compose_files`, :func:`worker_scale`) is pure and
+unit-tested; the PROBE (:func:`detect_gpu`) shells out to Docker and is isolated so
+the decision stays testable on any host (including CI with no GPU).
+"""
+
+from __future__ import annotations
+
+import argparse
+import shutil
+import subprocess
+import sys
+
+#: Base compose file set for the running ``doc-ray`` project (API + MCP + workers).
+BASE_FILES = ["docker-compose.yml", "docker-compose.mcp.yml"]
+#: Overlay that reserves the host NVIDIA GPU (via CDI) for the ``worker`` pool.
+GPU_OVERLAY = "docker-compose.gpu.yml"
+#: A minimal CUDA base image used only to prove a container can see the GPU.
+_PROBE_IMAGE = "nvidia/cuda:12.4.0-base-ubuntu22.04"
+
+
+def compose_files(*, gpu_available: bool) -> list[str]:
+    """Return the ordered ``-f`` compose file set for this environment.
+
+    The GPU overlay is appended LAST so its worker device reservation wins under
+    Docker Compose's last-file-wins merge. A CPU-only host gets the base set only.
+    """
+    files = list(BASE_FILES)
+    if gpu_available:
+        files.append(GPU_OVERLAY)
+    return files
+
+
+def worker_scale(gpu_available: bool) -> int | None:
+    """Return the ``worker`` replica count, or ``None`` to keep the compose default.
+
+    An 8 GB consumer GPU fits exactly one heavy GPU worker (torch + cupy hold a
+    growing device pool; two replicas OOM), so a GPU host pins ``worker=1``. A
+    CPU-only host has no such VRAM cap, so we leave the compose file's own default.
+    """
+    return 1 if gpu_available else None
+
+
+def detect_gpu(*, probe_image: str = _PROBE_IMAGE) -> bool:
+    """Return True iff Docker can actually run a container that sees an NVIDIA GPU.
+
+    This is stronger than "a GPU exists on the host": it confirms the container
+    toolchain (nvidia-container-toolkit / CDI) is wired up, which is what the
+    ``deploy.resources`` reservation in the overlay needs. Any failure — no
+    ``docker``, no driver, no toolkit — is treated as "no GPU" (fall back to CPU).
+    """
+    docker = shutil.which("docker")
+    if docker is None:
+        return False
+    try:
+        result = subprocess.run(  # noqa: S603 — fixed argv, no shell, no user input
+            [docker, "run", "--rm", "--gpus", "all", probe_image, "nvidia-smi", "-L"],
+            capture_output=True,
+            text=True,
+            timeout=120,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return result.returncode == 0 and "GPU" in result.stdout
+
+
+def _print_compose_args(gpu_available: bool) -> None:
+    """Print ``-f <file> ...`` for ``docker compose`` (consumed by the Makefile)."""
+    parts: list[str] = []
+    for f in compose_files(gpu_available=gpu_available):
+        parts += ["-f", f]
+    print(" ".join(parts))
+
+
+def _print_up_args(gpu_available: bool) -> None:
+    """Print extra ``up`` args (GPU worker scale), or nothing on a CPU host."""
+    scale = worker_scale(gpu_available)
+    print(f"--scale worker={scale}" if scale is not None else "")
+
+
+def main(argv: list[str] | None = None) -> int:
+    """CLI: assess the environment and emit compose args, or report the verdict."""
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--compose-args", action="store_true", help="print '-f <file> ...'")
+    parser.add_argument("--up-args", action="store_true", help="print extra 'up' args")
+    parser.add_argument("--detect", action="store_true", help="exit 0 iff a GPU is usable")
+    parser.add_argument(
+        "--assume-gpu",
+        choices=["auto", "yes", "no"],
+        default="auto",
+        help="override the probe (default: auto = run the Docker probe)",
+    )
+    args = parser.parse_args(argv)
+
+    gpu = detect_gpu() if args.assume_gpu == "auto" else args.assume_gpu == "yes"
+
+    if args.detect:
+        print("gpu" if gpu else "cpu", file=sys.stderr)
+        return 0 if gpu else 1
+    if args.compose_args:
+        _print_compose_args(gpu)
+        return 0
+    if args.up_args:
+        _print_up_args(gpu)
+        return 0
+    # Default: a human-readable summary.
+    print(f"environment: {'GPU' if gpu else 'CPU-only'}", file=sys.stderr)
+    print(f"compose files: {' '.join(compose_files(gpu_available=gpu))}", file=sys.stderr)
+    scale = worker_scale(gpu)
+    print(f"worker scale: {scale if scale is not None else '(compose default)'}", file=sys.stderr)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -394,7 +394,12 @@ services:
       S3_SECRET_KEY: ${S3_SECRET_KEY:-minioadmin}
       S3_BUCKET: ${S3_BUCKET:-documents}
       WORKER_JOB_TIMEOUT_SECONDS: ${WORKER_JOB_TIMEOUT_SECONDS:-3600}
-      WORKER_EXCLUDE_KINDS: ${WORKER_FAST_EXCLUDE_KINDS:-annotate,reannotate,visual_extract}
+      # Heavy, model-loading jobs stay off the fast pool so light user-facing jobs
+      # (ingest, metadata edits, backups) never queue behind them. semantic_embed
+      # loads a 420 MB sentence-transformer and embeds thousands of sentences per
+      # document — it belongs with annotate on the `worker` pool (which is also the
+      # one the GPU overlay accelerates), not here.
+      WORKER_EXCLUDE_KINDS: ${WORKER_FAST_EXCLUDE_KINDS:-annotate,reannotate,visual_extract,semantic_embed}
       DOCRAY_RESOLVER_TIMEOUT_SECONDS: ${DOCRAY_RESOLVER_TIMEOUT_SECONDS:-60}
     entrypoint: ["python", "-m", "doc_ray.entrypoints.worker"]
 

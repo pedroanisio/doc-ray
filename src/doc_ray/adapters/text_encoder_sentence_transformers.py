@@ -35,12 +35,37 @@ class SemanticStackUnavailableError(RuntimeError):
     """The sentence-transformers stack is not installed on this host."""
 
 
+def resolve_device(raw: str | None) -> str | None:
+    """Map ``DOCRAY_SEMANTIC_DEVICE`` to a ``SentenceTransformer(device=...)`` value.
+
+    ``auto`` or unset returns ``None`` — sentence-transformers then auto-selects
+    CUDA when ``torch.cuda.is_available()`` and CPU otherwise, so a worker granted
+    the GPU by the deploy layer (``docker-compose.gpu.yml``) uses it with no config.
+    Any other value (``cpu``, ``cuda``, ``cuda:1``, ``mps``) is an explicit operator
+    override — e.g. force ``cpu`` when an 8 GB card is already held by transformer
+    annotation — and is passed through verbatim (lower-cased, trimmed).
+    """
+    if raw is None:
+        return None
+    value = raw.strip().lower()
+    return None if value in ("", "auto") else value
+
+
 class SentenceTransformerTextEncoder:
     """A learned sentence encoder backed by ``sentence-transformers``."""
 
-    def __init__(self, model_name: str | None = None) -> None:
-        """Configure the encoder; the model is loaded lazily on first embed."""
+    def __init__(self, model_name: str | None = None, device: str | None = None) -> None:
+        """Configure the encoder; the model is loaded lazily on first embed.
+
+        ``device`` overrides the env-derived device (:func:`resolve_device` reading
+        ``DOCRAY_SEMANTIC_DEVICE``); leave it ``None`` to honour the environment.
+        """
         self._model_name = model_name or os.environ.get("DOCRAY_SEMANTIC_MODEL", DEFAULT_MODEL_NAME)
+        self._device = (
+            device
+            if device is not None
+            else resolve_device(os.environ.get("DOCRAY_SEMANTIC_DEVICE"))
+        )
         self.model_id = DEFAULT_MODEL_TAG
         self.dim = DEFAULT_DIM
         self._model: object | None = None
@@ -49,7 +74,8 @@ class SentenceTransformerTextEncoder:
         if self._model is None:
             from sentence_transformers import SentenceTransformer  # lazy: worker-only dep
 
-            self._model = SentenceTransformer(self._model_name)
+            # device=None lets sentence-transformers auto-select (CUDA if present).
+            self._model = SentenceTransformer(self._model_name, device=self._device)
         return self._model
 
     def embed_texts(self, texts: list[str]) -> list[list[float]]:

@@ -1,9 +1,16 @@
-# GPU overlay for the annotate worker — en_core_web_trf (transformer) on-device.
+# GPU overlay for the heavy `worker` pool — transformer NLP + sentence embedding.
 #
 # Reserves the host NVIDIA GPU via CDI (nvidia.com/gpu) for the `worker`
-# service so spaCy's transformer English pipeline runs on GPU instead of CPU
-# (annotation_spacy calls spacy.prefer_gpu()). fr/pt stay on CNN models and do
-# not need the GPU.
+# service so both on-device workloads use the GPU instead of CPU:
+#   * annotate      — spaCy's en_core_web_trf transformer (annotation_spacy calls
+#                     spacy.prefer_gpu()); fr/pt stay on CNN models, no GPU needed.
+#   * semantic_embed — the all-mpnet-base-v2 sentence encoder (sentence-transformers
+#                     auto-selects CUDA when the container can see the GPU; override
+#                     with DOCRAY_SEMANTIC_DEVICE). Routed here off the fast pool.
+#
+# `scripts/deploy_env.py` applies this overlay automatically when a GPU is usable;
+# use it via `make up` rather than hand-passing -f flags. On an 8 GB card the two
+# workloads must not co-reside — pick one heavy GPU consumer at a time (see below).
 #
 # Deploy (scale sized to VRAM — torch+cupy hold ~6 GB per trf worker at peak,
 # so an 8 GB card fits exactly ONE; two OOM):

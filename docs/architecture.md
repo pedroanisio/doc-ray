@@ -404,6 +404,14 @@ encoder it carries no verification gate. Retrieval is exposed as
 which rank sentences by learned cosine similarity over the RLS-scoped `embedding`
 table — the structural answer to lexical-search flooding on common terms.
 
+Both heavy encoders share one device posture. `semantic_embed` (like `annotate`)
+runs only on the heavy `worker` pool, never on `worker-fast`, so light user jobs
+never queue behind a model load. That pool is GPU-accelerated when the host can
+expose a GPU to containers: `scripts/deploy_env.py` probes the environment and
+`make up` layers `docker-compose.gpu.yml` accordingly (pinning one GPU worker on an
+8 GB card — two OOM), falling back to CPU on hosts without one. sentence-transformers
+auto-selects CUDA in that case; `DOCRAY_SEMANTIC_DEVICE` overrides it explicitly.
+
 Where the matrix answers *which* layers are supported,
 [`docs/nlp_architecture.md`](nlp_architecture.md) answers *how* the running
 system does NLP: the segmentation and language-detection algorithms, the spaCy

@@ -96,6 +96,14 @@ doc-ray carries **one global version** covering both the application package
     retained as a convenience alias. The heavy tensor stack (`torch`,
     `transformers`) was already base (pulled by `spacy[transformers]`), so this
     adds only the thin encoder layer. New env `DOCRAY_SEMANTIC_MODEL`.
+  - **Device posture — GPU when possible, CPU otherwise.** `semantic_embed` is now
+    excluded from the `worker-fast` pool (like `annotate`), so heavy model-loading
+    jobs never block light user jobs. The heavy `worker` pool is GPU-accelerated by
+    environment assessment: `scripts/deploy_env.py` probes whether a GPU is usable in
+    a container and `make up` layers `docker-compose.gpu.yml` accordingly (one GPU
+    worker on an 8 GB card — two OOM — with the CPU `worker-fast` pool alongside),
+    falling back to CPU on hosts without one. sentence-transformers auto-selects CUDA
+    there; new env `DOCRAY_SEMANTIC_DEVICE=auto|cpu|cuda|cuda:N|mps` forces a device.
 
 ## [1.41.0]
 

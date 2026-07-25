@@ -416,7 +416,12 @@ or the admin `embedCorpusSentences` to re-embed the whole corpus in one shot).
 The encoder ships in the base image (pinned in `requirements.txt` next to the Prism
 `open_clip_torch` encoder, on the `torch`/`transformers` stack that `spacy` already
 pulls in), so a stock worker can run the job out of the box; the `.[semantic]` extra
-is kept only as a convenience alias for installing it by name. Retrieval is then available by
+is kept only as a convenience alias for installing it by name. It runs on the GPU
+automatically when one is available: `make up` assesses the host
+(`scripts/deploy_env.py`) and layers `docker-compose.gpu.yml` — GPU workers when
+possible, CPU otherwise — while heavy `semantic_embed` jobs are routed off the
+`worker-fast` pool so light user jobs never queue behind them. Force a device with
+`DOCRAY_SEMANTIC_DEVICE=cpu|cuda|cuda:N` (default `auto`). Retrieval is then available by
 *meaning* — GraphQL `semanticSearchSentences` and the `semantic_search_sentences`
 MCP tool rank sentences by learned cosine similarity, complementing keyword
 `searchSentences`.
