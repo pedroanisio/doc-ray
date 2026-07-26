@@ -94,3 +94,42 @@ def test_groups_list_has_no_duplicate_tables():
     grouped = [t for _, _, tables in content.GROUPS for t in tables]
     dupes = {t for t in grouped if grouped.count(t) > 1}
     assert not dupes, f"tables listed in more than one GROUP: {sorted(dupes)}"
+
+
+# --- §9 migration-narrative completeness invariant (drift map H3) ----------
+# --check renders §9 from the hand-maintained MIGRATIONS list and diffs it
+# against a copy from the SAME list, so a migration file with no entry is
+# invisible to the drift gate. _migration_narrative_gap makes it a hard error;
+# these cover the pure logic plus the live repo invariant.
+
+
+def test_migration_narrative_gap_none_when_lists_match():
+    mod = _load()
+    missing, phantom = mod._migration_narrative_gap({"001_init", "002_x"}, {"001_init", "002_x"})
+    assert missing == set() and phantom == set()
+
+
+def test_migration_narrative_gap_flags_file_missing_from_narrative():
+    mod = _load()
+    # a new migration file lands but nobody added its §9 entry
+    missing, phantom = mod._migration_narrative_gap({"001_init", "135_new"}, {"001_init"})
+    assert missing == {"135_new"} and phantom == set()
+
+
+def test_migration_narrative_gap_flags_entry_with_no_file():
+    mod = _load()
+    # an entry names a migration that was renamed/removed on disk
+    missing, phantom = mod._migration_narrative_gap({"001_init"}, {"001_init", "099_ghost"})
+    assert missing == set() and phantom == {"099_ghost"}
+
+
+def test_every_migration_file_has_a_narrative_entry():
+    """Live invariant: db/migrations/*.sql and MIGRATIONS must name the same set."""
+    mod = _load()
+    sys.path.insert(0, str(_ROOT / "scripts"))
+    content = importlib.import_module("_data_dictionary_content")
+    missing, phantom = mod._migration_narrative_gap(
+        mod._migration_file_stems(), {name for name, _ in content.MIGRATIONS}
+    )
+    assert not missing, f"migration files with no §9 MIGRATIONS entry: {sorted(missing)}"
+    assert not phantom, f"§9 MIGRATIONS entries naming no migration file: {sorted(phantom)}"

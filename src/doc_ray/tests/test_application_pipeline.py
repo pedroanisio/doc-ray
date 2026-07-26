@@ -463,8 +463,9 @@ class _FakeSource:
 
 
 def test_ingest_refs_fetches_and_persists(pg, monkeypatch):
-    from doc_ray.adapters import document_source as source_mod
     from doc_ray.adapters.document_source import Fetched
+
+    from doc_ray.adapters import document_source as source_mod
 
     conn, created = pg
     marker = _itdb.unique_sha()[:8]

@@ -10,33 +10,69 @@ from graphql import parse, validate
 from doc_ray.entrypoints.api.schema import build_schema
 
 _ROOT = Path(__file__).resolve().parents[3]
-_ADMIN_API_FILES = (
-    "admin-console/src/api/billing.ts",
-    "admin-console/src/api/audit.ts",
-    "admin-console/src/api/backups.ts",
-    "admin-console/src/api/documents.ts",
-    "admin-console/src/api/jobs.ts",
-)
-_ADMIN_INTERFACE_FILES = (
-    "admin-console/src/api/types.ts",
-    "admin-console/src/api/billing.ts",
-)
+_API_DIR = _ROOT / "admin-console" / "src" / "api"
 _TEMPLATE_CONST_RE = re.compile(r"const\s+([A-Z_]+)\s*=\s*`([\s\S]*?)`;", re.MULTILINE)
 _GRAPHQL_CALL_RE = re.compile(r"client\.graphql<[\s\S]*?>\(\s*`([\s\S]*?)`", re.MULTILINE)
+_GRAPHQL_GENERIC_RE = re.compile(r"client\.graphql<([^>]*)>", re.MULTILINE)
 _INTERFACE_RE = re.compile(r"export interface (\w+) \{([\s\S]*?)\n\}", re.MULTILINE)
 _FIELD_RE = re.compile(r"^\s*([A-Za-z][A-Za-z0-9_]*)\??:", re.MULTILINE)
-_GRAPHQL_INTERFACES = {
-    "BillingEvent": "BillingEvent",
-    "BillingStatus": "BillingStatus",
-    "Document": "Document",
-    "Job": "Job",
-    "SecurityAuditEvent": "SecurityAuditEvent",
-}
+_GRAPHQL_TYPE_COMMENT_RE = re.compile(r"//\s*GraphQL type (\w+)")
+
+# The historically-covered GraphQL interfaces. Discovery below must always find
+# at least these; the floor turns a silently-broken discovery regex — which would
+# otherwise make every guard pass vacuously — into a loud failure. See
+# test_admin_console_contract_guard_is_complete.
+_KNOWN_GRAPHQL_INTERFACES = frozenset(
+    {"Job", "Document", "SecurityAuditEvent", "BillingEvent", "BillingStatus"}
+)
+
+
+def _api_files() -> list[str]:
+    """Every hand-written admin-console API module (excludes ``*.test.ts``).
+
+    Auto-discovered rather than hard-coded so a NEW api file carrying GraphQL
+    operations or interfaces cannot silently escape the drift guard — the
+    residual the drift-risk map flagged against the previous fixed lists.
+    """
+    return sorted(
+        f"admin-console/src/api/{path.name}"
+        for path in _API_DIR.glob("*.ts")
+        if not path.name.endswith(".test.ts")
+    )
+
+
+def _files_with_operations() -> list[str]:
+    return [
+        rel
+        for rel in _api_files()
+        if "client.graphql<" in (_ROOT / rel).read_text(encoding="utf-8")
+    ]
+
+
+def _graphql_interface_names(interfaces: dict[str, str]) -> set[str]:
+    """TS interfaces that mirror a GraphQL type.
+
+    Two independent signals are unioned: an explicit ``// GraphQL type X``
+    annotation (used in ``types.ts``) and any interface name referenced inside a
+    ``client.graphql<...>`` result generic (how ``billing.ts`` marks its types).
+    """
+    annotated: set[str] = set()
+    referenced_blobs: list[str] = []
+    for rel in _api_files():
+        source = (_ROOT / rel).read_text(encoding="utf-8")
+        annotated.update(_GRAPHQL_TYPE_COMMENT_RE.findall(source))
+        referenced_blobs.extend(_GRAPHQL_GENERIC_RE.findall(source))
+    referenced = {
+        name
+        for name in interfaces
+        if any(re.search(rf"\b{re.escape(name)}\b", blob) for blob in referenced_blobs)
+    }
+    return (annotated | referenced) & set(interfaces)
 
 
 def _admin_console_graphql_documents() -> dict[str, str]:
     documents: dict[str, str] = {}
-    for rel_path in _ADMIN_API_FILES:
+    for rel_path in _files_with_operations():
         source = (_ROOT / rel_path).read_text(encoding="utf-8")
         constants = dict(_TEMPLATE_CONST_RE.findall(source))
         for index, document in enumerate(_GRAPHQL_CALL_RE.findall(source), start=1):
@@ -50,7 +86,7 @@ def _admin_console_graphql_documents() -> dict[str, str]:
 
 def _admin_console_interfaces() -> dict[str, str]:
     interfaces: dict[str, str] = {}
-    for rel_path in _ADMIN_INTERFACE_FILES:
+    for rel_path in _api_files():
         source = (_ROOT / rel_path).read_text(encoding="utf-8")
         interfaces.update(dict(_INTERFACE_RE.findall(source)))
     return interfaces
@@ -76,16 +112,58 @@ def test_admin_console_graphql_interfaces_reference_live_fields():
     interfaces = _admin_console_interfaces()
     schema = build_schema()._schema
 
-    for interface_name, graphql_type_name in _GRAPHQL_INTERFACES.items():
-        assert interface_name in interfaces, f"missing TS interface {interface_name}"
-        graphql_type = schema.get_type(graphql_type_name)
-        assert graphql_type is not None, f"missing GraphQL type {graphql_type_name}"
+    graphql_interfaces = _graphql_interface_names(interfaces)
+    assert graphql_interfaces, "no admin-console GraphQL interfaces were discovered"
+
+    for interface_name in sorted(graphql_interfaces):
+        graphql_type = schema.get_type(interface_name)
+        assert graphql_type is not None, f"missing GraphQL type {interface_name}"
 
         ts_fields = set(_FIELD_RE.findall(interfaces[interface_name]))
         graphql_fields = set(graphql_type.fields)
 
         assert ts_fields, f"{interface_name} has no parsed fields"
-        assert not ts_fields - graphql_fields
+        drift = ts_fields - graphql_fields
+        assert not drift, f"{interface_name} TS fields absent from live schema: {sorted(drift)}"
+
+
+def test_admin_console_contract_guard_is_complete():
+    """Coverage must not silently regress (drift-map C1 residual).
+
+    The previous guard hard-coded its file and interface lists, so a new api
+    module carrying GraphQL operations or a new GraphQL interface would escape
+    validation with no failure. Auto-discovery must (a) find api files, (b) miss
+    no file that calls ``client.graphql<>``, and (c) still surface every
+    historically-known GraphQL interface.
+    """
+    files = _api_files()
+    assert files, "no admin-console api files discovered — glob or path is wrong"
+
+    documents = _admin_console_graphql_documents()
+    covered_files = {name.split("#", 1)[0] for name in documents}
+    assert covered_files == set(_files_with_operations()), (
+        "an api file calls client.graphql<> but produced no validated document"
+    )
+
+    discovered = _graphql_interface_names(_admin_console_interfaces())
+    lost = _KNOWN_GRAPHQL_INTERFACES - discovered
+    assert not lost, f"GraphQL-interface discovery regressed; no longer covers: {sorted(lost)}"
+
+
+def test_interface_field_guard_would_catch_an_invented_field():
+    """The field-diff logic must fail on drift, not pass vacuously.
+
+    Feeds a synthetic interface with a field the schema lacks through the same
+    regexes and set difference the real guard uses, and asserts it is flagged.
+    """
+    schema = build_schema()._schema
+    job = schema.get_type("Job")
+    assert job is not None
+
+    synthetic = "export interface Job {\n  id: string;\n  ghostField: string;\n}"
+    _name, body = _INTERFACE_RE.findall(synthetic)[0]
+    drift = set(_FIELD_RE.findall(body)) - set(job.fields)
+    assert drift == {"ghostField"}, "the guard would NOT catch an invented interface field"
 
 
 # --- operator-health.v1 REST contract (issue #22) ---------------------------

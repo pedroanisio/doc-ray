@@ -12,10 +12,21 @@ from doc_ray.domain import jobs
 
 _ROOT = Path(__file__).resolve().parents[3]
 _COMPOSE = _ROOT / "docker-compose.yml"
+_GPU_WORKER_COMPOSE = _ROOT / "docker-compose.gpuworker.yml"
 
 
-def _compose() -> dict[str, Any]:
-    return yaml.safe_load(_COMPOSE.read_text(encoding="utf-8"))
+class _ComposeLoader(yaml.SafeLoader):
+    """SafeLoader that tolerates Compose merge tags (e.g. ``!reset``, ``!override``)."""
+
+
+# Overlay files use Compose's ``!reset`` / ``!override`` merge tags, which the
+# stock SafeLoader refuses to construct. We only read plain scalars and maps, so
+# resolve any ``!``-prefixed tag to ``None`` rather than aborting the parse.
+_ComposeLoader.add_multi_constructor("!", lambda loader, suffix, node: None)
+
+
+def _compose(path: Path = _COMPOSE) -> dict[str, Any]:
+    return yaml.load(path.read_text(encoding="utf-8"), Loader=_ComposeLoader)
 
 
 def _known_job_kinds() -> set[str]:
@@ -46,6 +57,22 @@ def test_worker_fast_excludes_only_known_long_running_job_kinds():
 
     assert excluded == jobs.LONG_RUNNING_JOB_KINDS
     assert excluded <= _known_job_kinds()
+
+
+def test_gpu_worker_only_kinds_match_long_running_job_kinds():
+    """The worker-ONLY host overlay pins the GPU lane; its default must track Python.
+
+    ``docker-compose.gpuworker.yml`` sets ``WORKER_ONLY_KINDS`` to the long-running
+    set so a GPU-only droplet claims exactly that lane — a hand-maintained mirror
+    of ``jobs.LONG_RUNNING_JOB_KINDS`` living in a file the base-compose guards
+    never read. Parametrizing the guard over it closes drift-map finding H1.
+    """
+    worker_env = _compose(_GPU_WORKER_COMPOSE)["services"]["worker"]["environment"]
+
+    only = set(_default_from_compose_expansion(worker_env["WORKER_ONLY_KINDS"]).split(","))
+
+    assert only == jobs.LONG_RUNNING_JOB_KINDS
+    assert only <= _known_job_kinds()
 
 
 def test_long_running_job_kinds_have_matching_compose_timeouts():
