@@ -14,6 +14,14 @@ PYTHON ?= $(shell [ -x .venv/bin/python ] && echo .venv/bin/python || echo pytho
 # has its OWN env file (.env.prod) — never the development .env; --env-file
 # replaces .env for interpolation. The prod overlay repoints every app service at
 # the managed cluster and gates the local postgres/minio out.
+# Guard every target that drives the LOCAL stack. The local stack and the managed
+# deployment share the `doc-ray` compose project name, so on a production host —
+# where `.env` is a symlink to `.env.prod` — a bare `docker compose up` does not
+# raise a second stack beside the first: it RECREATES the running one against a
+# throwaway local Postgres. That took the public site down on 2026-07-26.
+# Override for deliberate local-infra work with DOCRAY_ALLOW_LOCAL_STACK=1.
+LOCAL_ENV_GATE := $(PYTHON) scripts/deploy_env.py --check-local-env
+
 COMPOSE_PROD := docker compose --env-file .env.prod -f docker-compose.yml -f docker-compose.prod.yml
 COMPOSE_ADMIN := docker compose --env-file .env.prod -f admin-console/docker-compose.yml
 
@@ -94,6 +102,7 @@ check: ## Run ALL landing-checklist gates (static gates + pytest); mirrors CLAUD
 	echo; echo "make check: PASSED"
 
 up: ## Bring up the local self-hosted stack, auto-selecting GPU workers when a GPU is usable (else CPU). Environment-assessed by scripts/deploy_env.py — no hand-passed -f flags.
+	@$(LOCAL_ENV_GATE)
 	@gpu=$$($(PYTHON) scripts/deploy_env.py --detect >/dev/null 2>&1 && echo yes || echo no); \
 	  $(PYTHON) scripts/deploy_env.py --assume-gpu $$gpu; \
 	  files=$$($(PYTHON) scripts/deploy_env.py --assume-gpu $$gpu --compose-args); \
@@ -113,6 +122,7 @@ prod-check: ## Verify the live prod deployment (config, managed DB, Spaces, API,
 	  $(if $(TO),--to $(TO)) $(if $(NO_SEND),--no-send) $(if $(JSON),--json)
 
 workers-up: ## Start/reconcile the worker pool (DOCRAY_WORKERS=3 by default)
+	@$(LOCAL_ENV_GATE)
 	docker compose up -d --scale worker=$(DOCRAY_WORKERS) worker
 
 workers-status: ## Show worker replica status

@@ -23,9 +23,12 @@ the decision stays testable on any host (including CI with no GPU).
 from __future__ import annotations
 
 import argparse
+import os
 import shutil
 import subprocess
 import sys
+from pathlib import Path
+from urllib.parse import urlsplit
 
 #: Base compose file set for the running ``doc-ray`` project (API + MCP + workers).
 BASE_FILES = ["docker-compose.yml", "docker-compose.mcp.yml"]
@@ -33,6 +36,17 @@ BASE_FILES = ["docker-compose.yml", "docker-compose.mcp.yml"]
 GPU_OVERLAY = "docker-compose.gpu.yml"
 #: A minimal CUDA base image used only to prove a container can see the GPU.
 _PROBE_IMAGE = "nvidia/cuda:12.4.0-base-ubuntu22.04"
+
+#: Set this to run the local stack anyway on a host the guard flags. Deliberate
+#: local-infra work on a production box stays possible — it just cannot happen
+#: by reflex.
+OVERRIDE_ENV_VAR = "DOCRAY_ALLOW_LOCAL_STACK"
+#: The production env file ENVIRONMENT.md prescribes (``ln -sf .env.prod .env``).
+_PROD_ENV_BASENAME = ".env.prod"
+#: Hosts the base compose can actually be serving a Postgres on.
+_LOCAL_DB_HOSTS = frozenset(
+    {"postgres", "localhost", "127.0.0.1", "::1", "[::1]", "host.docker.internal"}
+)
 
 
 def compose_files(*, gpu_available: bool) -> list[str]:
@@ -81,6 +95,59 @@ def detect_gpu(*, probe_image: str = _PROBE_IMAGE) -> bool:
     return result.returncode == 0 and "GPU" in result.stdout
 
 
+def production_env_conflict(env_path: Path) -> str | None:
+    """Return why *env_path* drives a production deployment, or ``None`` if local.
+
+    The local stack and the managed deployment share the ``doc-ray`` compose
+    project name, so bringing the local stack up on a production host does not
+    stand a second stack beside the first — it *recreates the running one*
+    against a throwaway local Postgres. That is what happened on 2026-07-26: the
+    public site went down for about five minutes and nothing in the tooling
+    objected.
+
+    Two independent signals, because a host may carry either:
+
+    * ``.env`` resolves to a file named ``.env.prod`` — the layout ENVIRONMENT.md
+      prescribes for the production box (``ln -sf .env.prod .env``).
+    * ``DATABASE_URL`` names a host the base compose cannot be serving. The base
+      stack only ever offers ``postgres`` on the compose network (or a loopback
+      Postgres on the host network), so anything else is a managed cluster.
+
+    Pure: reads the file, touches no Docker and no network, so the decision stays
+    testable on any host.
+    """
+    try:
+        resolved = env_path.resolve()
+    except OSError:  # pragma: no cover - unreadable path behaves as absent
+        return None
+    if not resolved.is_file():
+        return None
+
+    if resolved.name.startswith(_PROD_ENV_BASENAME):
+        return f"{env_path} resolves to {resolved.name}"
+
+    host = _database_host(resolved)
+    if host is not None and host not in _LOCAL_DB_HOSTS:
+        return f"{env_path} points DATABASE_URL at {host}"
+    return None
+
+
+def _database_host(env_path: Path) -> str | None:
+    """Return the host in the file's ``DATABASE_URL``, or ``None`` if unset."""
+    for raw in env_path.read_text(encoding="utf-8", errors="replace").splitlines():
+        line = raw.strip()
+        if not line.startswith("DATABASE_URL="):
+            continue
+        value = line.split("=", 1)[1].strip().strip("'\"")
+        netloc = urlsplit(value).netloc
+        # Strip credentials, then the port; IPv6 literals keep their brackets.
+        hostport = netloc.rsplit("@", 1)[-1]
+        if hostport.startswith("["):
+            return hostport.partition("]")[0] + "]"
+        return hostport.rsplit(":", 1)[0] or None
+    return None
+
+
 def _print_compose_args(gpu_available: bool) -> None:
     """Print ``-f <file> ...`` for ``docker compose`` (consumed by the Makefile)."""
     parts: list[str] = []
@@ -95,6 +162,27 @@ def _print_up_args(gpu_available: bool) -> None:
     print(f"--scale worker={scale}" if scale is not None else "")
 
 
+def _check_local_env(env_path: Path) -> int:
+    """Gate for the local-stack targets: refuse on a production host."""
+    if os.environ.get(OVERRIDE_ENV_VAR):
+        return 0
+    reason = production_env_conflict(env_path)
+    if reason is None:
+        return 0
+    print(
+        f"refusing to run the LOCAL stack: {reason}.\n"
+        "\n"
+        "The local stack and the managed deployment share the 'doc-ray' compose\n"
+        "project, so this would recreate the RUNNING production containers against\n"
+        "a throwaway local Postgres and take the public site down with them.\n"
+        "\n"
+        "  production:  make prod-ollama-up   (managed cluster + Spaces)\n"
+        f"  anyway:      {OVERRIDE_ENV_VAR}=1 make up\n",
+        file=sys.stderr,
+    )
+    return 2
+
+
 def main(argv: list[str] | None = None) -> int:
     """CLI: assess the environment and emit compose args, or report the verdict."""
     parser = argparse.ArgumentParser(description=__doc__)
@@ -102,12 +190,25 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--up-args", action="store_true", help="print extra 'up' args")
     parser.add_argument("--detect", action="store_true", help="exit 0 iff a GPU is usable")
     parser.add_argument(
+        "--check-local-env",
+        action="store_true",
+        help="exit non-zero if this host's .env drives a production deployment",
+    )
+    parser.add_argument(
+        "--env-file",
+        default=".env",
+        help="env file the local stack would use (default: .env)",
+    )
+    parser.add_argument(
         "--assume-gpu",
         choices=["auto", "yes", "no"],
         default="auto",
         help="override the probe (default: auto = run the Docker probe)",
     )
     args = parser.parse_args(argv)
+
+    if args.check_local_env:
+        return _check_local_env(Path(args.env_file))
 
     gpu = detect_gpu() if args.assume_gpu == "auto" else args.assume_gpu == "yes"
 
