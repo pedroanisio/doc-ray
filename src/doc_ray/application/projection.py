@@ -85,7 +85,12 @@ def _project_document_into_lens(
     written = projection_store.replace_projections(conn, document_id, lens.lens_id, projections)
     projection_store.apply_reviews(conn, document_id, lens.lens_id)
     if not lens.is_global:
-        projection_store.refresh_lens_entity_stats(conn, lens.lens_id)
+        # Block F (#10): the hyper-context rollups aggregate these projections, so they
+        # are refreshed here, strictly AFTER the projection is written. Best-effort —
+        # derived convenience data must never fail the projection stage.
+        from doc_ray.application.lens_rollups import refresh_lens_rollup_chained
+
+        refresh_lens_rollup_chained(conn, lens.lens_id)
     return written
 
 
@@ -132,6 +137,21 @@ def refresh_projections_for_document(
     }
 
 
+def refresh_projections_chained(conn: psycopg.Connection[Any], document_id: str) -> None:
+    """Rebuild a document's projections after its mentions/links change (Block D, #8).
+
+    Chained after the entity-finalizing stages (canonicalize / reannotate /
+    apply_corrections) so a projection is never left stale relative to the substrate.
+    Best-effort like ``refresh_document_stats``: a projection is derived convenience
+    data, so a refresh failure is logged and swallowed rather than failing a pipeline
+    stage that already committed its real work — the next refresh reconciles.
+    """
+    try:
+        refresh_projections_for_document(conn, document_id)
+    except Exception:  # pragma: no cover - defensive; refresh must never fail a job
+        _logger.warning("projection refresh failed for document %s", document_id)
+
+
 def rebuild_all_projections(conn: psycopg.Connection[Any]) -> dict[str, Any]:
     """Drop and rebuild every projection from the substrate (operator full rebuild).
 
@@ -141,7 +161,11 @@ def rebuild_all_projections(conn: psycopg.Connection[Any]) -> dict[str, Any]:
     per-document incremental refresh would not otherwise pick up corpus-wide.
     """
     conn.execute("TRUNCATE entity_projection")
-    conn.execute("TRUNCATE lens_entity_stats")
+    # The Block F hyper-context rollups are derived from the projections; clear them so a
+    # full rebuild reconstructs them from scratch (the per-document refresh below re-chains
+    # the rollup refresh for each projecting scope lens).
+    conn.execute("TRUNCATE lens_entity_rollup")
+    conn.execute("TRUNCATE lens_entity_relation")
     doc_ids = [
         str(r["document_id"])
         for r in conn.execute(

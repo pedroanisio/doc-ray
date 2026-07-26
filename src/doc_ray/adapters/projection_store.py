@@ -248,24 +248,3 @@ def apply_reviews(conn: _Conn, document_id: str, lens_id: str) -> int:
         {"doc": document_id, "lens": lens_id},
     )
     return result.rowcount
-
-
-def refresh_lens_entity_stats(conn: _Conn, lens_id: str) -> None:
-    """Rebuild the per-lens entity rollup that lensEntities reads (D-024).
-
-    The aggregate runs here, at the pipeline boundary — never on the read path. Scope
-    lenses only; the global lens is skipped (its corpus-wide entity distribution would
-    aggregate across tenants and is served by the canonical/entity_frequency surfaces).
-    """
-    conn.execute("DELETE FROM lens_entity_stats WHERE lens_id = %s", (lens_id,))
-    conn.execute(
-        """
-        INSERT INTO lens_entity_stats
-            (lens_id, canonical_id, scope, n_mentions, n_documents, updated_at)
-        SELECT lens_id, canonical_id, min(scope), count(*), count(DISTINCT document_id), now()
-        FROM entity_projection
-        WHERE lens_id = %s AND canonical_id IS NOT NULL
-        GROUP BY lens_id, canonical_id
-        """,
-        (lens_id,),
-    )

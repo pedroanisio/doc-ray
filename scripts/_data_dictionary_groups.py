@@ -101,16 +101,44 @@ GROUPS: list[tuple[str, str, list[str]]] = [
         "review status. `lens_local_entity` is the stable registry that mints one "
         "`canonical` row per (lens, surface, type) so a rebuild is reproducible; "
         "`entity_projection_review` records human confirm/reject keyed by the stable "
-        "span (survives re-annotation); `lens_entity_stats` is the per-lens entity "
-        "rollup `lensEntities` reads (D-024). A lens projects only when "
+        "span (survives re-annotation). A lens projects only when "
         "`document_collections.projects` is set (FR-2 designation). All are derived "
-        "from the substrate + lens + policy and never mutate it (invariants 1–2).",
+        "from the substrate + lens + policy and never mutate it (invariants 1–2). The "
+        "per-lens entity landscape lives in the Block F rollups.",
         [
             "entity_projection",
             "lens_local_entity",
             "entity_projection_review",
-            "lens_entity_stats",
         ],
+    ),
+    (
+        "Hyper-context rollups (SLP Block F)",
+        "Corpus-wide sensemaking precomputed from the projections (D-024 — never a live "
+        "aggregate on a read path): `lens_entity_rollup` is a lens's significant entities "
+        "with mention/document volume, the observed type profile + consistency, and the "
+        "first-seen sentence ordinal (it supersedes the thin Block-D lens_entity_stats and "
+        "backs `lensEntities`); `lens_entity_relation` is undirected sentence-level "
+        "co-occurrence pairs (stored once, `from < to`) with an NPMI strength (Bouma 2009) "
+        "— a structural association measure, never a claim of a real relationship. Refreshed "
+        "by a job that strictly follows the projection refresh; bounded N-hop discovery "
+        "traverses these edges (hop cap 3). RLS scopes both by lens visibility.",
+        [
+            "lens_entity_rollup",
+            "lens_entity_relation",
+        ],
+    ),
+    (
+        "Allusion edges (SLP Block E)",
+        "Typed, directional cross-lens links that record a relationship without asserting "
+        "identity: `entity_allusion` says one entity *alludes to / depicts / references / "
+        "is adapted from / inspired by* another (e.g. a novel's Paris → the real Paris) "
+        "across lenses, carrying a confidence, method, review status, and evidence "
+        "document. An edge changes NOTHING about projection or canonical identity "
+        "(invariant 2) and is never transitive. A curation table the API writes directly "
+        "(docray_client); machine-proposed edges land `proposed` for review. Its RLS is "
+        "cross-lens: an edge is visible only when the caller can see BOTH endpoint lenses "
+        "and the evidence document, so it never reveals an entity in an unreadable lens.",
+        ["entity_allusion"],
     ),
     (
         "Canonical entities & resolution",

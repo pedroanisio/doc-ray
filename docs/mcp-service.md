@@ -19,17 +19,19 @@ Exposes the doc-ray corpus to agentic AI over the **Model Context Protocol
 (MCP)**, authenticating each caller to a doc-ray principal so Postgres RLS scopes
 what they can read.
 
-**Status: live in production and verified end-to-end.** The server ships **28
-read tools** (18 from `entrypoints/mcp/corpus.py` — incl. `read_document_sentences`,
+**Status: live in production and verified end-to-end.** The server ships **32
+read tools** (19 from `entrypoints/mcp/corpus.py` — incl. `read_document_sentences`,
 `corpus_manifest`, `corpus_shard`, `get_job`, `list_collections`, `get_collection`,
-`entity_mention_corrections`, and the 4 Prism visual tools — + 6 structure tools from
+`entity_mention_corrections`, and the 5 Prism visual tools — + 9 structure tools from
 `entrypoints/mcp/structure.py` (`read_document_outline`, `entity_profiles`,
-`term_frequency`, `document_classification`, and the SLP Block D lens-scoped identity
-readers `entity_projection`, `lens_entities`) + 3 composition-grounding tools from
-`entrypoints/mcp/compose.py`
-+ 1 semantic-search tool… see §3) always registered, plus **26 opt-in write tools**
-(reprocessing + curation + full collection lifecycle + projection review —
-`confirm_projection`, `reject_projection`) registered only when
+`term_frequency`, `document_classification`, the SLP Block D `entity_projection`, the
+Block F hyper-context readers `lens_entities` / `entity_relations` / `related_entities`,
+and the Block E `allusions` reader) + 3
+composition-grounding tools from `entrypoints/mcp/compose.py`
++ 1 semantic-search tool… see §3) always registered, plus **30 opt-in write tools**
+(reprocessing + curation + full collection lifecycle + projection review
+`confirm_projection` / `reject_projection` + allusion curation `propose_allusion` /
+`confirm_allusion` / `reject_allusion`) registered only when
 `DOCRAY_MCP_ENABLE_WRITE=true` — the default surface stays read-only. It also
 declares MCP's **resources** primitive: 3 listable `docray://` entry points +
 5 drill-down templates (§3) addressing the same RLS-scoped reads by URI, and its
@@ -99,8 +101,11 @@ every other read rule.
 | `src/doc_ray/entrypoints/mcp/tokens.py` | starlette + `mcp` | Per-call bearer-token resolution: live request wins, `caller_token` contextvar is the stdio fallback |
 | `src/doc_ray/entrypoints/mcp/corpus.py` | httpx only | GraphQL-passthrough client + read-tool functions (SDK-independent) |
 | `src/doc_ray/entrypoints/mcp/auth.py` | starlette only | Bearer/JWT validation + `BearerAuthMiddleware` (reuses `tokens`) |
-| `src/doc_ray/entrypoints/mcp/structure.py` | httpx only | Structure read tools: `read_document_outline` + `entity_profiles` (split from `corpus.py` for D-015) |
-| `src/doc_ray/entrypoints/mcp/mutations.py` | httpx only | Write tools (reprocessing + curation mutations); registered only when writes are enabled |
+| `src/doc_ray/entrypoints/mcp/structure.py` | httpx only | The 9 structure/SLP read tools: outline, `entity_profiles`, `term_frequency`, `document_classification`, and the lens-scoped `entity_projection` / `lens_entities` / `entity_relations` / `related_entities` / `allusions` (split from `corpus.py` for D-015) |
+| `src/doc_ray/entrypoints/mcp/compose.py` | httpx only | The 3 composition-grounding read tools (`briefing_pack`, `entity_dossier`, `document_evidence`) |
+| `src/doc_ray/entrypoints/mcp/semantic.py` | httpx only | The semantic-search read tool (`semantic_search_sentences`) |
+| `src/doc_ray/entrypoints/mcp/mutations.py` | httpx only | The 30 write tools (reprocessing + curation mutations); registered only when writes are enabled |
+| `src/doc_ray/entrypoints/mcp/prompts.py` | `mcp` | The 4 user-selectable workflow prompts (§3.7) |
 | `src/doc_ray/entrypoints/mcp/resources.py` | httpx only | `docray://` resources + RFC 6570 templates over the read tools (addressing layer) |
 | `src/doc_ray/entrypoints/mcp/server.py` | `mcp` (new dep) | Thin FastMCP glue: register tools, mount middleware, expose ASGI `app` |
 | `docker-compose.mcp.yml` | — | `mcp` service; dev forwards to `http://api:8000/graphql` (in-network), prod to `https://doc-ray.com/graphql` |
@@ -149,17 +154,20 @@ but had no passage cited on this page. Example:
 
 | MCP tool | GraphQL field | Notes |
 |---|---|---|
-| `search_sentences(term, document_id?, limit, response_format?)` | `searchSentences` | KWIC pre/hit/post; term-filtered. Returns `{hits, coverage, note}` — see §3.1 |
+| `search_sentences(term, document_id?, limit, after?, response_format?)` | `searchSentences` | KWIC pre/hit/post; term-filtered. Returns `{hits, coverage, note}` — see §3.1 |
 | `read_document_sentences(document_id, limit, after?, from_ordinal?, to_ordinal?, page?, response_format?)` | `document { sentences }` | in-order read: **sequential** walk *or* **random-access** ordinal/page slice; verbatim text + citation offsets |
 | `read_document_outline(document_id, max_entries)` | `documentOutline` | the map that aims the ranged reader: addressable ordinal ranges + `source` provenance — see §3.2 |
 | `full_text_search(query, limit)` | `fullTextSearch` | ranked docs |
-| `list_documents(limit, doc_type?, status?)` | `documents` | keyset `cursor` |
+| `list_documents(limit, doc_type?, status?, after?)` | `documents` | keyset `cursor` |
 | `get_document(document_id)` | `document` | metadata + counts |
 | `get_job(job_id)` | `job` | poll a job enqueued by a write tool |
 | `entity_mention_corrections(document_id)` | `entityMentionCorrections` | the human NER-correction audit log for a document |
 | `document_classification(document_id)` | `documentClassification` | the document's genre axis; `status` tells you if it is a `pending` guess or a `confirmed` human decision |
 | `entity_projection(document_id, lens_id?, limit, after?)` | `entityProjection` | `project(mention, lens)` — each mention's identity within a lens; `scope` local/global, `canonicalId` null = unresolved, `status` proposed/confirmed/rejected (Block D) |
-| `lens_entities(lens_id, limit, after?)` | `lensEntities` | the entities that live in a lens, most-mentioned first (Block D); keyset `cursor` |
+| `lens_entities(lens_id, limit, after?, min_mentions?)` | `lensEntities` | a lens's significant entities, most-mentioned first (Block F) — type profile + consistency + `refreshedAt`; keyset `cursor` |
+| `entity_relations(lens_id, canonical_id, limit, min_strength?, after?)` | `entityRelations` | an entity's direct co-occurrence relations (Block F); `strength` is NPMI — a structural measure, NOT a real-relationship claim |
+| `related_entities(lens_id, canonical_id, hops, limit)` | `relatedEntities` | bounded N-hop discovery (Block F); `hops` capped at 3, over-cap rejected |
+| `allusions(canonical_id, lens_id, direction, limit, after?)` | `allusions` | typed cross-lens edges for an entity (Block E) — `direction` outgoing/incoming/both; an edge is NOT identity and NOT transitive |
 | `list_collections(limit, kind?, after?)` | `collections` | native containers; keyset `cursor` |
 | `get_collection(collection_id, document_limit)` | `collection` | one collection + its member documents |
 | `list_lenses(limit, after?)` | `lenses` | the collections marked as entity-resolution scopes (Block B); keyset `cursor` — see §3.5 |
@@ -170,7 +178,7 @@ but had no passage cited on this page. Example:
 | `term_frequency(terms, document_id?)` | `termFrequency` | flood-risk pre-flight: `floodRisk` verdict per candidate term BEFORE searching; corpus-wide only (`document_id` → typed `unsupported`) — see §3.6 |
 | `lexeme_kwic(uid, document_id?, limit)` | `lexeme { occurrences }` | KWIC is a **nested** resolver, not a root field |
 | `semantic_search_sentences(query, document_id?, limit)` | `semanticSearchSentences` | meaning-based (learned-embedding) sentence retrieval; the antidote to lexical `search_sentences` flooding. Typed `unsupported` where the sentence stack is absent |
-| `document_images(document_id, limit)` | `document { images }` | Prism visual layer: extracted/rendered page images |
+| `document_images(document_id, limit, after?)` | `documentImages` | Prism visual layer: extracted/rendered page images |
 | `image_class_summary(document_id)` | `imageClassSummary` | per-document tally of image tier classes |
 | `visual_captions(document_id, limit)` | `visualCaptions` | generated captions for a document's images |
 | `cross_modal_image_search(query, limit)` | `crossModalImageSearch` | text→image search; typed `unsupported` where the vision stack is absent |
@@ -392,15 +400,15 @@ themselves are shared corpus navigation metadata. Block B ships the vocabulary
 only — nothing about how entities resolve changes yet (a later projection block
 consumes it).
 
-### 3.5.1 `entity_projection` / `lens_entities` — lens-scoped identity (Block D)
+### 3.5.1 `entity_projection` — lens-scoped identity (Block D)
 
 The projection engine makes lens-scoped identity real: `entity = project(mention,
 lens)` is a *derived* interpretation, so the same corpus holds fiction and
 non-fiction without a lossy merge. `entity_projection` answers "which entity is
-each mention, within this lens"; `lens_entities` surveys the cast/places of a
-lens. Omit `lens_id` to use the document's default lens, else `global` — so an
-existing reader is unchanged. Every machine projection is `proposed` until a human
-confirms it with `confirm_projection` (PALS's Law); the substrate is never mutated.
+each mention, within this lens". Omit `lens_id` to use the document's default lens,
+else `global` — so an existing reader is unchanged. Every machine projection is
+`proposed` until a human confirms it with `confirm_projection` (PALS's Law); the
+substrate is never mutated.
 
 ```jsonc
 // Who is each mention in this novel, read through its work lens?
@@ -412,16 +420,67 @@ confirms it with `confirm_projection` (PALS's Law); the substrate is never mutat
 // Confirm one — a proposal becomes a decided identity (worker applies it):
 {"name": "confirm_projection", "arguments": {"mention_id": "01J…", "lens_id": "…"}}
 // → {"id": "…", "kind": "refresh_projection", "status": "queued"}   // poll with get_job
-
-// Survey the whole lens, most-mentioned first:
-{"name": "lens_entities", "arguments": {"lens_id": "…", "limit": 50}}
-// → [{"canonicalId": 8842, "preferred": "Duncan", "scope": "local", "nMentions": 42, "nDocuments": 1}]
 ```
 
-`lens_entities` reads a precomputed per-lens rollup (cheap); for the corpus-wide
-real-world entity distribution use `entity_profiles` instead. `reject_projection`
-is the mirror of `confirm_projection`. A projection is derived and rebuildable, so
-a wrong one is never load-bearing — drop and re-derive, never a destructive merge.
+`reject_projection` is the mirror of `confirm_projection`. A projection is derived and
+rebuildable, so a wrong one is never load-bearing — drop and re-derive, never a
+destructive merge.
+
+### 3.5.1b `lens_entities` / `entity_relations` / `related_entities` — hyper-context (Block F)
+
+Once identity is projected, these precomputed rollups answer "who and what is this lens
+about, and how do they relate?" — cheaply, at corpus scale. **Prefer `lens_entities` over
+`entity_frequency`** for surveying a lens. Every result carries a `refreshedAt` staleness
+stamp; relationship `strength` is an **NPMI co-occurrence measure — a structural signal,
+not a claim that two entities are truly related**, and edges must not be chained as
+identity.
+
+```jsonc
+// The lens's significant cast/places, richest first (with type profile + staleness):
+{"name": "lens_entities", "arguments": {"lens_id": "…", "min_mentions": 3, "limit": 50}}
+// → [{"canonicalId": 8842, "preferred": "Duncan", "scope": "local", "nMentions": 42,
+//     "typeProfile": {"PERSON": 42}, "typeConsistency": 1.0, "firstSeenOrdinal": 12}]
+
+// Who co-occurs with Duncan in this lens, strongest first?
+{"name": "entity_relations", "arguments": {"lens_id": "…", "canonical_id": 8842}}
+// → [{"canonicalId": 8901, "preferred": "Paul", "cooccurrenceCount": 30, "strength": 0.61}]
+
+// Friend-of-a-friend discovery — bounded to 2 hops (>3 is rejected, never clamped):
+{"name": "related_entities", "arguments": {"lens_id": "…", "canonical_id": 8842, "hops": 2}}
+// → [{"canonicalId": 8901, "preferred": "Paul", "hops": 1}, {"canonicalId": 9100, "hops": 2}]
+```
+
+Read the same corpus through different lenses by passing a different `lens_id` — the
+composability is a lens parameter, not a query language.
+
+### 3.5.2 `allusions` / `propose_allusion` — cross-lens links, NOT identity (Block E)
+
+Projection keeps a novel's Paris and the real Paris distinct. An **allusion** is the
+honest way to connect them: a typed, directional edge (`alludes_to`, `depicts`,
+`references`, `adapted_from`, `inspired_by`) that records the relationship **without
+merging the entities**. ⚠ An edge is *not* an equality and is *never transitive* — do
+not read one as "these are the same," and do not chain `A→B`, `B→C` into `A→C`. Reading
+`allusions` requires visibility of **both** lenses (and the evidence document), so an
+edge never reveals an entity in a lens you cannot see.
+
+```jsonc
+// The novel's Paris (a work-local entity) alludes to the real Paris (global):
+{"name": "propose_allusion", "arguments": {
+  "from_canonical_id": 5001, "from_lens_id": "<novel-lens>",
+  "to_canonical_id": 84, "to_lens_id": "<global-lens>",
+  "edge_type": "alludes_to", "evidence_document_id": "<the-novel-doc>"}}
+// → {"id": "…", "edgeType": "alludes_to", "status": "proposed", "method": "human"}
+
+{"name": "confirm_allusion", "arguments": {"allusion_id": "…"}}   // human verification
+// → {"id": "…", "status": "confirmed"}
+
+// What does the novel's Paris allude to? (outgoing) / what alludes to the real Paris? (incoming)
+{"name": "allusions", "arguments": {"canonical_id": 5001, "lens_id": "<novel-lens>", "direction": "outgoing"}}
+```
+
+Machine-proposed edges (including the optional `propose_allusions` batch job) land
+`proposed`; only `confirm_allusion` asserts the relationship — and even then it is a
+relationship, never an identity.
 
 ### 3.6 `term_frequency` — the flood-risk pre-flight (Item 10)
 
@@ -540,7 +599,7 @@ called by the container runtime, which holds no token — and both probes bypass
 | `GET /readyz` | none | **Readiness.** `200` only when the config loaded **and** the GraphQL upstream answers; otherwise `503` with `{"ready":false,"checks":{…}}` naming the failed check. The upstream probe is a ≤2 s GET to the API's own `/health`; a **negative** result is cached ~5 s so a readiness storm cannot amplify an upstream outage. Failures carry an error *kind* only — never the upstream host, URL, or a stack trace. |
 
 ```bash
-curl -fsS localhost:8080/health   # → {"status":"ok","version":"1.42.0"}
+curl -fsS localhost:8080/health   # → {"status":"ok","version":"1.48.0"}
 curl -sS -o /dev/null -w '%{http_code}\n' localhost:8080/readyz   # 200 ready, 503 if the API is unreachable
 ```
 
@@ -602,8 +661,12 @@ engineering decision **D-030**.
 | `confirm_document_classification(document_id, genre, subtype?, rationale?)` | `confirmDocumentClassification` | the confirmed `DocumentClassification` |
 | `confirm_projection(mention_id, lens_id)` | `confirmProjection` | `Job` (`refresh_projection`) — promotes a projection to `confirmed` |
 | `reject_projection(mention_id, lens_id)` | `rejectProjection` | `Job` (`refresh_projection`) — marks a projection `rejected` |
+| `propose_allusion(from_canonical_id, from_lens_id, to_canonical_id, to_lens_id, edge_type, evidence_document_id, confidence?, rationale?)` | `proposeAllusion` | the proposed `AllusionEdge` (a link, NOT an identity) |
+| `confirm_allusion(allusion_id)` | `confirmAllusion` | the `confirmed` edge |
+| `reject_allusion(allusion_id)` | `rejectAllusion` | the `rejected` edge |
 | `decide_seeds(approve_ids?, reject_ids?)` | `decideSeeds` | `Int` (rows updated) |
 | `decide_document_metadata_suggestions(approve_ids?, reject_ids?)` | `decideDocumentMetadataSuggestions` | `Int` |
+| `decide_visual_captions(approve_ids?, reject_ids?)` | `decideVisualCaptions` | `Int` (rows updated) |
 | `seed_approved(document_id)` | `seedApproved` | `Job` |
 | `create_collection(name, description="", kind="manual", rule?, doc_type?, status?, tags?)` | `createCollection` | `DocumentCollection` |
 | `add_document_to_collection(collection_id, document_id)` | `addDocumentToCollection` | `DocumentCollection` |
@@ -869,8 +932,8 @@ unaffected.
       Registration → `/authorize` (browser login + consent, PKCE S256) → `/token`
       (authorization_code + PKCE), reusing the existing RLS-bound access JWTs.
       See `application/oauth_server.py`, `webapp/oauth_web.py`, migration `082`.
-- [x] **Write tools — DONE.** `mutations.TOOLS` registers 22 write tools (reprocessing
-      + curation + full collection lifecycle), advertised only when
+- [x] **Write tools — DONE.** `mutations.TOOLS` registers 30 write tools (reprocessing
+      + curation + full collection lifecycle + SLP projection/allusion review), advertised only when
       `DOCRAY_MCP_ENABLE_WRITE=true`; each remains gated by the API's `write` scope and
       per-document ACLs (`test_mcp_server.py::_WRITE_TOOL_NAMES`).
 - [ ] **gRPC gateway** (if required) — a separate service exposing the same

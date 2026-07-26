@@ -72,6 +72,10 @@ WIPED_TABLES = (
     # human review log keyed to it. Wiped with the mentions/documents they project.
     "entity_projection",
     "entity_projection_review",
+    # Allusion edges (Block E, #9): cross-lens curation anchored to document_collections
+    # (the lenses), which are WIPED — an edge to/from a wiped lens is meaningless, and
+    # classifying it preserved would break the FK-consistency gate. So it is wiped too.
+    "entity_allusion",
     "event",
     "sentiment",
     "srl_argument",
@@ -92,11 +96,12 @@ WIPED_TABLES = (
     "corpus_stats",
     "lexeme_stats",
     "entity_frequency_stats",
-    # Block D (#8): the per-lens entity rollup and the stable local-identity registry.
-    # Derived from the projection above (and referencing the WIPED document_collections),
+    # Block D (#8) local-identity registry and Block F (#10) hyper-context rollups —
+    # derived from the projections above (and referencing the WIPED document_collections),
     # so they are wiped with the corpus and rebuilt on the next refresh.
-    "lens_entity_stats",
     "lens_local_entity",
+    "lens_entity_rollup",
+    "lens_entity_relation",
     "seed_suggestion",
     "resolution_review",
     # Prism visual layer — derived per-document corpus data, wiped with the corpus.

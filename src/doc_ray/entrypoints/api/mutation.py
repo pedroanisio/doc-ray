@@ -38,6 +38,7 @@ from doc_ray.domain.jobs import (
     KIND_SUGGEST_DOCUMENT_METADATA,
     KIND_UPDATE_METADATA,
 )
+from doc_ray.entrypoints.api.allusion_mutation import AllusionMutations
 from doc_ray.entrypoints.api.context import MAX_BATCH_IDS
 from doc_ray.entrypoints.api.mutation_billing import BillingMutations
 from doc_ray.entrypoints.api.mutation_classification import ClassificationMutations
@@ -64,6 +65,7 @@ from doc_ray.entrypoints.api.types import Info, Job
 
 @strawberry.type
 class Mutation(
+    AllusionMutations,
     BillingMutations,
     ClassificationMutations,
     CollectionMutations,

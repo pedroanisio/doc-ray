@@ -465,35 +465,63 @@ class LensProjection:
 
 
 @strawberry.type
-class LensEntity:
-    """An entity that lives in a lens, with its lens-wide frequency (SLP Block D, #8).
+class AllusionEdge:
+    """A typed, directional cross-lens link — an allusion, NEVER an identity (SLP Block E, #9).
 
-    The read side of the per-lens rollup: ``nMentions`` / ``nDocuments`` are counts
-    across the lens (lens-wide, not filtered to the caller's ACL subset — the same
-    trade-off ``corpusStats`` makes for a non-summable distinct). ``scope`` says
-    whether this is a work-local (``'local'``) or shared real-world (``'global'``)
-    identity within the lens.
+    Records that one entity *alludes to / depicts / references / is adapted from /
+    inspired by* another, across lenses (e.g. a novel's Paris → the real Paris), without
+    merging them. **An edge is not an equality**: nothing about projection, resolution, or
+    the canonical registry changes because it exists, and edges are **never transitive**
+    (A→B and B→C does not imply A→C or A≡C). ``status`` is ``proposed`` (an unverified
+    machine/agent guess — do not act on it as fact, PALS's Law), ``confirmed``, or
+    ``rejected``. The ``from``/``to`` endpoints each name a ``(canonicalId, lensId)``.
     """
 
-    canonical_id: int
-    preferred: str
-    entity_type: str
-    wikidata_id: str | None
-    scope: str
-    n_mentions: int
-    n_documents: int
+    id: strawberry.ID
+    from_canonical_id: int
+    from_lens_id: strawberry.ID
+    to_canonical_id: int
+    to_lens_id: strawberry.ID
+    edge_type: str
+    confidence: float | None
+    method: str
+    status: str
+    reviewer: strawberry.ID | None
+    rationale: str | None
+    evidence_document_id: strawberry.ID | None
+    created_at: datetime
+    from_preferred: str | None
+    from_wikidata_id: str | None
+    to_preferred: str | None
+    to_wikidata_id: str | None
+    from_lens_name: str | None
+    to_lens_name: str | None
     cursor: str
 
     @classmethod
-    def from_row(cls, row: Row) -> LensEntity:
-        """Build a ``LensEntity`` from a ``lens_entity_stats`` join row."""
+    def from_row(cls, row: Row) -> AllusionEdge:
+        """Build an ``AllusionEdge`` from a joined read row or a hydrated write row."""
+        reviewer = row.get("reviewer")
+        evidence = row.get("evidence_document_id")
         return cls(
-            canonical_id=int(row["canonical_id"]),
-            preferred=row["preferred"],
-            entity_type=row["entity_type"],
-            wikidata_id=row.get("wikidata_id"),
-            scope=row["scope"],
-            n_mentions=int(row["n_mentions"]),
-            n_documents=int(row["n_documents"]),
-            cursor=str(row["cursor"]),
+            id=strawberry.ID(str(row["id"])),
+            from_canonical_id=int(row["from_canonical_id"]),
+            from_lens_id=strawberry.ID(str(row["from_lens_id"])),
+            to_canonical_id=int(row["to_canonical_id"]),
+            to_lens_id=strawberry.ID(str(row["to_lens_id"])),
+            edge_type=row["edge_type"],
+            confidence=row.get("confidence"),
+            method=row["method"],
+            status=row["status"],
+            reviewer=strawberry.ID(str(reviewer)) if reviewer else None,
+            rationale=row.get("rationale"),
+            evidence_document_id=strawberry.ID(str(evidence)) if evidence else None,
+            created_at=cast(datetime, row["created_at"]),
+            from_preferred=row.get("from_preferred"),
+            from_wikidata_id=row.get("from_wikidata_id"),
+            to_preferred=row.get("to_preferred"),
+            to_wikidata_id=row.get("to_wikidata_id"),
+            from_lens_name=row.get("from_lens_name"),
+            to_lens_name=row.get("to_lens_name"),
+            cursor=str(row.get("cursor") or row["id"]),
         )

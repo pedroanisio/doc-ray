@@ -72,6 +72,16 @@ KIND_CLASSIFY_GENRE = "classify_genre"
 # no model; chained after the entity pipeline and enqueued by the projection review
 # mutations to apply a confirm/reject promptly. Not long-running per document.
 KIND_REFRESH_PROJECTION = "refresh_projection"
+# Block E (#9): deterministically propose alludes_to edges for a document — where a
+# work-local entity's surface matches a KB-linked global entity. No model; emits
+# proposed edges only (never confirms), so it is not long-running. Optional (FR-5):
+# the propose/confirm/reject API is the primary path; this is a bulk convenience.
+KIND_PROPOSE_ALLUSIONS = "propose_allusions"
+# Block F (#10): (re)build the hyper-context rollups for a lens (or the whole corpus,
+# payload rebuild=true) — the per-lens entity landscape + co-occurrence relations
+# aggregated from projections. Deterministic, no model; chained after the projection
+# refresh and invocable by an operator. Not long-running per lens.
+KIND_REFRESH_LENS_ROLLUP = "refresh_lens_rollup"
 
 # The default post-ingest pipeline: Stage-1 annotation, deterministic semantic
 # enrichment, then deterministic canonicalization, then Prism Tier-1 visual

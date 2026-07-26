@@ -185,26 +185,44 @@ fiction / non_fiction / mixed / unknown), `classifyDocument(documentId:)`
 `confirmDocumentClassification(documentId:, genre:, subtype:, rationale:)`
 (a human confirmation → `status='confirmed'`, `method='human'`). A `pending`
 genre is an unverified guess, never relied on for identity; only a human
-confirmation asserts it. This block defines the policy; it does not yet change
-how any entity resolves.
+confirmation asserts it. This block defines the policy the projection engine
+(Block D, shipped) consumes: in a fiction work, work-local types resolve inside the
+work's lens; real-world types resolve globally.
 Projection engine (SLP Block D — lens-scoped entity identity):
 `entityProjection(documentId:, lensId:)` (read `project(mention, lens)` for a
 document through a lens — `scope` local/global, `canonicalId` null when
 explicitly unresolved, `status` proposed/confirmed/rejected; omit `lensId` to use
-the document's default lens, else `global`) / `lensEntities(lensId:, limit:,
-after:)` (the entities that live in a lens, most-mentioned first) /
+the document's default lens, else `global`) /
 `confirmProjection(mentionId:, lensId:)` / `rejectProjection(mentionId:, lensId:)`
 (human review, recorded by stable span so it survives re-annotation; applied by a
 refresh job) / `setLensProjects(lensId:, projects:)` (designate a lens as
 projecting — only designated lenses are materialized). Every machine projection is
 `proposed` until a human confirms it (PALS's Law); the substrate is never mutated.
+Allusion edges (SLP Block E — typed cross-lens links that never assert identity):
+`allusions(canonicalId:, lensId:, direction:, limit:, after:)` (read an entity's
+edges — `direction` outgoing/incoming/both) / `proposeAllusion(fromCanonicalId:,
+fromLensId:, toCanonicalId:, toLensId:, edgeType:, evidenceDocumentId:, confidence:,
+rationale:)` / `confirmAllusion(id:)` / `rejectAllusion(id:)`. An allusion records
+that one entity *alludes to / depicts / references / is adapted from / inspired by*
+another (e.g. a novel's Paris → the real Paris) **without merging them** — an edge
+is not an equality, changes nothing about identity, and is never transitive.
+Machine-proposed edges land `proposed` until confirmed.
+Hyper-context (SLP Block F — per-lens sensemaking over the projected graph):
+`lensEntities(lensId:, limit:, after:, minMentions:)` (a lens's significant entities,
+most-mentioned first, with type profile + consistency, first-seen ordinal, and a
+`refreshedAt` staleness stamp) / `entityRelations(lensId:, canonicalId:, limit:,
+minStrength:)` (an entity's direct co-occurrence relations, strongest first) /
+`relatedEntities(lensId:, canonicalId:, hops:, limit:)` (bounded N-hop discovery —
+`hops` capped at 3, an over-cap request is rejected, never clamped). Relationship
+`strength` is an NPMI co-occurrence measure (Bouma 2009), a **structural** signal — not
+a claim that two entities are truly related. All reads are precomputed rollups (D-025).
 Backup/restore:
 `backupEnabled` (read — whether this deployment has the in-app backup subsystem
 switched on; clients check it before offering the actions) /
 `createBackup` / `restoreBackup` (see [Backup & restore](#backup--restore)
 below). Security audit readback: `auditEvents` (admin-scoped).
 
-The 1.43.0 human surface binds these capabilities end to end: `/search` selects
+The webapp human surface binds these capabilities end to end: `/search` selects
 Keyword, Meaning, or Images; `/review` separates metadata, Entity, and visual
 decisions; `/briefing` assembles cited evidence; Collection and Document pages
 expose Lens controls; and each Document reader shows its RLS-checked image
@@ -331,8 +349,9 @@ lens holds real-world (Wikidata-linkable) identities shared corpus-wide; a *scop
 lens* groups the documents whose fictional identities belong together.
 
 A lens is not a new structure — it is a `document_collection` you **promote**.
-This block (Block B) ships the vocabulary only: it does **not** change how any
-entity resolves today; a later projection layer (Block D) will consume it. See
+Block B shipped this lens vocabulary; the projection engine (Block D, shipped) now
+consumes it to resolve entity identity per lens — a fiction work's entities stay
+local to its lens, real-world entities stay global. See
 [`docs/proposals/entity-fabric-substrate-lens-projection.md`](docs/proposals/entity-fabric-substrate-lens-projection.md).
 
 Promote a collection, optionally set a document's default lens, and read the
@@ -531,7 +550,7 @@ Current decisions (see the record for rationale, claims, and auditable checks):
 | D-004 | Background jobs via a Postgres queue (`FOR UPDATE SKIP LOCKED`) |
 | D-005 | Sync worker for blocking work; async only for API reads |
 | D-006 | Runtime migration runner closes the init-only gap |
-| D-007 | `jobs` table: text+CHECK status, open text kind (migration 019) |
+| D-007 | `jobs` table: text+CHECK status, open text kind (migration 020) |
 | D-008 | GraphQL safety: depth + complexity limits, keyset pagination |
 | D-009 | Pluggable extractor & analyzer registries |
 | D-010 | Access control via Postgres RLS; API sets the principal |
@@ -541,6 +560,11 @@ Current decisions (see the record for rationale, claims, and auditable checks):
 | D-014 | Gated pre-commit runs the full quality bar |
 | D-015 | Every source file stays under 400 net lines of code |
 | D-016 | `engineering_decisions.yml` is the ADR system of record |
+
+_These are the foundational decisions; the full, current ADR set runs through **D-034**
+(e.g. D-024 supply-chain lock gate, D-025 no live fact-table aggregates, D-033/D-034
+surface parity). See [`engineering_decisions.yml`](engineering_decisions.yml) — the
+system of record (D-016) — for all of them._
 
 ## Quality gates
 

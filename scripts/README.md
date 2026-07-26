@@ -5,6 +5,8 @@
 This work is subject to the methodological caveats and commitments described in [@DISCLAIMER.md](../DISCLAIMER.md).
 > No statement or premise not backed by a real logical definition or verifiable reference should be taken for granted.
 
+↑ Back to the [root README](../README.md).
+
 Self-contained command-line tools, **independent of the production
 `src/doc_ray/` pipeline and the database**. They read files directly and print to
 stdout/JSON; nothing in `src/doc_ray/` or `webapp/` imports them. They live here

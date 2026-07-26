@@ -520,6 +520,82 @@ async def reject_projection(mention_id: str, lens_id: str) -> dict[str, Any]:
     return job
 
 
+async def propose_allusion(
+    from_canonical_id: int,
+    from_lens_id: str,
+    to_canonical_id: int,
+    to_lens_id: str,
+    edge_type: str,
+    evidence_document_id: str,
+    confidence: float | None = None,
+    rationale: str | None = None,
+) -> dict[str, Any]:
+    """Propose a typed cross-lens allusion — a link, NOT an identity claim (SLP Block E).
+
+    ⚠ An allusion is an EDGE, never an equality: it records that ``from_canonical_id`` in
+    ``from_lens_id`` *alludes to / depicts / references / is adapted from / inspired by*
+    ``to_canonical_id`` in ``to_lens_id`` (e.g. a novel's Paris → the real Paris) WITHOUT
+    merging them — entity resolution does not change. **Do NOT propose an edge to assert
+    two entities are the same** (use nothing — they stay distinct by design), and never
+    reason over edges transitively. ``edge_type`` ∈ ``alludes_to|depicts|references|
+    adapted_from|inspired_by``. ``evidence_document_id`` cites where the allusion appears
+    and anchors the write (you may only propose an edge justified by a document you can
+    write). Idempotent; lands ``status='proposed'`` until a human confirms it.
+    """
+    _require_uuid(from_lens_id, "from_lens_id")
+    _require_uuid(to_lens_id, "to_lens_id")
+    _require_uuid(evidence_document_id, "evidence_document_id")
+    _require_nonempty(edge_type, "edge_type")
+    data = await gql(
+        "mutation($fc:Int!,$fl:ID!,$tc:Int!,$tl:ID!,$et:String!,$ev:ID!,$cf:Float,$r:String)"
+        "{proposeAllusion(fromCanonicalId:$fc,fromLensId:$fl,toCanonicalId:$tc,toLensId:$tl,"
+        "edgeType:$et,evidenceDocumentId:$ev,confidence:$cf,rationale:$r)"
+        "{id edgeType status method fromPreferred toPreferred fromLensName toLensName}}",
+        {
+            "fc": from_canonical_id,
+            "fl": from_lens_id,
+            "tc": to_canonical_id,
+            "tl": to_lens_id,
+            "et": edge_type,
+            "ev": evidence_document_id,
+            "cf": confidence,
+            "r": rationale,
+        },
+    )
+    edge: dict[str, Any] = data["proposeAllusion"]
+    return edge
+
+
+async def confirm_allusion(allusion_id: str) -> dict[str, Any]:
+    """Confirm an allusion edge — a human verification (SLP Block E); returns the edge.
+
+    Promotes a ``proposed`` edge to ``confirmed``. Confirming still asserts only the
+    *relationship*, never an identity — the two entities remain distinct. Requires write
+    access to the edge's evidence document.
+    """
+    _require_uuid(allusion_id, "allusion_id")
+    data = await gql(
+        "mutation($id:ID!){confirmAllusion(id:$id){id status reviewer edgeType}}",
+        {"id": allusion_id},
+    )
+    edge: dict[str, Any] = data["confirmAllusion"]
+    return edge
+
+
+async def reject_allusion(allusion_id: str) -> dict[str, Any]:
+    """Reject an allusion edge (SLP Block E); returns the edge.
+
+    Marks the edge ``rejected``; the substrate is untouched. Requires write access to the
+    edge's evidence document.
+    """
+    _require_uuid(allusion_id, "allusion_id")
+    data = await gql(
+        "mutation($id:ID!){rejectAllusion(id:$id){id status edgeType}}", {"id": allusion_id}
+    )
+    edge: dict[str, Any] = data["rejectAllusion"]
+    return edge
+
+
 TOOLS: tuple[Any, ...] = (
     reannotate,
     reextract_document,
@@ -536,6 +612,9 @@ TOOLS: tuple[Any, ...] = (
     confirm_document_classification,
     confirm_projection,
     reject_projection,
+    propose_allusion,
+    confirm_allusion,
+    reject_allusion,
     decide_seeds,
     decide_document_metadata_suggestions,
     decide_visual_captions,

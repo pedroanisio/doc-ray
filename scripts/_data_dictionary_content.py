@@ -39,8 +39,10 @@ RLS_PATH = {
     "document_classification": "document_id",
     "entity_projection": "document_id",
     "entity_projection_review": "document_id",
-    "lens_entity_stats": "lens_id → document_collection_members → documents",
+    "lens_entity_rollup": "lens_id → document_collection_members → documents",
+    "lens_entity_relation": "lens_id → document_collection_members → documents",
     "lens_local_entity": "admin-only (batch-owned local-identity registry)",
+    "entity_allusion": "both lenses via document_collection_members + evidence_document_id",
     "entity_link": "mention_id → entity_mention → annotations",
     "srl_predicate": "annotation_id → annotations",
     "srl_argument": "span_id → spans",
@@ -318,6 +320,18 @@ MIGRATIONS = [
         "entity_projection_review + lens_entity_stats + collections.projects col (RLS + grants)",
     ),
     ("130_schema_version_1_46_0", "advance the schema SemVer to 1.46.0 for the projection engine"),
+    (
+        "131_allusion_edges",
+        "entity_allusion (typed cross-lens links that never assert identity, Block E) "
+        "+ cross-lens RLS + grants",
+    ),
+    ("132_schema_version_1_47_0", "advance the schema SemVer to 1.47.0 for allusion edges"),
+    (
+        "133_lens_rollups",
+        "hyper-context rollups (Block F): lens_entity_rollup + lens_entity_relation "
+        "(co-occurrence NPMI) + RLS; supersedes/drops lens_entity_stats",
+    ),
+    ("134_schema_version_1_48_0", "advance the schema SemVer to 1.48.0 for hyper-context rollups"),
 ]
 
 # ---------------------------------------------------------------------------

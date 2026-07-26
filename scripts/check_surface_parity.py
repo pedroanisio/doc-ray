@@ -39,6 +39,9 @@ _API_ONLY_ALLOWLIST: dict[str, str] = {
     "auditEvents": "The admin-console Audit page is the dedicated human surface.",
     # Both UIs resolve the deployment toggle locally; the admin console also queries it.
     "backupEnabled": "Webapp nav uses the same env capability; admin-console queries this field.",
+    # Cross-lens allusion edges (SLP Block E) are an agent/API + MCP curation primitive;
+    # the read webapp does not yet surface them.
+    "allusions": "Cross-lens allusion edges are an agent/MCP retrieval primitive (Block E).",
     # Billing is intentionally isolated in the privileged operator console.
     "billingEvents": "The admin-console Billing page is the dedicated human surface.",
     "billingStatus": "The admin-console Billing page is the dedicated human surface.",
@@ -55,6 +58,7 @@ _API_ONLY_ALLOWLIST: dict[str, str] = {
     # Lens-scoped identity review (SLP Block D) is an agent/API + MCP verification action;
     # the read webapp does not yet surface projections.
     "confirmProjection": "Projection confirmation is an agent/API + MCP review action (Block D).",
+    "confirmAllusion": "Allusion confirmation is an agent/API + MCP review action (Block E).",
     # Shards are orchestration primitives rather than an end-user corpus interaction.
     "corpusManifest": "Deterministic fan-out metadata is an agent/operations primitive.",
     "corpusShard": "Deterministic shard traversal is an agent/operations primitive.",
@@ -90,8 +94,11 @@ _API_ONLY_ALLOWLIST: dict[str, str] = {
     "entityProjection": "Lens-scoped identity is an agent/MCP retrieval primitive (Block D).",
     # Browser keyword search uses its established direct-SQL sentence query.
     "fullTextSearch": "Search and Briefing provide human retrieval through their own bindings.",
-    # Per-lens entity survey (SLP Block D) is an agent/MCP retrieval primitive.
-    "lensEntities": "The per-lens entity rollup is an agent/MCP retrieval primitive (Block D).",
+    # Per-lens entity survey (SLP Block D/F) is an agent/MCP retrieval primitive.
+    "lensEntities": "The per-lens entity rollup is an agent/MCP retrieval primitive (Block D/F).",
+    # Hyper-context relationship discovery (SLP Block F) is an agent/MCP retrieval primitive.
+    "entityRelations": "Co-occurrence relations are an agent/MCP retrieval primitive (Block F).",
+    "relatedEntities": "Bounded N-hop discovery is an agent/MCP retrieval primitive (Block F).",
     # Fleet-wide re-extraction is privileged and lives in the admin console.
     "reextractDocuments": "The admin-console Jobs page exposes this admin-only batch action.",
     # The collection member form owns the same relation through RLS-scoped SQL.
@@ -100,6 +107,8 @@ _API_ONLY_ALLOWLIST: dict[str, str] = {
     "restoreDocument": "Deleted-document recovery is API/operator-only; browser lists active docs.",
     # Lens-scoped identity review (SLP Block D) is an agent/API + MCP verification action.
     "rejectProjection": "Projection rejection is an agent/API + MCP review action (Block D).",
+    "proposeAllusion": "Proposing a cross-lens allusion is an agent/API curation action (Block E).",
+    "rejectAllusion": "Allusion rejection is an agent/API + MCP review action (Block E).",
     # Billing-event replay is a privileged control in the admin console.
     "retryBillingEvent": "The admin-console Billing page exposes this admin-only retry.",
     # Browser keyword search performs the same RLS-scoped sentence read through SQL.

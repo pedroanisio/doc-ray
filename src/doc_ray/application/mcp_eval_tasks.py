@@ -230,10 +230,16 @@ _COLLECTIONS = EvalTask(
     kind="coverage",
     prompt="What collections and resolution lenses exist?",
     grounded_in="reachability: list_collections / get_collection / list_lenses",
+    # Bounded probe: this only needs to prove reachability (list is non-empty), so it
+    # reads a small window. limit=50 made the payload scale with however many
+    # collections/lenses the (shared) database happens to hold — in a full-suite run
+    # hundreds of prior tests leave dozens of lens fixtures behind, blowing the char
+    # budget. A small, fixed limit keeps the coverage check deterministic and
+    # accumulation-proof (D-024's spirit: read O(result), not O(table)).
     steps=(
-        Step(corpus.list_collections, lambda ctx: {"limit": 50}),
+        Step(corpus.list_collections, lambda ctx: {"limit": 5}),
         Step(corpus.get_collection, lambda ctx: {"collection_id": ctx.ids["collection_id"]}),
-        Step(corpus.list_lenses, lambda ctx: {"limit": 50}),
+        Step(corpus.list_lenses, lambda ctx: {"limit": 5}),
     ),
     assertions=(
         _nonempty("list_collections"),
@@ -292,18 +298,33 @@ _PROJECTION = EvalTask(
     id="coverage-projection",
     kind="coverage",
     prompt="How does each mention in the entity document resolve within a lens, "
-    "and which entities live in that lens?",
-    grounded_in="reachability: entity_projection / lens_entities (SLP Block D)",
+    "which entities live in that lens, and what do they allude to?",
+    grounded_in="reachability: entity_projection / lens_entities / allusions (SLP Blocks D, E)",
     steps=(
         Step(structure.entity_projection, lambda ctx: {"document_id": _entity(ctx)}),
         Step(structure.lens_entities, lambda ctx: {"lens_id": ctx.ids["collection_id"]}),
+        Step(
+            structure.entity_relations,
+            lambda ctx: {"lens_id": ctx.ids["collection_id"], "canonical_id": 1},
+        ),
+        Step(
+            structure.related_entities,
+            lambda ctx: {"lens_id": ctx.ids["collection_id"], "canonical_id": 1, "hops": 2},
+        ),
+        Step(
+            structure.allusions,
+            lambda ctx: {"canonical_id": 1, "lens_id": ctx.ids["collection_id"]},
+        ),
     ),
     assertions=(
         _ok("entity_projection"),
         _ok("lens_entities"),
-        _within(TaskBudget(max_calls=3, max_chars=15_000)),
+        _ok("entity_relations"),
+        _ok("related_entities"),
+        _ok("allusions"),
+        _within(TaskBudget(max_calls=6, max_chars=24_000)),
     ),
-    budget=TaskBudget(max_calls=3, max_chars=15_000),
+    budget=TaskBudget(max_calls=6, max_chars=24_000),
 )
 
 _JOBS = EvalTask(

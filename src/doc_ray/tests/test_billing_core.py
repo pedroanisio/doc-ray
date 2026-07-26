@@ -38,6 +38,9 @@ def test_paid_saas_mutations_cannot_drift_outside_billing_entitlement_guard() ->
     guarded_mutations = {
         "add_document_to_collection": "mutation.add_document_to_collection",
         "annotate_document": "mutation.annotate",
+        "confirm_allusion": "mutation.confirm_allusion",
+        "propose_allusion": "mutation.propose_allusion",
+        "reject_allusion": "mutation.reject_allusion",
         "archive_document": "mutation.archive_document",
         "bulk_archive_documents": "mutation.bulk_archive_documents",
         "bulk_tag_documents": "mutation.bulk_tag_documents",

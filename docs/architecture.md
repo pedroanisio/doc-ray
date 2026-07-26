@@ -110,8 +110,9 @@ A job's payload can carry a `chain`: on success, `run_once` enqueues the next
 kind for the same document with the remaining chain before returning —
 deterministic and auditable in the `jobs` table, and the mechanism behind
 `ingestDocument(pipeline: true)` reaching a fully annotated, semantically
-enriched, and canonicalized document (`annotate` -> `semantic_enrich` ->
-`canonicalize`) with no further calls.
+enriched, canonicalized document plus Prism Tier-1 visual feature extraction
+(`annotate` -> `semantic_enrich` -> `canonicalize` -> `visual_extract`, the
+`DEFAULT_PIPELINE_CHAIN`) with no further calls.
 
 The API also exposes `GET /jobs/events` as a Server-Sent Events stream for
 pipeline status changes. Query with `document_id=<uuid>` to receive only jobs
@@ -201,8 +202,9 @@ nests it, and `documents.default_lens_id` names a document's default. A reserved
 real-world scope. Integrity — a parent lens is a scope, a default lens is a scope
 the document belongs to, no parent cycle — is enforced in the database
 (migration 121), and the `global` lens's completeness check runs BYPASSRLS as
-`docray_batch` (migration 114's pattern). **Block B ships this vocabulary only:
-no entity resolution changes; a later projection layer consumes it.** The GraphQL
+`docray_batch` (migration 114's pattern). **Block B shipped this vocabulary only —
+no entity resolution changed at the time; the projection engine (Block D, shipped,
+below) now consumes it.** The GraphQL
 surface is `lenses` (read) and `promoteCollectionToLens` / `demoteLens` /
 `setDocumentDefaultLens` (write); MCP mirrors it with `list_lenses` and the three
 write tools.
@@ -243,16 +245,17 @@ The correctness core is the **pure resolver** `domain.projection.project`
 (stdlib-only, exhaustively unit-tested before any SQL): *the reserved `global` lens
 forces GLOBAL; a scope lens applies the Block C genre policy per type; then
 local-first lookup → global fallback → explicit unresolved* — a mention is never
-silently dropped (invariant 4). Migration 129 adds four additive tables, all with
-RLS + FORCE and reproducible from substrate + lens + policy, none mutating the
+silently dropped (invariant 4). Migration 129 adds three durable additive tables, all
+with RLS + FORCE and reproducible from substrate + lens + policy, none mutating the
 substrate (invariants 1–2): `entity_projection` (one row per mention × projecting
 lens — `scope`, a nullable `canonical_id`, a `proposed`/`confirmed`/`rejected`
 status; batch-owned, SELECT-only to the API — the Block A ownership finding);
 `lens_local_entity` (the stable registry that mints one `canonical` row per (lens,
-surface, type) so a rebuild is byte-identical); `entity_projection_review` (human
+surface, type) so a rebuild is byte-identical); and `entity_projection_review` (human
 confirm/reject keyed by the **stable span**, so a decision survives re-annotation —
-Block A's record-then-apply shape, applied by the refresh); and `lens_entity_stats`
-(the per-lens entity rollup `lensEntities` reads — D-024, never a live aggregate).
+Block A's record-then-apply shape, applied by the refresh). (129 also added a thin
+per-lens stats rollup, `lens_entity_stats`, since superseded and dropped by Block F's
+`lens_entity_rollup` — see below.)
 Only a lens with `document_collections.projects` set is materialized (FR-2 cost
 control, bounded per document). The `KIND_REFRESH_PROJECTION` job refreshes one
 document (chained after canonicalize / reannotate / apply_corrections) or rebuilds
@@ -262,6 +265,57 @@ human decision. GraphQL: `entityProjection` / `lensEntities` (read),
 the reads and the two review writes (gated on `DOCRAY_MCP_ENABLE_WRITE`). Block D
 unblocks the cross-lens allusion edges (Block E, #9) and per-lens hyper-context
 (Block F, #10).
+
+### Allusion edges (SLP Block E)
+
+Projection keeps a novel's Paris and the real Paris distinct so nothing is fabricated
+by a merge (invariant 2) — but separation alone loses real knowledge. The allusion
+edge is the honest representation of the relationship: the novel's Paris *alludes to*
+the real Paris. It is an **edge, not an equality**. `entity_allusion` (migration 131)
+links `(from_canonical_id, from_lens_id) → (to_canonical_id, to_lens_id)` with a typed
+relation (`alludes_to` / `depicts` / `references` / `adapted_from` / `inspired_by`),
+confidence, method, a `proposed`/`confirmed`/`rejected` review status, and an evidence
+document. Recording an edge changes **nothing** about projection, resolution, or the
+canonical registry (a before/after checksum proves it), and edges are **never
+transitive** — `A→B` and `B→C` yields neither `A→C` nor `A≡C`. The pure
+`domain.allusions` module carries the vocabulary and the negative invariants
+(`is_identity_claim() → False`; no closure primitive exists to misuse). Unlike Block
+D's derived fact tables, `entity_allusion` is a **curation** table the API writes
+directly (docray_client). Its RLS is the delicate part: an edge is visible only when
+the caller can read **both** endpoint lenses (the `global` lens is public; a scope lens
+needs a readable member document) **and** the evidence document, so it never reveals an
+entity in an unreadable lens — and the write policy is `FOR INSERT`/`UPDATE` only, never
+`FOR ALL` (which, being OR-ed with the read policy, would leak reads to anyone who can
+write the evidence). GraphQL: `allusions` (bidirectional read), `proposeAllusion` /
+`confirmAllusion` / `rejectAllusion` (write); MCP mirrors them (writes gated), with
+docstrings that warn an agent never to treat an edge as identity or chain it. A machine
+proposal (including the optional deterministic `KIND_PROPOSE_ALLUSIONS` proposer) lands
+`proposed`; only a human confirms (PALS's Law).
+
+### Hyper-context rollups (SLP Block F)
+
+The final block turns the projected graph into corpus-wide sensemaking. Answering "who
+are the significant figures in this body of work, and how do they relate?" by scanning
+mentions at read time is the live-aggregate-over-a-fact-table pattern D-024 forbids at
+10k documents — so the capability *is* the precomputation. Migration 133 adds two derived
+rollups (RLS-scoped by lens visibility; `docray_batch` writes, `docray_api` reads):
+`lens_entity_rollup` — a lens's significant entities with mention/document volume, the
+observed type profile + `type_consistency` (reusing `entity_profiles.dominant_type_share`),
+and the first-seen sentence ordinal (it supersedes the thin Block-D `lens_entity_stats`,
+now dropped, and backs `lensEntities`); and `lens_entity_relation` — undirected
+**sentence-level** co-occurrence pairs stored once (`from < to`) with a strength that is
+**NPMI** (Bouma 2009), normalized by marginal frequencies so a ubiquitous entity is not
+"related" to everything (raw counts alone are not acceptable). The pure `domain.lens_rollups`
+holds the cited formula, significance ranking, and a **bounded, cycle-safe** N-hop BFS with
+a hard cap (3) — there is no unbounded walk. `KIND_REFRESH_LENS_ROLLUP` refreshes a lens
+(chained strictly *after* the projection refresh it aggregates) or the whole corpus;
+idempotent and reproducible. GraphQL/MCP expose `lensEntities` (enriched), `entityRelations`
+(direct), and `relatedEntities` (bounded N-hop — an over-cap `hops` is rejected, not
+clamped); composability is a lens parameter on the entity reads, not a query language.
+Relationship strength is a **structural** co-occurrence measure, never a claim of a real
+relationship (PALS's Law), and every read carries a `refreshedAt` staleness stamp.
+Narrative summaries are deferred to a follow-up. This block completes the Entity Fabric
+(Substrate·Lens·Projection) programme, Blocks A–F.
 
 ## Access-control boundary
 

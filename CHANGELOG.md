@@ -19,6 +19,72 @@ doc-ray carries **one global version** covering both the application package
 (`docray_schema_version()`). They are kept in lockstep by
 `scripts/check_version_consistency.py`, which fails the build on any drift.
 
+## [1.48.0]
+
+### Added
+
+- **Hyper-context rollups + relationship discovery over the projected graph (SLP Block F,
+  issue #10).** Turns the projected entity graph into corpus-wide sensemaking — "who are
+  the significant figures in this body of work, and how do they relate?" — as
+  *precomputed, bounded* rollups (answering it live at 10k documents is the
+  aggregate-over-a-fact-table pattern D-024 forbids).
+  - **Schema (migration 133, additive):** `lens_entity_rollup` — per lens entity: mention
+    / document volume, the observed `type_profile` + `type_consistency`, and the first-seen
+    sentence ordinal for citation; `lens_entity_relation` — undirected **sentence-level**
+    co-occurrence pairs (stored once, `from < to`) with an **NPMI** strength (Bouma 2009),
+    normalized by marginal frequencies so a ubiquitous entity is not "related" to
+    everything. RLS scopes both by lens visibility. This **supersedes** the thin Block-D
+    `lens_entity_stats` (dropped) — one rollup for the lens entity landscape.
+  - **Pure domain** (`domain.lens_rollups`): the cited NPMI formula, significance ranking,
+    and a **bounded, cycle-safe** N-hop BFS with a hard cap (3) — no unbounded graph walk.
+  - **Refresh:** `KIND_REFRESH_LENS_ROLLUP` — incremental per lens (chained strictly after
+    Block D's projection refresh, which it aggregates) + a full rebuild. Idempotent and
+    reproducible.
+  - **Surfaces:** GraphQL `lensEntities` (now with `minMentions` + type profile + staleness)
+    / `entityRelations` / `relatedEntities` (bounded N-hop — an over-cap `hops` is
+    **rejected**, not clamped); MCP mirrors all three, with docstrings stating these are
+    precomputed rollups (with a `refreshedAt` staleness stamp) and that relationship
+    strength is a co-occurrence measure, not a claim of a real relationship (PALS's Law).
+    Composability is a lens parameter on the entity reads, not a query language (FR-6).
+  - Degrades gracefully without Block E (intra-lens only). Narrative summaries (FR-2) are
+    deferred to a follow-up (**BL-161**) — they add a model dependency + review workflow
+    deserving their own gate. Schema SemVer → **1.48.0** (migration 134). This completes
+    the Entity Fabric (Substrate·Lens·Projection) programme (Blocks A–F).
+
+## [1.47.0]
+
+### Added
+
+- **Allusion edges — typed cross-lens links that never assert identity (SLP Block E,
+  issue #9).** Block D (#8) deliberately keeps a novel's Paris and the real Paris as
+  distinct entities (no lossy merge); this block records the honest relationship between
+  them — the novel's Paris *alludes to* the real Paris — as a typed, directional edge
+  that preserves both and makes the connection queryable. An edge is **not** an equality:
+  it changes nothing about projection, resolution, or the canonical registry, and edges
+  are **never transitive** (A→B, B→C does not imply A→C or A≡C).
+  - **Schema (migration 131, additive):** `entity_allusion` — `(from_canonical_id,
+    from_lens_id) → (to_canonical_id, to_lens_id)` with `edge_type` ∈
+    `alludes_to`/`depicts`/`references`/`adapted_from`/`inspired_by`, confidence, method,
+    a `proposed`/`confirmed`/`rejected` review status, reviewer, rationale, and an
+    evidence document. `UNIQUE` makes proposal idempotent; a `CHECK` forbids a self-edge
+    within one lens. It is a **curation** table the API writes directly (docray_client),
+    not a derived fact table.
+  - **RLS (the hard part):** an edge is readable only when the caller can see BOTH
+    endpoint lenses (the `global` lens is public; a scope lens needs a readable member
+    document) AND the evidence document — so it never reveals an entity in a lens the
+    caller cannot see. The write policy is `FOR INSERT`/`UPDATE` only (never `FOR ALL`,
+    which would leak reads); proven by an asymmetry test (a caller who sees one side sees
+    no edge).
+  - **Surfaces:** GraphQL `allusions` (bidirectional read), `proposeAllusion` /
+    `confirmAllusion` / `rejectAllusion` (guarded + audited writes); MCP `allusions` +
+    write-gated `propose_allusion` / `confirm_allusion` / `reject_allusion`, whose
+    docstrings warn that an allusion is not an identity and must not be traversed
+    transitively. An optional deterministic proposer (`KIND_PROPOSE_ALLUSIONS`, FR-5)
+    suggests `alludes_to` edges where a work-local entity's surface matches a KB-linked
+    global entity — `proposed` only. Schema SemVer → **1.47.0** (migration 132).
+  - Machine-proposed edges land `status='proposed'` (PALS's Law); only a human confirms.
+    Unblocks Block F (#10, hyper-context) alongside Block D.
+
 ## [1.46.0]
 
 ### Added

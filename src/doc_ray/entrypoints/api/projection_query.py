@@ -12,7 +12,7 @@ import strawberry
 
 from doc_ray.adapters import persistence_projection_read as projection_read
 from doc_ray.entrypoints.api.ids import clean_uuid as _clean_uuid
-from doc_ray.entrypoints.api.types import EntityProjection, Info, LensEntity, LensProjection
+from doc_ray.entrypoints.api.types import EntityProjection, Info, LensProjection
 
 
 @strawberry.type
@@ -62,27 +62,3 @@ class ProjectionQueries:
             entities=entities,
             next_cursor=entities[-1].cursor if entities else None,
         )
-
-    @strawberry.field
-    async def lens_entities(
-        self,
-        info: Info,
-        lens_id: strawberry.ID,
-        limit: int = 100,
-        after: str | None = None,
-    ) -> list[LensEntity]:
-        """Return the entities that live in a lens, most-mentioned first (Block D, #8).
-
-        Reads the per-lens rollup, so it is O(result) — never a live aggregate over
-        the projection (D-024). Scope lenses only: the corpus-wide global entity
-        distribution is served by ``canonicalSearch`` / ``entityFrequency``, so the
-        ``global`` lens returns nothing here. Page with a row's ``cursor`` as ``after``.
-        """
-        ctx = info.context
-        raw_lens = _clean_uuid(str(lens_id))
-        if raw_lens is None:
-            return []
-        rows = await projection_read.lens_entities(
-            ctx.conn, raw_lens, limit=ctx.page_size(limit), after=after
-        )
-        return [LensEntity.from_row(row) for row in rows]

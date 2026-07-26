@@ -359,7 +359,9 @@ def test_non_projecting_scope_lens_is_not_materialized(conn):
 # --- lens entity rollup (lensEntities read model) -------------------------
 
 
-def test_lens_entity_stats_rollup_counts_local_entities(conn):
+def test_lens_entity_rollup_counts_local_entities(conn):
+    # Block D's projection chains the Block F rollup refresh, so lens_entity_rollup (which
+    # superseded lens_entity_stats) is populated after a projection refresh.
     lens = _lens(conn, "saga")
     doc = _itdb.make_doc(conn, "Duncan, Duncan, and Paul.")
     _add_member(conn, lens, doc)
@@ -371,12 +373,12 @@ def test_lens_entity_stats_rollup_counts_local_entities(conn):
     )
     ap.refresh_projections_for_document(conn, doc)
     stats = conn.execute(
-        "SELECT canonical_id, n_mentions, n_documents FROM lens_entity_stats "
-        "WHERE lens_id = %s ORDER BY n_mentions DESC",
+        "SELECT canonical_id, mention_count, document_count FROM lens_entity_rollup "
+        "WHERE lens_id = %s ORDER BY mention_count DESC",
         (lens,),
     ).fetchall()
-    assert stats[0]["n_mentions"] == 2 and stats[0]["n_documents"] == 1  # the two Duncans merged
-    assert {int(s["n_mentions"]) for s in stats} == {2, 1}
+    assert stats[0]["mention_count"] == 2 and stats[0]["document_count"] == 1  # two Duncans merged
+    assert {int(s["mention_count"]) for s in stats} == {2, 1}
 
 
 # --- RLS ------------------------------------------------------------------
