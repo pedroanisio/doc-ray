@@ -6,6 +6,10 @@ disclaimer:
     or verifiable reference may be invalid, erroneous, or a hallucination.
   generated_by: "Claude Opus 4.8 (1M context) via Claude Code"
   date: "2026-07-14"
+retire-when: >-
+  No document carries the pending-trf-h200 tag any more — i.e. the deferred
+  oversized documents have been re-annotated with en_core_web_trf on an H200
+  (or the operator abandons that plan). Delete this file in the same change.
 ---
 
 # Pending trf re-annotation (H200)

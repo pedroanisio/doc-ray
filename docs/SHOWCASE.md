@@ -10,6 +10,10 @@ disclaimer:
 
 # doc-ray — Ingestion & Capability Showcase
 
+> **Historical** — written against the v0 schema era (migrations 001–012);
+> capabilities have grown substantially since. Current entry points:
+> [README](../README.md), [docs/public/](public/index.md).
+
 This document describes the full ingestion tool-chain and how it populates the
 complete NLP annotation stack (migrations 001–012; entity linking, layer 12,
 is covered separately below — it shipped later, against a live KB rather

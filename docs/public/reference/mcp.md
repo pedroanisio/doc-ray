@@ -48,6 +48,15 @@ The default MCP surface is **read-only**. Write tools are registered only when `
 | `get_job` | Poll one Job's status by id. | `job_id` |
 | `list_collections` | List Collections the caller can see. | `limit`, `kind`, `after` |
 | `get_collection` | Fetch one Collection with its member Documents. | `collection_id`, `document_limit` |
+| `semantic_search_sentences` | Rank Sentences by learned semantic similarity (meaning, not keywords). | `query`, `document_id`, `limit` |
+| `term_frequency` | Check how common candidate terms are BEFORE searching (flood-risk verdict per term). | `terms`, `document_id` |
+| `document_classification` | Read a Document's genre classification and review status. | `document_id` |
+| `entity_projection` | Read how a Document's mentions resolve under a Lens (local, global, or unresolved). | `document_id`, `lens_id`, `limit`, `after` |
+| `lens_entities` | Significant entities for a Lens with volumes, type profile, and staleness stamp. | `lens_id`, `limit`, `after`, `min_mentions` |
+| `entity_relations` | Sentence-level co-occurrence pairs for a Lens with normalized strength. | `lens_id`, `canonical_id`, `limit`, `after`, `min_strength` |
+| `related_entities` | Explore related entities a bounded number of hops out. | `lens_id`, `canonical_id`, `hops`, `limit` |
+| `allusions` | Typed cross-lens links, readable only when both endpoint Lenses and the evidence are visible. | `canonical_id`, `lens_id`, `direction`, `limit`, `after` |
+| `visual_review` | List visual caption proposals awaiting review. | `document_id`, `status`, `limit` |
 | `list_lenses` | List Collections marked as entity-resolution scopes. | `limit`, `after` |
 | `corpus_manifest` | Return the shard map for splitting the Corpus into N parts. | `shard_count` |
 | `corpus_shard` | Read one disjoint slice of the Corpus for map-reduce. | `shard_index`, `shard_count`, `limit`, `after` |
@@ -99,8 +108,17 @@ Each of these enqueues a background Job or applies a curation decision; poll ret
 | `promote_collection_to_lens` | Promote a Collection to a named entity-resolution scope. | `collection_id`, `parent_lens_id` |
 | `demote_lens` | Demote a Lens back to an ordinary Collection. | `collection_id` |
 | `set_document_default_lens` | Set or clear a Document's default Lens. | `document_id`, `lens_id` |
+| `embed_document_sentences` | Enqueue sentence-embedding backfill for a Document. | `document_id` |
+| `classify_document` | Enqueue the deterministic genre classifier; the guess stays pending until confirmed. | `document_id` |
+| `confirm_document_classification` | Humanly confirm a Document's genre. | `document_id`, `genre`, `subtype`, `rationale` |
+| `confirm_projection` | Confirm how a mention resolved under a Lens. | `mention_id`, `lens_id` |
+| `reject_projection` | Reject a mention's resolution under a Lens. | `mention_id`, `lens_id` |
+| `propose_allusion` | Propose a typed cross-lens link with evidence; idempotent. | `from_canonical_id`, `from_lens_id`, `to_canonical_id`, `to_lens_id`, `edge_type`, `evidence_document_id`, `confidence`, `rationale` |
+| `confirm_allusion` | Confirm a proposed allusion. | `id` |
+| `reject_allusion` | Reject a proposed allusion. | `id` |
+| `decide_visual_captions` | Approve or reject visual caption proposals. | `approve_ids`, `reject_ids` |
 
-Canonicalization links mentions only to entities already in the registry; seed first (`suggest_seeds` → `decide_seeds` → `seed_approved`). A Lens is metadata only today and does not change how entities resolve; the Global lens cannot be renamed, demoted, or deleted.
+Canonicalization links mentions only to entities already in the registry; seed first (`suggest_seeds` → `decide_seeds` → `seed_approved`). Since 1.46.0 a designated Lens also scopes entity identity through projection; the Global lens cannot be renamed, demoted, or deleted.
 
 ## Entity correction actions
 

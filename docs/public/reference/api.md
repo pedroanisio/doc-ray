@@ -85,6 +85,7 @@ Listings are **keyset-paginated**. A list field returns objects each carrying a 
 |---|---|---|
 | `fullTextSearch` | Rank whole Documents by full-text relevance. | `query`, `limit` |
 | `searchSentences` | Keyword-in-context Sentence search across the readable Corpus. | `term`, `documentId`, `limit`, `after` |
+| `termFrequency` | Check how common candidate terms are before searching (flood-risk verdict per term). | `terms`, `documentId` |
 | `semanticSearchSentences` | Rank Sentences by learned semantic similarity. | `query`, `documentId`, `limit` |
 | `crossModalImageSearch` | Find images by meaning from a text query. | `query`, `limit` |
 | `lexeme` | Fetch one Lexeme by uid, with its occurrences. | `uid` |
@@ -122,8 +123,14 @@ narrative as corpus fact.
 | `seedSuggestions` | List pending seed candidates for a Document. | `documentId`, `status` |
 | `unresolvedMentions` | List a Document's mentions not yet linked to a Canonical Entity. | `documentId`, `limit`, `after` |
 | `resolutionReview` | List resolution decisions awaiting review. | `documentId`, `status`, `limit`, `after` |
+| `documentClassification` | Read a Document's genre classification (fiction / non-fiction / mixed) and its review status. | `documentId` |
+| `entityProjection` | Read how a Document's mentions resolve under a Lens (local, global, or explicitly unresolved). | `documentId`, `lensId`, `limit`, `after` |
+| `lensEntities` | Significant entities for a Lens: mention/document volume, type profile, staleness stamp. | `lensId`, `limit`, `after`, `minMentions` |
+| `entityRelations` | Sentence-level co-occurrence pairs for a Lens with normalized strength. | `lensId`, `canonicalId`, `limit`, `after`, `minStrength` |
+| `relatedEntities` | Explore related entities a bounded number of hops out (over-cap requests are rejected). | `lensId`, `canonicalId`, `hops`, `limit` |
+| `allusions` | Typed cross-lens links (alludes to, depicts, …) readable only when both endpoint Lenses and the evidence are visible. | `canonicalId`, `lensId`, `direction`, `limit`, `after` |
 
-Prefer `entityProfiles` over `entityFrequency` for "who/what": a low `typeConsistency` means the type is contested, not that the entity is unimportant. See [Entities and canonicalization](../concepts/entities-and-canonicalization.md).
+Prefer `entityProfiles` over `entityFrequency` for "who/what": a low `typeConsistency` means the type is contested, not that the entity is unimportant. See [Entities and canonicalization](../concepts/entities-and-canonicalization.md). Relationship strength from `entityRelations` / `relatedEntities` is a co-occurrence measure with a `refreshedAt` staleness stamp — a lead to verify against cited sentences, not a claim of a real-world relationship.
 
 ### Collections and lenses
 
@@ -133,7 +140,7 @@ Prefer `entityProfiles` over `entityFrequency` for "who/what": a low `typeConsis
 | `collection` | Fetch one Collection with its member Documents. | `id` |
 | `lenses` | List Collections marked as entity-resolution scopes. | `limit`, `after` |
 
-A Lens is metadata only today and does not change how entities resolve. See [Lenses](../concepts/lenses.md).
+Since 1.46.0 a designated Lens also scopes entity identity through projection (see `entityProjection` and [Lenses](../concepts/lenses.md)).
 
 ### Jobs
 
@@ -149,6 +156,10 @@ A Lens is metadata only today and does not change how entities resolve. See [Len
 | `documentShares` | List the principals a Document is shared with. | `id` |
 
 ### Backups
+
+| Field | Purpose | Key arguments |
+|---|---|---|
+| `backupEnabled` | Whether the in-app backup feature toggle is on for this deployment. | — |
 
 Backups are read through Job status; there is no standalone backup-listing query. Create and restore Backups with the mutations below. See [Backups](../concepts/backups.md).
 
@@ -209,6 +220,20 @@ Every content mutation returns a Job unless noted. Poll the returned Job with th
 
 Canonicalization links mentions only to entities already in the registry; seed first (`suggestSeeds` → `decideSeeds` → `seedApproved`). The `action` argument of `correctEntityMention` is one of `reclassify`, `reject`, `add`, or `adjust_span`. See [Correct an entity](../how-to/correct-an-entity.md).
 
+### Genre, projections, and allusions
+
+| Field | Purpose | Key arguments |
+|---|---|---|
+| `classifyDocument` | Enqueue the deterministic genre classifier; the guess stays pending until confirmed. | `documentId` |
+| `confirmDocumentClassification` | Humanly confirm a Document's genre. | `documentId`, `genre`, `subtype`, `rationale` |
+| `confirmProjection` | Confirm how a mention resolved under a Lens (survives re-annotation). | `mentionId`, `lensId` |
+| `rejectProjection` | Reject a mention's resolution under a Lens. | `mentionId`, `lensId` |
+| `proposeAllusion` | Propose a typed cross-lens link with evidence; idempotent. | `fromCanonicalId`, `fromLensId`, `toCanonicalId`, `toLensId`, `edgeType`, `evidenceDocumentId`, `confidence`, `rationale` |
+| `confirmAllusion` | Confirm a proposed allusion. | `id` |
+| `rejectAllusion` | Reject a proposed allusion. | `id` |
+
+An allusion is never an identity claim and is never transitive; it links two entities while preserving both.
+
 ### Collections
 
 | Field | Purpose | Key arguments |
@@ -226,6 +251,7 @@ Canonicalization links mentions only to entities already in the registry; seed f
 | `promoteCollectionToLens` | Promote a Collection to a named entity-resolution scope. Returns the Collection. | `collectionId`, `parentLensId` |
 | `demoteLens` | Demote a Lens back to an ordinary Collection. Returns the Collection. | `collectionId` |
 | `setDocumentDefaultLens` | Set or clear a Document's default Lens. Returns the Document. | `documentId`, `lensId` |
+| `setLensProjects` | Designate whether a Lens materializes entity projections. | `lensId`, `projects` |
 
 The Global lens cannot be renamed, demoted, or deleted.
 

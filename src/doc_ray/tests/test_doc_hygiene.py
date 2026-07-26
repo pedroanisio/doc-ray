@@ -12,6 +12,7 @@ instead of something only a manual audit finds again later.
 from __future__ import annotations
 
 import re
+import subprocess
 from pathlib import Path
 
 _ROOT = Path(__file__).resolve().parents[3]  # src/doc_ray/tests -> repo root
@@ -199,12 +200,14 @@ def test_claude_md_purpose_reference_is_resolvable():
     """CLAUDE.md's PURPOSE.md references must not be silently dangling.
 
     CLAUDE.md makes PURPOSE.md alignment a MANDATORY constraint ("never propose
-    changes that conflict with @PURPOSE.md"). PURPOSE.md doesn't exist yet, and
-    its content (why the project exists, product vision) is the operator's call
-    to write, not something an agent should fabricate — so this doesn't require
-    the file to exist. It requires CLAUDE.md to say so honestly (an explicit
-    "does not exist yet" acknowledgment) rather than assert a dependency on a
-    governing document that silently isn't there.
+    changes that conflict with @PURPOSE.md"). PURPOSE.md now exists at the repo
+    root, so the mandatory dependency is satisfied and this guard is dormant.
+    It remains as a regression guard: were PURPOSE.md ever removed while
+    CLAUDE.md still references it, the constraint would silently dangle — so
+    this test then requires CLAUDE.md to acknowledge the absence explicitly
+    rather than assert a dependency on a governing document that isn't there.
+    Its content (why the project exists, product vision) is the operator's call
+    to write, not something an agent should fabricate.
     """
     text = _CLAUDE_MD.read_text(encoding="utf-8")
     if "PURPOSE.md" in text and not (_ROOT / "PURPOSE.md").exists():
@@ -216,8 +219,67 @@ def test_claude_md_purpose_reference_is_resolvable():
 
 
 # ---------------------------------------------------------------------------
+# Every tracked README must carry the DISCLAIMER.md reference block (CLAUDE.md
+# hard rule; the 2026-07-26 audit found scripts/README.extract_phrases.md had
+# silently omitted it — a convention decays as READMEs multiply).
+# ---------------------------------------------------------------------------
+
+
+def _tracked_readmes() -> list[str]:
+    out = subprocess.run(
+        ["git", "ls-files", "*README*.md"],
+        cwd=_ROOT,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    return [line for line in out.stdout.splitlines() if line]
+
+
+def test_every_tracked_readme_references_disclaimer():
+    missing = sorted(
+        path
+        for path in _tracked_readmes()
+        if "DISCLAIMER.md" not in (_ROOT / path).read_text(encoding="utf-8")
+    )
+    assert not missing, (
+        f"README(s) missing the mandatory DISCLAIMER.md reference block: {missing}. "
+        "CLAUDE.md requires every README to reference @DISCLAIMER.md (relative to "
+        "its depth), placed after the title."
+    )
+
+
+# ---------------------------------------------------------------------------
+# Transient PENDING_* docs must state their own retirement condition, or they
+# accrete forever (2026-07-15 and 2026-07-26 audits both flagged the same one).
+# ---------------------------------------------------------------------------
+
+
+def test_pending_docs_declare_retirement_condition():
+    pending = sorted((_ROOT / "docs").glob("PENDING_*.md"))
+    missing = sorted(p.name for p in pending if "retire-when:" not in p.read_text(encoding="utf-8"))
+    assert not missing, (
+        f"PENDING doc(s) without a `retire-when:` condition: {missing}. "
+        "A deferral note must say what event retires it, or it becomes a "
+        "permanent stale doc."
+    )
+
+
+# ---------------------------------------------------------------------------
 # Self-test: each guard above must actually be able to fail, not pass vacuously.
 # ---------------------------------------------------------------------------
+
+
+def test_readme_disclaimer_guard_sees_the_tracked_readmes():
+    readmes = _tracked_readmes()
+    assert "README.md" in readmes  # the root README is always tracked
+    assert all(path.endswith(".md") for path in readmes)
+
+
+def test_pending_retirement_guard_detects_a_missing_condition(tmp_path):
+    doc = tmp_path / "PENDING_EXAMPLE.md"
+    doc.write_text("# pending\nno condition here\n", encoding="utf-8")
+    assert "retire-when:" not in doc.read_text(encoding="utf-8")
 
 
 def test_readme_example_documents_exist_detects_a_missing_fixture(tmp_path):
