@@ -73,25 +73,43 @@ class DocumentOutline:
 
 
 @strawberry.type
+class TermPartCount:
+    """One word an unindexable term was split into, and its corpus-wide uses."""
+
+    part: str
+    uses: int
+
+
+@strawberry.type
 class TermFrequency:
     """How common one candidate search term is, with the numbers behind the verdict.
 
-    ``floodRisk`` (``low`` | ``moderate`` | ``high``) is the actionable product: it is
-    the term's ``share`` of the scope's total lexeme uses, bucketed so a caller need
-    not do the arithmetic. ``uses``/``totalUses``/``share`` are exposed so a caller can
-    disagree. ``attested`` is ``false`` (with an "unattested" ``note``) when the term is
-    absent from the lexicon — a search will most likely return nothing, which is a
-    different thing from a lookup failure. The count is the lexeme-lemma frequency,
-    a corpus-saturation signal rather than an exact per-search-tool hit count.
+    ``floodRisk`` (``low`` | ``moderate`` | ``high`` | ``unknown``) is the actionable
+    product: it is the term's ``share`` of the scope's total lexeme uses, bucketed so
+    a caller need not do the arithmetic. ``uses``/``totalUses``/``share`` are exposed so
+    a caller can disagree. ``attested`` is ``false`` (with an "unattested" ``note``) when
+    the term is absent from the lexicon — a search will most likely return nothing,
+    which is a different thing from a lookup failure. The count is the lexeme-lemma
+    frequency, a corpus-saturation signal rather than an exact per-search-tool hit count.
+
+    ``indexable`` is ``false`` for a term the lexeme index structurally cannot hold —
+    an underscore compound (``shared_buffers``) or an alphanumeric (``COVID-19``),
+    because the tokenizer splits on underscores and digits. Then ``uses``, ``share``
+    and ``attested`` are all ``null`` — the index cannot answer, and a ``0`` would read
+    as measured absence — while ``parts`` reports the words it does hold, and the
+    ``note`` redirects to ``searchSentences``, whose literal-substring match covers
+    the term (BL-164).
     """
 
     term: str
     normalized_term: str
-    uses: int
+    uses: int | None
     total_uses: int
-    share: float
+    share: float | None
     flood_risk: str
-    attested: bool
+    attested: bool | None
+    indexable: bool
+    parts: list[TermPartCount]
     note: str | None
 
     @classmethod
@@ -105,6 +123,8 @@ class TermFrequency:
             share=verdict.share,
             flood_risk=verdict.flood_risk,
             attested=verdict.attested,
+            indexable=verdict.indexable,
+            parts=[TermPartCount(part=p.part, uses=p.uses) for p in verdict.parts],
             note=verdict.note,
         )
 

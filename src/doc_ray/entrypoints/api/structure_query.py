@@ -84,9 +84,11 @@ class StructureQueries:
     ) -> list[TermFrequency]:
         """How common candidate search terms are — a flood-risk pre-flight before searching.
 
-        Returns a ``floodRisk`` verdict (``low``/``moderate``/``high``) per term from
-        its share of the corpus-wide ``lexemeStats`` rollup, so an agent can pick a
-        rarer term instead of flooding a search. Corpus-wide only for now: passing
+        Returns a ``floodRisk`` verdict (``low``/``moderate``/``high``/``unknown``) per
+        term from its share of the corpus-wide ``lexemeStats`` rollup, so an agent can
+        pick a rarer term instead of flooding a search. A term the lexeme index cannot
+        hold (``shared_buffers``, ``COVID-19``) comes back ``indexable: false`` with null
+        counts rather than a fabricated zero (BL-164). Corpus-wide only for now: passing
         ``documentId`` fails with a typed error rather than returning corpus counts
         mislabelled as document-scoped.
         """
@@ -100,7 +102,7 @@ class StructureQueries:
         except tf.InvalidTerms as exc:
             raise ValueError(str(exc)) from exc
         counts, total_uses = await terms_read.term_frequencies(
-            info.context.conn, [item.key for item in prepared]
+            info.context.conn, tf.lookup_keys(prepared)
         )
         verdicts = tf.build_verdicts(prepared, counts, total_uses)
         return [TermFrequency.from_verdict(verdict) for verdict in verdicts]

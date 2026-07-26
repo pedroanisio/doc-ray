@@ -496,7 +496,9 @@ async def test_search_within_cap_reports_no_clamp(monkeypatch):
     out = await corpus.search_sentences("rare", limit=20)
 
     assert "requested_limit" not in out["coverage"]
-    assert out["note"] is None
+    # BL-164 gave the zero-hit path a note of its own; what must stay absent here
+    # is the *clamp* note, which is what this test is about.
+    assert "platform maximum" not in (out["note"] or "")
 
 
 @pytest.mark.asyncio

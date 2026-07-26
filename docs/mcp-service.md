@@ -261,7 +261,7 @@ place in the system to fix an agent-behaviour problem.
 // → {
 //   "hits": [{"ordinal": 5, "pre": "…", "hit": "Paul", "post": "…"}, …],
 //   "coverage": {"hit_count": 200, "ordinal_min": 5, "ordinal_max": 1904,
-//                "limit": 200, "limit_reached": true},
+//                "limit": 200, "limit_reached": true, "exhaustive": false},
 //   "note": "Hit the limit — a common term can flood one region of the text …"
 // }
 ```
@@ -273,6 +273,33 @@ ordinal 400 in a 4,000-sentence book has not found "little about the ending" —
 has found too much about the beginning. `note` says so in words, and names the
 fix: narrow the term, or read the range with
 `read_document_sentences(from_ordinal=…, to_ordinal=…)`.
+
+**`coverage.exhaustive` — the affirmative half (BL-164).** The above announces
+*incompleteness*; success used to be silent, which is the harder problem for a
+caller writing grounded prose. `hit_count: 3` could not be told apart from "the
+first page of many", and `hits: []` could not be told apart from a bad query — so
+consumers hedged their absence claims, or ran sharded corpus sweeps to re-derive
+what a single call already knew. `exhaustive: true` states it: the page did not
+fill **and** no cursor preceded it, so `hit_count` **is** the total for that term
+in the scope searched.
+
+A zero-hit first page also says it in prose, bounded on both axes — to the scope
+actually scanned (`this document` vs `the corpus visible to you`, since RLS scopes
+every read to the caller's tenant) and to the *literal string*, because absence of
+a spelling is not absence of a subject:
+
+```jsonc
+// → {"hits": [], "coverage": {"hit_count": 0, "limit_reached": false, "exhaustive": true},
+//    "note": "0 hits. This was an exhaustive case-insensitive substring scan of the corpus
+//             visible to you, not a sample — 'pgbouncer' does not occur in it as a literal
+//             string. Absence of the exact string is not absence of the idea: try a different
+//             spelling, hyphenation, or spacing, or search a synonym …"}
+```
+
+Paging past the end is deliberately **not** exhaustive: zero hits after an `after`
+cursor means "no more after this cursor", never "absent from the corpus" — the
+earlier pages had hits and were not re-scanned. Treating that as absence would
+just be a new false negative, so the note says page-boundary instead.
 
 **3. Cursors are per-tool.** A `search_sentences` cursor is not valid for
 `read_document_sentences`, and vice versa; they encode different keysets. Any
@@ -514,6 +541,37 @@ whole batch.
 not spend one round-trip per term. Each row carries the numbers behind the verdict
 (`uses`, `totalUses`, `share`) so a caller can disagree; `attested: false`
 distinguishes an unknown term (a search will return nothing) from a lookup failure.
+
+**What this tool cannot count, and why it now says so (BL-164).** The lexeme
+tokenizer (`lexemes._WORD_RE`) excludes `_` and digits from word characters, so the
+index structurally cannot hold `shared_buffers`, `pg_stat_activity`, `COVID-19`, or
+`IPv6` as single entries — it holds `shared` + `buffers`, and truncates `COVID-19`
+to `COVID`. The lookup key (`norm_lemma`) does not tokenize, so these terms were
+being queried against an index that could not contain them: a guaranteed zero,
+previously reported as `attested: false` with "a search will most likely return
+nothing". That was a false negative on exactly the rare, specific technical terms
+this tool exists to steer callers *toward* — and it contradicted `search_sentences`,
+whose literal-substring match finds them without difficulty.
+
+Such terms now return `indexable: false` and `floodRisk: "unknown"`, with
+`uses`/`share`/`attested` all `null` — the index cannot answer, and a `0` would read
+as measured absence — plus `parts`, the words it does hold, as evidence:
+
+```jsonc
+{"name": "term_frequency", "arguments": {"terms": ["shared_buffers"]}}
+// → [{"term": "shared_buffers", "uses": null, "share": null, "attested": null,
+//     "floodRisk": "unknown", "indexable": false,
+//     "parts": [{"part": "shared", "uses": 12}, {"part": "buffers", "uses": 70}],
+//     "note": "'shared_buffers' cannot be counted by the lexeme index … Its frequency is
+//              therefore unknown — this is NOT an absence … search_sentences … handles
+//              this term directly; use it to find out."}]
+```
+
+A well-formed word the index *can* hold, with zero uses, still reports
+`attested: false` with the "unattested" note — the real absence signal is unchanged.
+Making compounds countable would mean changing `_WORD_RE` and re-annotating the
+corpus; that is a migration-scale decision, deliberately not taken here. What is
+fixed is the honesty of the pre-flight about what it cannot measure.
 
 **`floodRisk` thresholds.** The verdict buckets the term's `share` of the scope's
 total lexeme uses: **`high`** at `share ≥ 0.005` (0.5%), **`moderate`** at

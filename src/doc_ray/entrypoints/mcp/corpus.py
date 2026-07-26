@@ -277,7 +277,13 @@ async def search_sentences(
         {"t": term, "d": document_id, "l": served, "a": after},
     )
     hits = [_clip_windows(hit, ("pre", "hit", "post")) for hit in data["searchSentences"]]
-    coverage, note = _search_coverage(hits, served)
+    coverage, note = _search_coverage(
+        hits,
+        served,
+        term=term,
+        paged=after is not None,
+        document_scoped=document_id is not None,
+    )
     if served != limit:
         coverage["requested_limit"] = limit
         clamp_note = (
