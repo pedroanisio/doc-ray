@@ -5557,3 +5557,71 @@ items:
     owner:        "shared"
     source:       "Deferred from GitHub issue #10 (SLP Block F) decision D-3; filed by the Block F implementation (Claude Opus 4.8 via Claude Code)."
     tags:         ["slp", "entity-fabric", "hyper-context", "summary", "pals-law", "deferred"]
+
+  - id:          "BL-162"
+    title:        "MCP page-size clamp made visible; CLI ingest owes the document the default pipeline"
+    summary:      "Verification of the operator report 'Stress-Testing the Librarian' (2026-07-26) confirmed two open defects. (1) The GraphQL MAX_PAGE_SIZE clamp (200) was silent end-to-end: MCP tools forwarded the raw requested limit and search_sentences computed coverage against it, so a clamped limit=500 request reported limit_reached: false — truncation dressed as an exhaustive result. Paging docstrings also said 'pass a row's cursor', inviting first-row-cursor paging whose n-1-row overlap masquerades as 'the cursor re-served page one' (the report's false O1 bug). (2) application.pipeline.ingest_paths — the CLI/operator bulk path — never enqueued DEFAULT_PIPELINE_CHAIN nor refreshed document_stats, producing the report's 'silent no-layer' state (real sentences, sentenceCount 0, zero annotation layers, no failed job), the same gap commit de12dfe closed for the Spaces loader."
+    description: |
+      MCP: a new entrypoints/mcp/shaping.py (D-015 split) owns response shaping —
+      KWIC clipping, MAX_PAGE_SIZE (mirrored from the API context by a contract
+      test, not an import), effective_limit, and _search_coverage. Every
+      limit-taking read tool forwards effective_limit(limit); search_sentences
+      computes coverage against the served limit and, when the request exceeded
+      the cap, adds coverage.requested_limit plus a clamp note. All paginated
+      tool docstrings now name the LAST row's cursor and document the 200
+      maximum. Pipeline: ingest_paths refreshes document_stats and enqueues
+      DEFAULT_PIPELINE_CHAIN per newly ingested document (duplicates and
+      failures never chain — the Spaces-loader guard), with chain=None as the
+      explicit opt-out; the queued head job is named in IngestResult.detail.
+      No schema change, no version bump.
+    category:     "api"
+    type:         "bug"
+    status:       "done"
+    complexity:   "S"
+    priority:     "high"
+    rationale:    "The MCP contract promises truncation is never silent (BL-145/BL-146); a silently clamped limit that flips limit_reached to false breaks exactly that promise where it matters most — an agent deciding whether it has seen everything. And DEFAULT_PIPELINE_CHAIN's own docstring states the invariant the CLI path violated: it is 'the pipeline every ingest path owes a document'."
+    acceptance_criteria:
+      - "corpus.MAX_PAGE_SIZE equals the GraphQL context MAX_PAGE_SIZE (contract test)."
+      - "search_sentences(limit>200) forwards 200, reports coverage.limit=200, coverage.requested_limit, limit_reached computed against the served limit, and a clamp note."
+      - "Every limit-taking MCP read tool forwards effective_limit(limit); paginated docstrings name the last row's cursor."
+      - "ingest_paths enqueues annotate with the chain remainder and refreshes document_stats for each new document; duplicates do not re-chain; chain=None disables."
+    dependencies: ["BL-145", "BL-146"]
+    references:
+      - "src/doc_ray/entrypoints/mcp/shaping.py"
+      - "src/doc_ray/entrypoints/mcp/corpus.py"
+      - "src/doc_ray/application/pipeline.py"
+      - "docs/mcp-service.md"
+    owner:        "shared"
+    source:       "Verification of the operator report 'Stress-Testing the Librarian' (Drive, 2026-07-26); implemented with strict TDD (Claude Fable 5 via Claude Code)."
+    tags:         ["mcp", "api", "ingest", "agent-experience", "honesty", "bug"]
+
+  - id:          "BL-163"
+    title:        "Test suite carries 5 deterministic reds from shared test-DB residue"
+    summary:      "Five tests fail identically on main and on fixed branches, in-suite and in isolation: test_api::test_document_bibliographic_and_token_count (tokenCount rollup reads 0 against freshly inserted tokens), test_billing_checkout::test_billing_console_queries_allow_read_scoped_admin, test_billing_entitlement::test_billing_console_queries_remain_available_when_unpaid_and_enforced, test_billing_invoices_extra::test_process_webhook_events_are_idempotent_and_update_subscription (process_webhook_event returns False — the fixture event id already exists from a prior run), and test_mcp_eval::test_full_scripted_run_passes_every_task. Full-suite failure counts also decay across consecutive runs (34 → 12 → 5) as accumulated state settles, so the suite is order- and residue-sensitive well beyond these five."
+    description: |
+      Evidence gathered 2026-07-26 against the docray-test-postgres stack: the
+      same five tests fail with and without the BL-162 diff (baseline stash run),
+      and fail in isolation, so they are environmental, not order-dependent or
+      change-induced. Likely mechanisms: fixtures reusing constant ids
+      (billing webhook events) instead of per-run unique ones (_itdb.unique_sha
+      style), and rollup/debounce state surviving across sessions. Remedy
+      direction: per-run unique fixture ids, or a suite-start reset of the
+      residue-bearing tables, or docray-test-postgres recreation guidance in the
+      test docs.
+    category:     "testing"
+    type:         "bug"
+    status:       "ready"
+    complexity:   "S"
+    priority:     "medium"
+    rationale:    "A suite that is red on a clean tree cannot certify anything (D-013); every landing on this host currently has to re-derive which failures are environmental — exactly the wasted verification BL-144 removed for ordering."
+    acceptance_criteria:
+      - "The five named tests pass twice consecutively against a long-lived docray-test-postgres without recreating it."
+      - "Two consecutive full-suite runs produce identical pass/fail sets."
+    dependencies: []
+    references:
+      - "src/doc_ray/tests/test_billing_invoices_extra.py"
+      - "src/doc_ray/tests/test_api.py"
+      - "src/doc_ray/tests/test_mcp_eval.py"
+    owner:        "unassigned"
+    source:       "Found while landing BL-162 (baseline-vs-fix suite comparison; Claude Fable 5 via Claude Code)."
+    tags:         ["testing", "flaky", "test-db", "residue"]

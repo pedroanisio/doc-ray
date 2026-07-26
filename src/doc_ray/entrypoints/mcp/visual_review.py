@@ -12,7 +12,7 @@ async def visual_review(
     after: str | None = None,
 ) -> list[dict[str, Any]]:
     """List RLS-scoped, untrusted Tier-3 caption proposals awaiting a human trust decision."""
-    from doc_ray.entrypoints.mcp.corpus import ToolCallError, _require_uuid, gql
+    from doc_ray.entrypoints.mcp.corpus import ToolCallError, _require_uuid, effective_limit, gql
 
     _require_uuid(document_id, "document_id")
     if status not in {"pending", "approved", "rejected"}:
@@ -22,7 +22,7 @@ async def visual_review(
         "{visualReview(documentId:$d,status:$s,limit:$l,after:$a)"
         "{id documentImageId documentId proposed groundingScore groundingEvidence "
         "status reviewer createdAt updatedAt pageNumber objectKey cursor}}",
-        {"d": document_id, "s": status, "l": limit, "a": after},
+        {"d": document_id, "s": status, "l": effective_limit(limit), "a": after},
     )
     rows: list[dict[str, Any]] = data["visualReview"]
     return rows

@@ -134,6 +134,15 @@ sentence vectors, it falls back **deterministically** to full-text/keyword ranki
 and says which path ran in `retrieval` (and in `gaps` when it fell back) — never
 silently. Document discovery remains full-text.
 
+Every `limit` argument is served up to the platform page-size maximum of
+**200** (`shaping.MAX_PAGE_SIZE`, kept equal to the GraphQL context's
+`MAX_PAGE_SIZE` by a contract test). The clamp is never silent at this surface
+(BL-162): each tool forwards the limit it will actually be served, and a
+`search_sentences` request over the cap reports itself via
+`coverage.requested_limit` and the `note`. Keyset paging always passes the
+**last** row's `cursor` as `after` — a non-last row's cursor re-serves the rows
+after it, overlapping the page you already hold.
+
 These composition tools never present a capped page as if it were the whole
 corpus. `entity_dossier` draws its **document roster from `full_text_search`** (the
 complete set of documents containing the entity, independent of `max_mentions`)

@@ -454,3 +454,69 @@ async def test_visual_review_forwards_filters_and_paging(monkeypatch):
         "l": 12,
         "a": "next",
     }
+
+
+# --- BL-162: the page-size cap must be visible, never silent ---------------------------------
+#
+# The GraphQL API clamps every `limit` to MAX_PAGE_SIZE (200) silently. Before this
+# fix the MCP layer forwarded the raw request and interpreted the response against
+# it, so `search_sentences(limit=500)` returning 200 clamped rows reported
+# `limit_reached: false` — truncation dressed as an exhaustive result.
+
+
+def test_mcp_page_cap_mirrors_the_graphql_cap():
+    from doc_ray.entrypoints.api.context import MAX_PAGE_SIZE as API_MAX
+
+    assert corpus.MAX_PAGE_SIZE == API_MAX
+
+
+@pytest.mark.asyncio
+async def test_search_clamps_oversized_limit_and_reports_it(monkeypatch):
+    hits = [
+        {"id": str(i), "ordinal": i, "pre": "", "hit": "x", "post": "", "cursor": "c"}
+        for i in range(200)
+    ]
+    client = _patch(monkeypatch, {"data": {"searchSentences": hits}})
+
+    out = await corpus.search_sentences("rare", limit=500)
+
+    # The forwarded limit is the one actually served, not the doomed request.
+    assert client.calls[0][1]["variables"]["l"] == corpus.MAX_PAGE_SIZE
+    cov = out["coverage"]
+    assert cov["limit"] == corpus.MAX_PAGE_SIZE
+    assert cov["requested_limit"] == 500
+    assert cov["limit_reached"] is True
+    assert "platform maximum" in out["note"]
+
+
+@pytest.mark.asyncio
+async def test_search_within_cap_reports_no_clamp(monkeypatch):
+    _patch(monkeypatch, {"data": {"searchSentences": []}})
+
+    out = await corpus.search_sentences("rare", limit=20)
+
+    assert "requested_limit" not in out["coverage"]
+    assert out["note"] is None
+
+
+@pytest.mark.asyncio
+async def test_list_documents_forwards_the_effective_limit(monkeypatch):
+    client = _patch(monkeypatch, {"data": {"documents": []}})
+
+    await corpus.list_documents(limit=999)
+
+    assert client.calls[0][1]["variables"]["l"] == corpus.MAX_PAGE_SIZE
+
+
+def test_paging_docstrings_name_the_last_rows_cursor():
+    # The old phrasing "pass a row's cursor" invited passing the FIRST row's
+    # cursor, which overlaps the previous page by n-1 rows and reads exactly
+    # like "the cursor re-served page one" (a false external bug report).
+    for tool in (
+        corpus.search_sentences,
+        corpus.list_documents,
+        corpus.list_collections,
+        corpus.list_lenses,
+        corpus.corpus_shard,
+    ):
+        assert "last row" in (tool.__doc__ or ""), tool.__name__
