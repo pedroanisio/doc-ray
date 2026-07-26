@@ -1,0 +1,116 @@
+# doc-ray — LAB stack: a standalone Ollama + Open WebUI for interactive model use.
+#
+# This is an OPERATOR TOOL, not part of the application. It shares nothing with
+# the doc-ray services: its own Ollama server, its own model volume, its own
+# ports. Bring it up or tear it down without touching a running worker pool.
+#
+# WHY NOT REUSE docker-compose.ollama.yml
+#   That overlay defines the resolver's model server and rewires `worker` /
+#   `worker-fast` to point at it (DOCRAY_RESOLVER_BACKEND=ollama). Layering it
+#   here would recreate the workers — on a GPU host mid-drain that means killing
+#   in-flight annotate jobs and burning a retry attempt each. A lab you poke at
+#   interactively must never be able to do that, so this file is disjoint:
+#   different container names, different volume, different host ports.
+#
+# ACCESS — loopback only, same posture as pgAdmin. ufw allows SSH inbound and
+# nothing else, so reach the UI through a tunnel:
+#   ssh -L 3000:127.0.0.1:3000 <user>@<host>
+# then open http://localhost:3000 and create the admin account on first visit.
+# Never publish these ports; an unauthenticated model server on a public
+# interface is an open compute account for whoever finds it.
+#
+# USAGE
+#   make lab-up                      # start Ollama + Open WebUI
+#   make lab-pull MODEL=qwen2.5:32b  # pull a model (or use the UI's model manager)
+#   make lab-down                    # stop both, keep the downloaded models
+#
+# VRAM. This shares the card with whatever else runs here. An H200 has room for
+# both a large chat model and the annotate workers, but the two are independent
+# tenants competing for the same 141 GB — see OLLAMA_KEEP_ALIVE below.
+
+# A DISTINCT Compose project. Without this the lab inherits the directory-derived
+# project name shared with the doc-ray stack, and every lab command reports the
+# running workers as "orphan containers" — one `--remove-orphans` away from
+# deleting a live worker pool mid-job.
+name: docray-lab
+
+services:
+  ollama:
+    image: ollama/ollama:latest
+    container_name: docray-lab-ollama
+    restart: unless-stopped
+    ports:
+      # LOOPBACK ONLY, and a different port from the resolver's Ollama (11434)
+      # so both can run at once without a bind conflict.
+      - "127.0.0.1:${LAB_OLLAMA_PORT:-11435}:11434"
+    volumes:
+      - lab-ollama-models:/root/.ollama
+    environment:
+      # A FINITE keep-alive, deliberately unlike the resolver overlay's -1.
+      # There, pinning is correct: the resolver fires sporadically and reloading
+      # weights on each call is a latency spike. Here the tenant is a human who
+      # walks away, and a chat model pinned forever holds its VRAM against the
+      # annotate workers — the documented failure mode where jobs burn their
+      # whole retry budget on CUDA OOM in seconds. Idle models release instead.
+      OLLAMA_KEEP_ALIVE: ${LAB_OLLAMA_KEEP_ALIVE:-30m}
+      # Ollama sizes the KV cache from the model's declared context unless
+      # capped. Some models declare 262144 tokens and ask for a ~92 GB
+      # allocation, which spills weights to CPU and collapses throughput.
+      OLLAMA_CONTEXT_LENGTH: ${LAB_OLLAMA_CONTEXT_LENGTH:-16384}
+    healthcheck:
+      test: ["CMD-SHELL", "ollama list >/dev/null 2>&1 || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: cdi
+              capabilities: ["gpu"]
+              device_ids:
+                - nvidia.com/gpu=all
+
+  open-webui:
+    image: ghcr.io/open-webui/open-webui:main
+    container_name: docray-openwebui
+    restart: unless-stopped
+    depends_on:
+      ollama:
+        condition: service_healthy
+    ports:
+      # LOOPBACK ONLY — access is exclusively via an SSH/VS Code tunnel.
+      - "127.0.0.1:${OPENWEBUI_PORT:-3000}:8080"
+    volumes:
+      - openwebui-data:/app/backend/data
+    environment:
+      OLLAMA_BASE_URL: http://ollama:11434
+      # Keep the login even behind the tunnel: defense in depth, and it stops a
+      # forwarded port on a shared workstation from being an open door.
+      WEBUI_AUTH: "True"
+      # Keep the signing key INSIDE the data volume. The image's start.sh
+      # generates it at /app/backend/.webui_secret_key — a path in the container
+      # filesystem, not the volume — so `up --pull` or any recreate mints a new
+      # one. That key encrypts the MCP tool server's registered OAuth client and
+      # every user's stored access token, so losing it does not log people out
+      # loudly; it fails at startup with "Error decrypting data" and the doc-ray
+      # tools simply stop appearing in chat. Pinning the path makes the key
+      # outlive the container, like the database beside it.
+      WEBUI_SECRET_KEY_FILE: /app/backend/data/.webui_secret_key
+      # No outbound telemetry or model-list fetches from a box holding
+      # production credentials.
+      ENABLE_OPENAI_API: "False"
+      SCARF_NO_ANALYTICS: "True"
+      DO_NOT_TRACK: "True"
+      ANONYMIZED_TELEMETRY: "False"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8080/health >/dev/null || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+
+volumes:
+  lab-ollama-models:
+  openwebui-data:

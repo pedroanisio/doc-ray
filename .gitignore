@@ -47,3 +47,7 @@ logotype_composition_guide.yaml
 ENVIRONMENT.md
 ENV-DEV.md
 ENV-PROD.md
+ENV-WORKER.md
+
+# Local lab experiments (POCs, scratch models, benchmark output) — never shipped.
+experiments/
