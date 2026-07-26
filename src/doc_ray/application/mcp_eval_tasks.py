@@ -304,6 +304,14 @@ _PROJECTION = EvalTask(
         Step(structure.entity_projection, lambda ctx: {"document_id": _entity(ctx)}),
         Step(structure.lens_entities, lambda ctx: {"lens_id": ctx.ids["collection_id"]}),
         Step(
+            structure.entity_relations,
+            lambda ctx: {"lens_id": ctx.ids["collection_id"], "canonical_id": 1},
+        ),
+        Step(
+            structure.related_entities,
+            lambda ctx: {"lens_id": ctx.ids["collection_id"], "canonical_id": 1, "hops": 2},
+        ),
+        Step(
             structure.allusions,
             lambda ctx: {"canonical_id": 1, "lens_id": ctx.ids["collection_id"]},
         ),
@@ -311,10 +319,12 @@ _PROJECTION = EvalTask(
     assertions=(
         _ok("entity_projection"),
         _ok("lens_entities"),
+        _ok("entity_relations"),
+        _ok("related_entities"),
         _ok("allusions"),
-        _within(TaskBudget(max_calls=4, max_chars=18_000)),
+        _within(TaskBudget(max_calls=6, max_chars=24_000)),
     ),
-    budget=TaskBudget(max_calls=4, max_chars=18_000),
+    budget=TaskBudget(max_calls=6, max_chars=24_000),
 )
 
 _JOBS = EvalTask(

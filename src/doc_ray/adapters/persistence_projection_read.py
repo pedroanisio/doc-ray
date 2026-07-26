@@ -1,11 +1,11 @@
 """Async read adapter for the projection engine (SLP Block D, #8).
 
-Serves the GraphQL ``entityProjection`` / ``lensEntities`` reads and the
-confirm/reject mutations' lookups. Every read is bounded and keyset-paginated, and
-reads only derived tables (``entity_projection`` joined to ``canonical``/mentions
-for display; the ``lens_entity_stats`` rollup for lens entities) — never a live
-aggregate over a fact table (D-024). RLS on those tables scopes every row to what
-the caller may read; this adapter adds no authorization of its own.
+Serves the GraphQL ``entityProjection`` read. Every read is bounded and
+keyset-paginated, and reads only derived tables (``entity_projection`` joined to
+``canonical``/mentions for display) — never a live aggregate over a fact table
+(D-024). RLS on those tables scopes every row to what the caller may read; this
+adapter adds no authorization of its own. (The per-lens entity landscape reads moved
+to :mod:`doc_ray.adapters.persistence_lens_rollup_read` in Block F, #10.)
 """
 
 from __future__ import annotations
@@ -104,42 +104,6 @@ async def entity_projection(
     )
     for row in rows:
         row["cursor"] = encode_cursor("entity-projection", mention_id=row["mention_id"])
-    return rows
-
-
-_LENS_ENTITIES_SQL = """
-    SELECT les.canonical_id, les.scope, les.n_mentions, les.n_documents,
-           c.preferred, c.entity_type, c.wikidata_id
-    FROM lens_entity_stats les
-    JOIN canonical c ON c.id = les.canonical_id
-    WHERE les.lens_id = %(lens)s::uuid
-      AND (%(after_n)s::bigint IS NULL
-           OR les.n_mentions < %(after_n)s::bigint
-           OR (les.n_mentions = %(after_n)s::bigint AND les.canonical_id > %(after_id)s::bigint))
-    ORDER BY les.n_mentions DESC, les.canonical_id
-    LIMIT %(limit)s
-"""
-
-
-async def lens_entities(
-    conn: _AConn, lens_id: str, *, limit: int = 100, after: str | None = None
-) -> list[Row]:
-    """Return the entities in a lens (from the rollup), most-mentioned first."""
-    cursor = decode_cursor(after, "lens-entities")
-    rows = await _rows(
-        conn,
-        _LENS_ENTITIES_SQL,
-        {
-            "lens": lens_id,
-            "after_n": cursor["n_mentions"] if cursor else None,
-            "after_id": cursor["canonical_id"] if cursor else None,
-            "limit": limit,
-        },
-    )
-    for row in rows:
-        row["cursor"] = encode_cursor(
-            "lens-entities", n_mentions=row["n_mentions"], canonical_id=row["canonical_id"]
-        )
     return rows
 
 

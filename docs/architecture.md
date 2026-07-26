@@ -289,6 +289,31 @@ docstrings that warn an agent never to treat an edge as identity or chain it. A 
 proposal (including the optional deterministic `KIND_PROPOSE_ALLUSIONS` proposer) lands
 `proposed`; only a human confirms (PALS's Law).
 
+### Hyper-context rollups (SLP Block F)
+
+The final block turns the projected graph into corpus-wide sensemaking. Answering "who
+are the significant figures in this body of work, and how do they relate?" by scanning
+mentions at read time is the live-aggregate-over-a-fact-table pattern D-024 forbids at
+10k documents — so the capability *is* the precomputation. Migration 133 adds two derived
+rollups (RLS-scoped by lens visibility; `docray_batch` writes, `docray_api` reads):
+`lens_entity_rollup` — a lens's significant entities with mention/document volume, the
+observed type profile + `type_consistency` (reusing `entity_profiles.dominant_type_share`),
+and the first-seen sentence ordinal (it supersedes the thin Block-D `lens_entity_stats`,
+now dropped, and backs `lensEntities`); and `lens_entity_relation` — undirected
+**sentence-level** co-occurrence pairs stored once (`from < to`) with a strength that is
+**NPMI** (Bouma 2009), normalized by marginal frequencies so a ubiquitous entity is not
+"related" to everything (raw counts alone are not acceptable). The pure `domain.lens_rollups`
+holds the cited formula, significance ranking, and a **bounded, cycle-safe** N-hop BFS with
+a hard cap (3) — there is no unbounded walk. `KIND_REFRESH_LENS_ROLLUP` refreshes a lens
+(chained strictly *after* the projection refresh it aggregates) or the whole corpus;
+idempotent and reproducible. GraphQL/MCP expose `lensEntities` (enriched), `entityRelations`
+(direct), and `relatedEntities` (bounded N-hop — an over-cap `hops` is rejected, not
+clamped); composability is a lens parameter on the entity reads, not a query language.
+Relationship strength is a **structural** co-occurrence measure, never a claim of a real
+relationship (PALS's Law), and every read carries a `refreshedAt` staleness stamp.
+Narrative summaries are deferred to a follow-up. This block completes the Entity Fabric
+(Substrate·Lens·Projection) programme, Blocks A–F.
+
 ## Access-control boundary
 
 The API authenticates inbound bearer/API-token requests with

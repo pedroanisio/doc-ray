@@ -526,6 +526,8 @@ against.
 | BL-157 | SLP Block C: genre/type classification + per-entity-type resolution policy | api | feature | done | L | medium | shared |
 | BL-158 | SLP Block D: projection engine — lens-scoped entity identity without lossy merges | api | feature | done | XL | medium | shared |
 | BL-159 | SLP Block E: allusion edges — typed cross-lens links that never assert identity | api | feature | done | L | medium | shared |
+| BL-160 | SLP Block F: hyper-context rollups + relationship discovery over the projected graph | api | feature | done | XL | medium | shared |
+| BL-161 | SLP Block F follow-up: per-lens narrative summaries (model output, review-gated) | api | feature | ready | L | low | shared |
 
 See [`backlog.yml`](backlog.yml) for each item's full description, rationale,
 acceptance criteria, dependencies, related decisions (`D-###`), and references.

@@ -28,6 +28,7 @@ from doc_ray.entrypoints.api.canonical_types import (
 from doc_ray.entrypoints.api.classification_query import ClassificationQueries
 from doc_ray.entrypoints.api.collection_query import CollectionQueries
 from doc_ray.entrypoints.api.ids import clean_uuid as _clean_uuid
+from doc_ray.entrypoints.api.lens_rollup_query import LensRollupQueries
 from doc_ray.entrypoints.api.meta_query import MetaQueries
 from doc_ray.entrypoints.api.mutation_guards import _require_admin_read
 from doc_ray.entrypoints.api.projection_query import ProjectionQueries
@@ -62,6 +63,7 @@ class Query(
     ClassificationQueries,
     ProjectionQueries,
     AllusionQueries,
+    LensRollupQueries,
     MetaQueries,
 ):
     """The GraphQL query root."""

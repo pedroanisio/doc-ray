@@ -37,6 +37,21 @@ from doc_ray.domain.canonical_norm import form_norm
 UNKNOWN_TYPE = "UNKNOWN"
 
 
+def dominant_type_share(type_counts: Mapping[str, int]) -> float:
+    """Return the dominant type's share of the total — the ``type_consistency`` ratio.
+
+    ``max(count) / sum(count)`` in ``[0, 1]``: the same measured arithmetic
+    :class:`EntityProfile` uses (a value near 1.0 means the annotator agreed with
+    itself; low means it contradicted itself). Shared so consumers that already hold
+    a ``{type: count}`` map — e.g. the per-lens entity rollup (Block F) — reuse the
+    definition instead of reinventing it. ``0.0`` for an empty map.
+    """
+    total = sum(type_counts.values())
+    if total <= 0:
+        return 0.0
+    return max(type_counts.values()) / total
+
+
 @dataclass(frozen=True)
 class TypeCount:
     """How many times one entity type was assigned to an entity."""

@@ -1,6 +1,6 @@
 # doc-ray — Database ERD & Data Dictionary
 
-**Schema version `1.27.0`** (SemVer) · 132 migrations applied
+**Schema version `1.48.0`** (SemVer) · 134 migrations applied
 
 > Generated from the live schema by `scripts/gen_data_dictionary.py`. Do not edit by hand — re-run the generator.
 
@@ -791,10 +791,10 @@ Lens-scoped entity identity as a derived, refreshable view: `entity_projection` 
 `canonical_id` (NULL = explicitly unresolved), and a `proposed`/`confirmed`/`rejected` review
 status. `lens_local_entity` is the stable registry that mints one `canonical` row per (lens,
 surface, type) so a rebuild is reproducible; `entity_projection_review` records human confirm/reject
-keyed by the stable span (survives re-annotation); `lens_entity_stats` is the per-lens entity rollup
-`lensEntities` reads (D-024). A lens projects only when `document_collections.projects` is set (FR-2
-designation). All are derived from the substrate + lens + policy and never mutate it (invariants
-1–2).
+keyed by the stable span (survives re-annotation). A lens projects only when
+`document_collections.projects` is set (FR-2 designation). All are derived from the substrate + lens
++ policy and never mutate it (invariants 1–2). The per-lens entity landscape lives in the Block F
+rollups.
 
 #### `entity_projection`
 
@@ -862,25 +862,59 @@ designation). All are derived from the substrate + lens + policy and never mutat
 - **Index** `idx_epr_doc_lens_span`: public.entity_projection_review USING btree (document_id, lens_id, char_start, char_end, created_at DESC)
 - **RLS:** enabled — read/write policies via *document_id* (FORCED)
 
-#### `lens_entity_stats`
+### 5.10 Hyper-context rollups (SLP Block F)
+
+Corpus-wide sensemaking precomputed from the projections (D-024 — never a live aggregate on a read
+path): `lens_entity_rollup` is a lens's significant entities with mention/document volume, the
+observed type profile + consistency, and the first-seen sentence ordinal (it supersedes the thin
+Block-D lens_entity_stats and backs `lensEntities`); `lens_entity_relation` is undirected sentence-
+level co-occurrence pairs (stored once, `from < to`) with an NPMI strength (Bouma 2009) — a
+structural association measure, never a claim of a real relationship. Refreshed by a job that
+strictly follows the projection refresh; bounded N-hop discovery traverses these edges (hop cap 3).
+RLS scopes both by lens visibility.
+
+#### `lens_entity_rollup`
 
 | Column | Type | Null | Key | Default | Notes |
 |---|---|---|---|---|---|
 | `lens_id` | uuid |  | PK, FK→document_collections |  |  |
 | `canonical_id` | bigint |  | PK, FK→canonical |  |  |
 | `scope` | text |  |  |  |  |
-| `n_mentions` | bigint |  |  | `0` |  |
-| `n_documents` | bigint |  |  | `0` |  |
-| `updated_at` | timestamp with time zone |  |  | `now()` |  |
+| `mention_count` | integer |  |  |  |  |
+| `document_count` | integer |  |  |  |  |
+| `type_profile` | jsonb |  |  |  |  |
+| `type_consistency` | real | yes |  |  |  |
+| `first_seen_ordinal` | integer | yes |  |  |  |
+| `refreshed_at` | timestamp with time zone |  |  | `now()` |  |
 
 - **Primary key:** (lens_id, canonical_id)
 - **FK:** FOREIGN KEY (canonical_id) REFERENCES canonical(id) ON DELETE CASCADE
 - **FK:** FOREIGN KEY (lens_id) REFERENCES document_collections(id) ON DELETE CASCADE
 - **Check:** CHECK ((scope = ANY (ARRAY['local'::text, 'global'::text])))
-- **Index** `idx_lens_entity_stats_lens_mentions`: public.lens_entity_stats USING btree (lens_id, n_mentions DESC, canonical_id)
+- **Index** `idx_lens_entity_rollup_rank`: public.lens_entity_rollup USING btree (lens_id, mention_count DESC, canonical_id)
 - **RLS:** enabled — read/write policies via *lens_id → document_collection_members → documents* (FORCED)
 
-### 5.10 Allusion edges (SLP Block E)
+#### `lens_entity_relation`
+
+| Column | Type | Null | Key | Default | Notes |
+|---|---|---|---|---|---|
+| `lens_id` | uuid |  | PK, FK→document_collections |  |  |
+| `from_canonical_id` | bigint |  | PK, FK→canonical |  |  |
+| `to_canonical_id` | bigint |  | PK, FK→canonical |  |  |
+| `cooccurrence_count` | integer |  |  |  |  |
+| `strength` | real |  |  |  |  |
+| `refreshed_at` | timestamp with time zone |  |  | `now()` |  |
+
+- **Primary key:** (lens_id, from_canonical_id, to_canonical_id)
+- **FK:** FOREIGN KEY (from_canonical_id) REFERENCES canonical(id) ON DELETE CASCADE
+- **FK:** FOREIGN KEY (lens_id) REFERENCES document_collections(id) ON DELETE CASCADE
+- **FK:** FOREIGN KEY (to_canonical_id) REFERENCES canonical(id) ON DELETE CASCADE
+- **Check:** CHECK ((from_canonical_id < to_canonical_id))
+- **Index** `idx_lens_relation_from`: public.lens_entity_relation USING btree (lens_id, from_canonical_id, strength DESC)
+- **Index** `idx_lens_relation_to`: public.lens_entity_relation USING btree (lens_id, to_canonical_id, strength DESC)
+- **RLS:** enabled — read/write policies via *lens_id → document_collection_members → documents* (FORCED)
+
+### 5.11 Allusion edges (SLP Block E)
 
 Typed, directional cross-lens links that record a relationship without asserting identity:
 `entity_allusion` says one entity *alludes to / depicts / references / is adapted from / inspired
@@ -927,7 +961,7 @@ entity in an unreadable lens.
 - **Index** `idx_entity_allusion_to`: public.entity_allusion USING btree (to_canonical_id, to_lens_id)
 - **RLS:** enabled — read/write policies via *both lenses via document_collection_members + evidence_document_id* (FORCED)
 
-### 5.11 Canonical entities & resolution
+### 5.12 Canonical entities & resolution
 
 The tenant-global canonical entity registry mentions link to: `canonical` rows carry KB identity +
 an HNSW-indexed name embedding, `form_index` maps normalized surface forms to canonicals,
@@ -1037,7 +1071,7 @@ operator workflow queues for seeding and ambiguous-link review.
 - **Index** `idx_resolution_review_status`: public.resolution_review USING btree (status, id)
 - **RLS:** enabled — read/write policies via *mention_id → entity_mention → annotations* (FORCED)
 
-### 5.12 Meaning, discourse, temporal & sentiment (layers 14–19)
+### 5.13 Meaning, discourse, temporal & sentiment (layers 14–19)
 
 Semantic role labeling, word-sense disambiguation, AMR meaning graphs, PDTB discourse relations,
 TimeML (TIMEX/EVENT/TLINK), and sentiment.
@@ -1219,7 +1253,7 @@ TimeML (TIMEX/EVENT/TLINK), and sentiment.
 - **Index** `idx_sentiment_target_span`: public.sentiment USING btree (target_span_id)
 - **RLS:** enabled — read/write policies via *annotation_id → annotations* (FORCED)
 
-### 5.13 Distributed representations (layer 20)
+### 5.14 Distributed representations (layer 20)
 
 pgvector embeddings over spans, ANN-indexed with HNSW (cosine).
 
@@ -1236,7 +1270,7 @@ pgvector embeddings over spans, ANN-indexed with HNSW (cosine).
 - **Index** `idx_embedding_hnsw`: public.embedding USING hnsw (vector vector_cosine_ops)
 - **RLS:** enabled — read/write policies via *span_id → spans* (FORCED)
 
-### 5.14 Collections & curation
+### 5.15 Collections & curation
 
 Operator-facing curation surfaces: manual and smart (rule-driven) document collections, and the
 reviewed-suggestion queue for LLM/heuristic metadata proposals (BL-058).
@@ -1312,7 +1346,7 @@ reviewed-suggestion queue for LLM/heuristic metadata proposals (BL-058).
 - **Index** `idx_document_metadata_suggestion_doc`: public.document_metadata_suggestion USING btree (document_id, status, confidence DESC)
 - **RLS:** enabled — read/write policies via *document_id* (FORCED)
 
-### 5.15 Access control — RBAC & row-level security
+### 5.16 Access control — RBAC & row-level security
 
 Principals, roles, permissions and per-document ACLs. Every document-scoped table above is protected
 by tenant-scoped RLS keyed on these (see §Access control).
@@ -1425,7 +1459,7 @@ Tenant partition catalogue; the default tenant preserves existing deployments.
 - **Index** `idx_document_acl_principal`: public.document_acl USING btree (principal_id)
 - **RLS:** enabled — read/write policies via *?* (FORCED)
 
-### 5.16 Authentication & identity provisioning
+### 5.17 Authentication & identity provisioning
 
 Local self-service auth (argon2id credentials, e-mail verification, refresh tokens — migration 074),
 account preferences and email-change requests, OAuth 2.1 authorization-code/PKCE client state, plus
@@ -1637,7 +1671,7 @@ operator-seeded; self-registered principals get the reader role only.
 - **Check:** CHECK (((metadata_url IS NOT NULL) OR (metadata_xml IS NOT NULL)))
 - **Index** `idx_tenant_saml_idp_entity`: public.tenant_saml_identity_providers USING btree (entity_id)
 
-### 5.17 Billing & payment operations
+### 5.18 Billing & payment operations
 
 Tenant-scoped Stripe customer accounts, current subscription snapshots, and the signed webhook event
 ledger that backs Checkout, Portal, entitlement decisions, and payment audit views.
@@ -1702,7 +1736,7 @@ ledger that backs Checkout, Portal, entitlement decisions, and payment audit vie
 - **Index** `idx_stripe_webhook_events_type_time`: public.stripe_webhook_events USING btree (event_type, created_at DESC)
 - **RLS:** enabled — read/write policies via *signed Stripe webhook ledger, app-owned* (FORCED)
 
-### 5.18 Security audit trail
+### 5.19 Security audit trail
 
 Append-only access and authentication events: who did what, against which target, from which source
 address, and whether it succeeded or was denied.
@@ -1736,7 +1770,7 @@ address, and whether it succeeded or was denied.
 - **Index** `idx_audit_events_time`: public.audit_events USING btree (occurred_at DESC)
 - **RLS:** enabled — read/write policies via *insert-only security audit log* (FORCED)
 
-### 5.19 Evaluation & drift artifacts
+### 5.20 Evaluation & drift artifacts
 
 Corpus snapshots, evaluation runs, metric rows, and gold samples make quality and drift measurements
 durable and citeable instead of one-off operator observations.
@@ -1817,7 +1851,7 @@ durable and citeable instead of one-off operator observations.
 - **FK:** FOREIGN KEY (span_id) REFERENCES spans(id) ON DELETE CASCADE
 - **Index** `idx_gold_sample_label`: public.gold_sample USING btree (label, created_at DESC)
 
-### 5.20 Jobs & operations
+### 5.21 Jobs & operations
 
 The background job queue (claimed FOR UPDATE SKIP LOCKED, heartbeat + drain-aware reaping, first-
 class progress), the applied-migration ledger, the schema's SemVer, and the corpus-backup catalogue.
@@ -1938,7 +1972,7 @@ job execution record (GPU/CPU lane, timings) for cost attribution (migration 126
 - **Index** `job_telemetry_host_kind_idx`: public.job_telemetry USING btree (host, kind, finished_at DESC)
 - **RLS:** enabled — read/write policies via *?* (FORCED)
 
-### 5.21 Prism visual layer
+### 5.22 Prism visual layer
 
 The visual/multimodal layer over the corpus (docs/proposals/prism-visual-layer.md), document-scoped
 under the same RLS as the NLP layers. Tier-1 `document_image`/`image_tier1_features` are
@@ -2094,7 +2128,7 @@ low-confidence output.
 - **Index** `idx_visual_review_pending`: public.visual_review USING btree (document_id) WHERE (status = 'pending'::text)
 - **RLS:** enabled — read/write policies via *document_id* (FORCED)
 
-### 5.22 Read-model rollups (D-024)
+### 5.23 Read-model rollups (D-024)
 
 Derived aggregates over the large append-mostly fact tables, refreshed by the trusted batch writer
 at the pipeline job boundary and never computed on the request path (migrations 095/098/100). Each
@@ -2264,7 +2298,7 @@ document-scoped table. A principal may **read** a same-tenant document iff it is
 *admin* or holds any `document_acl` row on it, and may **write** iff *admin* or
 holds an `annotate`/`delete`/`admin` grant.
 
-**Enforcement.** RLS is `ENABLE`d (not `FORCE`) on 65 tables (incl. `jobs` and
+**Enforcement.** RLS is `ENABLE`d (not `FORCE`) on 66 tables (incl. `jobs` and
 `backups` since migration 043 — BL-064). The `docray`
 role is a **superuser and table owner**, so it **bypasses RLS** — the ingest
 pipeline and admin tooling use it as the trusted batch writer. End-user / API
@@ -2436,3 +2470,5 @@ owner's bypass.
 | 130 | `130_schema_version_1_46_0.sql` | advance the schema SemVer to 1.46.0 for the projection engine |
 | 131 | `131_allusion_edges.sql` | entity_allusion (typed cross-lens links that never assert identity, Block E) + cross-lens RLS + grants |
 | 132 | `132_schema_version_1_47_0.sql` | advance the schema SemVer to 1.47.0 for allusion edges |
+| 133 | `133_lens_rollups.sql` | hyper-context rollups (Block F): lens_entity_rollup + lens_entity_relation (co-occurrence NPMI) + RLS; supersedes/drops lens_entity_stats |
+| 134 | `134_schema_version_1_48_0.sql` | advance the schema SemVer to 1.48.0 for hyper-context rollups |

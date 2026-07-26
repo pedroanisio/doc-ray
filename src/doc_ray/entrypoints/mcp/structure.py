@@ -194,24 +194,74 @@ async def entity_projection(
 
 
 async def lens_entities(
-    lens_id: str, limit: int = 100, after: str | None = None
+    lens_id: str, limit: int = 100, after: str | None = None, min_mentions: int = 0
 ) -> list[dict[str, Any]]:
-    """The entities that live in a lens, most-mentioned first (SLP Block D).
+    """The significant entities in a lens, most-mentioned first (SLP Block F hyper-context).
 
-    Use this to survey a fictional work's cast/places (a scope lens) — each entry has
-    the entity's ``preferred`` name, its ``scope`` (``local``/``global``), and its
-    lens-wide ``nMentions`` / ``nDocuments``. Reads a precomputed rollup, so it is
-    cheap. Scope lenses only: for the corpus-wide real-world entity distribution use
-    ``entity_profiles`` / ``entity_frequency`` instead. Page with a row's ``cursor`` as
-    ``after``. RLS-scoped to lenses whose documents your token may read.
+    Prefer this over ``entity_frequency`` for "who and what is this lens about". Each entry
+    has the entity's ``preferred`` name, ``scope`` (``local``/``global``), lens-wide
+    ``nMentions`` / ``nDocuments``, its ``typeProfile`` + ``typeConsistency`` (low = the
+    annotator disagreed with itself; do not over-trust the type), ``firstSeenOrdinal`` (for
+    citation), and ``refreshedAt``. **This is a precomputed rollup with a ``refreshedAt``
+    staleness stamp**, not a live count. ``minMentions`` filters low-volume entities. Scope
+    lenses only (for the corpus-wide real-world distribution use ``entity_profiles``). Page
+    with a row's ``cursor``. RLS-scoped to lenses whose documents your token may read.
     """
     _require_uuid(lens_id, "lens_id")
     data = await gql(
-        "query($l:ID!,$n:Int!,$a:String){lensEntities(lensId:$l,limit:$n,after:$a)"
-        "{canonicalId preferred entityType wikidataId scope nMentions nDocuments cursor}}",
-        {"l": lens_id, "n": limit, "a": after},
+        "query($l:ID!,$n:Int!,$a:String,$m:Int!){lensEntities(lensId:$l,limit:$n,after:$a,"
+        "minMentions:$m){canonicalId preferred entityType wikidataId scope nMentions nDocuments "
+        "typeProfile typeConsistency firstSeenOrdinal refreshedAt cursor}}",
+        {"l": lens_id, "n": limit, "a": after, "m": min_mentions},
     )
     rows: list[dict[str, Any]] = data["lensEntities"]
+    return rows
+
+
+async def entity_relations(
+    lens_id: str,
+    canonical_id: int,
+    limit: int = 50,
+    min_strength: float = 0.0,
+    after: str | None = None,
+) -> list[dict[str, Any]]:
+    """An entity's direct co-occurrence relationships within a lens, strongest first (Block F).
+
+    Each entry is the *other* entity, with how many sentences they share
+    (``cooccurrenceCount``) and a ``strength`` — the **NPMI co-occurrence measure in
+    [-1, 1], NOT a claim that the two entities are truly related** (structural association
+    only; PALS's Law). ``minStrength`` filters weak associations. Precomputed rollup with a
+    ``refreshedAt`` staleness stamp. Page with a row's ``cursor``. RLS-scoped to the lens.
+    """
+    _require_uuid(lens_id, "lens_id")
+    data = await gql(
+        "query($l:ID!,$c:Int!,$n:Int!,$a:String,$s:Float!){entityRelations(lensId:$l,"
+        "canonicalId:$c,limit:$n,after:$a,minStrength:$s){canonicalId preferred entityType "
+        "wikidataId cooccurrenceCount strength refreshedAt cursor}}",
+        {"l": lens_id, "c": canonical_id, "n": limit, "a": after, "s": min_strength},
+    )
+    rows: list[dict[str, Any]] = data["entityRelations"]
+    return rows
+
+
+async def related_entities(
+    lens_id: str, canonical_id: int, hops: int = 2, limit: int = 50
+) -> list[dict[str, Any]]:
+    """Discover entities within N co-occurrence hops of an anchor in a lens (Block F).
+
+    Bounded breadth-first over the lens's co-occurrence graph; each entry carries its
+    shortest ``hops`` distance. ``hops`` is **capped at 3 and a larger value is rejected**
+    (never silently clamped) — there is no unbounded graph walk. Reachability is a
+    **structural** signal, not an assertion of a real relationship (PALS's Law). Use it for
+    "friend-of-a-friend" discovery; the direct relations are ``entity_relations``.
+    """
+    _require_uuid(lens_id, "lens_id")
+    data = await gql(
+        "query($l:ID!,$c:Int!,$h:Int!,$n:Int!){relatedEntities(lensId:$l,canonicalId:$c,"
+        "hops:$h,limit:$n){canonicalId preferred entityType wikidataId hops}}",
+        {"l": lens_id, "c": canonical_id, "h": hops, "n": limit},
+    )
+    rows: list[dict[str, Any]] = data["relatedEntities"]
     return rows
 
 
@@ -254,5 +304,7 @@ TOOLS: tuple[Callable[..., Any], ...] = (
     document_classification,
     entity_projection,
     lens_entities,
+    entity_relations,
+    related_entities,
     allusions,
 )

@@ -19,13 +19,14 @@ Exposes the doc-ray corpus to agentic AI over the **Model Context Protocol
 (MCP)**, authenticating each caller to a doc-ray principal so Postgres RLS scopes
 what they can read.
 
-**Status: live in production and verified end-to-end.** The server ships **29
+**Status: live in production and verified end-to-end.** The server ships **31
 read tools** (18 from `entrypoints/mcp/corpus.py` — incl. `read_document_sentences`,
 `corpus_manifest`, `corpus_shard`, `get_job`, `list_collections`, `get_collection`,
-`entity_mention_corrections`, and the 4 Prism visual tools — + 7 structure tools from
+`entity_mention_corrections`, and the 4 Prism visual tools — + 9 structure tools from
 `entrypoints/mcp/structure.py` (`read_document_outline`, `entity_profiles`,
-`term_frequency`, `document_classification`, the SLP Block D lens-scoped identity
-readers `entity_projection`, `lens_entities`, and the Block E `allusions` reader) + 3
+`term_frequency`, `document_classification`, the SLP Block D `entity_projection`, the
+Block F hyper-context readers `lens_entities` / `entity_relations` / `related_entities`,
+and the Block E `allusions` reader) + 3
 composition-grounding tools from `entrypoints/mcp/compose.py`
 + 1 semantic-search tool… see §3) always registered, plus **29 opt-in write tools**
 (reprocessing + curation + full collection lifecycle + projection review
@@ -160,7 +161,9 @@ but had no passage cited on this page. Example:
 | `entity_mention_corrections(document_id)` | `entityMentionCorrections` | the human NER-correction audit log for a document |
 | `document_classification(document_id)` | `documentClassification` | the document's genre axis; `status` tells you if it is a `pending` guess or a `confirmed` human decision |
 | `entity_projection(document_id, lens_id?, limit, after?)` | `entityProjection` | `project(mention, lens)` — each mention's identity within a lens; `scope` local/global, `canonicalId` null = unresolved, `status` proposed/confirmed/rejected (Block D) |
-| `lens_entities(lens_id, limit, after?)` | `lensEntities` | the entities that live in a lens, most-mentioned first (Block D); keyset `cursor` |
+| `lens_entities(lens_id, limit, after?, min_mentions?)` | `lensEntities` | a lens's significant entities, most-mentioned first (Block F) — type profile + consistency + `refreshedAt`; keyset `cursor` |
+| `entity_relations(lens_id, canonical_id, limit, min_strength?, after?)` | `entityRelations` | an entity's direct co-occurrence relations (Block F); `strength` is NPMI — a structural measure, NOT a real-relationship claim |
+| `related_entities(lens_id, canonical_id, hops, limit)` | `relatedEntities` | bounded N-hop discovery (Block F); `hops` capped at 3, over-cap rejected |
 | `allusions(canonical_id, lens_id, direction, limit, after?)` | `allusions` | typed cross-lens edges for an entity (Block E) — `direction` outgoing/incoming/both; an edge is NOT identity and NOT transitive |
 | `list_collections(limit, kind?, after?)` | `collections` | native containers; keyset `cursor` |
 | `get_collection(collection_id, document_limit)` | `collection` | one collection + its member documents |
@@ -394,15 +397,15 @@ themselves are shared corpus navigation metadata. Block B ships the vocabulary
 only — nothing about how entities resolve changes yet (a later projection block
 consumes it).
 
-### 3.5.1 `entity_projection` / `lens_entities` — lens-scoped identity (Block D)
+### 3.5.1 `entity_projection` — lens-scoped identity (Block D)
 
 The projection engine makes lens-scoped identity real: `entity = project(mention,
 lens)` is a *derived* interpretation, so the same corpus holds fiction and
 non-fiction without a lossy merge. `entity_projection` answers "which entity is
-each mention, within this lens"; `lens_entities` surveys the cast/places of a
-lens. Omit `lens_id` to use the document's default lens, else `global` — so an
-existing reader is unchanged. Every machine projection is `proposed` until a human
-confirms it with `confirm_projection` (PALS's Law); the substrate is never mutated.
+each mention, within this lens". Omit `lens_id` to use the document's default lens,
+else `global` — so an existing reader is unchanged. Every machine projection is
+`proposed` until a human confirms it with `confirm_projection` (PALS's Law); the
+substrate is never mutated.
 
 ```jsonc
 // Who is each mention in this novel, read through its work lens?
@@ -414,16 +417,38 @@ confirms it with `confirm_projection` (PALS's Law); the substrate is never mutat
 // Confirm one — a proposal becomes a decided identity (worker applies it):
 {"name": "confirm_projection", "arguments": {"mention_id": "01J…", "lens_id": "…"}}
 // → {"id": "…", "kind": "refresh_projection", "status": "queued"}   // poll with get_job
-
-// Survey the whole lens, most-mentioned first:
-{"name": "lens_entities", "arguments": {"lens_id": "…", "limit": 50}}
-// → [{"canonicalId": 8842, "preferred": "Duncan", "scope": "local", "nMentions": 42, "nDocuments": 1}]
 ```
 
-`lens_entities` reads a precomputed per-lens rollup (cheap); for the corpus-wide
-real-world entity distribution use `entity_profiles` instead. `reject_projection`
-is the mirror of `confirm_projection`. A projection is derived and rebuildable, so
-a wrong one is never load-bearing — drop and re-derive, never a destructive merge.
+`reject_projection` is the mirror of `confirm_projection`. A projection is derived and
+rebuildable, so a wrong one is never load-bearing — drop and re-derive, never a
+destructive merge.
+
+### 3.5.1b `lens_entities` / `entity_relations` / `related_entities` — hyper-context (Block F)
+
+Once identity is projected, these precomputed rollups answer "who and what is this lens
+about, and how do they relate?" — cheaply, at corpus scale. **Prefer `lens_entities` over
+`entity_frequency`** for surveying a lens. Every result carries a `refreshedAt` staleness
+stamp; relationship `strength` is an **NPMI co-occurrence measure — a structural signal,
+not a claim that two entities are truly related**, and edges must not be chained as
+identity.
+
+```jsonc
+// The lens's significant cast/places, richest first (with type profile + staleness):
+{"name": "lens_entities", "arguments": {"lens_id": "…", "min_mentions": 3, "limit": 50}}
+// → [{"canonicalId": 8842, "preferred": "Duncan", "scope": "local", "nMentions": 42,
+//     "typeProfile": {"PERSON": 42}, "typeConsistency": 1.0, "firstSeenOrdinal": 12}]
+
+// Who co-occurs with Duncan in this lens, strongest first?
+{"name": "entity_relations", "arguments": {"lens_id": "…", "canonical_id": 8842}}
+// → [{"canonicalId": 8901, "preferred": "Paul", "cooccurrenceCount": 30, "strength": 0.61}]
+
+// Friend-of-a-friend discovery — bounded to 2 hops (>3 is rejected, never clamped):
+{"name": "related_entities", "arguments": {"lens_id": "…", "canonical_id": 8842, "hops": 2}}
+// → [{"canonicalId": 8901, "preferred": "Paul", "hops": 1}, {"canonicalId": 9100, "hops": 2}]
+```
+
+Read the same corpus through different lenses by passing a different `lens_id` — the
+composability is a lens parameter, not a query language.
 
 ### 3.5.2 `allusions` / `propose_allusion` — cross-lens links, NOT identity (Block E)
 

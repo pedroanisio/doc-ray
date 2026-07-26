@@ -110,7 +110,7 @@ metadata:
   generated_by:     "Claude Sonnet 5 via Claude Code (merge of Claude Opus 4.8 backlog + OpenAI Codex improvement-proposal candidates)"
   generated_on:     "2026-07-05"
   system_of_record: "docs/backlog.yml"
-  total_items:      159
+  total_items:      161
 
 items:
 
@@ -5483,3 +5483,77 @@ items:
     owner:        "shared"
     source:       "GitHub issue #9 (SLP Block E, epic entity-fabric); implemented with strict TDD (Claude Opus 4.8 via Claude Code)."
     tags:         ["slp", "entity-fabric", "allusion", "lens", "hyper-context", "feature"]
+
+  - id:          "BL-160"
+    title:        "SLP Block F: hyper-context rollups + relationship discovery over the projected graph"
+    summary:      "After Blocks B-D the corpus knew who each mention is within a lens but had no aggregate view of a lens's entity landscape and no entity-to-entity relationship traversal; computing either live violates D-024 at 10k documents. Added two precomputed rollups (lens_entity_rollup, lens_entity_relation), a pure domain (NPMI strength + bounded cycle-safe N-hop), a refresh job, and GraphQL + MCP reads. Supersedes lens_entity_stats. Completes the entity-fabric programme (Blocks A-F)."
+    description: |
+      lens_entity_rollup (migration 133) is a lens's significant entities with
+      mention/document volume, observed type_profile + type_consistency (reusing
+      entity_profiles.dominant_type_share) and first_seen_ordinal; it supersedes the thin
+      Block-D lens_entity_stats (dropped) and backs lensEntities. lens_entity_relation is
+      undirected sentence-level co-occurrence pairs (stored once, from < to) with an NPMI
+      strength (Bouma 2009), normalized by marginal frequencies so a ubiquitous entity is
+      not related to everything. domain.lens_rollups is pure: the cited NPMI formula,
+      significance ranking, and a bounded cycle-safe N-hop BFS (hard cap 3, over-cap
+      rejected — no unbounded walk). KIND_REFRESH_LENS_ROLLUP refreshes a lens (chained
+      strictly after the projection refresh it aggregates) or the whole corpus; idempotent
+      and reproducible. GraphQL: lensEntities (enriched, minMentions), entityRelations,
+      relatedEntities (hop-cap rejection). MCP mirrors all three, docstrings stating these
+      are precomputed rollups (refreshed_at staleness) and strength is a co-occurrence
+      measure not a real-relationship claim. Reads are D-024-clean; RLS scopes by lens
+      visibility. Degrades gracefully without Block E. Narrative summaries (FR-2) deferred
+      to BL-161. Schema SemVer -> 1.48.0 (migration 134).
+    category:     "api"
+    type:         "feature"
+    status:       "done"
+    complexity:   "XL"
+    priority:     "medium"
+    rationale:    "PURPOSE.md names relationship discovery as a product goal and the mandate names hyper-context as one of four axes; a library that cannot answer 'who are the significant figures and how do they relate' is just a search index. The answer must be precomputed (D-024) and honest (a co-occurrence strength is structural, never a claimed real relationship; a summary would be model output requiring review). This block ships the deterministic, testable half and defers model summaries."
+    acceptance_criteria:
+      - "Both rollup tables exist with RLS, FORCE, batch-only writes, and the documented indexes; reads are D-024-clean (no live fact-table aggregate)."
+      - "The NPMI strength is documented, cited (Bouma 2009), and unit-tested incl. edge cases (ubiquitous entity, single occurrence)."
+      - "Rollups are reproducible: full rebuild == incremental refresh (byte-identical), and idempotent."
+      - "relatedEntities respects the hop cap and rejects a larger request rather than clamping; traversal terminates on a cyclic graph (cyclic fixture)."
+      - "Undirected pairs are stored once (from < to) and queried from both directions; refreshed_at is exposed on every rollup read."
+      - "Degrades correctly without Block E (intra-lens only); capability exposed consistently across GraphQL and MCP with agent-facing docstrings."
+    dependencies: ["BL-158"]
+    references:
+      - "docs/proposals/entity-fabric-substrate-lens-projection.md"
+      - "db/migrations/133_lens_rollups.sql"
+      - "src/doc_ray/domain/lens_rollups.py"
+      - "src/doc_ray/adapters/lens_rollup_store.py"
+      - "src/doc_ray/entrypoints/api/lens_rollup_query.py"
+    owner:        "shared"
+    source:       "GitHub issue #10 (SLP Block F, epic entity-fabric); implemented with strict TDD (Claude Opus 4.8 via Claude Code)."
+    tags:         ["slp", "entity-fabric", "hyper-context", "rollup", "relationship", "feature"]
+
+  - id:          "BL-161"
+    title:        "SLP Block F follow-up: per-lens narrative summaries (model output, review-gated)"
+    summary:      "Block F (#10) shipped the deterministic hyper-context rollups and deferred FR-2 narrative summaries (a per-lens generated overview) to keep the model dependency and review workflow on their own verification gate (issue #10, decision D-3). This item tracks that follow-up: a lens_summary table (proposed/confirmed/rejected) with citable evidence handles, a generator, and a review path — summaries ship as PROPOSALS, never auto-confirmed (PALS's Law)."
+    description: |
+      Deferred from Block F (#10) per its recorded decision D-3. Scope: a lens_summary
+      table (lens_id, scope_key, summary text, model text, confidence real, status
+      CHECK proposed/confirmed/rejected, evidence jsonb citing concrete mention/sentence
+      handles, created_at); a generator that produces a proposed summary from the Block F
+      rollups + evidence; GraphQL lensSummary(lensId) always exposing status + evidence;
+      MCP lens_summary; and the record-then-review workflow. The review workflow is
+      mandatory, not optional. Excluded: auto-committed summaries; graph clustering /
+      community detection (also deferred, see #10 D-4).
+    category:     "api"
+    type:         "feature"
+    status:       "ready"
+    complexity:   "L"
+    priority:     "low"
+    rationale:    "A generated summary is model output and, per PALS's Law, must be traceable to the mentions that justify it and never presented as corpus fact. That review workflow deserves its own verification gate rather than riding in with the deterministic rollups — so Block F shipped the testable half and this tracks the model half honestly."
+    acceptance_criteria:
+      - "lens_summary exists with RLS, the status CHECK, and evidence citing concrete mention/sentence handles."
+      - "Every generated summary lands status='proposed'; none is auto-confirmed; confirm/reject is an audited human/agent decision."
+      - "GraphQL + MCP expose the summary always with its status and evidence; a proposed summary is clearly not corpus fact."
+    dependencies: ["BL-160"]
+    references:
+      - "docs/proposals/entity-fabric-substrate-lens-projection.md"
+      - "GitHub issue #10 (decision D-3, FR-2 deferred)"
+    owner:        "shared"
+    source:       "Deferred from GitHub issue #10 (SLP Block F) decision D-3; filed by the Block F implementation (Claude Opus 4.8 via Claude Code)."
+    tags:         ["slp", "entity-fabric", "hyper-context", "summary", "pals-law", "deferred"]

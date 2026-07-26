@@ -191,8 +191,7 @@ Projection engine (SLP Block D — lens-scoped entity identity):
 `entityProjection(documentId:, lensId:)` (read `project(mention, lens)` for a
 document through a lens — `scope` local/global, `canonicalId` null when
 explicitly unresolved, `status` proposed/confirmed/rejected; omit `lensId` to use
-the document's default lens, else `global`) / `lensEntities(lensId:, limit:,
-after:)` (the entities that live in a lens, most-mentioned first) /
+the document's default lens, else `global`) /
 `confirmProjection(mentionId:, lensId:)` / `rejectProjection(mentionId:, lensId:)`
 (human review, recorded by stable span so it survives re-annotation; applied by a
 refresh job) / `setLensProjects(lensId:, projects:)` (designate a lens as
@@ -207,6 +206,15 @@ that one entity *alludes to / depicts / references / is adapted from / inspired 
 another (e.g. a novel's Paris → the real Paris) **without merging them** — an edge
 is not an equality, changes nothing about identity, and is never transitive.
 Machine-proposed edges land `proposed` until confirmed.
+Hyper-context (SLP Block F — per-lens sensemaking over the projected graph):
+`lensEntities(lensId:, limit:, after:, minMentions:)` (a lens's significant entities,
+most-mentioned first, with type profile + consistency, first-seen ordinal, and a
+`refreshedAt` staleness stamp) / `entityRelations(lensId:, canonicalId:, limit:,
+minStrength:)` (an entity's direct co-occurrence relations, strongest first) /
+`relatedEntities(lensId:, canonicalId:, hops:, limit:)` (bounded N-hop discovery —
+`hops` capped at 3, an over-cap request is rejected, never clamped). Relationship
+`strength` is an NPMI co-occurrence measure (Bouma 2009), a **structural** signal — not
+a claim that two entities are truly related. All reads are precomputed rollups (D-024).
 Backup/restore:
 `backupEnabled` (read — whether this deployment has the in-app backup subsystem
 switched on; clients check it before offering the actions) /

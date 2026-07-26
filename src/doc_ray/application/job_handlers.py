@@ -16,12 +16,16 @@ from typing import TYPE_CHECKING, Any, cast
 
 import psycopg
 
+from doc_ray.application.allusions import handle_propose_allusions
 from doc_ray.application.backup import handle_backup, handle_restore
 from doc_ray.application.document_stats import refresh_document_stats as _refresh_document_stats
 from doc_ray.application.genre_classification import handle_classify_genre
+from doc_ray.application.lens_rollups import handle_refresh_lens_rollup
 from doc_ray.application.projection import (
     handle_refresh_projection,
-    refresh_projections_for_document,
+)
+from doc_ray.application.projection import (
+    refresh_projections_chained as _refresh_projections_chained,
 )
 from doc_ray.application.semantic_embed import handle_semantic_embed
 from doc_ray.domain.jobs import (
@@ -37,6 +41,7 @@ from doc_ray.domain.jobs import (
     KIND_PROPOSE_ALLUSIONS,
     KIND_REANNOTATE,
     KIND_REEXTRACT,
+    KIND_REFRESH_LENS_ROLLUP,
     KIND_REFRESH_PROJECTION,
     KIND_RESTORE,
     KIND_RESTORE_DOCUMENT,
@@ -64,21 +69,6 @@ _logger = logging.getLogger("doc_ray.jobs")
 
 #: A handler runs one job and returns a JSON-able result recorded on the job row.
 Handler = Callable[[psycopg.Connection[Any], ObjectStore | None, Job], dict[str, Any]]
-
-
-def _refresh_projections_chained(conn: psycopg.Connection[Any], document_id: str) -> None:
-    """Rebuild a document's projections after its mentions/links change (Block D, #8).
-
-    Chained after the entity-finalizing stages (canonicalize / reannotate /
-    apply_corrections) so a projection is never left stale relative to the substrate.
-    Best-effort like ``refresh_document_stats``: a projection is derived convenience
-    data, so a refresh failure is logged and swallowed rather than failing a pipeline
-    stage that already committed its real work — the next refresh reconciles.
-    """
-    try:
-        refresh_projections_for_document(conn, document_id)
-    except Exception:  # pragma: no cover - defensive; refresh must never fail a job
-        _logger.warning("projection refresh failed for document %s", document_id)
 
 
 def handle_delete(
@@ -529,24 +519,6 @@ def handle_canonicalize(
     return out
 
 
-def handle_propose_allusions(
-    conn: psycopg.Connection[Any], store: ObjectStore | None, job: Job
-) -> dict[str, Any]:
-    """Propose ``alludes_to`` edges for a document's local entities (Block E, #9, FR-5).
-
-    Deterministic surface + KB match; emits ``proposed`` edges only (never confirms) —
-    the primary path is the propose/confirm/reject API, this is a bulk convenience.
-    """
-    from doc_ray.adapters import allusion_store
-
-    if job.document_id is None:
-        raise RuntimeError("propose_allusions requires a document_id")
-    report_progress(0, 1, "Proposing allusion edges")
-    return allusion_store.propose_allusions_for_document(
-        cast(psycopg.Connection[dict[str, Any]], conn), job.document_id
-    )
-
-
 HANDLERS: dict[str, Handler] = {
     KIND_ANNOTATE: handle_annotate,
     KIND_APPLY_CORRECTIONS: handle_apply_corrections,
@@ -568,6 +540,7 @@ HANDLERS: dict[str, Handler] = {
     KIND_SUGGEST_DOCUMENT_METADATA: handle_suggest_document_metadata,
     KIND_CANONICALIZE: handle_canonicalize,
     KIND_REFRESH_PROJECTION: handle_refresh_projection,
+    KIND_REFRESH_LENS_ROLLUP: handle_refresh_lens_rollup,
     KIND_PROPOSE_ALLUSIONS: handle_propose_allusions,
     KIND_BACKUP: handle_backup,
     KIND_RESTORE: handle_restore,

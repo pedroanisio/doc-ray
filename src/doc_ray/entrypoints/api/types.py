@@ -465,41 +465,6 @@ class LensProjection:
 
 
 @strawberry.type
-class LensEntity:
-    """An entity that lives in a lens, with its lens-wide frequency (SLP Block D, #8).
-
-    The read side of the per-lens rollup: ``nMentions`` / ``nDocuments`` are counts
-    across the lens (lens-wide, not filtered to the caller's ACL subset — the same
-    trade-off ``corpusStats`` makes for a non-summable distinct). ``scope`` says
-    whether this is a work-local (``'local'``) or shared real-world (``'global'``)
-    identity within the lens.
-    """
-
-    canonical_id: int
-    preferred: str
-    entity_type: str
-    wikidata_id: str | None
-    scope: str
-    n_mentions: int
-    n_documents: int
-    cursor: str
-
-    @classmethod
-    def from_row(cls, row: Row) -> LensEntity:
-        """Build a ``LensEntity`` from a ``lens_entity_stats`` join row."""
-        return cls(
-            canonical_id=int(row["canonical_id"]),
-            preferred=row["preferred"],
-            entity_type=row["entity_type"],
-            wikidata_id=row.get("wikidata_id"),
-            scope=row["scope"],
-            n_mentions=int(row["n_mentions"]),
-            n_documents=int(row["n_documents"]),
-            cursor=str(row["cursor"]),
-        )
-
-
-@strawberry.type
 class AllusionEdge:
     """A typed, directional cross-lens link — an allusion, NEVER an identity (SLP Block E, #9).
 

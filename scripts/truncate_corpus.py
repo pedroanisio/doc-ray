@@ -96,11 +96,12 @@ WIPED_TABLES = (
     "corpus_stats",
     "lexeme_stats",
     "entity_frequency_stats",
-    # Block D (#8): the per-lens entity rollup and the stable local-identity registry.
-    # Derived from the projection above (and referencing the WIPED document_collections),
+    # Block D (#8) local-identity registry and Block F (#10) hyper-context rollups —
+    # derived from the projections above (and referencing the WIPED document_collections),
     # so they are wiped with the corpus and rebuilt on the next refresh.
-    "lens_entity_stats",
     "lens_local_entity",
+    "lens_entity_rollup",
+    "lens_entity_relation",
     "seed_suggestion",
     "resolution_review",
     # Prism visual layer — derived per-document corpus data, wiped with the corpus.

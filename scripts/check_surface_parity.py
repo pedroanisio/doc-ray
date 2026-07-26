@@ -94,8 +94,11 @@ _API_ONLY_ALLOWLIST: dict[str, str] = {
     "entityProjection": "Lens-scoped identity is an agent/MCP retrieval primitive (Block D).",
     # Browser keyword search uses its established direct-SQL sentence query.
     "fullTextSearch": "Search and Briefing provide human retrieval through their own bindings.",
-    # Per-lens entity survey (SLP Block D) is an agent/MCP retrieval primitive.
-    "lensEntities": "The per-lens entity rollup is an agent/MCP retrieval primitive (Block D).",
+    # Per-lens entity survey (SLP Block D/F) is an agent/MCP retrieval primitive.
+    "lensEntities": "The per-lens entity rollup is an agent/MCP retrieval primitive (Block D/F).",
+    # Hyper-context relationship discovery (SLP Block F) is an agent/MCP retrieval primitive.
+    "entityRelations": "Co-occurrence relations are an agent/MCP retrieval primitive (Block F).",
+    "relatedEntities": "Bounded N-hop discovery is an agent/MCP retrieval primitive (Block F).",
     # Fleet-wide re-extraction is privileged and lives in the admin console.
     "reextractDocuments": "The admin-console Jobs page exposes this admin-only batch action.",
     # The collection member form owns the same relation through RLS-scoped SQL.

@@ -39,7 +39,8 @@ RLS_PATH = {
     "document_classification": "document_id",
     "entity_projection": "document_id",
     "entity_projection_review": "document_id",
-    "lens_entity_stats": "lens_id → document_collection_members → documents",
+    "lens_entity_rollup": "lens_id → document_collection_members → documents",
+    "lens_entity_relation": "lens_id → document_collection_members → documents",
     "lens_local_entity": "admin-only (batch-owned local-identity registry)",
     "entity_allusion": "both lenses via document_collection_members + evidence_document_id",
     "entity_link": "mention_id → entity_mention → annotations",
@@ -325,6 +326,12 @@ MIGRATIONS = [
         "+ cross-lens RLS + grants",
     ),
     ("132_schema_version_1_47_0", "advance the schema SemVer to 1.47.0 for allusion edges"),
+    (
+        "133_lens_rollups",
+        "hyper-context rollups (Block F): lens_entity_rollup + lens_entity_relation "
+        "(co-occurrence NPMI) + RLS; supersedes/drops lens_entity_stats",
+    ),
+    ("134_schema_version_1_48_0", "advance the schema SemVer to 1.48.0 for hyper-context rollups"),
 ]
 
 # ---------------------------------------------------------------------------

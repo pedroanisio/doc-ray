@@ -45,6 +45,9 @@ _READ_TOOL_NAMES = {
     # lens-scoped entity identity (Block D)
     "entity_projection",
     "lens_entities",
+    # hyper-context relationship discovery (Block F)
+    "entity_relations",
+    "related_entities",
     # cross-lens allusion edges (Block E)
     "allusions",
     # composition-grounding tools
