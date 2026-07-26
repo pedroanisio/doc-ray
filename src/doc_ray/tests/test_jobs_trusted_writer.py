@@ -173,6 +173,35 @@ def test_enqueue_async_lets_a_member_enqueue_and_restores_the_role(pg) -> None:
     asyncio.run(check())
 
 
+def test_sync_enqueue_lets_an_rls_bound_role_enqueue_and_restores_the_role(pg) -> None:
+    """The synchronous twin must elevate identically — the operator-CLI path.
+
+    The defect this pins (found in production, 2026-07-25): BL-141 moved
+    ``enqueue_async`` onto the trusted writer but left the sync ``enqueue``
+    inserting under whatever role it was handed. Every operator tool that goes
+    through it — ``scripts/enqueue_visual_backfill.py`` above all, which is the
+    documented way to run a corpus-wide Prism backfill — died with
+
+        new row violates row-level security policy for table "jobs"
+
+    against the managed cluster, because the login role there (``docray``) is
+    RLS-bound and ``jobs`` has no INSERT policy at all. The role must revert
+    after the LOCAL elevation for the same reason as the async path.
+    """
+    conn, _created = pg
+    member_id = _member(conn)
+    conn.execute("SET ROLE docray_api")
+    conn.execute("SELECT set_config('app.principal_id', %s, false)", (member_id,))
+    try:
+        job_id = queue.enqueue(conn, KIND_INGEST, {"storage_key": "cc/cc.txt"}, document_id=None)
+        role = conn.execute("SELECT current_role AS r").fetchone()["r"]
+        assert role == "docray_api", f"role leaked as {role!r}, must revert to docray_api"
+    finally:
+        conn.execute("RESET ROLE")
+        conn.execute("SET ROLE docray_batch")
+        conn.execute("DELETE FROM jobs WHERE id = %s", (job_id,))
+
+
 # --------------------------------------------------------------------------
 # Read visibility is unchanged: a member sees their own document's jobs only.
 # --------------------------------------------------------------------------

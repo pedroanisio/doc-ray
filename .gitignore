@@ -48,6 +48,7 @@ ENVIRONMENT.md
 ENV-DEV.md
 ENV-PROD.md
 ENV-WORKER.md
+.env.prod.worker
 
 # Local lab experiments (POCs, scratch models, benchmark output) — never shipped.
 experiments/

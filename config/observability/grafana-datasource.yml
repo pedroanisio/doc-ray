@@ -1,0 +1,19 @@
+# Grafana datasource provisioning — the Prometheus in this overlay.
+#
+# Provisioned as a file rather than clicked in, so a rebuilt Grafana volume comes
+# back with the same datasource UID and any dashboard referencing it still works.
+
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    type: prometheus
+    uid: docray-prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    editable: false
+    jsonData:
+      # Must match prometheus.yml's global scrape_interval, or Grafana's
+      # auto-chosen $__rate_interval is too short and rate() returns gaps.
+      timeInterval: 15s

@@ -1,0 +1,53 @@
+# doc-ray — Prometheus scrape configuration.
+#
+# Scrape intervals are deliberately unequal. Host and database signals move in
+# seconds; DigitalOcean inventory and billing move in hours, and the billing API
+# is rate limited — polling it at 15s would burn quota to re-read the same
+# number.
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    deployment: ${DEPLOYMENT_NAME:-doc-ray-prod}
+
+scrape_configs:
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]
+
+  # Host CPU/memory/disk, plus the DO billing textfile the cost probe writes.
+  - job_name: node
+    static_configs:
+      - targets: ["node-exporter:9100"]
+        labels:
+          host: always-on
+
+  # The managed cluster and doc-ray's own pipeline/cost queries. 30s because the
+  # custom queries touch `jobs` and `job_telemetry` — cheap, but not free, and
+  # an exporter must never become part of the load it measures.
+  - job_name: postgres
+    scrape_interval: 30s
+    scrape_timeout: 25s
+    static_configs:
+      - targets: ["postgres-exporter:9187"]
+
+  # DigitalOcean inventory: what exists is what is billed.
+  - job_name: digitalocean
+    scrape_interval: 5m
+    static_configs:
+      - targets: ["do-exporter:9212"]
+
+  # GPU hosts. These are EPHEMERAL — a droplet created for a batch and destroyed
+  # after it. A target that vanishes is expected here, not an outage; alert on
+  # "GPU host up with an idle GPU" (money burning), never on "GPU host absent".
+  #
+  # DO's AI/ML image ships dcgm-exporter on :9400. Add each GPU host's PRIVATE
+  # VPC address as it is provisioned; the public IP changes on every respawn.
+  - job_name: gpu-hosts
+    scrape_interval: 30s
+    static_configs:
+      - targets: []
+        # - targets: ["10.13.0.6:9400"]
+        #   labels:
+        #     host: docray-gpu-01

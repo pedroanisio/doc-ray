@@ -27,6 +27,8 @@ from doc_ray.ports.vlm import VisionLanguageModel, VLMOutput
 #: (the 235B flagship needs multiple GPUs). Instruct, not Thinking — so the token
 #: budget produces the description, not hidden reasoning that empties the answer.
 DEFAULT_MODEL = "qwen3-vl:32b-instruct"
+#: Last-resort host when neither OLLAMA_HOST nor DOCRAY_OLLAMA_HOST is set.
+DEFAULT_HOST = "http://localhost:11434"
 DEFAULT_NUM_PREDICT = 768
 DEFAULT_TEMPERATURE = 0.1
 
@@ -48,10 +50,23 @@ class OllamaVisionLanguageModel(VisionLanguageModel):
         temperature: float | None = None,
         timeout_seconds: int = 180,
     ) -> None:
-        """Configure host/model/decoding from args or DOCRAY_VLM_* / OLLAMA_HOST env."""
+        """Configure host/model/decoding from args or DOCRAY_VLM_* / *OLLAMA_HOST env.
+
+        The host resolves ``OLLAMA_HOST`` (the Ollama CLI's own variable, so a
+        shell already pointed at a server keeps working) then
+        ``DOCRAY_OLLAMA_HOST`` — the registered variable the compose overlays
+        actually set on the workers, and the one
+        :mod:`doc_ray.adapters.resolver_ollama` reads. Reading only the former
+        left this adapter on ``localhost`` inside the worker container.
+        """
         self.model_id = model or os.environ.get("DOCRAY_VLM_MODEL", DEFAULT_MODEL)
         self.model_version = "ollama"
-        self._host = (host or os.environ.get("OLLAMA_HOST", "http://localhost:11434")).rstrip("/")
+        self._host = (
+            host
+            or os.environ.get("OLLAMA_HOST")
+            or os.environ.get("DOCRAY_OLLAMA_HOST")
+            or DEFAULT_HOST
+        ).rstrip("/")
         self._num_predict = (
             num_predict
             if num_predict is not None

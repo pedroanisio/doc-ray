@@ -138,24 +138,33 @@ def enqueue(
     ``enqueued_by`` records the principal a job acts for so the ``jobs`` read
     policy can show a caller their own jobs; the worker/CLI leave it ``None``
     (system-initiated work with no request principal).
+
+    Elevates to the trusted writer exactly like :func:`enqueue_async` — see that
+    function for why the queue is infrastructure rather than a user-writable
+    table. The sync path carries the operator CLIs (the visual backfill, bulk
+    ingest), which log in as ``docray``: an RLS-bound role that ``jobs``, having
+    no INSERT policy at all, admits no row from.
     """
     job_id = new_ulid_str()
     payload = payload_with_request_metadata(payload)
-    conn.execute(
-        _INSERT, (job_id, kind, priority, Jsonb(payload), max_attempts, document_id, enqueued_by)
-    )
-    _notify_job_event(
-        conn,
-        {
-            "id": job_id,
-            "kind": kind,
-            "status": JobStatus.QUEUED.value,
-            "document_id": document_id,
-            "progress_current": None,
-            "progress_total": None,
-            "progress_stage": None,
-        },
-    )
+    with conn.transaction():
+        conn.execute(f"SET LOCAL ROLE {_BATCH_WRITER_ROLE}")
+        conn.execute(
+            _INSERT,
+            (job_id, kind, priority, Jsonb(payload), max_attempts, document_id, enqueued_by),
+        )
+        _notify_job_event(
+            conn,
+            {
+                "id": job_id,
+                "kind": kind,
+                "status": JobStatus.QUEUED.value,
+                "document_id": document_id,
+                "progress_current": None,
+                "progress_total": None,
+                "progress_stage": None,
+            },
+        )
     return job_id
 
 

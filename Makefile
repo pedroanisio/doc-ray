@@ -47,6 +47,7 @@ COMPOSE_LAB := docker compose -f docker-compose.openwebui.yml
         prod-admin-console-down prod-tunnel prod-down gpu-up gpu-worker-up \
         gpu-worker-status gpu-worker-down prod-ollama-up \
         lab-up lab-pull lab-status lab-down \
+        observability-up observability-down \
         prod-refresh-ui prod-restart-ui mcp-up pgadmin-up up
 
 help: ## List available tasks
@@ -155,6 +156,14 @@ gpu-worker-status: ## Show the lane-pinned GPU worker replicas on a worker-only 
 
 gpu-worker-down: ## Drain and stop the lane-pinned GPU workers (stop_grace_period lets in-flight jobs release without spending a retry)
 	$(COMPOSE_GPU_WORKER) down
+
+observability-up: ## Start Prometheus/Grafana + host, Postgres and DigitalOcean cost exporters
+	$(COMPOSE_PROD) -f docker-compose.observability.yml up -d --build \
+	  prometheus grafana postgres-exporter node-exporter do-exporter do-cost-probe
+
+observability-down: ## Stop the observability stack (metrics history is kept in its volumes)
+	$(COMPOSE_PROD) -f docker-compose.observability.yml down \
+	  prometheus grafana postgres-exporter node-exporter do-exporter do-cost-probe
 
 prod-ollama-up: prod-migrate ## Migrate, then run the managed stack with the LOCAL Ollama resolver on the H200 GPU
 	# Layered AFTER the prod overlay so the ollama overlay's worker resolver-env and
