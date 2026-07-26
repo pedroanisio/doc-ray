@@ -1,0 +1,154 @@
+# doc-ray — observability overlay: what the environment is doing, and what it costs.
+#
+# Added because tonight's incident was diagnosed by hand: the GPU sat idle inside
+# long jobs while sixteen workers queued on a saturated database, and the only
+# way to see it was querying `progress_stage` interactively. Throughput fell
+# 60 -> 24 -> 0 annotate/hr with no alert, and the money spent on the failed
+# attempts left no trace. This overlay makes those three things standing signals:
+# what the hosts are doing, what the database is doing, and what DigitalOcean is
+# charging for it.
+#
+# WHAT IT SCRAPES
+#   node-exporter        host CPU/mem/disk/net of whichever host it runs on,
+#                        plus the textfile collector that carries DO billing
+#   postgres-exporter    the MANAGED cluster (DATABASE_URL) — connections, xact
+#                        rate, cache hit, plus doc-ray's own job_telemetry
+#                        rolled up per host/kind/outcome (config/observability/
+#                        postgres_queries.yaml)
+#   do-exporter          DigitalOcean inventory: droplets, volumes, databases —
+#                        what EXISTS, which is what you are billed for
+#   do-cost-probe        month-to-date spend from the DO billing API, written as
+#                        Prometheus textfile metrics (scripts/do_cost_probe.py)
+#
+# NOT INCLUDED: dcgm-exporter. GPU metrics belong on the GPU host, which runs
+# docker-compose.gpuworker.yml — DO's AI image already ships dcgm-exporter, so
+# point Prometheus at it there rather than running a second copy here.
+#
+# Run (alongside the production stack):
+#   make observability-up
+#   # or: docker compose --env-file .env.prod -f docker-compose.yml \
+#   #       -f docker-compose.prod.yml -f docker-compose.observability.yml \
+#   #       up -d prometheus grafana postgres-exporter node-exporter \
+#   #          do-exporter do-cost-probe
+#
+# EVERY PORT IS LOOPBACK-ONLY, matching the rest of the deployment: this host
+# publishes nothing (ENV-PROD.md). Reach Grafana over an SSH tunnel:
+#   ssh -L 3000:127.0.0.1:3000 <host>
+#
+# IMAGE PINS: tags below are floating. Pin them to digests before this is load
+# bearing — the repo already does that for pgvector, and an exporter that
+# silently changes its metric names breaks dashboards without failing anything.
+
+services:
+  prometheus:
+    image: prom/prometheus:v3.1.0
+    container_name: docray-prometheus
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      # Long enough to see a month-over-month cost trend; this is a cost record,
+      # not a debugging buffer.
+      - --storage.tsdb.retention.time=${PROM_RETENTION:-90d}
+      - --web.listen-address=0.0.0.0:9090
+    ports:
+      - "127.0.0.1:${PROM_PORT:-9090}:9090"
+    volumes:
+      - ./config/observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    depends_on:
+      - postgres-exporter
+
+  grafana:
+    image: grafana/grafana:11.5.1
+    container_name: docray-grafana
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?Set GRAFANA_ADMIN_PASSWORD}
+      # No anonymous access and no sign-up: this dashboard exposes corpus volume
+      # and spend, and it is reached through an SSH tunnel by one operator.
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    ports:
+      - "127.0.0.1:${GRAFANA_PORT:-3000}:3000"
+    volumes:
+      - ./config/observability/grafana-datasource.yml:/etc/grafana/provisioning/datasources/prometheus.yml:ro
+      - grafana_data:/var/lib/grafana
+    depends_on:
+      - prometheus
+
+  postgres-exporter:
+    # Pinned to a 0.15.x line because --extend.query-path (the custom-query file
+    # that turns job_telemetry into cost metrics) is deprecated in later
+    # releases; upgrading requires porting postgres_queries.yaml to the newer
+    # collector config first.
+    image: quay.io/prometheuscommunity/postgres-exporter:v0.15.0
+    container_name: docray-postgres-exporter
+    restart: unless-stopped
+    command:
+      - --extend.query-path=/etc/postgres_queries.yaml
+      # The corpus tables are large and the size collector walks every relation;
+      # it is the one collector that can cost more than it reports.
+      - --no-collector.stat_bgwriter
+    environment:
+      # Reuses the app's least-privilege role. It reads pg_stat_* and
+      # job_telemetry; it needs no corpus access beyond that.
+      DATA_SOURCE_NAME: ${DATABASE_URL:?Set DATABASE_URL}
+      PG_EXPORTER_EXCLUDE_DATABASES: template0,template1
+    volumes:
+      - ./config/observability/postgres_queries.yaml:/etc/postgres_queries.yaml:ro
+    ports:
+      - "127.0.0.1:${PG_EXPORTER_PORT:-9187}:9187"
+
+  node-exporter:
+    image: prom/node-exporter:v1.8.2
+    container_name: docray-node-exporter
+    restart: unless-stopped
+    command:
+      - --path.rootfs=/host
+      # Carries the DO billing numbers: do-cost-probe writes .prom files here and
+      # node-exporter serves them, so spend and host metrics share one scrape.
+      - --collector.textfile.directory=/textfile
+    pid: host
+    volumes:
+      - /:/host:ro,rslave
+      - do_cost_textfile:/textfile:ro
+    ports:
+      - "127.0.0.1:${NODE_EXPORTER_PORT:-9100}:9100"
+
+  do-exporter:
+    # Inventory, not usage: droplets, volumes, databases, load balancers. What
+    # exists is what is billed — a forgotten droplet costs the same as a busy
+    # one, and a powered-off GPU droplet bills in full.
+    image: metalmatze/digitalocean_exporter:0.6.0
+    container_name: docray-do-exporter
+    restart: unless-stopped
+    environment:
+      DIGITALOCEAN_TOKEN: ${DIGITALOCEAN_TOKEN:?Set DIGITALOCEAN_TOKEN (read scope is enough)}
+    ports:
+      - "127.0.0.1:${DO_EXPORTER_PORT:-9212}:9212"
+
+  do-cost-probe:
+    # Month-to-date spend straight from the billing API. Runs in the app image
+    # because the probe is stdlib-only Python and needs no dependencies.
+    image: doc-ray-worker
+    build: .
+    container_name: docray-do-cost-probe
+    restart: unless-stopped
+    entrypoint:
+      - python
+      - /app/scripts/do_cost_probe.py
+      - --loop
+      - ${DO_COST_PROBE_INTERVAL:-900}
+      - --out
+      - /textfile/do_billing.prom
+    environment:
+      PYTHONPATH: /app/src
+      DIGITALOCEAN_TOKEN: ${DIGITALOCEAN_TOKEN:?Set DIGITALOCEAN_TOKEN (read scope is enough)}
+    volumes:
+      - do_cost_textfile:/textfile
+
+volumes:
+  prometheus_data:
+  grafana_data:
+  do_cost_textfile:

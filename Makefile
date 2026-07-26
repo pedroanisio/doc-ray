@@ -34,7 +34,8 @@ COMPOSE_PROD_MCP := $(COMPOSE_PROD_OLLAMA) -f docker-compose.mcp.yml
 .PHONY: help check check-static prod-check db-dump truncate-db workers-up workers-status \
         prod-migrate prod-migrate-host prod-up prod-web prod-admin-console-up \
         prod-admin-console-down prod-tunnel prod-down gpu-up prod-ollama-up \
-        prod-refresh-ui prod-restart-ui mcp-up pgadmin-up up
+        prod-refresh-ui prod-restart-ui mcp-up pgadmin-up up \
+        gpu-worker-up observability-up observability-down
 
 help: ## List available tasks
 	@grep -E '^[a-z][a-zA-Z_-]*:.*## ' $(MAKEFILE_LIST) | awk -F ':.*## ' '{printf "  %-17s %s\n", $$1, $$2}'
@@ -133,6 +134,18 @@ prod-down: ## Stop the managed stateless stack (managed data is off-box; nothing
 
 gpu-up: ## Start DOCRAY_WORKERS GPU annotate workers on an H200 box (managed + CDI)
 	$(COMPOSE_PROD) -f docker-compose.gpu.yml up -d --build --scale worker=$(DOCRAY_WORKERS) worker
+
+gpu-worker-up: ## Start a GPU-lane-only worker host (no serving tier, no migrations)
+	$(COMPOSE_PROD) -f docker-compose.gpu.yml -f docker-compose.gpuworker.yml \
+	  up -d --build --scale worker=$(DOCRAY_WORKERS) worker
+
+observability-up: ## Start Prometheus/Grafana + host, Postgres and DigitalOcean cost exporters
+	$(COMPOSE_PROD) -f docker-compose.observability.yml up -d --build \
+	  prometheus grafana postgres-exporter node-exporter do-exporter do-cost-probe
+
+observability-down: ## Stop the observability stack (metrics history is kept in its volumes)
+	$(COMPOSE_PROD) -f docker-compose.observability.yml down \
+	  prometheus grafana postgres-exporter node-exporter do-exporter do-cost-probe
 
 prod-ollama-up: prod-migrate ## Migrate, then run the managed stack with the LOCAL Ollama resolver on the H200 GPU
 	# Layered AFTER the prod overlay so the ollama overlay's worker resolver-env and

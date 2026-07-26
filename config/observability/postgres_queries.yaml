@@ -1,0 +1,109 @@
+# postgres_exporter custom queries — doc-ray pipeline and cost signals.
+#
+# These are the metrics tonight's incident needed and nobody had: which host is
+# doing work, whether jobs are in their compute phase or queued on database
+# writes, and how much execution time each billed machine has consumed.
+#
+# COST IS NOT DERIVED HERE. The exporter publishes SECONDS and ROW COUNTS; the
+# dollar rate lives in config/cost_rates.yaml and is applied at display time.
+# A rate hardcoded in three places drifts, and a stale rate silently produces
+# confident wrong numbers.
+#
+# Every query is bounded by time or grouped to a small cardinality — an exporter
+# that scans the whole jobs table every 15s becomes part of the load it measures.
+
+# Queue depth by kind and status: the leading indicator. A rising queued count
+# with a flat running count is saturation somewhere downstream.
+docray_jobs:
+  query: >
+    SELECT kind, status, count(*) AS count
+      FROM jobs
+     WHERE status IN ('queued', 'running')
+     GROUP BY kind, status
+  metrics:
+    - kind: {usage: "LABEL", description: "Job kind"}
+    - status: {usage: "LABEL", description: "queued or running"}
+    - count: {usage: "GAUGE", description: "Jobs in this kind/status"}
+
+# THE metric this deployment was missing. progress_current <= 4 is the spaCy /
+# GPU phase; anything higher is persisting annotation layers to Postgres. When
+# every running job sits above 4, the accelerator is idle and the database is
+# the constraint — which is exactly what happened at 01:05Z on 2026-07-26.
+docray_running_phase:
+  query: >
+    SELECT split_part(locked_by, ':', 1) AS host,
+           CASE WHEN coalesce(progress_current, 0) <= 4 THEN 'compute' ELSE 'db_persist' END AS phase,
+           count(*) AS count
+      FROM jobs
+     WHERE status = 'running'
+     GROUP BY 1, 2
+  metrics:
+    - host: {usage: "LABEL", description: "Worker host holding the claim"}
+    - phase: {usage: "LABEL", description: "compute (GPU) or db_persist (writes)"}
+    - count: {usage: "GAUGE", description: "Running jobs in this phase"}
+
+# Throughput and failures over a rolling hour, per kind. Rate of change of a
+# counter would be cleaner, but jobs rows are mutated in place by retries, so a
+# windowed gauge is the honest shape.
+docray_job_outcomes_1h:
+  query: >
+    SELECT kind, status, count(*) AS count
+      FROM jobs
+     WHERE finished_at > now() - interval '1 hour'
+       AND status IN ('succeeded', 'failed', 'canceled')
+     GROUP BY kind, status
+  metrics:
+    - kind: {usage: "LABEL", description: "Job kind"}
+    - status: {usage: "LABEL", description: "Terminal status"}
+    - count: {usage: "GAUGE", description: "Jobs reaching this status in the last hour"}
+
+# Execution telemetry (migration 126) per billed machine. `attempt_seconds` sums
+# per-job duration and therefore counts concurrent work more than once — it is
+# effort, NOT billable time. `wall_seconds` is the span the host was actually
+# claiming work and is the basis for host-hour cost.
+docray_execution_1h:
+  query: >
+    SELECT host,
+           device,
+           lane,
+           outcome,
+           count(*) AS runs,
+           coalesce(sum(duration_ms), 0) / 1000.0 AS attempt_seconds,
+           coalesce(sum(work_units), 0) AS work_units
+      FROM job_telemetry
+     WHERE finished_at > now() - interval '1 hour'
+     GROUP BY 1, 2, 3, 4
+  metrics:
+    - host: {usage: "LABEL", description: "Billed machine (DOCRAY_WORKER_HOST)"}
+    - device: {usage: "LABEL", description: "Compute device as observed at runtime"}
+    - lane: {usage: "LABEL", description: "gpu or cpu worker lane"}
+    - outcome: {usage: "LABEL", description: "succeeded, failed or canceled"}
+    - runs: {usage: "GAUGE", description: "Executions finished in the last hour"}
+    - attempt_seconds: {usage: "GAUGE", description: "Summed job duration (effort, double-counts concurrency)"}
+    - work_units: {usage: "GAUGE", description: "Size driver processed (sentences/images) where reported"}
+
+# Wall-clock span a host was claiming work in the last hour. Multiply by the
+# hourly rate for real cost. Capped at 3600 because a host busy for the whole
+# window cannot have been billed for more than the window.
+docray_host_wall_1h:
+  query: >
+    SELECT host,
+           least(3600, extract(epoch FROM (max(finished_at) - min(started_at)))) AS wall_seconds
+      FROM job_telemetry
+     WHERE finished_at > now() - interval '1 hour'
+     GROUP BY 1
+  metrics:
+    - host: {usage: "LABEL", description: "Billed machine (DOCRAY_WORKER_HOST)"}
+    - wall_seconds: {usage: "GAUGE", description: "Wall-clock seconds this host was working (cost basis)"}
+
+# Corpus size and the storage trajectory. At ~180 MB of Postgres per fully
+# processed document, disk is the ceiling that arrives before CPU does.
+docray_corpus:
+  query: >
+    SELECT (SELECT count(*) FROM documents) AS documents,
+           (SELECT count(*) FROM sentences) AS sentences,
+           pg_database_size(current_database()) AS database_bytes
+  metrics:
+    - documents: {usage: "GAUGE", description: "Documents in the corpus"}
+    - sentences: {usage: "GAUGE", description: "Sentences across the corpus"}
+    - database_bytes: {usage: "GAUGE", description: "Total database size on disk"}
