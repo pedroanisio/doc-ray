@@ -47,9 +47,27 @@ def _reset_token():
 
 
 def _install(monkeypatch, handler):
-    router = _Router(handler)
+    # #33: briefing_pack now probes semanticSearchSentences first. These fixtures
+    # model a corpus with no visible vectors, so the probe returns empty and the
+    # shared service deterministically falls back to lexical retrieval (reported
+    # in `retrieval` + one `gaps` notice). Tests that exercise the semantic path
+    # live in test_briefing_semantic.py.
+    def routed(query, variables):
+        if "semanticSearchSentences" in query:
+            return {"semanticSearchSentences": []}
+        return handler(query, variables)
+
+    router = _Router(routed)
     monkeypatch.setattr(corpus.httpx, "AsyncClient", lambda **kw: router)
     return router
+
+
+#: The single fallback notice the shared service adds when the probe finds no
+#: visible vectors (see application/briefing.py).
+_NO_VECTORS_GAP = (
+    "No sentence vectors are visible in your corpus yet; ranked passages by "
+    "full-text/keyword match instead."
+)
 
 
 # --- briefing_pack ----------------------------------------------------------
@@ -141,7 +159,7 @@ async def test_briefing_pack_assembles_cited_sources_passages_and_entities(monke
     einstein = next(e for e in pack["entities"] if e["text"] == "Albert Einstein")
     assert einstein["count"] == 8  # 5 + 3
     assert pack["entities"][0]["text"] == "Albert Einstein"  # highest count first
-    assert pack["gaps"] == []
+    assert pack["gaps"] == [_NO_VECTORS_GAP]  # lexical fallback reported (no vectors)
     assert "source before synthesis" in pack["guidance"]
 
 
@@ -221,9 +239,13 @@ async def test_briefing_pack_wire_output_matches_the_pre_lift_golden(monkeypatch
     async def entities(*, document_id=None, limit=25):
         return [{"text": "Albert Einstein", "entityType": "PERSON", "count": 3}]
 
+    async def semantic(query, *, document_id=None, limit=25):
+        return []  # #33: no visible vectors -> deterministic lexical fallback
+
     monkeypatch.setattr(corpus, "full_text_search", documents)
     monkeypatch.setattr(corpus, "search_sentences", sentences)
     monkeypatch.setattr(corpus, "entity_frequency", entities)
+    monkeypatch.setattr(compose.semantic, "semantic_search_sentences", semantic)
     actual = json.dumps(
         await compose.briefing_pack("relativity", 1, 2, 5),
         sort_keys=True,
@@ -231,7 +253,9 @@ async def test_briefing_pack_wire_output_matches_the_pre_lift_golden(monkeypatch
     )
     expected = (
         '{"coverage":{"documents":1,"passages":1},"entities":[{"count":3,'
-        '"entity_type":"PERSON","text":"Albert Einstein"}],"gaps":[],'
+        '"entity_type":"PERSON","text":"Albert Einstein"}],"gaps":["No sentence '
+        "vectors are visible in your corpus yet; ranked passages by full-text/keyword "
+        'match instead."],'
         '"guidance":"Compose the document ONLY from the sources and key_passages above. '
         "Attach each claim's `cite` to the passage it came from; if the pack does not "
         "support a point, say so or omit it \\u2014 do not fill gaps from prior knowledge. "
@@ -241,7 +265,8 @@ async def test_briefing_pack_wire_output_matches_the_pre_lift_golden(monkeypatch
         '"sentence_ordinal":7},"document_id":"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",'
         '"matched_terms":["relativity"],"sentence_ordinal":7,"text":"Before relativity '
         'after.","title":"Paper A"}],"retrieval":"full-text/keyword match with per-term '
-        'fan-out for multi-word topics (semantic similarity retrieval is not yet available)",'
+        "fan-out for multi-word topics (semantic retrieval available, but no sentence "
+        'vectors are visible in your corpus yet)",'
         '"sources":[{"cite":{"document_id":"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",'
         '"ref":"Paper A"},"document_id":"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",'
         '"rank":0.75,"title":"Paper A"}],"topic":"relativity"}'

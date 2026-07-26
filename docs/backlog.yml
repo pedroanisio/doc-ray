@@ -110,7 +110,7 @@ metadata:
   generated_by:     "Claude Sonnet 5 via Claude Code (merge of Claude Opus 4.8 backlog + OpenAI Codex improvement-proposal candidates)"
   generated_on:     "2026-07-05"
   system_of_record: "docs/backlog.yml"
-  total_items:      153
+  total_items:      154
 
 items:
 
@@ -5240,3 +5240,41 @@ items:
     owner:        "shared"
     source:       "GitHub issue #18 (MCP Ops Phase 3); implemented with strict TDD (Claude Opus 4.8 (1M context) via Claude Code)."
     tags:         ["mcp", "ops", "observability", "feature"]
+
+  - id:          "BL-154"
+    title:        "Semantic retrieval for briefingPack: rank passages by meaning, not keywords"
+    summary:      "Release 1.43.0 lifted briefing composition into the shared BriefingService and exposed one byte-stable contract across MCP briefing_pack, GraphQL briefingPack, and the /briefing webapp — but retrieval stayed full-text/keyword only, reported honestly as a limitation. With 957k learned sentence embeddings live, the shared service now ranks each matched document's passages by learned semantic similarity, so a paraphrase surfaces even with no shared words, with a deterministic, reported lexical fallback."
+    description: |
+      The shared application.briefing service owns the ranking (MCP/GraphQL/webapp
+      add none): full-text discovery, then per-document passage ranking by learned
+      semantic similarity via a new BriefingReader.semantic_search_sentences,
+      RLS-scoped through the same encoder + embedding read model as
+      semanticSearchSentences. Fallback is deterministic and never silent: when the
+      sentence stack is absent (SemanticUnavailable) or a document has no visible
+      vectors, it ranks lexically and states the path in `retrieval` (and in `gaps`
+      when it fell back). MCP briefing_pack and GraphQL briefingPack stay
+      byte-equivalent for the same visible slice (both drive the one service; the
+      webapp already renders the GraphQL contract). Cite handles, ordinals,
+      coverage, entity evidence, passage budgets, and gap reporting are unchanged.
+      No schema change, no version bump.
+    category:     "api"
+    type:         "feature"
+    status:       "done"
+    complexity:   "M"
+    priority:     "medium"
+    rationale:    "briefingPack shipped lexical-only and said so; the learned encoder + a live corpus of sentence vectors now let it rank by meaning without duplicating composition logic. Doing it in the shared service keeps the three surfaces drift-proof and byte-equivalent, and the reported fallback keeps the gap-honest contract intact on hosts without the stack."
+    acceptance_criteria:
+      - "The shared service owns semantic/hybrid retrieval; MCP, GraphQL, and webapp implement no separate ranking."
+      - "Retrieval uses the active learned sentence encoder and stays RLS-scoped to the caller."
+      - "A deterministic lexical fallback runs when the stack is unavailable or no visible vectors exist; retrieval and gaps state which path ran."
+      - "Cite handles, ordinals, coverage, entity evidence, budgets, and non-silent gaps remain intact; MCP and GraphQL stay byte-equivalent."
+      - "TDD covers paraphrase ranking, empty-vector fallback, unavailable-stack fallback, cross-principal isolation, budget drops, and all three surfaces."
+    dependencies: ["BL-148"]
+    references:
+      - "src/doc_ray/application/briefing.py"
+      - "src/doc_ray/entrypoints/mcp/compose.py"
+      - "src/doc_ray/entrypoints/api/briefing_query.py"
+      - "docs/mcp-service.md"
+    owner:        "shared"
+    source:       "GitHub issue #33 (briefing follow-up under epic #23); implemented with strict TDD (Claude Opus 4.8 (1M context) via Claude Code)."
+    tags:         ["mcp", "api", "semantic", "agent-experience", "feature"]

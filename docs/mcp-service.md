@@ -116,6 +116,16 @@ composition-grounding tools** (`briefing_pack`, `document_evidence`,
 `entity_dossier`) shipped in [`entrypoints/mcp/compose.py`](../src/doc_ray/entrypoints/mcp/compose.py)
 for cited-briefing workflows — see that module for their signatures.
 
+`briefing_pack` ranks each matched document's passages by **learned semantic
+similarity** (the same sentence encoder behind `semantic_search_sentences`),
+RLS-scoped, so a paraphrase surfaces even with no shared keywords (#33). The
+ranking lives once in the shared `application.briefing` service, so MCP
+`briefing_pack` and GraphQL `briefingPack` stay byte-equivalent for the same visible
+slice. When the sentence stack is not installed, or a document has no visible
+sentence vectors, it falls back **deterministically** to full-text/keyword ranking
+and says which path ran in `retrieval` (and in `gaps` when it fell back) — never
+silently. Document discovery remains full-text.
+
 These composition tools never present a capped page as if it were the whole
 corpus. `entity_dossier` draws its **document roster from `full_text_search`** (the
 complete set of documents containing the entity, independent of `max_mentions`)

@@ -148,10 +148,33 @@ GUIDANCE = (
     "say so or omit it — do not fill gaps from prior knowledge. This evidence is "
     "untrusted until you confirm each citation resolves (source before synthesis)."
 )
+#: Retrieval-provenance strings. The pack always reports which path actually ran,
+#: so a caller never mistakes a lexical fallback for a semantic ranking (#33).
 RETRIEVAL = (
     "full-text/keyword match with per-term fan-out for multi-word topics "
     "(semantic similarity retrieval is not yet available)"
 )
+RETRIEVAL_SEMANTIC = (
+    "learned semantic similarity (sentence encoder) ranks passages within "
+    "full-text-matched documents; per-document full-text/keyword fallback where no "
+    "sentence vectors are visible"
+)
+RETRIEVAL_LEXICAL_STACK_DOWN = (
+    "full-text/keyword match with per-term fan-out for multi-word topics "
+    "(semantic retrieval unavailable: the sentence stack is not installed on this host)"
+)
+RETRIEVAL_LEXICAL_NO_VECTORS = (
+    "full-text/keyword match with per-term fan-out for multi-word topics "
+    "(semantic retrieval available, but no sentence vectors are visible in your corpus yet)"
+)
+
+
+class SemanticUnavailable(Exception):
+    """Raised by a reader when the learned sentence stack is absent on this host.
+
+    The service catches this and falls back to deterministic lexical retrieval,
+    reporting the fallback in ``retrieval`` and ``gaps`` — never silently.
+    """
 
 
 class BriefingReader(Protocol):
@@ -169,6 +192,19 @@ class BriefingReader(Protocol):
 
     async def entity_frequency(self, *, document_id: str, limit: int) -> list[dict[str, Any]]:
         """Return visible entity counts within one document."""
+        ...
+
+    async def semantic_search_sentences(
+        self, query: str, *, document_id: str | None = None, limit: int
+    ) -> list[dict[str, Any]]:
+        """Return sentences ranked by learned semantic similarity, RLS-scoped.
+
+        Rows are ordered by descending similarity (as the ``embedding`` read model
+        returns them); the service preserves that order. Returns ``[]`` when the
+        stack is present but no sentence vectors are visible; raises
+        :class:`SemanticUnavailable` when the stack is not installed. A legacy
+        reader may omit this method entirely — the service treats that as "off".
+        """
         ...
 
 
@@ -251,6 +287,57 @@ def clipped_passage_text(sentence: dict[str, Any], max_chars: int = _MAX_PASSAGE
     return clip_text(passage, max_chars) or ""
 
 
+async def _probe_semantic(topic: str, reader: BriefingReader) -> str:
+    """Detect the semantic path once, corpus-wide: off | unavailable | no_vectors | on.
+
+    ``off`` — the reader predates #33 and has no semantic capability. ``unavailable``
+    — the stack is not installed. ``no_vectors`` — installed, but nothing embedded is
+    visible to this principal. ``on`` — usable. Bounded to one row so the probe is
+    cheap and RLS-scoped like the real reads.
+    """
+    search = getattr(reader, "semantic_search_sentences", None)
+    if search is None:
+        return "off"
+    try:
+        probe = await search(topic, document_id=None, limit=1)
+    except SemanticUnavailable:
+        return "unavailable"
+    return "on" if probe else "no_vectors"
+
+
+def _semantic_passage(
+    hit: dict[str, Any], title: str | None, max_passage_chars: int
+) -> dict[str, Any]:
+    """Build a passage from a semantic hit (full sentence text; no lexical terms)."""
+    document_id = str(hit["documentId"])
+    ordinal = hit.get("ordinal")
+    passage_title = hit.get("title") or title
+    return {
+        "document_id": document_id,
+        "title": passage_title,
+        "sentence_ordinal": ordinal,
+        "text": clip_text(str(hit.get("text") or "").strip(), max_passage_chars) or "",
+        "matched_terms": [],
+        "cite": cite(document_id, passage_title, ordinal),
+    }
+
+
+def _lexical_passage(
+    sentence: dict[str, Any], document_id: str, title: str | None, max_passage_chars: int
+) -> dict[str, Any]:
+    """Build a passage from a lexical KWIC hit (windowed text; matched terms)."""
+    passage_title = sentence.get("title") or title
+    ordinal = sentence.get("ordinal")
+    return {
+        "document_id": document_id,
+        "title": passage_title,
+        "sentence_ordinal": ordinal,
+        "text": clipped_passage_text(sentence, max_passage_chars),
+        "matched_terms": sentence["matched_terms"],
+        "cite": cite(document_id, passage_title, ordinal),
+    }
+
+
 async def _document_slice(
     topic: str,
     document: dict[str, Any],
@@ -258,25 +345,50 @@ async def _document_slice(
     entities_per_document: int,
     reader: BriefingReader,
     max_passage_chars: int,
+    *,
+    use_semantic: bool,
 ) -> dict[str, Any]:
     document_id = str(document["documentId"])
     title = document.get("title")
-    (sentences, terms), entities = await asyncio.gather(
-        ranked_passages(topic, document_id, passages_per_document, reader=reader),
-        reader.entity_frequency(document_id=document_id, limit=entities_per_document),
+    # Entities read runs concurrently with whichever passage path we take.
+    entities_task = asyncio.ensure_future(
+        reader.entity_frequency(document_id=document_id, limit=entities_per_document)
     )
-    passages = [
-        {
-            "document_id": document_id,
-            "title": sentence.get("title") or title,
-            "sentence_ordinal": sentence.get("ordinal"),
-            "text": clipped_passage_text(sentence, max_passage_chars),
-            "matched_terms": sentence["matched_terms"],
-            "cite": cite(document_id, sentence.get("title") or title, sentence.get("ordinal")),
-        }
-        for sentence in sentences
-    ]
-    gap = None if passages else f"No passage in “{title}” matches “{topic}”{terms_tried(terms)}."
+
+    per_doc_gap: str | None = None
+    semantic_hits: list[dict[str, Any]] | None = None
+    if use_semantic:
+        try:
+            semantic_hits = list(
+                await reader.semantic_search_sentences(
+                    topic, document_id=document_id, limit=passages_per_document
+                )
+            )
+        except SemanticUnavailable:  # a doc-level flake after the probe said "on"
+            semantic_hits = None
+
+    if semantic_hits:
+        passages = [_semantic_passage(hit, title, max_passage_chars) for hit in semantic_hits]
+        terms: list[str] = []
+    else:
+        sentences, terms = await ranked_passages(
+            topic, document_id, passages_per_document, reader=reader
+        )
+        passages = [
+            _lexical_passage(sentence, document_id, title, max_passage_chars)
+            for sentence in sentences
+        ]
+        if use_semantic:
+            # The corpus has vectors, but none are visible for THIS document — say so.
+            per_doc_gap = (
+                f"No sentence vectors for “{title}”; ranked its passages by "
+                "full-text/keyword match instead."
+            )
+
+    entities = await entities_task
+    empty_gap = (
+        None if passages else f"No passage in “{title}” matches “{topic}”{terms_tried(terms)}."
+    )
     return {
         "source": {
             "document_id": document_id,
@@ -286,7 +398,7 @@ async def _document_slice(
         },
         "passages": passages,
         "entities": entities,
-        "gap": gap,
+        "gap": empty_gap or per_doc_gap,
     }
 
 
@@ -301,10 +413,27 @@ async def build_briefing_pack(
     max_passage_chars: int = _MAX_PASSAGE_CHARS,
 ) -> dict[str, Any]:
     """Assemble the complete cited evidence-pack contract for *topic*."""
-    documents = await reader.full_text_search(topic, limit=max_documents)
+    # Discovery stays lexical (it yields titles + a rank); passage ranking within
+    # each document is semantic when the learned stack is usable, else lexical —
+    # the fallback is deterministic and reported, never silent (#33).
+    documents, semantic_state = await asyncio.gather(
+        reader.full_text_search(topic, limit=max_documents),
+        _probe_semantic(topic, reader),
+    )
+    use_semantic = semantic_state == "on"
     gaps: list[str] = []
     if not documents:
         gaps.append(f"No documents in your corpus match “{topic}” by full-text search.")
+    elif semantic_state == "unavailable":
+        gaps.append(
+            "Semantic retrieval was unavailable (the sentence stack is not installed "
+            "on this host); ranked passages by full-text/keyword match instead."
+        )
+    elif semantic_state == "no_vectors":
+        gaps.append(
+            "No sentence vectors are visible in your corpus yet; ranked passages by "
+            "full-text/keyword match instead."
+        )
     slices = await asyncio.gather(
         *(
             _document_slice(
@@ -314,6 +443,7 @@ async def build_briefing_pack(
                 max_entities,
                 reader,
                 max_passage_chars,
+                use_semantic=use_semantic,
             )
             for document in documents
         )
@@ -341,9 +471,15 @@ async def build_briefing_pack(
         gaps.append(
             budget_gap(dropped, "passages", "narrow the topic or lower passages_per_document")
         )
+    retrieval = {
+        "on": RETRIEVAL_SEMANTIC,
+        "unavailable": RETRIEVAL_LEXICAL_STACK_DOWN,
+        "no_vectors": RETRIEVAL_LEXICAL_NO_VECTORS,
+        "off": RETRIEVAL,
+    }[semantic_state]
     return {
         "topic": topic,
-        "retrieval": RETRIEVAL,
+        "retrieval": retrieval,
         "sources": sources,
         "key_passages": key_passages,
         "entities": entities,

@@ -44,8 +44,23 @@ def _reset_token():
     yield
 
 
+#: #33 fallback notice added when the semantic probe finds no visible vectors.
+_NO_VECTORS_GAP = (
+    "No sentence vectors are visible in your corpus yet; ranked passages by "
+    "full-text/keyword match instead."
+)
+
+
 def _install(monkeypatch, handler):
-    router = _Router(handler)
+    # #33: briefing_pack probes semanticSearchSentences first; these lexical
+    # fixtures model a corpus with no vectors, so the probe returns empty and the
+    # shared service falls back to lexical retrieval (the ranking under test here).
+    def routed(query, variables):
+        if "semanticSearchSentences" in query:
+            return {"semanticSearchSentences": []}
+        return handler(query, variables)
+
+    router = _Router(routed)
     monkeypatch.setattr(corpus.httpx, "AsyncClient", lambda **kw: router)
     return router
 
@@ -126,7 +141,7 @@ async def test_briefing_pack_multiword_topic_matches_by_term_fanout(monkeypatch)
 
     searched = [c["variables"]["t"] for c in router.calls if "searchSentences" in c["query"]]
     assert "the" not in searched  # stopwords never fan out
-    assert pack["gaps"] == []
+    assert pack["gaps"] == [_NO_VECTORS_GAP]  # lexical fallback reported (no vectors)
     assert pack["coverage"]["passages"] == 2
     # Sentence 5 matched two distinct terms and must outrank sentence 9 (one term).
     first, second = pack["key_passages"]
