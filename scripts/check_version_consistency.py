@@ -10,6 +10,10 @@ Canonical source: ``src/doc_ray/__init__.py`` ``__version__``. Checked surfaces:
   * ``engineering_decisions.yml`` ``source_schema_version``
   * ``CHANGELOG.md`` top release heading ``## [X.Y.Z]``
   * the highest-numbered ``db/migrations/NNN_*.sql`` that writes ``schema_version``
+  * ``docs/public/release-notes/`` — a note file for the canonical version must
+    exist and be linked from the index (the public notes drifted five releases
+    behind before this check existed; generate a stub with
+    ``scripts/gen_release_note.py``)
 
 Packaging (``pyproject.toml``) derives the version from ``__version__`` and so cannot
 drift; ``docs/DATABASE.md`` is generated from the live schema and is out of scope here.
@@ -65,6 +69,22 @@ def _schema_migration_version() -> str | None:
     return None
 
 
+def _release_note_problems(canonical: str) -> list[str]:
+    """Require a public release note + index row for the canonical version."""
+    notes_dir = _ROOT / "docs" / "public" / "release-notes"
+    problems: list[str] = []
+    note = notes_dir / f"{canonical}.md"
+    if not note.exists():
+        problems.append(
+            f"  - docs/public/release-notes/{canonical}.md: missing "
+            f"(generate a stub: python scripts/gen_release_note.py {canonical})"
+        )
+    index = notes_dir / "index.md"
+    if not index.exists() or f"({canonical}.md)" not in index.read_text(encoding="utf-8"):
+        problems.append(f"  - docs/public/release-notes/index.md: no entry links {canonical}.md")
+    return problems
+
+
 def main() -> int:
     """Compare every version surface to the canonical version; report mismatches."""
     canonical = _canonical_version()
@@ -80,6 +100,7 @@ def main() -> int:
             problems.append(f"  - {name}: no version found")
         elif found != canonical:
             problems.append(f"  - {name}: {found} != {canonical}")
+    problems.extend(_release_note_problems(canonical))
 
     if problems:
         print(f"version drift against doc_ray.__version__ = {canonical}:", file=sys.stderr)
