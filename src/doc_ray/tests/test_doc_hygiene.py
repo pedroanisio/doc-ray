@@ -225,14 +225,32 @@ def test_claude_md_purpose_reference_is_resolvable():
 # ---------------------------------------------------------------------------
 
 
+#: Directories a filesystem walk must never mistake for project sources.
+_UNTRACKED_DIRS = frozenset({".git", ".venv", "node_modules", "__pycache__", ".agent-tasks"})
+
+
 def _tracked_readmes() -> list[str]:
-    out = subprocess.run(
-        ["git", "ls-files", "*README*.md"],
-        cwd=_ROOT,
-        capture_output=True,
-        text=True,
-        check=True,
-    )
+    """Return every tracked README, falling back to a walk outside a git checkout.
+
+    The containerised test image carries no ``.git`` (``.dockerignore`` excludes
+    it), so ``git ls-files`` cannot answer there and this guard would fail on the
+    harness rather than on a real violation. Git stays authoritative wherever the
+    checkout exists; the walk keeps the rule enforced inside the image.
+    """
+    try:
+        out = subprocess.run(
+            ["git", "ls-files", "*README*.md"],
+            cwd=_ROOT,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+    except (OSError, subprocess.CalledProcessError):
+        return sorted(
+            str(path.relative_to(_ROOT))
+            for path in _ROOT.rglob("*README*.md")
+            if not _UNTRACKED_DIRS.intersection(path.parts)
+        )
     return [line for line in out.stdout.splitlines() if line]
 
 

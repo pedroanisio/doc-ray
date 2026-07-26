@@ -354,7 +354,10 @@ def test_test_dockerfile_copies_sources_tests_and_migrations_into_the_image():
     assert (
         "COPY .dockerignore .env.example .env.prod.example .env.test.example .gitignore ./" in text
     )
-    assert "COPY .pre-commit-config.yaml CLAUDE.md ./" in text
+    # The governing documents travel together: test_doc_hygiene asserts that
+    # CLAUDE.md's references to PURPOSE.md and DISCLAIMER.md resolve, which they
+    # cannot if only CLAUDE.md reaches the image.
+    assert "COPY .pre-commit-config.yaml CLAUDE.md PURPOSE.md DISCLAIMER.md ./" in text
     assert "COPY .github ./.github" in text
     assert "COPY README.md CHANGELOG.md engineering_decisions.yml uv.lock Makefile ./" in text
     assert "COPY src ./src" in text
