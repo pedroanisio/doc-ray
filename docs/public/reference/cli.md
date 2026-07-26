@@ -124,7 +124,7 @@ The command runs under a read-only guard by default. Prerequisites: reachable da
 
 Expected output: the report on standard output and `db_analysis.md` / `db_analysis.json` written to the output directory (its path is reported on standard error).
 
-## `ingester` — batch document ingestion
+## `cli` — batch document ingestion
 
 Loads one or more documents into the store from local files or directories.
 
