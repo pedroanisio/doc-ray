@@ -110,7 +110,7 @@ metadata:
   generated_by:     "Claude Sonnet 5 via Claude Code (merge of Claude Opus 4.8 backlog + OpenAI Codex improvement-proposal candidates)"
   generated_on:     "2026-07-05"
   system_of_record: "docs/backlog.yml"
-  total_items:      154
+  total_items:      155
 
 items:
 
@@ -5278,3 +5278,39 @@ items:
     owner:        "shared"
     source:       "GitHub issue #33 (briefing follow-up under epic #23); implemented with strict TDD (Claude Opus 4.8 (1M context) via Claude Code)."
     tags:         ["mcp", "api", "semantic", "agent-experience", "feature"]
+
+  - id:          "BL-155"
+    title:        "Graceful shutdown for the migration runner: cancel in-flight statements instead of SIGKILL (exit 137)"
+    summary:      "Stopping the stack while a long backfill (e.g. 040_chunk_surface_backfill.sql) was running escalated SIGTERM to SIGKILL after Docker's ~10s default grace window — the alarming triple `exit 137` on api/worker/backup-scheduler. The migration runner now cancels the in-flight statement on SIGTERM/SIGINT and exits promptly (128+signal); postgres and migrate declare an explicit stop_grace_period."
+    description: |
+      Two cooperating guards close the gap. (1) The `migrate` entrypoint runs the
+      apply on a worker thread while the main thread stays responsive to signals,
+      and its SIGTERM/SIGINT handler cancels the in-flight statement through the
+      live connection (a new adapters/migrate.apply_migrations `on_connection`
+      hook), so the runner unwinds and exits with 128+signal (130/143) instead of
+      being SIGKILLed. The transaction rolls back and the idempotent, self-recording
+      migration resumes on the next start. (2) `postgres` (300s) and `migrate`
+      (120s) declare an explicit stop_grace_period so Postgres can finish its
+      shutdown checkpoint and the runner can unwind before Docker escalates to
+      SIGKILL. This is infrastructure/runtime behavior — there is no GraphQL/MCP
+      surface for it; the CLI reference documents the exit codes.
+    category:     "ops"
+    type:         "bug"
+    status:       "done"
+    complexity:   "S"
+    priority:     "medium"
+    rationale:    "A routine `docker compose down` mid-migration must not hard-kill the runner: the incident was safe only because 040 is re-runnable, but any future non-restart-safe migration is at risk of being killed mid-statement, and the operator sees three alarming exit-137 lines with nothing indicating recovery is automatic."
+    acceptance_criteria:
+      - "SIGTERM/SIGINT during an in-flight migration cancels the statement and exits 128+signal (130/143), never SIGKILL (137)."
+      - "postgres and migrate declare an explicit stop_grace_period sized to the shutdown checkpoint / cancel-and-unwind."
+      - "A genuine unreachable-database run still exits 2; --dry-run is unaffected."
+      - "Every migration remains idempotent and self-recording, so a canceled run resumes on the next start."
+      - "TDD covers the handler wiring, exit codes, the on_connection hook, and a live subprocess reproduction that cancels a real pg_sleep migration promptly."
+    references:
+      - "src/doc_ray/entrypoints/migrate.py"
+      - "src/doc_ray/adapters/migrate.py"
+      - "docker-compose.yml"
+      - "docs/public/reference/cli.md"
+    owner:        "shared"
+    source:       "GitHub issue #4; implemented with strict TDD (Claude Opus 4.8 (1M context) via Claude Code)."
+    tags:         ["ops", "docker", "migrations", "reliability", "bug"]

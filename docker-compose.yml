@@ -3,6 +3,11 @@ services:
     image: pgvector/pgvector:pg16@sha256:ad2e18408bf447f62092a8a5259e7df10505c5a0360bd1a1853ac8b8b0763da2
     container_name: docray-postgres
     restart: unless-stopped
+    # A stop mid-migration must let Postgres finish its shutdown checkpoint
+    # (observed ~247s in the incident) instead of being SIGKILLed part-way (#4).
+    # Without this, Docker's ~10s default escalates to SIGKILL — a slow, dirty
+    # crash-recovery on the next boot.
+    stop_grace_period: 300s
     entrypoint:
       - /bin/sh
       - -ec
@@ -90,6 +95,10 @@ services:
   # Mirrors createbucket's "run to completion, then dependents proceed".
   migrate:
     build: .
+    # The runner cancels its in-flight statement on SIGTERM/SIGINT and exits
+    # promptly (128+signum), but give it room to cancel + roll back a long backfill
+    # rather than being SIGKILLed (exit 137) at Docker's ~10s default (#4).
+    stop_grace_period: 120s
     depends_on:
       postgres:
         condition: service_healthy

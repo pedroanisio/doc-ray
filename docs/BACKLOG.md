@@ -521,6 +521,7 @@ against.
 | BL-152 | Object-store blobs have no backup coverage once the in-app archive is off | ops | infra | ready | S | high | unassigned |
 | BL-153 | MCP Ops Phase 3: health, readiness, rate limiting, and the token-minting runbook | ops | feature | done | M | medium | shared |
 | BL-154 | Semantic retrieval for briefingPack: rank passages by meaning, not keywords | api | feature | done | M | medium | shared |
+| BL-155 | Graceful shutdown for the migration runner: cancel in-flight statements instead of SIGKILL (exit 137) | ops | bug | done | S | medium | shared |
 
 See [`backlog.yml`](backlog.yml) for each item's full description, rationale,
 acceptance criteria, dependencies, related decisions (`D-###`), and references.

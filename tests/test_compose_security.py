@@ -79,7 +79,9 @@ def test_fast_worker_excludes_every_long_running_model_job() -> None:
     assert set(default.split(",")) == expected
 
     registry = yaml.safe_load((_ROOT / "config" / "env.registry.yaml").read_text())
-    entry = next(item for item in registry["variables"] if item["key"] == "WORKER_FAST_EXCLUDE_KINDS")
+    entry = next(
+        item for item in registry["variables"] if item["key"] == "WORKER_FAST_EXCLUDE_KINDS"
+    )
     assert set(entry["default"].split(",")) == expected
 
 
@@ -625,4 +627,45 @@ def test_webapp_defaults_to_single_gunicorn_worker():
     # Default (the ${VAR:-default} fallback) must be 1 while sessions are in-memory.
     assert workers_value == "${DOCRAY_WEBAPP_WORKERS:-1}", (
         f"webapp worker default must be 1 (in-memory session store); got {workers_value!r}"
+    )
+
+
+def _grace_period_seconds(value: object) -> float:
+    """Parse a Compose ``stop_grace_period`` (``90s``, ``2m``, ``1m30s``, ``300``) to seconds."""
+    import re
+
+    if isinstance(value, (int, float)):
+        return float(value)
+    text = str(value).strip()
+    if text.isdigit():
+        return float(text)
+    units = {"h": 3600, "m": 60, "s": 1, "ms": 0.001, "us": 1e-6, "ns": 1e-9}
+    total = 0.0
+    for num, unit in re.findall(r"(\d+(?:\.\d+)?)\s*(ms|us|ns|h|m|s)", text):
+        total += float(num) * units[unit]
+    return total
+
+
+def test_postgres_and_migrate_declare_a_stop_grace_period():
+    """#4: a routine stop must not SIGKILL an in-flight migration (exit 137).
+
+    Postgres needs long enough to finish its shutdown checkpoint (the incident
+    showed a ~247s checkpoint); the migrate runner needs long enough to cancel the
+    in-flight statement and unwind. Without an explicit grace period Docker's ~10s
+    default escalates SIGTERM to SIGKILL mid-statement, producing the alarming
+    triple ``exit 137`` the issue reports.
+    """
+    services = _compose("docker-compose.yml")["services"]
+
+    pg_grace = services["postgres"].get("stop_grace_period")
+    migrate_grace = services["migrate"].get("stop_grace_period")
+
+    assert pg_grace is not None, "postgres must declare stop_grace_period (#4)"
+    assert migrate_grace is not None, "migrate must declare stop_grace_period (#4)"
+    assert _grace_period_seconds(pg_grace) >= 120, (
+        f"postgres stop_grace_period too short to finish a shutdown checkpoint: {pg_grace!r}"
+    )
+    assert _grace_period_seconds(migrate_grace) >= 30, (
+        f"migrate stop_grace_period too short to cancel + unwind an in-flight statement: "
+        f"{migrate_grace!r}"
     )

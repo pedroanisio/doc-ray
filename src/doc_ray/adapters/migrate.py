@@ -13,9 +13,10 @@ file already applied by initdb is skipped here, and vice versa.
 
 from __future__ import annotations
 
+import contextlib
 import os
 import re
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -181,7 +182,12 @@ def _repair_migration_needed(conn: psycopg.Connection[Any], migration_name: str)
     return False
 
 
-def apply_migrations(cfg: Config, migrations_dir: Path | None = None) -> list[str]:
+def apply_migrations(
+    cfg: Config,
+    migrations_dir: Path | None = None,
+    *,
+    on_connection: Callable[[psycopg.Connection[Any] | None], None] | None = None,
+) -> list[str]:
     """Apply every pending migration and return the filenames applied.
 
     Acquires a session advisory lock so a simultaneous api/worker/one-shot boot
@@ -193,26 +199,43 @@ def apply_migrations(cfg: Config, migrations_dir: Path | None = None) -> list[st
     Args:
         cfg: Runtime configuration providing ``database_url``.
         migrations_dir: Directory to scan; defaults to the repo's ``db/migrations``.
+        on_connection: Optional callback invoked with the live connection right
+            after connecting, and again with ``None`` once it is no longer usable.
+            The CLI entrypoint uses this to cancel an in-flight statement on
+            SIGTERM/SIGINT so a routine ``docker compose down`` mid-migration exits
+            cleanly instead of being SIGKILLed (exit 137, issue #4). Because every
+            migration self-records and is idempotent, a canceled run just resumes
+            on the next start.
 
     Returns:
         The list of migration filenames applied by this call (empty if none).
     """
     applied_now: list[str] = []
     with psycopg.connect(cfg.database_url, autocommit=True, row_factory=dict_row) as conn:
-        conn.execute("SELECT pg_advisory_lock(%s)", (_ADVISORY_LOCK_KEY,))
+        if on_connection is not None:
+            on_connection(conn)
         try:
-            pending = pending_migrations(conn, migrations_dir)
-            pending_names = {path.name for path in pending}
-            for path in pending:
-                _execute_migration(conn, path)
-                applied_now.append(path.name)
-            for path in migration_files(migrations_dir):
-                if (
-                    path.name in _REPLAYABLE_REPAIR_MIGRATIONS
-                    and path.name not in pending_names
-                    and _repair_migration_needed(conn, path.name)
-                ):
+            conn.execute("SELECT pg_advisory_lock(%s)", (_ADVISORY_LOCK_KEY,))
+            try:
+                pending = pending_migrations(conn, migrations_dir)
+                pending_names = {path.name for path in pending}
+                for path in pending:
                     _execute_migration(conn, path)
+                    applied_now.append(path.name)
+                for path in migration_files(migrations_dir):
+                    if (
+                        path.name in _REPLAYABLE_REPAIR_MIGRATIONS
+                        and path.name not in pending_names
+                        and _repair_migration_needed(conn, path.name)
+                    ):
+                        _execute_migration(conn, path)
+            finally:
+                # The session advisory lock is also released when the connection
+                # closes below, so suppress here: a connection already aborted by a
+                # cancellation must not mask the QueryCanceled we want to surface.
+                with contextlib.suppress(psycopg.Error):
+                    conn.execute("SELECT pg_advisory_unlock(%s)", (_ADVISORY_LOCK_KEY,))
         finally:
-            conn.execute("SELECT pg_advisory_unlock(%s)", (_ADVISORY_LOCK_KEY,))
+            if on_connection is not None:
+                on_connection(None)
     return applied_now

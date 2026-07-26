@@ -339,6 +339,16 @@ volume. API connection-pool bounds are explicit (`DOCRAY_API_POOL_MIN_SIZE`,
 `DOCRAY_API_POOL_MAX_SIZE`, `DOCRAY_API_POOL_TIMEOUT`) so deployment capacity is
 configured rather than inherited from psycopg defaults.
 
+**Shutdown safety for the migration runner (D-006).** A long backfill can run for
+minutes, so a routine `docker compose down`/stop must not hard-kill it. Two guards
+cooperate: `postgres` and `migrate` declare an explicit `stop_grace_period` (so
+Postgres can finish its shutdown checkpoint and the runner can unwind before Docker
+escalates to SIGKILL), and the `migrate` entrypoint installs SIGTERM/SIGINT handlers
+that **cancel the in-flight statement through the live connection** and exit
+promptly with `128 + signal` (130/143) instead of being SIGKILLed (exit 137). Every
+migration is idempotent and self-recording, so a canceled run rolls back and resumes
+on the next start — the runner is safe to interrupt at any point.
+
 ## Ports & their adapters
 
 | Port | Adapter |

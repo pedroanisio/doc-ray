@@ -58,6 +58,8 @@ Prerequisites: reachable database with privilege to alter schema.
 
 Expected output: the migrations applied (or, with `--dry-run`, the migrations that would be applied). Run this before starting a new version.
 
+Exit codes: `0` on success (migrations applied, or nothing pending); `2` when the database is unreachable; `130`/`143` when interrupted by SIGINT/SIGTERM (`128 + signal`). On a stop signal the runner **cancels the in-flight statement and exits promptly and cleanly** instead of being force-killed (exit 137) after the container's grace window — so a routine `docker compose down` during a long backfill no longer produces an alarming hard-kill. Every migration is idempotent and self-recording, so a canceled run simply resumes on the next start. In Compose, `postgres` and `migrate` set an explicit `stop_grace_period` so Postgres can finish its shutdown checkpoint and the runner can cancel and unwind before Docker escalates to SIGKILL.
+
 ## `backup_scheduler` — scheduled backups
 
 Enqueues Backup Jobs on a cadence and prunes expired archives.

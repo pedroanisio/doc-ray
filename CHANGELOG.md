@@ -53,6 +53,21 @@ doc-ray carries **one global version** covering both the application package
 
 ### Fixed
 
+- **Migration runner survives a stop mid-migration (issue #4).** A routine
+  `docker compose down`/stop while a long backfill (e.g.
+  `040_chunk_surface_backfill.sql`) was running used to escalate SIGTERM to SIGKILL
+  — the alarming triple `exit 137`, and a risk of a future non-restart-safe
+  migration being hard-killed mid-statement. Now the `migrate` entrypoint installs
+  SIGTERM/SIGINT handlers that **cancel the in-flight statement through the live
+  connection** and exit promptly with `128 + signal` (130/143); the transaction
+  rolls back and the idempotent, self-recording migration resumes on the next
+  start. `postgres` and `migrate` also declare an explicit `stop_grace_period`
+  (300s / 120s) so Postgres can finish its shutdown checkpoint and the runner can
+  unwind before Docker escalates to SIGKILL. New:
+  `apply_migrations(..., on_connection=...)` hook in `adapters/migrate.py`; exit
+  codes documented in `docs/public/reference/cli.md`. No schema change; no version
+  bump.
+
 - **Test-suite root causes (47 failures):** shared-queue isolation, stale SQL
   stubs that silently returned `{}`, D-024 rollups left unpopulated by test
   seeding, a `ReadRepository` port that had drifted from its adapter, guards
