@@ -520,7 +520,39 @@ def _advance_chain(conn: psycopg.Connection[Any], job: Job, result: dict[str, An
     )
     if document_id is None:
         return
-    payload: dict[str, Any] = {"chain": chain[1:]}
-    if isinstance(job.payload.get("_meta"), dict):
-        payload["_meta"] = dict(job.payload["_meta"])
-    queue.enqueue(conn, chain[0], payload, document_id=str(document_id))
+    meta = job.payload.get("_meta")
+    enqueue_chain_head(conn, str(document_id), chain, meta=meta if isinstance(meta, dict) else None)
+
+
+def enqueue_chain_head(
+    conn: psycopg.Connection[Any],
+    document_id: str,
+    chain: Sequence[str],
+    *,
+    meta: Mapping[str, Any] | None = None,
+) -> str | None:
+    """Enqueue *chain*'s first step for *document_id*, carrying the rest along.
+
+    The queue has no dependency edges: a chain is expressed by each step's
+    payload naming the steps still to come, and :func:`_advance_chain` enqueues
+    the next one when a step succeeds. This is the single entry point for
+    starting such a chain, so a caller that ingests outside the queue (the
+    operator bulk loaders) hands its new document to exactly the same pipeline
+    an API upload gets.
+
+    Args:
+        conn: Live database connection (must be able to write ``jobs``).
+        document_id: The document every step in the chain acts on.
+        chain: Job kinds in execution order; an empty chain enqueues nothing.
+        meta: Request metadata (``_meta``) to propagate down the chain.
+
+    Returns:
+        The id of the enqueued head job, or ``None`` for an empty chain.
+    """
+    steps = list(chain)
+    if not steps:
+        return None
+    payload: dict[str, Any] = {"chain": steps[1:]}
+    if meta is not None:
+        payload["_meta"] = dict(meta)
+    return queue.enqueue(conn, steps[0], payload, document_id=document_id)

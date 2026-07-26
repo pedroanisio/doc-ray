@@ -203,3 +203,33 @@ def test_span_geometry_from_layout_rows_uses_largest_overlap_page() -> None:
         "bbox_x1": 80.0,
         "bbox_y1": 22.0,
     }
+
+
+class _LookupConn:
+    """Minimal connection returning one canned row from ``execute().fetchone()``."""
+
+    def __init__(self, row: dict[str, object] | None) -> None:
+        self.row = row
+        self.executed: list[tuple[str, tuple[object, ...]]] = []
+
+    def execute(self, sql: str, params: tuple[object, ...]) -> _LookupConn:
+        self.executed.append((sql, params))
+        return self
+
+    def fetchone(self) -> dict[str, object] | None:
+        return self.row
+
+
+def test_find_principal_id_by_email_normalizes_the_lookup_key() -> None:
+    conn = _LookupConn({"principal_id": "prin-1"})
+
+    found = persistence.find_principal_id_by_email(conn, "  Someone@Example.COM ")  # type: ignore[arg-type]
+
+    assert found == "prin-1"
+    assert conn.executed[0][1] == ("someone@example.com",)
+
+
+def test_find_principal_id_by_email_returns_none_when_unregistered() -> None:
+    conn = _LookupConn(None)
+
+    assert persistence.find_principal_id_by_email(conn, "ghost@example.com") is None  # type: ignore[arg-type]

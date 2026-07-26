@@ -418,3 +418,67 @@ def test_handle_canonicalize_resolve_true_with_no_residue_skips_resolver(qconn, 
         assert q.get(conn, job_id).status is JobStatus.SUCCEEDED
     finally:
         conn.execute("DELETE FROM documents WHERE id = %s", (doc_id,))
+
+
+# --- enqueue_chain_head: the shared chain starter (DB-free; queue.enqueue stubbed) ---
+
+
+def _record_enqueue(monkeypatch) -> list[dict]:
+    """Capture enqueue calls instead of writing to the jobs table."""
+    calls: list[dict] = []
+
+    def _fake(conn, kind, payload, *, document_id=None, **_kw):
+        calls.append({"kind": kind, "payload": payload, "document_id": document_id})
+        return f"job-{len(calls)}"
+
+    monkeypatch.setattr("doc_ray.application.jobs.queue.enqueue", _fake)
+    return calls
+
+
+def test_enqueue_chain_head_queues_the_first_kind_with_the_remainder(monkeypatch):
+    from doc_ray.application.jobs import enqueue_chain_head
+
+    calls = _record_enqueue(monkeypatch)
+
+    job_id = enqueue_chain_head(None, "doc-1", ["annotate", "semantic_enrich", "canonicalize"])
+
+    assert job_id == "job-1"
+    assert calls == [
+        {
+            "kind": "annotate",
+            "payload": {"chain": ["semantic_enrich", "canonicalize"]},
+            "document_id": "doc-1",
+        }
+    ]
+
+
+def test_enqueue_chain_head_propagates_request_metadata(monkeypatch):
+    from doc_ray.application.jobs import enqueue_chain_head
+
+    calls = _record_enqueue(monkeypatch)
+
+    enqueue_chain_head(None, "doc-1", ["annotate"], meta={"request_id": "req-9"})
+
+    assert calls[0]["payload"] == {"chain": [], "_meta": {"request_id": "req-9"}}
+
+
+def test_enqueue_chain_head_is_a_no_op_for_an_empty_chain(monkeypatch):
+    from doc_ray.application.jobs import enqueue_chain_head
+
+    calls = _record_enqueue(monkeypatch)
+
+    assert enqueue_chain_head(None, "doc-1", []) is None
+    assert calls == []
+
+
+def test_default_pipeline_chain_is_the_documented_post_ingest_order():
+    # The upload mutation and the operator bulk loaders both enqueue this exact
+    # chain; the GPU tiers and the frontier resolver stay off it (D-018).
+    from doc_ray.domain.jobs import DEFAULT_PIPELINE_CHAIN
+
+    assert DEFAULT_PIPELINE_CHAIN == (
+        "annotate",
+        "semantic_enrich",
+        "canonicalize",
+        "visual_extract",
+    )

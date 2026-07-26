@@ -63,6 +63,23 @@ KIND_SEMANTIC_EMBED = "semantic_embed"
 # deterministic reconcile, so it is not long-running.
 KIND_APPLY_CORRECTIONS = "apply_corrections"
 
+# The default post-ingest pipeline: Stage-1 annotation, deterministic semantic
+# enrichment, then deterministic canonicalization, then Prism Tier-1 visual
+# feature extraction. The deterministic visual tier is appended at the tail so
+# entity-linking is never delayed (proposal §5.1); it is CPU-only (no model).
+# The frontier resolver and the GPU visual tiers are never chained — model cost
+# stays an explicit request (D-018).
+#
+# It lives here, not in the GraphQL entrypoint, because it is the pipeline every
+# ingest path owes a document: the API upload mutation and the operator bulk
+# loaders must enqueue the same work, and a second definition is how they drift.
+DEFAULT_PIPELINE_CHAIN: tuple[str, ...] = (
+    KIND_ANNOTATE,
+    KIND_SEMANTIC_ENRICH,
+    KIND_CANONICALIZE,
+    KIND_VISUAL_EXTRACT,
+)
+
 # Job kinds that are expected to take enough wall-clock time to need a reserved
 # slow lane. Compose worker filters must stay in sync with this set. Visual
 # extract renders pages (CPU), while visual and semantic embedding load large

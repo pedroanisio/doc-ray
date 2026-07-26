@@ -115,9 +115,12 @@ first second it bills. Pick the recipe that matches the batch:
 ```bash
 set -a; source .env; set +a
 
-# (a) Fresh documents from Spaces — full pipeline (ingest -> annotate ->
-#     semantic_enrich -> canonicalize) enqueued per new doc:
+# (a) Fresh documents from Spaces — the full post-ingest pipeline (annotate ->
+#     semantic_enrich -> canonicalize -> visual_extract) is enqueued per newly
+#     ingested doc; a duplicate enqueues nothing:
 python scripts/ingest_from_spaces.py            # idempotent; skips already-loaded
+python scripts/ingest_from_spaces.py --owner someone@example.com   # own the load
+python scripts/ingest_from_spaces.py --no-pipeline                 # bytes only
 
 # (b) The deferred oversized documents (tag 'pending-trf-h200') — enqueue an
 #     annotate job each. See PENDING_TRF_H200.md for the exact snippet.
@@ -126,6 +129,10 @@ python scripts/ingest_from_spaces.py            # idempotent; skips already-load
 python -m doc_ray.entrypoints.reannotate --all          # spaCy layers
 python -m doc_ray.entrypoints.annotate_semantic --all   # deterministic enrichment
 ```
+
+Without `--owner`, a loaded document is **unowned** — under migration 102 that
+means admin-only, not "visible to everyone". Pass `--owner <login-email>` at load
+time, or move them afterwards with `scripts/assign_document_owner.py`.
 
 Confirm the queue depth you're about to burn GPU on:
 

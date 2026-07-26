@@ -288,7 +288,9 @@ make prod-migrate-host    # AUTHORITATIVE: applies from the repo working tree
 
 Then load the corpus by whichever fits:
 - **Fresh ingest from Spaces** — idempotent, content-addressed
-  (`scripts/ingest_from_spaces.py`).
+  (`scripts/ingest_from_spaces.py`). Each new document also enqueues the standard
+  post-ingest pipeline, so the worker must be running for the load to finish;
+  add `--owner <login-email>` unless the corpus is meant to stay admin-only.
 - **Restore a snapshot** — `createBackup` on the old DB, `restoreBackup` on prod
   (schema versions must match). Requires `DOCRAY_BACKUP_ENABLED=true` on *both*
   ends; the subsystem is off by default (D-033).

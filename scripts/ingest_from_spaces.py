@@ -8,6 +8,17 @@ uses, and the original bytes land in doc-ray's own content-addressed object stor
 (``S3_ENDPOINT``/``S3_BUCKET``). The source bucket is read-only; nothing is written
 back to it.
 
+Ingest is only the first stage. Each newly ingested document is handed to the
+shared post-ingest pipeline (``DEFAULT_PIPELINE_CHAIN``: annotate →
+semantic_enrich → canonicalize → visual_extract) by enqueuing the chain head,
+exactly as an API upload does — so a bulk load fills the worker queue instead of
+leaving a corpus of text with no annotation layers. ``--no-pipeline`` loads the
+bytes only. A *duplicate* never re-enters the pipeline: its content is already
+in the corpus and has already been processed.
+
+Ownership follows migration 102: documents land unowned (admin-only, the org
+corpus seam) unless ``--owner <login-email>`` names a principal to own them.
+
 Idempotency has two layers, so re-running is always safe:
 
 1. **Authoritative** — doc-ray dedupes on the SHA-256 of the content
@@ -29,9 +40,12 @@ Usage::
     export SPACES_KEY=... SPACES_SECRET=...          # omit for a public bucket
     set -a; source .env; set +a                       # DATABASE_URL + S3_* sink config
     python scripts/ingest_from_spaces.py --prefix incoming/
+    python scripts/ingest_from_spaces.py --owner someone@example.com
+    python scripts/ingest_from_spaces.py --no-pipeline # load bytes, enqueue nothing
     python scripts/ingest_from_spaces.py --dry-run    # show planned actions only
 
-Exit codes: 0 = no failures; 2 = listing failed or at least one object failed.
+Exit codes: 0 = no failures; 1 = ``--owner`` names no known principal;
+2 = listing failed or at least one object failed.
 """
 
 from __future__ import annotations
@@ -55,8 +69,11 @@ from botocore.exceptions import BotoCoreError, ClientError
 from doc_ray.adapters import persistence as db
 from doc_ray.adapters.extraction import is_supported_extension
 from doc_ray.adapters.object_store import ObjectStore
+from doc_ray.adapters.persistence import find_principal_id_by_email
+from doc_ray.application.jobs import enqueue_chain_head
 from doc_ray.application.pipeline import IngestResult, ingest_file
 from doc_ray.config import Config
+from doc_ray.domain.jobs import DEFAULT_PIPELINE_CHAIN
 
 DEFAULT_ENDPOINT = "https://sfo3.digitaloceanspaces.com"
 DEFAULT_BUCKET = "doc-ray-dev"
@@ -69,6 +86,32 @@ _TERMINAL_OK = frozenset({"ingested", "duplicate"})
 
 #: Short display tags per ingest outcome.
 _TAGS = {"ingested": "OK ", "duplicate": "DUP", "failed": "ERR"}
+
+
+class OwnerNotFound(RuntimeError):
+    """Raised when ``--owner`` names an email no principal is registered under."""
+
+
+@dataclass(frozen=True)
+class IngestContext:
+    """Everything one object's ingest needs, resolved once per run.
+
+    Attributes:
+        conn: Live database connection (the ingest sink and the job queue).
+        store: doc-ray's own content-addressed object store.
+        client: S3 client for the *source* bucket.
+        bucket: Source bucket name.
+        owner_principal_id: Principal the new documents belong to, or ``None``
+            for unowned (admin-only) operator ingest.
+        chain: Post-ingest job kinds to enqueue per newly ingested document.
+    """
+
+    conn: Any
+    store: ObjectStore
+    client: BaseClient
+    bucket: str
+    owner_principal_id: str | None
+    chain: tuple[str, ...]
 
 
 @dataclass(frozen=True)
@@ -157,15 +200,51 @@ def save_state(path: Path, state: dict[str, dict[str, Any]]) -> None:
     path.write_text(json.dumps(state, indent=2, sort_keys=True), encoding="utf-8")
 
 
-def _state_entry(obj: SourceObject, status: str, document_id: str | None) -> dict[str, Any]:
-    """Build a manifest entry recording this run's outcome for *obj*."""
+def _state_entry(
+    obj: SourceObject, status: str, document_id: str | None, job_id: str | None = None
+) -> dict[str, Any]:
+    """Build a manifest entry recording this run's outcome for *obj*.
+
+    ``job_id`` is the head of the post-ingest chain, recorded so an operator can
+    trace a loaded object to the pipeline work it queued (``jobs`` rows carry the
+    rest of the chain in their payload).
+    """
     return {
         "etag": obj.etag,
         "size": obj.size,
         "status": status,
         "document_id": document_id,
+        "job_id": job_id,
         "updated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
     }
+
+
+def pipeline_chain(args: argparse.Namespace) -> tuple[str, ...]:
+    """Return the post-ingest chain this run enqueues per new document.
+
+    Defaults to the shared :data:`DEFAULT_PIPELINE_CHAIN` — the same pipeline an
+    API upload gets — and is emptied by ``--no-pipeline``.
+    """
+    return () if args.no_pipeline else tuple(DEFAULT_PIPELINE_CHAIN)
+
+
+def resolve_owner(conn: Any, email: str) -> str:
+    """Resolve *email* to the principal id new documents will be owned by.
+
+    Args:
+        conn: Live database connection.
+        email: Login email of the receiving principal.
+
+    Returns:
+        The principal id.
+
+    Raises:
+        OwnerNotFound: No local credential is registered under *email*.
+    """
+    principal_id = find_principal_id_by_email(conn, email)
+    if principal_id is None:
+        raise OwnerNotFound(email)
+    return principal_id
 
 
 def _source_credentials(args: argparse.Namespace) -> tuple[str | None, str | None]:
@@ -248,7 +327,13 @@ def _download(client: BaseClient, bucket: str, key: str) -> bytes:
     return body
 
 
-def ingest_object(conn: Any, store: ObjectStore, key: str, data: bytes) -> IngestResult:
+def ingest_object(
+    conn: Any,
+    store: ObjectStore,
+    key: str,
+    data: bytes,
+    owner_principal_id: str | None = None,
+) -> IngestResult:
     """Ingest downloaded *data* for *key* via the shared ingest primitive.
 
     The bytes are written to a temporary file carrying *key*'s basename so the
@@ -261,6 +346,8 @@ def ingest_object(conn: Any, store: ObjectStore, key: str, data: bytes) -> Inges
         store: doc-ray's own object store (the ingest sink).
         key: Source object key; its basename names the document.
         data: Raw object bytes.
+        owner_principal_id: Principal the document belongs to (migration 102),
+            or ``None`` for unowned operator ingest.
 
     Returns:
         The :class:`IngestResult` from :func:`ingest_file`.
@@ -268,36 +355,48 @@ def ingest_object(conn: Any, store: ObjectStore, key: str, data: bytes) -> Inges
     with tempfile.TemporaryDirectory(prefix="docray-spaces-") as tmp_dir:
         tmp_path = Path(tmp_dir) / Path(key).name
         tmp_path.write_bytes(data)
-        return ingest_file(conn, store, tmp_path)
+        return ingest_file(conn, store, tmp_path, owner_principal_id=owner_principal_id)
 
 
-def _ingest_one(
-    conn: Any,
-    store: ObjectStore,
-    client: BaseClient,
-    bucket: str,
-    obj: SourceObject,
-    state: dict[str, dict[str, Any]],
-) -> str:
-    """Download and ingest one object, updating *state* in place; return its status."""
+def _ingest_one(ctx: IngestContext, obj: SourceObject, state: dict[str, dict[str, Any]]) -> str:
+    """Download, ingest and pipeline one object, updating *state*; return its status.
+
+    Only a genuinely new document enters the pipeline: a ``duplicate`` is content
+    already in the corpus, which the earlier ingest already annotated, so
+    re-chaining it would re-process the corpus on every ``--force`` run — the
+    same guard :func:`doc_ray.application.jobs._advance_chain` applies.
+    """
     try:
-        data = _download(client, bucket, obj.key)
+        data = _download(ctx.client, ctx.bucket, obj.key)
     except (ClientError, BotoCoreError) as exc:
         print(f"  [ERR] {obj.key} -> download failed ({exc})")
         state[obj.key] = _state_entry(obj, "failed", None)
         return "failed"
-    result = ingest_object(conn, store, obj.key, data)
-    state[obj.key] = _state_entry(obj, result.status, result.document_id)
+    result = ingest_object(ctx.conn, ctx.store, obj.key, data, ctx.owner_principal_id)
+    job_id: str | None = None
+    if result.status == "ingested" and result.document_id is not None and ctx.chain:
+        job_id = enqueue_chain_head(ctx.conn, result.document_id, ctx.chain)
+    state[obj.key] = _state_entry(obj, result.status, result.document_id, job_id)
     tag = _TAGS.get(result.status, "?")
     detail = f"  ({result.detail})" if result.detail else ""
-    print(f"  [{tag}] {obj.key} -> {result.document_id or '-'}{detail}")
+    queued = f"  [queued {ctx.chain[0]}]" if job_id else ""
+    print(f"  [{tag}] {obj.key} -> {result.document_id or '-'}{detail}{queued}")
     return result.status
 
 
 def _report_dry_run(
-    objects: list[SourceObject], state: dict[str, dict[str, Any]], *, force: bool
+    objects: list[SourceObject],
+    state: dict[str, dict[str, Any]],
+    *,
+    force: bool,
+    chain: tuple[str, ...],
+    owner_email: str | None,
 ) -> int:
-    """Print the planned action per object without touching the database or sink."""
+    """Print the planned action per object without touching the database or sink.
+
+    The owner email is echoed, not resolved: a dry run stays DB-free, so an
+    unknown email surfaces on the real run instead (exit 1, before any ingest).
+    """
     counts: dict[str, int] = {}
     for obj in objects:
         action = decide_action(obj, state.get(obj.key), force=force)
@@ -305,6 +404,8 @@ def _report_dry_run(
         print(f"  [{action.upper():6}] {obj.key}")
     summary = ", ".join(f"{k}={v}" for k, v in sorted(counts.items()))
     print(f"Dry run: {summary or 'nothing to do'}")
+    print(f"  pipeline: {' -> '.join(chain) if chain else 'disabled (--no-pipeline)'}")
+    print(f"  owner: {owner_email or 'unowned (admin-only)'}")
     return 0
 
 
@@ -330,14 +431,25 @@ def run(args: argparse.Namespace) -> int:
 
     state_path = Path(args.state)
     state = load_state(state_path)
+    chain = pipeline_chain(args)
 
     if args.dry_run:
-        return _report_dry_run(objects, state, force=args.force)
+        return _report_dry_run(
+            objects, state, force=args.force, chain=chain, owner_email=args.owner
+        )
 
-    counts = _ingest_all(args, client, objects, state)
-    save_state(state_path, state)
+    try:
+        counts = _ingest_all(args, client, objects, state, chain)
+    except OwnerNotFound as exc:
+        print(f"error: no principal with login email {str(exc)!r}", file=sys.stderr)
+        return 1
+    finally:
+        save_state(state_path, state)
     summary = ", ".join(f"{k}={v}" for k, v in sorted(counts.items()))
     print(f"Done: {summary or 'nothing to do'}")
+    if chain:
+        queued = counts.get("ingested", 0)
+        print(f"Queued {queued} '{chain[0]}' job(s); chain: {' -> '.join(chain)}")
     return 2 if counts.get("failed", 0) else 0
 
 
@@ -346,18 +458,33 @@ def _ingest_all(
     client: BaseClient,
     objects: list[SourceObject],
     state: dict[str, dict[str, Any]],
+    chain: tuple[str, ...],
 ) -> dict[str, int]:
-    """Ingest every actionable object under one connection; return outcome counts."""
+    """Ingest every actionable object under one connection; return outcome counts.
+
+    Raises:
+        OwnerNotFound: ``--owner`` names an unknown email. Resolved before the
+            first ingest so the run fails whole rather than half-owned.
+    """
     cfg = Config.from_env()
     store = ObjectStore(cfg)
     store.ensure_bucket()
     counts: dict[str, int] = {}
     with db.connect(cfg) as conn:
+        owner = resolve_owner(conn, args.owner) if args.owner else None
+        ctx = IngestContext(
+            conn=conn,
+            store=store,
+            client=client,
+            bucket=args.bucket,
+            owner_principal_id=owner,
+            chain=chain,
+        )
         for obj in objects:
             if decide_action(obj, state.get(obj.key), force=args.force) == "skip":
                 counts["skipped"] = counts.get("skipped", 0) + 1
                 continue
-            status = _ingest_one(conn, store, client, args.bucket, obj, state)
+            status = _ingest_one(ctx, obj, state)
             counts[status] = counts.get(status, 0) + 1
     return counts
 
@@ -401,6 +528,17 @@ def build_parser() -> argparse.ArgumentParser:
         "--secret-key",
         default=None,
         help="Source secret key (else SPACES_SECRET / AWS_SECRET_ACCESS_KEY).",
+    )
+    parser.add_argument(
+        "--owner",
+        default=os.environ.get("DOCRAY_SOURCE_OWNER_EMAIL"),
+        help="Login email of the principal to own the ingested documents "
+        "(default: unowned, i.e. admin-only under migration 102).",
+    )
+    parser.add_argument(
+        "--no-pipeline",
+        action="store_true",
+        help="Ingest bytes only; do not enqueue the post-ingest pipeline.",
     )
     parser.add_argument(
         "--force", action="store_true", help="Re-ingest even if the manifest says unchanged."

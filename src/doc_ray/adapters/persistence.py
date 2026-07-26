@@ -94,6 +94,30 @@ def find_by_sha256(conn: DictConnection, sha256: str) -> dict[str, Any] | None:
     return cur.fetchone()
 
 
+def find_principal_id_by_email(conn: DictConnection, email: str) -> str | None:
+    """Look up the principal behind a local login email (migration 102 ownership).
+
+    Matches ``principal_credentials.email_normalized`` — the login identity —
+    rather than ``principals.display_name``, which is a free-text label and is
+    neither unique nor an identifier. Operator tooling that assigns ownership
+    takes an email because that is what an operator knows; the column the
+    documents carry is the principal id.
+
+    Args:
+        conn: Open database connection.
+        email: Login email in any casing/whitespace.
+
+    Returns:
+        The principal id as a string, or ``None`` when no credential matches.
+    """
+    cur = conn.execute(
+        "SELECT principal_id FROM principal_credentials WHERE email_normalized = %s",
+        (email.strip().lower(),),
+    )
+    row = cur.fetchone()
+    return None if row is None else str(row["principal_id"])
+
+
 def ensure_spans(
     conn: DictConnection, document_id: str, pairs: list[tuple[int, int]]
 ) -> dict[tuple[int, int], str]:

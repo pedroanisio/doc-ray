@@ -20,6 +20,7 @@ from doc_ray.adapters import document_metadata_suggestion_store as metadata_sugg
 from doc_ray.adapters import queue_postgres as queue
 from doc_ray.adapters import seed_suggestion_store as seeds
 from doc_ray.domain.jobs import (
+    DEFAULT_PIPELINE_CHAIN,
     KIND_ADD_DOCUMENT_TAGS,
     KIND_ANNOTATE,
     KIND_ARCHIVE_DOCUMENT,
@@ -36,7 +37,6 @@ from doc_ray.domain.jobs import (
     KIND_SEMANTIC_ENRICH,
     KIND_SUGGEST_DOCUMENT_METADATA,
     KIND_UPDATE_METADATA,
-    KIND_VISUAL_EXTRACT,
 )
 from doc_ray.entrypoints.api.context import MAX_BATCH_IDS
 from doc_ray.entrypoints.api.mutation_billing import BillingMutations
@@ -58,14 +58,6 @@ from doc_ray.entrypoints.api.mutation_semantic import SemanticMutations
 from doc_ray.entrypoints.api.mutation_sharing import SharingMutations
 from doc_ray.entrypoints.api.mutation_visual_review import VisualReviewMutations
 from doc_ray.entrypoints.api.types import Info, Job
-
-#: The default post-ingest pipeline: Stage-1 annotation, deterministic semantic
-#: enrichment, then deterministic canonicalization, then Prism Tier-1 visual
-#: feature extraction. The deterministic visual tier is appended at the tail so
-#: entity-linking is never delayed (proposal §5.1); it is CPU-only (no model).
-#: The frontier resolver and the GPU visual tiers are never chained — model cost
-#: stays an explicit request (D-018).
-_PIPELINE_CHAIN = [KIND_ANNOTATE, KIND_SEMANTIC_ENRICH, KIND_CANONICALIZE, KIND_VISUAL_EXTRACT]
 
 
 @strawberry.type
@@ -503,6 +495,6 @@ class Mutation(
             "owner_principal_id": ctx.principal.principal_id,
         }
         if pipeline:
-            payload["chain"] = list(_PIPELINE_CHAIN)
+            payload["chain"] = list(DEFAULT_PIPELINE_CHAIN)
         job_id = await _enqueue_job(ctx, KIND_INGEST, payload, document_id=None)
         return await _job_status(ctx, job_id)
