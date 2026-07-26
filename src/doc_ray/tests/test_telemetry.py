@@ -68,8 +68,17 @@ def test_record_execution_writes_every_field_in_column_order() -> None:
     sql, params = conn.executed[0]
     assert "INSERT INTO job_telemetry" in sql
     assert params == (
-        "job-1", "annotate", LANE_GPU, "succeeded", 1, "doc-1",
-        "gpu-box-1:42", "gpu-box-1", "cuda:NVIDIA H200", 4150, 75_000,
+        "job-1",
+        "annotate",
+        LANE_GPU,
+        "succeeded",
+        1,
+        "doc-1",
+        "gpu-box-1:42",
+        "gpu-box-1",
+        "cuda:NVIDIA H200",
+        4150,
+        75_000,
         datetime(2026, 7, 25, 19, 0, tzinfo=UTC),
     )
 

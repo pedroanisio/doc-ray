@@ -19,6 +19,24 @@ doc-ray carries **one global version** covering both the application package
 (`docray_schema_version()`). They are kept in lockstep by
 `scripts/check_version_consistency.py`, which fails the build on any drift.
 
+## [1.44.0]
+
+### Added
+
+- **Pipeline cost telemetry (migration 126):** append-only per-job execution
+  telemetry for cost attribution, with a GPU/CPU lane mapping so a GPU host-hour
+  and a CPU host-hour are priced apart, rate configuration in
+  `config/cost_rates.yaml`, and a `scripts/cost_telemetry.py` reporter. See
+  `docs/pipeline-cost-telemetry.md`.
+
+### Fixed
+
+- **Test-suite root causes (47 failures):** shared-queue isolation, stale SQL
+  stubs that silently returned `{}`, D-024 rollups left unpopulated by test
+  seeding, a `ReadRepository` port that had drifted from its adapter, guards
+  pinning behaviour the product deliberately changed, and operator documentation
+  lost from the generated env samples.
+
 ## [1.43.0]
 
 ### Added

@@ -13,7 +13,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any
 
 OUTCOME_SUCCEEDED = "succeeded"
 OUTCOME_FAILED = "failed"
@@ -58,7 +57,7 @@ class ExecutionRecord:
     started_at: datetime
 
 
-def work_units_from_result(result: Any) -> int | None:
+def work_units_from_result(result: object) -> int | None:
     """Extract the size driver a handler reported, or ``None`` when it reported none.
 
     Args:

@@ -11,6 +11,8 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+import psycopg
+
 from doc_ray.domain.telemetry import ExecutionRecord
 
 _logger = logging.getLogger("doc_ray.telemetry")
@@ -23,7 +25,7 @@ INSERT INTO job_telemetry (
 """
 
 
-def record_execution(conn: Any, record: ExecutionRecord) -> bool:
+def record_execution(conn: psycopg.Connection[Any], record: ExecutionRecord) -> bool:
     """Append *record* to ``job_telemetry``; return whether it was written.
 
     Runs on its own transaction so a failure here cannot poison the caller's —
