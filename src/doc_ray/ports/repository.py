@@ -138,12 +138,6 @@ class ReadRepository(Protocol):
     async def corpus_shard_counts(
         self, conn: psycopg.AsyncConnection[Row], shard_count: int
     ) -> list[Row]:
-        """Return ``{shard, n}`` — the visible document count in each shard 0..N-1."""
-        ...
-
-    async def corpus_shard_counts(
-        self, conn: psycopg.AsyncConnection[Row], shard_count: int
-    ) -> list[Row]:
         """Return visible-document counts for every deterministic corpus shard."""
         ...
 
