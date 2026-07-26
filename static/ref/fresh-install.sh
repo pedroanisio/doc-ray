@@ -41,6 +41,9 @@ DOCRAY_REPO="${DOCRAY_REPO:-https://github.com/pedroanisio/doc-ray.git}"
 # nothing. Defaults to the droplet hostname.
 DOCRAY_WORKER_HOST="${DOCRAY_WORKER_HOST:-$(hostname)}"
 INSTALL_GH="${INSTALL_GH:-1}"
+# Image used only to prove the CDI GPU reservation resolves. Must be a full
+# patch version — see the verification step below.
+CUDA_PROBE_IMAGE="${CUDA_PROBE_IMAGE:-nvidia/cuda:13.0.1-base-ubuntu24.04}"
 
 export DEBIAN_FRONTEND=noninteractive
 
@@ -206,7 +209,10 @@ fi
 python3 "$APPS_DIR/doc-ray/scripts/provision_host.py" --no-sudo
 
 log "Verifying the container runtime can actually see the GPU"
-docker run --rm --device nvidia.com/gpu=all nvidia/cuda:13.0-base-ubuntu24.04 nvidia-smi -L \
+# Pin a FULL patch version: nvidia/cuda publishes no `13.0` rolling tag, so a
+# major.minor reference fails to resolve and this check dies on a host whose GPU
+# is in fact fine — a false negative that stops a good provision.
+docker run --rm --device nvidia.com/gpu=all "$CUDA_PROBE_IMAGE" nvidia-smi -L \
   || die "CDI GPU reservation failed — the worker would silently run on CPU"
 
 # ------------------------------------------------------------------ handoff --
@@ -228,7 +234,13 @@ credentials that must never live in a repo:
      tier, never to a droplet you plan to destroy):
 
          cd $APPS_DIR/doc-ray
-         DOCRAY_WORKERS=6 DOCRAY_WORKER_HOST=$DOCRAY_WORKER_HOST make gpu-up
+         DOCRAY_WORKERS=6 DOCRAY_WORKER_HOST=$DOCRAY_WORKER_HOST make gpu-worker-up
+
+     Use gpu-worker-up, NOT gpu-up: only the former layers
+     docker-compose.gpuworker.yml, which pins WORKER_ONLY_KINDS to the GPU lane
+     and scales the data + serving tiers to zero. Without it this host claims
+     user-facing fast-lane jobs — work that would then run on a machine you
+     intend to destroy.
 
      Size DOCRAY_WORKERS by the SMALLEST of: VRAM / ~6 GB per trf worker, the
      host's vCPU count, and the managed cluster's spare backends (2 connections

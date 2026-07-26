@@ -31,9 +31,22 @@ COMPOSE_PROD_OLLAMA := $(COMPOSE_PROD) -f docker-compose.ollama.yml -f docker-co
 # :8080; a Cloudflare public-hostname rule routes doc-ray.com/mcp -> mcp:8080.
 COMPOSE_PROD_MCP := $(COMPOSE_PROD_OLLAMA) -f docker-compose.mcp.yml
 
+# Worker-ONLY GPU host (ephemeral H200 droplet). The gpu overlay reserves the
+# card via CDI; the gpuworker overlay pins the claim filter to the GPU lane and
+# scales the data + serving tiers to zero, so this host never claims a
+# user-facing fast-lane job and never runs a migration it would take with it
+# when destroyed. `gpu-up` alone omits that pinning and is NOT a substitute.
+COMPOSE_GPU_WORKER := $(COMPOSE_PROD) -f docker-compose.gpu.yml -f docker-compose.gpuworker.yml
+
+# Standalone operator lab (Ollama + Open WebUI). Deliberately NOT layered on the
+# base compose: it must never recreate a worker, and it needs no env file.
+COMPOSE_LAB := docker compose -f docker-compose.openwebui.yml
+
 .PHONY: help check check-static prod-check db-dump truncate-db workers-up workers-status \
         prod-migrate prod-migrate-host prod-up prod-web prod-admin-console-up \
-        prod-admin-console-down prod-tunnel prod-down gpu-up prod-ollama-up \
+        prod-admin-console-down prod-tunnel prod-down gpu-up gpu-worker-up \
+        gpu-worker-status gpu-worker-down prod-ollama-up \
+        lab-up lab-pull lab-status lab-down \
         prod-refresh-ui prod-restart-ui mcp-up pgadmin-up up
 
 help: ## List available tasks
@@ -131,8 +144,17 @@ prod-tunnel: ## Start the Cloudflare Tunnel ingress (no public ports; needs CLOU
 prod-down: ## Stop the managed stateless stack (managed data is off-box; nothing is wiped)
 	$(COMPOSE_PROD) down
 
-gpu-up: ## Start DOCRAY_WORKERS GPU annotate workers on an H200 box (managed + CDI)
+gpu-up: ## Start DOCRAY_WORKERS GPU annotate workers alongside a full stack (managed + CDI); use gpu-worker-up on a worker-ONLY host
 	$(COMPOSE_PROD) -f docker-compose.gpu.yml up -d --build --scale worker=$(DOCRAY_WORKERS) worker
+
+gpu-worker-up: ## Start DOCRAY_WORKERS lane-pinned GPU workers on a worker-ONLY host (ephemeral H200 droplet); claims the GPU lane only
+	$(COMPOSE_GPU_WORKER) up -d --build --scale worker=$(DOCRAY_WORKERS) worker
+
+gpu-worker-status: ## Show the lane-pinned GPU worker replicas on a worker-only host
+	$(COMPOSE_GPU_WORKER) ps worker
+
+gpu-worker-down: ## Drain and stop the lane-pinned GPU workers (stop_grace_period lets in-flight jobs release without spending a retry)
+	$(COMPOSE_GPU_WORKER) down
 
 prod-ollama-up: prod-migrate ## Migrate, then run the managed stack with the LOCAL Ollama resolver on the H200 GPU
 	# Layered AFTER the prod overlay so the ollama overlay's worker resolver-env and
@@ -153,6 +175,21 @@ prod-restart-ui: ## Restart api + webapp WITHOUT rebuilding (bounce the running 
 mcp-up: ## Start the MCP connector server (loopback :8080) on the managed stack — then route doc-ray.com/mcp -> http://mcp:8080 in the Cloudflare tunnel (token tunnel = dashboard step)
 	$(COMPOSE_PROD_MCP) up -d --build mcp
 	@echo "MCP server up on 127.0.0.1:$${MCP_PORT:-8080}. Public /mcp still needs a Cloudflare public-hostname rule: path /mcp -> http://mcp:8080 (or a dedicated subdomain)."
+
+lab-up: ## Start the standalone lab stack: Ollama on the GPU + Open WebUI (tunnel to 127.0.0.1:3000)
+	$(COMPOSE_LAB) up -d ollama open-webui
+	@echo "Open WebUI on 127.0.0.1:$${OPENWEBUI_PORT:-3000} — tunnel with: ssh -L 3000:127.0.0.1:3000 <user>@<host>"
+
+lab-pull: ## Pull a model into the lab Ollama (MODEL=qwen2.5:32b)
+	@test -n "$(MODEL)" || { echo "usage: make lab-pull MODEL=<name>"; exit 1; }
+	docker exec docray-lab-ollama ollama pull $(MODEL)
+
+lab-status: ## Show the lab stack and the models it has downloaded
+	$(COMPOSE_LAB) ps
+	@docker exec docray-lab-ollama ollama list 2>/dev/null || true
+
+lab-down: ## Stop the lab stack (downloaded models are kept in the volume)
+	$(COMPOSE_LAB) down
 
 pgadmin-up: ## Start the loopback-only pgAdmin GUI (tunnel to 127.0.0.1:5050)
 	docker compose -f docker-compose.pgadmin.yml up -d pgadmin
