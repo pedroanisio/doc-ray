@@ -529,6 +529,9 @@ against.
 | BL-159 | SLP Block E: allusion edges — typed cross-lens links that never assert identity | api | feature | done | L | medium | shared |
 | BL-160 | SLP Block F: hyper-context rollups + relationship discovery over the projected graph | api | feature | done | XL | medium | shared |
 | BL-161 | SLP Block F follow-up: per-lens narrative summaries (model output, review-gated) | api | feature | ready | L | low | shared |
+| BL-162 | MCP page-size clamp made visible (coverage.requested_limit + clamp note; last-row cursor docstrings); CLI ingest_paths now enqueues DEFAULT_PIPELINE_CHAIN + refreshes document_stats | api | bug | done | S | high | shared |
+| BL-163 | Test suite carries 5 deterministic reds from shared test-DB residue (billing webhook fixture ids, stale rollups, mcp_eval) | testing | bug | ready | S | medium | unassigned |
+| BL-164 | term_frequency reported unattested for terms the lexeme index cannot hold (`shared_buffers`, `COVID-19`); search coverage never affirmed completeness | api | bug | done | S | high | shared |
 
 See [`backlog.yml`](backlog.yml) for each item's full description, rationale,
 acceptance criteria, dependencies, related decisions (`D-###`), and references.

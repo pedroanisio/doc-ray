@@ -248,6 +248,79 @@ def test_ingest_file_stamps_the_owner_on_the_failure_path(tmp_path, monkeypatch)
     assert captured["owner_principal_id"] == "33333333-3333-3333-3333-333333333333"
 
 
+# --- BL-162: every ingest path owes the document the default pipeline ------------------------
+#
+# ingest_paths (the CLI / operator bulk path) previously wrote text + sentences
+# and stopped: no pipeline chain enqueued, no document_stats refresh. The result
+# was the "silent no-layer" state — a document with real sentences whose
+# sentenceCount read 0 and whose annotation layers never arrived, with no failed
+# job and no error anywhere. DEFAULT_PIPELINE_CHAIN's own docstring names the
+# invariant: it is "the pipeline every ingest path owes a document".
+
+
+def test_ingest_paths_enqueues_the_default_chain_and_refreshes_stats(pg, tmp_path, monkeypatch):
+    conn, created = pg
+    monkeypatch.setattr(pipeline, "ObjectStore", FakeStore)
+    p = _txt(tmp_path, f"chain-{_itdb.unique_sha()[:8]}.txt", "Alpha. Beta.")
+
+    results = pipeline.ingest_paths(Config.from_env(), [p])
+
+    doc_id = results[0].document_id
+    created.append(doc_id)
+    try:
+        assert results[0].status == "ingested"
+        assert "queued annotate" in results[0].detail
+        job = conn.execute(
+            "SELECT kind, payload FROM jobs WHERE document_id=%s ORDER BY id DESC LIMIT 1",
+            (doc_id,),
+        ).fetchone()
+        assert job is not None and job["kind"] == "annotate"
+        assert list(job["payload"]["chain"]) == [
+            "semantic_enrich",
+            "canonicalize",
+            "visual_extract",
+        ]
+        stats = conn.execute(
+            "SELECT n_sentences FROM document_stats WHERE document_id=%s", (doc_id,)
+        ).fetchone()
+        assert stats is not None and stats["n_sentences"] == 2
+    finally:
+        conn.execute("DELETE FROM jobs WHERE document_id=%s", (doc_id,))
+
+
+def test_ingest_paths_does_not_rechain_duplicates(pg, tmp_path, monkeypatch):
+    conn, created = pg
+    monkeypatch.setattr(pipeline, "ObjectStore", FakeStore)
+    p = _txt(tmp_path, f"dupch-{_itdb.unique_sha()[:8]}.txt", "Same. Bytes.")
+
+    first = pipeline.ingest_paths(Config.from_env(), [p])[0]
+    created.append(first.document_id)
+    try:
+        again = pipeline.ingest_paths(Config.from_env(), [p])[0]
+        assert again.status == "duplicate"
+        n = conn.execute(
+            "SELECT count(*) AS n FROM jobs WHERE document_id=%s AND kind='annotate'",
+            (first.document_id,),
+        ).fetchone()["n"]
+        assert n == 1  # the duplicate did not re-enter the pipeline
+    finally:
+        conn.execute("DELETE FROM jobs WHERE document_id=%s", (first.document_id,))
+
+
+def test_ingest_paths_chain_none_disables_the_pipeline(pg, tmp_path, monkeypatch):
+    conn, created = pg
+    monkeypatch.setattr(pipeline, "ObjectStore", FakeStore)
+    p = _txt(tmp_path, f"noch-{_itdb.unique_sha()[:8]}.txt", "Gamma.")
+
+    r = pipeline.ingest_paths(Config.from_env(), [p], chain=None)[0]
+
+    created.append(r.document_id)
+    n = conn.execute(
+        "SELECT count(*) AS n FROM jobs WHERE document_id=%s", (r.document_id,)
+    ).fetchone()["n"]
+    assert n == 0
+
+
 def test_ingest_file_defaults_to_unowned(tmp_path, monkeypatch):
     """Operator CLI ingest passes no owner and must produce an unowned document."""
     path = tmp_path / "cli.txt"
@@ -267,3 +340,107 @@ def test_ingest_file_defaults_to_unowned(tmp_path, monkeypatch):
     pipeline.ingest_file(object(), FakeStore(), path)  # type: ignore[arg-type]
 
     assert captured["owner_principal_id"] is None
+
+
+# --- bytes-first core + source adapters (URL ingest) -----------------------------------------
+
+
+def test_ingest_bytes_applies_title_and_source_url(pg, store):
+    conn, created = pg
+    marker = _itdb.unique_sha()[:8]
+    r = pipeline.ingest_bytes(
+        conn,
+        store,
+        f"One {marker}. Two.".encode(),
+        filename=f"note-{marker}.txt",
+        title="Chosen Title",
+        source_url="https://arxiv.org/pdf/9999.99999",
+    )
+    created.append(r.document_id)
+    assert r.status == "ingested"
+    row = conn.execute(
+        "SELECT title, metadata->>'source_url' AS src FROM documents WHERE id=%s",
+        (r.document_id,),
+    ).fetchone()
+    assert row["title"] == "Chosen Title"
+    assert row["src"] == "https://arxiv.org/pdf/9999.99999"
+
+
+def test_ingest_file_delegates_to_ingest_bytes(pg, store, tmp_path):
+    """The path wrapper and the bytes core must produce identical documents."""
+    conn, created = pg
+    path = _txt(tmp_path, f"wrap-{_itdb.unique_sha()[:8]}.txt", "Alpha. Beta.")
+    r = pipeline.ingest_file(conn, store, path)
+    created.append(r.document_id)
+    assert r.status == "ingested"
+    assert r.path == str(path)  # wrapper keeps the filesystem path as the label
+
+
+class _FakeSource:
+    name = "fake"
+
+    def __init__(self, fetched=None, exc: Exception | None = None) -> None:
+        self._fetched = fetched
+        self._exc = exc
+
+    def matches(self, ref: str) -> bool:
+        return True
+
+    def fetch(self, ref: str):
+        if self._exc is not None:
+            raise self._exc
+        return self._fetched
+
+
+def test_ingest_refs_fetches_and_persists(pg, monkeypatch):
+    from doc_ray.adapters import document_source as source_mod
+    from doc_ray.adapters.document_source import Fetched
+
+    conn, created = pg
+    marker = _itdb.unique_sha()[:8]
+    fetched = Fetched(
+        data=f"Ref alpha {marker}. Ref beta.".encode(),
+        filename=f"ref-{marker}.txt",
+        source_url=f"https://example.org/{marker}",
+        title="Fetched Title",
+    )
+    monkeypatch.setattr(source_mod, "resolve_source", lambda ref: _FakeSource(fetched))
+    monkeypatch.setattr(pipeline, "ObjectStore", FakeStore)
+
+    r = pipeline.ingest_refs(Config.from_env(), [f"https://example.org/{marker}"], chain=None)[0]
+
+    created.append(r.document_id)
+    assert r.status == "ingested"
+    assert r.path == f"https://example.org/{marker}"  # result labeled by the ref
+    row = conn.execute(
+        "SELECT title, metadata->>'source_url' AS src FROM documents WHERE id=%s",
+        (r.document_id,),
+    ).fetchone()
+    assert row["title"] == "Fetched Title"
+    assert row["src"] == f"https://example.org/{marker}"
+
+
+def test_ingest_refs_records_fetch_failure_without_a_row(pg, monkeypatch):
+    from doc_ray.adapters import document_source as source_mod
+
+    monkeypatch.setattr(
+        source_mod, "resolve_source", lambda ref: _FakeSource(exc=RuntimeError("net down"))
+    )
+    monkeypatch.setattr(pipeline, "ObjectStore", FakeStore)
+
+    r = pipeline.ingest_refs(Config.from_env(), ["https://example.org/x"], chain=None)[0]
+
+    assert r.status == "failed" and r.document_id is None
+    assert "net down" in r.detail
+
+
+def test_ingest_refs_rejects_unresolvable_ref(pg, monkeypatch):
+    from doc_ray.adapters import document_source as source_mod
+
+    monkeypatch.setattr(source_mod, "resolve_source", lambda ref: None)
+    monkeypatch.setattr(pipeline, "ObjectStore", FakeStore)
+
+    r = pipeline.ingest_refs(Config.from_env(), ["https://nowhere.example/x"], chain=None)[0]
+
+    assert r.status == "failed" and r.document_id is None
+    assert "no source adapter" in r.detail

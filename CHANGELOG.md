@@ -19,6 +19,29 @@ doc-ray carries **one global version** covering both the application package
 (`docray_schema_version()`). They are kept in lockstep by
 `scripts/check_version_consistency.py`, which fails the build on any drift.
 
+## [Unreleased]
+
+### Fixed
+
+- **MCP: the page-size cap is now visible, never silent (BL-162).** The GraphQL API clamps
+  every `limit` to 200 (`MAX_PAGE_SIZE`) silently; the MCP layer used to forward the raw
+  request and interpret the response against it, so `search_sentences(limit=500)` returning
+  200 clamped rows reported `limit_reached: false` — truncation dressed as an exhaustive
+  result. Every limit-taking read tool now forwards the *effective* limit
+  (`shaping.effective_limit`, mirrored from the API cap by a contract test), and a clamped
+  search reports itself via `coverage.requested_limit` and the `note`. Paginated tool
+  docstrings now name the **last** row's cursor (a non-last row's cursor overlaps the
+  previous page by n−1 rows and masquerades as "the cursor re-served page one" — the
+  false pagination bug in the 2026-07-26 "Stress-Testing the Librarian" operator report).
+  Response-shaping helpers moved to `entrypoints/mcp/shaping.py` (D-015 split).
+- **CLI/bulk ingest now hands every new document to the default pipeline (BL-162).**
+  `application.pipeline.ingest_paths` enqueues `DEFAULT_PIPELINE_CHAIN` and refreshes
+  `document_stats` per newly ingested document — parity with queued API uploads
+  (`handle_ingest`) and the Spaces loader (`de12dfe`) — ending the "silent no-layer"
+  state (real sentences, `sentenceCount` 0, no annotation layers, no error). Duplicates
+  and failures never chain; `chain=None` opts out; the queued head job is named in the
+  result detail.
+
 ## [1.48.0]
 
 ### Added

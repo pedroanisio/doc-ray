@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -15,6 +16,7 @@ from doc_ray.adapters.object_store import ObjectStore
 from doc_ray.config import Config
 from doc_ray.domain import provenance as prov_mod
 from doc_ray.domain import sentences as sent_mod
+from doc_ray.domain.jobs import DEFAULT_PIPELINE_CHAIN
 from doc_ray.domain.progress import report_progress
 
 
@@ -171,22 +173,52 @@ def ingest_file(
     )
 
 
-def ingest_paths(cfg: Config, paths: list[Path]) -> list[IngestResult]:
+def ingest_paths(
+    cfg: Config,
+    paths: list[Path],
+    *,
+    chain: Sequence[str] | None = DEFAULT_PIPELINE_CHAIN,
+) -> list[IngestResult]:
     """Ingest every path, sharing one object store and database connection.
+
+    Every *new* document is handed to the default post-ingest pipeline and gets
+    its read-model rollup refreshed, exactly like a queued API upload
+    (``handle_ingest``) — ``DEFAULT_PIPELINE_CHAIN`` is "the pipeline every
+    ingest path owes a document". Before this, the CLI/bulk path stopped at
+    text + sentences, leaving the document with ``sentenceCount`` 0 and no
+    annotation layers, no failed job, and no error anywhere (the silent
+    no-layer state, BL-162). Duplicates and failures never enter the chain —
+    the same guard the Spaces loader applies.
 
     Args:
         cfg: Runtime configuration.
         paths: Files to ingest.
+        chain: Post-ingest job kinds to enqueue for each new document; pass
+            ``None`` (or ``()``) to opt out of the pipeline entirely.
 
     Returns:
-        One ``IngestResult`` per input path, in order.
+        One ``IngestResult`` per input path, in order. A chained document's
+        ``detail`` names the queued head job (``", queued annotate"``).
     """
+    # Imported lazily: the job machinery pulls in the queue adapter and the
+    # handler registry, which this module must not require at import time
+    # (job_handlers imports this module's ingest_file the same lazy way).
+    from doc_ray.application.document_stats import refresh_document_stats
+    from doc_ray.application.jobs import enqueue_chain_head
+
     store = ObjectStore(cfg)
     store.ensure_bucket()
     results: list[IngestResult] = []
     with db.connect(cfg) as conn:
         for p in paths:
-            results.append(ingest_file(conn, store, p))
+            result = ingest_file(conn, store, p)
+            if result.status == "ingested" and result.document_id is not None:
+                refresh_document_stats(conn, result.document_id)
+                if chain:
+                    job_id = enqueue_chain_head(conn, result.document_id, chain)
+                    if job_id:
+                        result.detail += f", queued {chain[0]}"
+            results.append(result)
     return results
 
 

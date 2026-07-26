@@ -16,73 +16,33 @@ from typing import Any
 
 import httpx
 
+from doc_ray.entrypoints.mcp.shaping import (
+    MAX_KWIC_WINDOW_CHARS,
+    MAX_PAGE_SIZE,
+    _clip_windows,
+    _search_coverage,
+    clip_text,
+    effective_limit,
+)
 from doc_ray.entrypoints.mcp.tokens import caller_token, current_token
 
 #: GraphQL endpoint to forward to (mirrors webapp/graphql_client.py).
 API_URL = os.environ.get("DOCRAY_API_URL", "http://localhost:8000/graphql")
 _TIMEOUT = float(os.environ.get("DOCRAY_MCP_TIMEOUT_SECONDS", "30"))
 
-#: Re-exported for callers and tests; the request-aware resolver is
-#: :func:`~doc_ray.entrypoints.mcp.tokens.current_token`.
-__all__ = ["caller_token", "current_token", "visual_review"]
-
-#: Per-window character cap for KWIC text fields. Upstream sentence segmentation
-#: can produce mega-sentences (e.g. a whole table of contents extracted as one
-#: sentence); windows are clipped with an explicit marker so tool responses stay
-#: bounded and truncation is never silent.
-MAX_KWIC_WINDOW_CHARS = 500
-
-
-def clip_text(text: str | None, cap: int) -> str | None:
-    """Clip *text* to *cap* characters, marking exactly how much was dropped."""
-    if text is None or len(text) <= cap:
-        return text
-    return f"{text[:cap]}… [+{len(text) - cap} chars]"
-
-
-def _clip_windows(row: dict[str, Any], fields: tuple[str, ...]) -> dict[str, Any]:
-    """Clip each KWIC text window of *row* to :data:`MAX_KWIC_WINDOW_CHARS`."""
-    for field in fields:
-        value = row.get(field)
-        if isinstance(value, str):
-            row[field] = clip_text(value, MAX_KWIC_WINDOW_CHARS)
-    return row
-
-
-def _search_coverage(hits: list[dict[str, Any]], limit: int) -> tuple[dict[str, Any], str | None]:
-    """Summarise where *hits* fall in the text, and steer when the cap was reached.
-
-    The failure mode this addresses (BL-145): a high-frequency term floods one
-    region and starves the rest, so a sparse-looking result reads as *missing
-    content* when it is really a *retrieval* problem. Reporting the ordinal span
-    and flagging a maxed-out result turns that into a legible query diagnosis the
-    agent can act on — narrow the term, or read the untouched ordinal ranges.
-    """
-    ordinals = [h["ordinal"] for h in hits if isinstance(h.get("ordinal"), int)]
-    limit_reached = len(hits) >= limit
-    coverage: dict[str, Any] = {
-        "hit_count": len(hits),
-        "ordinal_min": min(ordinals) if ordinals else None,
-        "ordinal_max": max(ordinals) if ordinals else None,
-        "limit": limit,
-        "limit_reached": limit_reached,
-    }
-    if not limit_reached:
-        return coverage, None
-    if ordinals:
-        note = (
-            f"Returned the maximum {limit} hits, spanning ordinals "
-            f"{coverage['ordinal_min']}–{coverage['ordinal_max']}. A common term can flood one "
-            f"region and hide the rest — narrow with a rarer, scene-specific term, or use "
-            f"read_document_sentences by ordinal range (e.g. beyond {coverage['ordinal_max']}) "
-            f"to cover the untouched text."
-        )
-    else:
-        note = (
-            f"Returned the maximum {limit} hits. A common term can flood results — narrow with "
-            f"a rarer, scene-specific term, or use read_document_sentences by ordinal range."
-        )
-    return coverage, note
+#: Re-exported for callers and tests: the token resolvers (the request-aware
+#: one is :func:`~doc_ray.entrypoints.mcp.tokens.current_token`) and the
+#: response-shaping helpers that lived here before the D-015 split
+#: (:mod:`doc_ray.entrypoints.mcp.shaping`).
+__all__ = [
+    "MAX_KWIC_WINDOW_CHARS",
+    "MAX_PAGE_SIZE",
+    "caller_token",
+    "clip_text",
+    "current_token",
+    "effective_limit",
+    "visual_review",
+]
 
 
 class ToolCallError(RuntimeError):
@@ -290,10 +250,12 @@ async def search_sentences(
     beyond ``coverage.ordinal_max`` with ``read_document_sentences``.
 
     Returns ``{hits, coverage, note}``: ``hits`` is the keyword-in-context rows
-    (pass a row's ``cursor`` as ``after`` for the next page; oversized windows are
-    clipped with an explicit ``… [+N chars]`` marker); ``coverage`` reports the
-    hit count and ordinal span; ``note`` is a steer (or ``null``) when the result
-    may be flooded.
+    (pass the last row's ``cursor`` as ``after`` for the next page; oversized
+    windows are clipped with an explicit ``… [+N chars]`` marker); ``coverage``
+    reports the hit count and ordinal span; ``note`` is a steer (or ``null``)
+    when the result may be flooded. ``limit`` is served up to the platform
+    page-size maximum of 200 — a larger request is clamped, and the clamp is
+    reported via ``coverage.requested_limit`` and the ``note``.
 
     ``response_format="concise"`` drops the row id, title, and per-row cursor
     (the last row keeps one, which is the only cursor paging uses), leaving the
@@ -308,13 +270,27 @@ async def search_sentences(
         if concise
         else ("id documentId title ordinal pre hit post cursor")
     )
+    served = effective_limit(limit)
     data = await gql(
         "query($t:String!,$d:ID,$l:Int!,$a:String)"
         f"{{searchSentences(term:$t,documentId:$d,limit:$l,after:$a){{{fields}}}}}",
-        {"t": term, "d": document_id, "l": limit, "a": after},
+        {"t": term, "d": document_id, "l": served, "a": after},
     )
     hits = [_clip_windows(hit, ("pre", "hit", "post")) for hit in data["searchSentences"]]
-    coverage, note = _search_coverage(hits, limit)
+    coverage, note = _search_coverage(
+        hits,
+        served,
+        term=term,
+        paged=after is not None,
+        document_scoped=document_id is not None,
+    )
+    if served != limit:
+        coverage["requested_limit"] = limit
+        clamp_note = (
+            f"requested limit {limit} exceeds the platform maximum {MAX_PAGE_SIZE}; "
+            f"{served} hits per page were served."
+        )
+        note = clamp_note if note is None else f"{clamp_note} {note}"
     if concise:
         # A corpus-wide hit is unattributable without its document, so documentId
         # is only dropped when the caller already scoped the search to one.
@@ -373,7 +349,7 @@ async def read_document_sentences(
         f"{{{fields}}}}}}}",
         {
             "id": document_id,
-            "l": limit,
+            "l": effective_limit(limit),
             "a": after,
             "fo": from_ordinal,
             "to": to_ordinal,
@@ -401,7 +377,7 @@ async def full_text_search(query: str, limit: int = 25) -> list[dict[str, Any]]:
     _require_nonempty(query, "query")
     data = await gql(
         "query($q:String!,$l:Int!){fullTextSearch(query:$q,limit:$l){documentId title rank}}",
-        {"q": query, "l": limit},
+        {"q": query, "l": effective_limit(limit)},
     )
     hits: list[dict[str, Any]] = data["fullTextSearch"]
     return hits
@@ -415,13 +391,16 @@ async def list_documents(
 ) -> list[dict[str, Any]]:
     """List documents visible to you, newest first.
 
-    Pass a row's ``cursor`` as ``after`` to fetch the next page.
+    Pass the last row's ``cursor`` as ``after`` to fetch the next page (a
+    non-last row's cursor re-serves the rows after it, which overlaps the page
+    you already have). ``limit`` is served up to the platform page-size maximum
+    of 200; a larger request gets the maximum.
     """
     data = await gql(
         "query($l:Int!,$dt:String,$s:String,$a:String)"
         "{documents(limit:$l,docType:$dt,status:$s,after:$a)"
         "{id title docType language status pageCount charCount sentenceCount createdAt cursor}}",
-        {"l": limit, "dt": doc_type, "s": status, "a": after},
+        {"l": effective_limit(limit), "dt": doc_type, "s": status, "a": after},
     )
     docs: list[dict[str, Any]] = data["documents"]
     return docs
@@ -466,13 +445,13 @@ async def list_collections(
     """List document collections you can see (manual groupings and smart rules).
 
     Collections are doc-ray's native container for grouping documents — prefer
-    them over ad-hoc tags. Pass ``kind`` to filter (e.g. ``manual``); pass a
-    row's ``cursor`` as ``after`` to page.
+    them over ad-hoc tags. Pass ``kind`` to filter (e.g. ``manual``); pass the
+    last row's ``cursor`` as ``after`` to page.
     """
     data = await gql(
         "query($l:Int!,$k:String,$a:String){collections(limit:$l,kind:$k,after:$a)"
         f"{{{COLLECTION_FIELDS}}}}}",
-        {"l": limit, "k": kind, "a": after},
+        {"l": effective_limit(limit), "k": kind, "a": after},
     )
     rows: list[dict[str, Any]] = data["collections"]
     return rows
@@ -487,12 +466,12 @@ async def list_lenses(limit: int = 50, after: str | None = None) -> list[dict[st
     (Wikidata-linkable) identities shared across the whole corpus. This is
     ``list_collections`` narrowed to ``isScope`` rows. Promoting a collection to a
     lens is a curation decision (``promote_collection_to_lens``), not a mechanical
-    one. Pass a row's ``cursor`` as ``after`` to page. ``documentCount`` is scoped
-    to the documents your token can see.
+    one. Pass the last row's ``cursor`` as ``after`` to page. ``documentCount``
+    is scoped to the documents your token can see.
     """
     data = await gql(
         f"query($l:Int!,$a:String){{lenses(limit:$l,after:$a){{{COLLECTION_FIELDS}}}}}",
-        {"l": limit, "a": after},
+        {"l": effective_limit(limit), "a": after},
     )
     rows: list[dict[str, Any]] = data["lenses"]
     return rows
@@ -510,7 +489,7 @@ async def get_collection(collection_id: str, document_limit: int = 50) -> dict[s
     data = await gql(
         "query($id:ID!,$dl:Int!){collection(id:$id)"
         f"{{{COLLECTION_FIELDS} documents(limit:$dl){{id title docType status}}}}}}",
-        {"id": collection_id, "dl": document_limit},
+        {"id": collection_id, "dl": effective_limit(document_limit)},
     )
     collection: dict[str, Any] | None = data["collection"]
     return collection
@@ -552,17 +531,17 @@ async def corpus_shard(
     """Read one shard of the corpus — a disjoint slice of documents for map-reduce.
 
     Returns the document summaries in shard ``shard_index`` of ``shard_count``
-    (0-based), newest first. Walk ``after`` cursors to exhaust a shard; run shards
-    ``0..shard_count-1`` (in parallel across agents) to cover the whole corpus with
-    no overlap. Each row's ``id`` feeds ``read_document_sentences``/``get_document``
-    to pull that document's content.
+    (0-based), newest first. Page with the last row's ``cursor`` as ``after``
+    to exhaust a shard; run shards ``0..shard_count-1`` (in parallel across
+    agents) to cover the whole corpus with no overlap. Each row's ``id`` feeds
+    ``read_document_sentences``/``get_document`` to pull that document's content.
     """
     _require_shard(shard_index, shard_count)
     data = await gql(
         "query($si:Int!,$sc:Int!,$l:Int!,$a:String)"
         "{corpusShard(shardIndex:$si,shardCount:$sc,limit:$l,after:$a)"
         "{id title docType status pageCount charCount createdAt cursor}}",
-        {"si": shard_index, "sc": shard_count, "l": limit, "a": after},
+        {"si": shard_index, "sc": shard_count, "l": effective_limit(limit), "a": after},
     )
     docs: list[dict[str, Any]] = data["corpusShard"]
     return docs
@@ -601,7 +580,7 @@ async def entity_frequency(
     data = await gql(
         "query($d:ID,$e:String,$l:Int!){entityFrequency(documentId:$d,entityType:$e,limit:$l)"
         "{text entityType count}}",
-        {"d": document_id, "e": entity_type, "l": limit},
+        {"d": document_id, "e": entity_type, "l": effective_limit(limit)},
     )
     rows: list[dict[str, Any]] = data["entityFrequency"]
     return rows
@@ -620,7 +599,7 @@ async def lexeme_kwic(
         "query($u:ID!,$d:ID,$l:Int!){lexeme(uid:$u){uid lemma pos "
         "occurrences(documentId:$d,limit:$l)"
         "{documentId title charStart surface kwic pre hit post}}}",
-        {"u": uid, "d": document_id, "l": limit},
+        {"u": uid, "d": document_id, "l": effective_limit(limit)},
     )
     lexeme = data.get("lexeme") or {}
     occ: list[dict[str, Any]] = lexeme.get("occurrences", [])
@@ -640,7 +619,7 @@ async def document_images(
         "query($d:ID!,$l:Int!,$a:String){documentImages(documentId:$d,limit:$l,after:$a)"
         "{id pageNumber source widthPx heightPx imageClass meanSaturation meanValue "
         "contrast edgeDensity aspectRatio dominantColors{hex proportion} cursor}}",
-        {"d": document_id, "l": limit, "a": after},
+        {"d": document_id, "l": effective_limit(limit), "a": after},
     )
     rows: list[dict[str, Any]] = data["documentImages"]
     return rows
@@ -674,7 +653,7 @@ async def cross_modal_image_search(query: str, limit: int = 25) -> list[dict[str
     data = await gql(
         "query($q:String!,$l:Int!){crossModalImageSearch(query:$q,limit:$l)"
         "{id documentId pageNumber source imageClass similarity}}",
-        {"q": query, "l": limit},
+        {"q": query, "l": effective_limit(limit)},
     )
     rows: list[dict[str, Any]] = data["crossModalImageSearch"]
     return rows
@@ -690,7 +669,7 @@ async def visual_captions(document_id: str, limit: int = 100) -> list[dict[str, 
     data = await gql(
         "query($d:ID!,$l:Int!){visualCaptions(documentId:$d,limit:$l)"
         "{id documentImageId pageNumber caption model groundingScore}}",
-        {"d": document_id, "l": limit},
+        {"d": document_id, "l": effective_limit(limit)},
     )
     rows: list[dict[str, Any]] = data["visualCaptions"]
     return rows

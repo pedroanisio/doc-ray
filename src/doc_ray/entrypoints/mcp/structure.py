@@ -107,6 +107,14 @@ async def term_frequency(terms: list[str], document_id: str | None = None) -> li
     term is absent from the lexicon, so a search will likely return nothing) and a
     steering ``note`` on the risky ones.
 
+    **Not every term can be counted here.** The lexeme index tokenizes on
+    underscores and digits, so it cannot hold ``shared_buffers``, ``pg_stat_activity``
+    or ``COVID-19`` as single entries. Those come back ``indexable: false``,
+    ``floodRisk: "unknown"``, with ``uses``/``share``/``attested`` all ``null`` — the
+    index cannot answer, which is NOT the same as the term being absent. ``parts``
+    shows the words it does hold (``shared``, ``buffers``) as evidence. Do not abandon
+    such a term: ``search_sentences`` matches a literal substring and finds it.
+
     The count is the lexeme-lemma frequency (matched with the lexeme layer's
     normalization). It is a corpus-saturation signal, a strong proxy for — not an
     exact predictor of — any one search tool's hit count. Corpus-wide only for now:
@@ -114,7 +122,7 @@ async def term_frequency(terms: list[str], document_id: str | None = None) -> li
     return corpus numbers mislabelled as document-scoped.
 
     Returns a list of ``{term, normalizedTerm, uses, totalUses, share, floodRisk,
-    attested, note}``, one per distinct term, in input order.
+    attested, indexable, parts, note}``, one per distinct term, in input order.
     """
     if document_id is not None:
         _require_uuid(document_id, "document_id")
@@ -135,7 +143,8 @@ async def term_frequency(terms: list[str], document_id: str | None = None) -> li
         )
     data = await gql(
         "query($t:[String!]!){termFrequency(terms:$t)"
-        "{term normalizedTerm uses totalUses share floodRisk attested note}}",
+        "{term normalizedTerm uses totalUses share floodRisk attested indexable "
+        "parts{part uses} note}}",
         {"t": terms},
     )
     return list(data["termFrequency"])

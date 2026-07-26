@@ -15,7 +15,7 @@ import pytest
 
 from doc_ray.adapters import persistence_read_terms as terms_read
 from doc_ray.domain import term_frequency as tf
-from doc_ray.domain.lexemes import norm_lemma
+from doc_ray.domain.lexemes import iter_words, norm_lemma
 from doc_ray.entrypoints.mcp import corpus, structure
 
 # --------------------------------------------------------------------------
@@ -89,12 +89,15 @@ def test_prepare_terms_deduplicates_by_normalized_key_preserving_first_order():
 
 def test_prepare_terms_drops_only_whitespace_blanks_never_silently_drops_a_token():
     # Whitespace-only inputs normalize to "" and are dropped — they are not terms.
-    # A non-empty non-word token (an em dash) is KEPT: it comes back unattested
-    # rather than silently vanishing, honouring the repo's no-silent-drop rule.
+    # A non-empty non-word token (an em dash) is KEPT rather than silently
+    # vanishing, honouring the repo's no-silent-drop rule. BL-164: it comes back
+    # *unknown*, not "unattested" — the lexeme layer never tokenizes punctuation,
+    # so the index cannot represent it and has no evidence either way.
     prepared = tf.prepare_terms(["   ", "spice", "\t", "—"])
     assert [p.key for p in prepared] == ["spice", "—"]
     (_, dash) = tf.build_verdicts(prepared, {"spice": 10}, 1000)
-    assert dash.attested is False and dash.flood_risk == "low"
+    assert dash.indexable is False
+    assert dash.attested is None and dash.flood_risk == tf.UNKNOWN
 
 
 def test_prepare_terms_rejects_an_empty_or_all_blank_batch():
@@ -152,7 +155,141 @@ def test_build_verdicts_preserves_input_order_and_length():
 
 
 # --------------------------------------------------------------------------
-# 4. MCP tool — batching, unsupported document scope, empty-batch rejection.
+# 4. BL-164 — terms the lexeme index structurally cannot represent.
+#
+# The defect: `lexemes._WORD_RE` excludes `_` and `\d` from word characters, so
+# the lexeme index can never hold a token containing either. `norm_lemma` — the
+# lookup key builder — does not tokenize, so the key `shared_buffers` was queried
+# against an index that cannot contain it. The lookup returned 0 and the verdict
+# reported `attested=false` + "a search for it will most likely return nothing"
+# for a term that occurs throughout the corpus. Measured against production:
+# `term_frequency("shared_buffers")` said unattested while `search_sentences`
+# returned a full page of hits and tripped `limit_reached`.
+#
+# The rule these tests pin: the pre-flight may say "absent" ONLY for terms the
+# index can actually represent. For anything else the honest answer is unknown.
+# --------------------------------------------------------------------------
+
+
+UNINDEXABLE = [
+    "shared_buffers",  # underscore compound — the reported case
+    "work_mem",
+    "pg_stat_activity",
+    "autovacuum_max_workers",
+    "COVID-19",  # hyphen + digits: iter_words truncates to "COVID"
+    "IPv6",  # trailing digit: truncates to "IPv"
+    "x86_64",  # both defects at once: truncates to "x"
+    "MP3",
+]
+
+INDEXABLE = [
+    "spice",
+    "sandworm",
+    "B-tree",  # hyphen between letter runs survives the tokenizer intact
+    "don't",  # internal apostrophe likewise
+    "Zeitgeist",
+]
+
+
+@pytest.mark.parametrize("term", UNINDEXABLE)
+def test_a_term_the_lexeme_index_cannot_tokenize_is_flagged_unindexable(term):
+    (prepared,) = tf.prepare_terms([term])
+    assert prepared.indexable is False, f"{term!r} must not be looked up as one lexeme"
+
+
+@pytest.mark.parametrize("term", INDEXABLE)
+def test_an_ordinary_word_is_still_indexable_and_looked_up_directly(term):
+    (prepared,) = tf.prepare_terms([term])
+    assert prepared.indexable is True
+    assert prepared.parts == (prepared.key,)
+
+
+@pytest.mark.parametrize("term", INDEXABLE)
+def test_the_tokenizer_and_the_lookup_key_agree_for_every_indexable_term(term):
+    # The root-cause invariant. A term is indexable only if the production
+    # tokenizer yields exactly one word whose normalized form IS the lookup key —
+    # i.e. only if the index can actually contain that key. This is the guard that
+    # fails if either `_WORD_RE` or `norm_lemma` drifts away from the other.
+    (prepared,) = tf.prepare_terms([term])
+    words = [norm_lemma(w) for w, _, _ in iter_words(term)]
+    assert words == [prepared.key]
+
+
+@pytest.mark.parametrize("term", UNINDEXABLE)
+def test_an_unindexable_term_is_never_reported_as_unattested(term):
+    # The defect verbatim: a zero count against an index that cannot hold the key
+    # is not evidence of absence, and must never be dressed as one.
+    prepared = tf.prepare_terms([term])
+    (verdict,) = tf.build_verdicts(prepared, {}, 1_000_000)
+    assert verdict.attested is None, "absence cannot be claimed from an impossible lookup"
+    assert verdict.uses is None, "0 would read as a measured count; the count is unknown"
+    assert verdict.share is None
+    assert verdict.flood_risk == tf.UNKNOWN
+    note = (verdict.note or "").lower()
+    assert "unattested" not in note
+    assert "return nothing" not in note
+
+
+def test_an_unindexable_terms_note_explains_the_gap_and_names_the_tool_that_works():
+    # search_sentences matches a case-insensitive literal substring, so it handles
+    # these terms correctly. The note must send the caller there instead of
+    # letting them abandon a perfectly good query.
+    prepared = tf.prepare_terms(["shared_buffers"])
+    (verdict,) = tf.build_verdicts(prepared, {"shared": 12, "buffers": 70}, 1_000_000)
+    note = verdict.note or ""
+    assert "search_sentences" in note
+    assert "unknown" in note.lower()
+
+
+def test_an_unindexable_term_reports_the_parts_the_index_actually_holds():
+    # Evidence, not just a shrug: the caller sees which lexemes the compound was
+    # split into and how common each is, so they can judge for themselves.
+    prepared = tf.prepare_terms(["shared_buffers"])
+    assert prepared[0].parts == ("shared", "buffers")
+    (verdict,) = tf.build_verdicts(prepared, {"shared": 12, "buffers": 70}, 1_000_000)
+    assert [(p.part, p.uses) for p in verdict.parts] == [("shared", 12), ("buffers", 70)]
+
+
+def test_lookup_keys_asks_the_adapter_for_the_parts_of_unindexable_terms():
+    # The resolver reads counts for these keys in the SAME single statement — the
+    # part counts must not cost an extra round-trip (the D-024 batching property).
+    prepared = tf.prepare_terms(["shared_buffers", "spice"])
+    keys = tf.lookup_keys(prepared)
+    assert set(keys) == {"shared", "buffers", "spice"}
+    assert len(keys) == len(set(keys)), "keys must be de-duplicated before the query"
+
+
+def test_lookup_keys_never_asks_for_a_key_the_index_cannot_hold():
+    # The wasted half of the defect: querying `shared_buffers` was guaranteed to
+    # miss. Nothing unindexable may reach the SQL.
+    prepared = tf.prepare_terms(UNINDEXABLE)
+    for key in tf.lookup_keys(prepared):
+        assert "_" not in key and not any(ch.isdigit() for ch in key)
+
+
+def test_a_genuinely_unattested_word_is_still_reported_as_absent():
+    # The fix must not blunt the real signal: a well-formed word the index CAN
+    # hold, with no uses, is genuinely absent and must still say so.
+    prepared = tf.prepare_terms(["zephyrquux"])
+    (verdict,) = tf.build_verdicts(prepared, {}, 1_000_000)
+    assert verdict.indexable is True
+    assert verdict.attested is False and verdict.uses == 0
+    assert "unattested" in (verdict.note or "").lower()
+
+
+def test_an_unindexable_term_does_not_poison_the_batch():
+    # Mixed batches are the normal case; the indexable terms keep exact verdicts.
+    prepared = tf.prepare_terms(["shared_buffers", "the", "zephyrquux"])
+    compound, common, absent = tf.build_verdicts(
+        prepared, {"shared": 12, "buffers": 70, "the": 50_000}, 1_000_000
+    )
+    assert compound.flood_risk == tf.UNKNOWN
+    assert (common.flood_risk, common.attested, common.uses) == ("high", True, 50_000)
+    assert (absent.flood_risk, absent.attested, absent.uses) == ("low", False, 0)
+
+
+# --------------------------------------------------------------------------
+# 5. MCP tool — batching, unsupported document scope, empty-batch rejection.
 # --------------------------------------------------------------------------
 
 
@@ -195,17 +332,31 @@ def _patch(monkeypatch, payload):
     return client
 
 
-def _row(term, uses, total, risk, attested, note=None):
+def _row(term, uses, total, risk, attested, note=None, indexable=True, parts=()):
     return {
         "term": term,
         "normalizedTerm": term.lower(),
         "uses": uses,
         "totalUses": total,
-        "share": (uses / total) if total else 0.0,
+        "share": (uses / total) if (total and uses is not None) else 0.0,
         "floodRisk": risk,
         "attested": attested,
+        "indexable": indexable,
+        "parts": [{"part": p, "uses": u} for p, u in parts],
         "note": note,
     }
+
+
+@pytest.mark.asyncio
+async def test_term_frequency_selects_the_indexability_fields_over_graphql(monkeypatch):
+    # BL-164: the honesty signal is worthless if the MCP tool does not ask for it.
+    # (That the selection is *valid* against the schema is proven in
+    # test_mcp_schema_contract.py; this pins that it is actually requested.)
+    client = _patch(monkeypatch, {"data": {"termFrequency": []}})
+    await structure.term_frequency(["shared_buffers"])
+    query = client.calls[0][1]["query"]
+    for field in ("indexable", "parts", "part"):
+        assert field in query, f"term_frequency must select {field}"
 
 
 @pytest.mark.asyncio
