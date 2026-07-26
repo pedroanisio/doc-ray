@@ -1,5 +1,10 @@
 # extract_phrases.py
 
+## Disclaimer
+
+This work is subject to the methodological caveats and commitments described in [@DISCLAIMER.md](../DISCLAIMER.md).
+> No statement or premise not backed by a real logical definition or verifiable reference should be taken for granted.
+
 Extract **all sentences** from a document — one per line.
 
 Reads many document formats, rejoins lines that were wrapped mid-sentence (as

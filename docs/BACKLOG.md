@@ -41,8 +41,9 @@ pytest src/doc_ray/tests/test_backlog.py
 ```
 
 **2026-07-04 merge:** this backlog absorbed the 10 backlog-shaped candidates
-(`BL-016`–`BL-025`) from `docs/doc_ray_improvement_proposal.md` — see that
-document for the narrative gap analysis behind them. `BL-009`/`BL-010`/
+(`BL-016`–`BL-025`) from `doc_ray_improvement_proposal.md` (archived 2026-07-26
+to the untracked `.doc-quarantine/deprecated/docs/`; TL;DR preserved in
+`quarantine-summaries.md`). `BL-009`/`BL-010`/
 `BL-011`/`BL-014` statuses were also reconciled against the live tree: they
 had shipped but were still marked `parked`/`ready`.
 

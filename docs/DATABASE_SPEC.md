@@ -10,6 +10,10 @@ disclaimer:
 
 # doc-ray — Database Specification
 
+> **Historical** — this specification describes the v0 schema (migrations
+> 001–012). The current, generated and test-gated truth is
+> [docs/DATABASE.md](DATABASE.md).
+
 **Status:** documents the foundational migrations 001–012 (§7) — the core
 document/NLP-annotation model this spec's invariants and design principles
 were derived from. The schema has since grown well past 012 (canonical-entity

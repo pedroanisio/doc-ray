@@ -52,3 +52,4 @@ ENV-WORKER.md
 
 # Local lab experiments (POCs, scratch models, benchmark output) — never shipped.
 experiments/
+.doc-quarantine/
