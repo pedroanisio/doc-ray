@@ -24,6 +24,7 @@ from doc_ray.entrypoints.api.canonical_types import (
     ResolutionReview,
     UnresolvedMention,
 )
+from doc_ray.entrypoints.api.classification_query import ClassificationQueries
 from doc_ray.entrypoints.api.collection_query import CollectionQueries
 from doc_ray.entrypoints.api.ids import clean_uuid as _clean_uuid
 from doc_ray.entrypoints.api.mutation_guards import _require_admin_read
@@ -49,7 +50,14 @@ from doc_ray.entrypoints.api.visual_query import VisualQueries
 
 
 @strawberry.type
-class Query(BriefingQueries, VisualQueries, SemanticQueries, StructureQueries, CollectionQueries):
+class Query(
+    BriefingQueries,
+    VisualQueries,
+    SemanticQueries,
+    StructureQueries,
+    CollectionQueries,
+    ClassificationQueries,
+):
     """The GraphQL query root."""
 
     @strawberry.field

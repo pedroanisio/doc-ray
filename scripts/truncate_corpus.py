@@ -38,6 +38,7 @@ WIPED_TABLES = (
     "documents",
     "document_content",
     "document_acl",
+    "document_classification",
     "document_authors",
     "document_identifiers",
     "document_layout_runs",
@@ -144,6 +145,10 @@ PRESERVED_TABLES = (
     "canonical_merge",
     "form_index",
     "backups",
+    # Per-job cost telemetry (migration 126) is append-only and deliberately keyed
+    # by a non-FK job_id so it outlives the job it describes; it is cost-attribution
+    # history, not corpus content, so a corpus wipe must not erase it.
+    "job_telemetry",
 )
 
 

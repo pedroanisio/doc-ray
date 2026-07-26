@@ -36,6 +36,7 @@ import psycopg
 from psycopg.rows import tuple_row
 
 from doc_ray.application.integrity import sha256_hex, verify_bytes
+from doc_ray.domain.jobs import Job
 from doc_ray.domain.progress import report_progress
 from doc_ray.domain.ulid import new_ulid_str
 from doc_ray.ports.object_store import ObjectStore
@@ -458,3 +459,31 @@ def _restore_blobs(tar: tarfile.TarFile, store: ObjectStore, manifest: dict[str,
             store.put(key, data, "application/octet-stream")
             n += 1
     return n
+
+
+def handle_backup(
+    conn: psycopg.Connection[Any], store: ObjectStore | None, job: Job
+) -> dict[str, Any]:
+    """Job handler: create a full backup archive (DB dump + object-store blobs)."""
+    if store is None:
+        raise RuntimeError("backup requires an object store")
+    report_progress(0, 1, "Creating backup archive")
+    summary = create_backup(conn, store, note=job.payload.get("note"))
+    # Keep the recorded result compact; the per-table breakdown lives in the archive.
+    return {
+        k: summary[k]
+        for k in ("id", "object_key", "archive_bytes", "table_rows", "blob_count", "doc_count")
+    }
+
+
+def handle_restore(
+    conn: psycopg.Connection[Any], store: ObjectStore | None, job: Job
+) -> dict[str, Any]:
+    """Job handler: restore the corpus (DB data + blobs) from a catalogued archive."""
+    if store is None:
+        raise RuntimeError("restore requires an object store")
+    backup_id = job.payload.get("backup_id")
+    if not backup_id:
+        raise RuntimeError("restore requires a backup_id")
+    report_progress(0, 1, "Restoring backup archive")
+    return restore_backup(conn, store, str(backup_id))

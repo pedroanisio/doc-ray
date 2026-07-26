@@ -110,7 +110,7 @@ metadata:
   generated_by:     "Claude Sonnet 5 via Claude Code (merge of Claude Opus 4.8 backlog + OpenAI Codex improvement-proposal candidates)"
   generated_on:     "2026-07-05"
   system_of_record: "docs/backlog.yml"
-  total_items:      156
+  total_items:      157
 
 items:
 
@@ -5353,3 +5353,42 @@ items:
     owner:        "shared"
     source:       "GitHub issue #22; implemented with strict TDD (Claude Opus 4.8 (1M context) via Claude Code)."
     tags:         ["webapp", "admin-console", "ops", "contract", "bug"]
+
+  - id:          "BL-157"
+    title:        "SLP Block C: genre/type classification + per-entity-type resolution policy"
+    summary:      "Documents had no fiction/non-fiction signal (doc_type is the file format) and no stated policy mapping (genre, entity type) -> resolution scope. Added the document_classification table, a pure genre_policy domain function, a heuristic classifier + job, and GraphQL + MCP surfaces. The policy is defined and exposed, not applied — Block D (#8) consumes it."
+    description: |
+      document_classification (migration 127, RLS+FORCE, one row per document)
+      carries a genre axis (fiction/non_fiction/mixed/unknown) with confidence,
+      method, and review status. domain.genre_policy.resolution_scope(genre,
+      entity_type) is a total pure function mapping to LOCAL (fiction work lens)
+      or GLOBAL (shared), conservative-GLOBAL for mixed/unknown and for real-world
+      types even inside fiction. A heuristic classifier (KIND_CLASSIFY_GENRE job,
+      deterministic signals, no LLM) writes a pending machine guess; a human
+      confirms it (method='human', status='confirmed'); a re-run never overwrites a
+      confirmed row (PALS's Law). GraphQL: documentClassification (read),
+      classifyDocument + confirmDocumentClassification (guarded+audited writes).
+      MCP mirrors all three (writes gated on DOCRAY_MCP_ENABLE_WRITE). Schema
+      SemVer -> 1.45.0 (migration 128). Nothing in entity resolution changes yet.
+    category:     "api"
+    type:         "feature"
+    status:       "done"
+    complexity:   "L"
+    priority:     "medium"
+    rationale:    "Fiction and non-fiction demand opposite identity rules; the routing decision needs an input the corpus lacked. Shipping the classification + policy as data and a pure function (not applied) unblocks the projection engine (Block D, #8) while changing nothing about how entities resolve today, and keeps the machine guess untrusted until a human confirms it."
+    acceptance_criteria:
+      - "document_classification exists with RLS, FORCE, correct grants, and CHECKs."
+      - "resolution_scope is total and property-tested across the full genre x observed-type matrix; unknown/mixed are conservatively GLOBAL."
+      - "Classifier output below threshold lands status='pending', never confirmed; a human confirmation overrides and records reviewer + rationale."
+      - "Re-running the classifier never overwrites a confirmed row; RLS blocks cross-principal read/write."
+      - "Capability exposed consistently across GraphQL and MCP with agent-facing docstrings; the policy is defined, not applied."
+    dependencies: []
+    references:
+      - "docs/proposals/entity-fabric-substrate-lens-projection.md"
+      - "db/migrations/127_document_classification.sql"
+      - "src/doc_ray/domain/genre_policy.py"
+      - "src/doc_ray/application/genre_classification.py"
+      - "src/doc_ray/entrypoints/api/mutation_classification.py"
+    owner:        "shared"
+    source:       "GitHub issue #6 (SLP Block C, epic entity-fabric); implemented with strict TDD (Claude Opus 4.8 (1M context) via Claude Code)."
+    tags:         ["slp", "entity-fabric", "genre", "resolution", "feature"]

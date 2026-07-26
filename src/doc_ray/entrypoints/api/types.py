@@ -329,6 +329,47 @@ class EntityMentionCorrection:
 
 
 @strawberry.type
+class DocumentClassification:
+    """A document's genre classification (SLP Block C, #6).
+
+    The genre axis (fiction / non-fiction / mixed / unknown) that the
+    per-entity-type resolution policy reads. ``method`` is ``'heuristic'`` for a
+    machine guess or ``'human'`` for a confirmation; ``status`` is ``'pending'``
+    (an unverified machine guess — do NOT rely on it for identity decisions),
+    ``'confirmed'`` (a human decided), or ``'rejected'``. A ``pending`` genre is a
+    GUESS: this block defines the policy, it does not apply it (Block D, #8, does).
+    """
+
+    document_id: strawberry.ID
+    genre: str
+    subtype: str | None
+    confidence: float | None
+    method: str
+    status: str
+    reviewer: strawberry.ID | None
+    rationale: str | None
+    created_at: datetime
+    updated_at: datetime
+
+    @classmethod
+    def from_row(cls, row: Row) -> DocumentClassification:
+        """Build a ``DocumentClassification`` from a ``document_classification`` row."""
+        reviewer = row.get("reviewer")
+        return cls(
+            document_id=strawberry.ID(str(row["document_id"])),
+            genre=row["genre"],
+            subtype=row.get("subtype"),
+            confidence=row.get("confidence"),
+            method=row["method"],
+            status=row["status"],
+            reviewer=strawberry.ID(str(reviewer)) if reviewer else None,
+            rationale=row.get("rationale"),
+            created_at=cast(datetime, row["created_at"]),
+            updated_at=cast(datetime, row["updated_at"]),
+        )
+
+
+@strawberry.type
 class DocumentShare:
     """One ``document_acl`` grant: a principal, the permission, and when it was made."""
 

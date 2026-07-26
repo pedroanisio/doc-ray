@@ -46,6 +46,12 @@ _API_ONLY_ALLOWLIST: dict[str, str] = {
     "cancelJob": "The admin-console Jobs page exposes this admin-only action.",
     # Review uses the bounded canonical resolver; fuzzy registry discovery stays agent/API-only.
     "canonicalSearch": "The Review page uses canonical; fuzzy registry search is agent/API-only.",
+    # Genre classification (SLP Block C) is an agent/API + MCP curation action; the read
+    # webapp does not yet surface genre (this block defines the policy, Block D applies it).
+    "classifyDocument": "Genre classification is an agent/API + MCP curation action (Block C).",
+    "confirmDocumentClassification": (
+        "Human genre confirmation is an agent/API + MCP verification action (Block C)."
+    ),
     # Shards are orchestration primitives rather than an end-user corpus interaction.
     "corpusManifest": "Deterministic fan-out metadata is an agent/operations primitive.",
     "corpusShard": "Deterministic shard traversal is an agent/operations primitive.",
@@ -57,6 +63,9 @@ _API_ONLY_ALLOWLIST: dict[str, str] = {
     "deleteCollection": "Collection administration remains in the direct-SQL web route.",
     # Hard deletion is deliberately absent from the general corpus browser.
     "deleteDocument": "Permanent deletion is API/operator-only; the browser offers archive.",
+    # The genre axis is an agent/MCP retrieval primitive; the read webapp does not yet
+    # surface it (Block C defines the resolution policy, Block D applies it).
+    "documentClassification": "The genre axis is an agent/MCP retrieval primitive (Block C).",
     # Reader/operator pages render this audit trail from the RLS-scoped table directly.
     "documentMetadataHistory": "Reader and operator pages load metadata history through SQL.",
     # Outline is a compact agent retrieval primitive; people read the anchored document view.

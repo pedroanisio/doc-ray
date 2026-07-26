@@ -74,6 +74,43 @@ async def test_reannotate_forwards_mutation_and_token(monkeypatch: pytest.Monkey
 
 
 @pytest.mark.asyncio
+async def test_classify_document_forwards_mutation_and_token(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    job = {"id": "job-2", "kind": "classify_genre", "status": "queued", "documentId": _DOC}
+    client = _patch(monkeypatch, {"data": {"classifyDocument": job}})
+    corpus.caller_token.set("tok-write")
+    out = await mutations.classify_document(_DOC)
+    assert out == job
+    _url, body, headers = client.calls[0]
+    assert headers["Authorization"] == "Bearer tok-write"
+    assert "classifyDocument(documentId:$id)" in body["query"]
+    assert body["variables"] == {"id": _DOC}
+
+
+@pytest.mark.asyncio
+async def test_confirm_document_classification_forwards_mutation_and_token(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    row = {"documentId": _DOC, "genre": "fiction", "status": "confirmed", "method": "human"}
+    client = _patch(monkeypatch, {"data": {"confirmDocumentClassification": row}})
+    corpus.caller_token.set("tok-write")
+    out = await mutations.confirm_document_classification(_DOC, "fiction", subtype="novel")
+    assert out == row
+    _url, body, headers = client.calls[0]
+    assert headers["Authorization"] == "Bearer tok-write"
+    assert "confirmDocumentClassification(documentId:$id,genre:$g" in body["query"]
+    assert body["variables"] == {"id": _DOC, "g": "fiction", "st": "novel", "r": None}
+
+
+@pytest.mark.asyncio
+async def test_classify_document_rejects_bad_uuid(monkeypatch: pytest.MonkeyPatch) -> None:
+    _patch(monkeypatch, {"data": {}})
+    with pytest.raises(mutations.ToolCallError):
+        await mutations.classify_document("not-a-uuid")
+
+
+@pytest.mark.asyncio
 async def test_reextract_document_forwards(monkeypatch: pytest.MonkeyPatch) -> None:
     client = _patch(monkeypatch, {"data": {"reextractDocument": _JOB}})
     assert await mutations.reextract_document(_DOC) == _JOB
@@ -413,6 +450,8 @@ def test_tools_tuple_is_the_reprocessing_and_curation_writers() -> None:
         "update_document_metadata",
         "bulk_tag_documents",
         "correct_entity_mention",
+        "classify_document",
+        "confirm_document_classification",
         "decide_seeds",
         "decide_document_metadata_suggestions",
         "decide_visual_captions",

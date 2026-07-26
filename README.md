@@ -178,6 +178,15 @@ the human verification layer over the model's entity output:
 stored against a stable span identity, so they are re-applied on every
 re-annotation instead of being overwritten by it — see
 [Correcting the model's entities](#correcting-the-models-entities) below.
+Genre classification (SLP Block C — the input to per-entity-type identity
+resolution): `documentClassification(documentId:)` (read the genre axis —
+fiction / non_fiction / mixed / unknown), `classifyDocument(documentId:)`
+(enqueue a heuristic classifier that writes a `pending` machine guess), and
+`confirmDocumentClassification(documentId:, genre:, subtype:, rationale:)`
+(a human confirmation → `status='confirmed'`, `method='human'`). A `pending`
+genre is an unverified guess, never relied on for identity; only a human
+confirmation asserts it. This block defines the policy; it does not yet change
+how any entity resolves.
 Backup/restore:
 `backupEnabled` (read — whether this deployment has the in-app backup subsystem
 switched on; clients check it before offering the actions) /

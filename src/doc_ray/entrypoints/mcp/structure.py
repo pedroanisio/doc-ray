@@ -141,9 +141,33 @@ async def term_frequency(terms: list[str], document_id: str | None = None) -> li
     return list(data["termFrequency"])
 
 
+async def document_classification(document_id: str) -> dict[str, Any] | None:
+    """A document's genre classification, or null if unclassified (SLP Block C).
+
+    Returns the genre axis (``fiction`` / ``non_fiction`` / ``mixed`` / ``unknown``)
+    that separates works whose entities are local to the book from real-world
+    references. ``status`` is the trust signal: ``pending`` is an UNVERIFIED machine
+    GUESS — do NOT rely on it for identity/merge decisions — while ``confirmed``
+    (``method='human'``) is a human decision. ``confidence`` (0–1) accompanies a
+    machine guess. Enqueue a fresh guess with ``classify_document``; make it
+    authoritative with ``confirm_document_classification``. RLS-scoped to documents
+    your token may read; null for an unclassified document.
+    """
+    _require_uuid(document_id, "document_id")
+    data = await gql(
+        "query($d:ID!){documentClassification(documentId:$d)"
+        "{documentId genre subtype confidence method status reviewer rationale "
+        "createdAt updatedAt}}",
+        {"d": document_id},
+    )
+    row: dict[str, Any] | None = data["documentClassification"]
+    return row
+
+
 #: Registered by ``server.build_server`` next to the corpus read tools.
 TOOLS: tuple[Callable[..., Any], ...] = (
     read_document_outline,
     entity_profiles,
     term_frequency,
+    document_classification,
 )

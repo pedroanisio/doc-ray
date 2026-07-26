@@ -19,6 +19,30 @@ doc-ray carries **one global version** covering both the application package
 (`docray_schema_version()`). They are kept in lockstep by
 `scripts/check_version_consistency.py`, which fails the build on any drift.
 
+## [1.45.0]
+
+### Added
+
+- **Genre / type classification + per-entity-type resolution policy (SLP Block C,
+  issue #6).** Every document can now carry a **genre axis** — fiction /
+  non_fiction / mixed / unknown — orthogonal to its file format (`doc_type`), in a
+  new `document_classification` table (migration 127, RLS + FORCE). A heuristic
+  classifier (`KIND_CLASSIFY_GENRE` job, deterministic signals — dialogue density,
+  first-person narration, chapter headings vs. an academic apparatus, and metadata;
+  no LLM) writes a **pending** guess; a human confirms it (`method='human'`,
+  `status='confirmed'`) — a machine guess is never asserted (PALS's Law). A pure
+  policy function `domain.genre_policy.resolution_scope(genre, entity_type)` answers
+  whether an entity resolves **LOCAL** (a fiction work's own lens) or **GLOBAL**
+  (shared identity), with a conservative GLOBAL default for `mixed`/`unknown` and
+  for real-world types (DATE, MONEY, LAW, …) even inside fiction.
+  - **This block only *defines* the policy — nothing resolves differently yet.**
+    Block D (#8, the projection engine) consumes it.
+  - Surfaces: GraphQL `documentClassification` (read), `classifyDocument` +
+    `confirmDocumentClassification` (writes, guarded + audited); MCP
+    `document_classification` (read) and the write-gated `classify_document` /
+    `confirm_document_classification`. Schema SemVer → **1.45.0** (additive table,
+    migration 128). See `docs/architecture.md` and `docs/mcp-service.md`.
+
 ## [1.44.0]
 
 ### Added

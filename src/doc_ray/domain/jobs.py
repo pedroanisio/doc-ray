@@ -62,6 +62,11 @@ KIND_SEMANTIC_EMBED = "semantic_embed"
 # record the correction, so it enqueues this cheap job). No spaCy — just the
 # deterministic reconcile, so it is not long-running.
 KIND_APPLY_CORRECTIONS = "apply_corrections"
+# Block C (#6): classify a document's genre (fiction/non-fiction) from
+# deterministic heuristic signals. No model — just the pure classifier over the
+# stored full text — so it is not long-running. Writes a pending machine guess to
+# document_classification; only a human confirmation asserts a genre.
+KIND_CLASSIFY_GENRE = "classify_genre"
 
 # The default post-ingest pipeline: Stage-1 annotation, deterministic semantic
 # enrichment, then deterministic canonicalization, then Prism Tier-1 visual

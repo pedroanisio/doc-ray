@@ -36,6 +36,7 @@ RLS_PATH = {
     "entity_mention": "annotation_id → annotations",
     "resolution_review": "mention_id → entity_mention → annotations",
     "entity_mention_correction": "document_id",
+    "document_classification": "document_id",
     "entity_link": "mention_id → entity_mention → annotations",
     "srl_predicate": "annotation_id → annotations",
     "srl_argument": "span_id → spans",
@@ -301,6 +302,12 @@ MIGRATIONS = [
         "NLP Layer 20 hard cutover: purge hash-bow-768 and advance SemVer to 1.42.0",
     ),
     ("125_schema_version_1_43_0", "advance the schema SemVer to 1.43.0 for epic #23"),
+    ("126_job_telemetry", "append-only per-job execution telemetry for cost attribution"),
+    (
+        "127_document_classification",
+        "document_classification table (genre axis + resolution-policy input) + RLS + grants",
+    ),
+    ("128_schema_version_1_45_0", "advance the schema SemVer to 1.45.0 for genre classification"),
 ]
 
 # ---------------------------------------------------------------------------

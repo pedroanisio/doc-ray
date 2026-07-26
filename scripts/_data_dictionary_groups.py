@@ -82,6 +82,17 @@ GROUPS: list[tuple[str, str, list[str]]] = [
         ],
     ),
     (
+        "Genre classification (SLP Block C)",
+        "A document's genre axis — fiction / non_fiction / mixed / unknown — "
+        "orthogonal to its file format (`documents.doc_type`). A heuristic classifier "
+        "writes a `pending` guess; a human confirms it (`method='human'`). This is "
+        "the input to the per-entity-type resolution policy "
+        "(`doc_ray.domain.genre_policy`): fictional types resolve inside the work's "
+        "lens, real-world types globally. The policy is defined here; Block D (#8) "
+        "applies it.",
+        ["document_classification"],
+    ),
+    (
         "Canonical entities & resolution",
         "The tenant-global canonical entity registry mentions link to: `canonical` "
         "rows carry KB identity + an HNSW-indexed name embedding, `form_index` maps "
@@ -194,8 +205,10 @@ GROUPS: list[tuple[str, str, list[str]]] = [
         "drain-aware reaping, first-class progress), the applied-migration ledger, "
         "the schema's SemVer, and the corpus-backup catalogue. `backups` and the "
         "`jobs` queue are excluded from every snapshot and from restore, so a "
-        "restore never clobbers the queue or the archive index it is reading from.",
-        ["jobs", "schema_migrations", "schema_version", "backups"],
+        "restore never clobbers the queue or the archive index it is reading from. "
+        "`job_telemetry` is an append-only per-job execution record (GPU/CPU lane, "
+        "timings) for cost attribution (migration 126).",
+        ["jobs", "schema_migrations", "schema_version", "backups", "job_telemetry"],
     ),
     (
         "Prism visual layer",

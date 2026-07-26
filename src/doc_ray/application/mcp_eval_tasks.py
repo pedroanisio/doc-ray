@@ -267,20 +267,25 @@ _MAP = EvalTask(
 _ENTITIES = EvalTask(
     id="coverage-entities-and-lexemes",
     kind="coverage",
-    prompt="Who appears in the entity document, and any corrections?",
-    grounded_in="reachability: entity_frequency / lexeme_kwic / entity_mention_corrections",
+    prompt="Who appears in the entity document, its genre, and any corrections?",
+    grounded_in=(
+        "reachability: entity_frequency / lexeme_kwic / entity_mention_corrections / "
+        "document_classification"
+    ),
     steps=(
         Step(corpus.entity_frequency, lambda ctx: {"document_id": _entity(ctx), "limit": 50}),
         Step(corpus.lexeme_kwic, lambda ctx: {"uid": _MISSING_LEXEME_UID, "limit": 40}),
         Step(corpus.entity_mention_corrections, lambda ctx: {"document_id": _entity(ctx)}),
+        Step(structure.document_classification, lambda ctx: {"document_id": _entity(ctx)}),
     ),
     assertions=(
         _nonempty("entity_frequency"),
         _ok("lexeme_kwic"),
         _ok("entity_mention_corrections"),
-        _within(TaskBudget(max_calls=4, max_chars=20_000)),
+        _ok("document_classification"),
+        _within(TaskBudget(max_calls=5, max_chars=20_000)),
     ),
-    budget=TaskBudget(max_calls=4, max_chars=20_000),
+    budget=TaskBudget(max_calls=5, max_chars=20_000),
 )
 
 _JOBS = EvalTask(

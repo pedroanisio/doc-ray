@@ -207,6 +207,28 @@ surface is `lenses` (read) and `promoteCollectionToLens` / `demoteLens` /
 `setDocumentDefaultLens` (write); MCP mirrors it with `list_lenses` and the three
 write tools.
 
+### Genre classification & the resolution policy (SLP Block C)
+
+Lenses give identity a scope; **genre decides which scope a type resolves in**.
+`documents.doc_type` records the file format, not whether a work is fiction —
+and fiction and non-fiction demand opposite identity rules (a novel's *Duncan
+Idaho* is local to the work; a history's *Paris* is the shared Paris). The
+`document_classification` table (migration 127, RLS + FORCE) carries a genre axis
+— `fiction` / `non_fiction` / `mixed` / `unknown` — with a confidence, method, and
+review status. A heuristic classifier (`KIND_CLASSIFY_GENRE`, deterministic
+signals — dialogue density, first-person narration, chapter headings vs. an
+academic apparatus, metadata; **no LLM**) writes a `pending` guess; a human
+confirms it (`method='human'`, `status='confirmed'`). Per PALS's Law a machine
+genre is never asserted — low confidence abstains to `unknown` (which routes
+GLOBAL), and a re-run never overwrites a human decision. The pure policy
+`domain.genre_policy.resolution_scope(genre, entity_type)` maps `(genre, type)` to
+**LOCAL** (a fiction work's lens) or **GLOBAL** (shared), with a conservative
+GLOBAL default for `mixed`/`unknown` and for real-world types (DATE, MONEY, LAW, …)
+even inside fiction. **This block defines and exposes the policy; it does not apply
+it** — the projection engine (Block D, #8) consumes it. GraphQL:
+`documentClassification` (read), `classifyDocument` / `confirmDocumentClassification`
+(write); MCP mirrors all three (the writes gated on `DOCRAY_MCP_ENABLE_WRITE`).
+
 ## Access-control boundary
 
 The API authenticates inbound bearer/API-token requests with

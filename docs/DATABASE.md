@@ -1,6 +1,6 @@
 # doc-ray — Database ERD & Data Dictionary
 
-**Schema version `1.43.0`** (SemVer) · 125 migrations applied
+**Schema version `1.45.0`** (SemVer) · 128 migrations applied
 
 > Generated from the live schema by `scripts/gen_data_dictionary.py`. Do not edit by hand — re-run the generator.
 
@@ -753,7 +753,38 @@ stable span, re-applied by the pipeline on each pass (Block A).
 - **Index** `idx_coref_mention_span`: public.coref_mention USING btree (span_id)
 - **RLS:** enabled — read/write policies via *span_id → spans* (FORCED)
 
-### 5.8 Canonical entities & resolution
+### 5.8 Genre classification (SLP Block C)
+
+A document's genre axis — fiction / non_fiction / mixed / unknown — orthogonal to its file format
+(`documents.doc_type`). A heuristic classifier writes a `pending` guess; a human confirms it
+(`method='human'`). This is the input to the per-entity-type resolution policy
+(`doc_ray.domain.genre_policy`): fictional types resolve inside the work's lens, real-world types
+globally. The policy is defined here; Block D (#8) applies it.
+
+#### `document_classification`
+
+| Column | Type | Null | Key | Default | Notes |
+|---|---|---|---|---|---|
+| `document_id` | uuid |  | PK, FK→documents |  |  |
+| `genre` | text |  |  |  |  |
+| `subtype` | text | yes |  |  |  |
+| `confidence` | real | yes |  |  |  |
+| `method` | text |  |  |  |  |
+| `status` | text |  |  | `'pending'::text` |  |
+| `reviewer` | uuid | yes | FK→principals |  |  |
+| `rationale` | text | yes |  |  |  |
+| `created_at` | timestamp with time zone |  |  | `now()` |  |
+| `updated_at` | timestamp with time zone |  |  | `now()` |  |
+
+- **Primary key:** (document_id)
+- **FK:** FOREIGN KEY (document_id) REFERENCES documents(id) ON DELETE CASCADE
+- **FK:** FOREIGN KEY (reviewer) REFERENCES principals(id) ON DELETE SET NULL
+- **Check:** CHECK (((confidence >= (0)::double precision) AND (confidence <= (1)::double precision)))
+- **Check:** CHECK ((genre = ANY (ARRAY['fiction'::text, 'non_fiction'::text, 'mixed'::text, 'unknown'::text])))
+- **Check:** CHECK ((status = ANY (ARRAY['pending'::text, 'confirmed'::text, 'rejected'::text])))
+- **RLS:** enabled — read/write policies via *document_id* (FORCED)
+
+### 5.9 Canonical entities & resolution
 
 The tenant-global canonical entity registry mentions link to: `canonical` rows carry KB identity +
 an HNSW-indexed name embedding, `form_index` maps normalized surface forms to canonicals,
@@ -863,7 +894,7 @@ operator workflow queues for seeding and ambiguous-link review.
 - **Index** `idx_resolution_review_status`: public.resolution_review USING btree (status, id)
 - **RLS:** enabled — read/write policies via *mention_id → entity_mention → annotations* (FORCED)
 
-### 5.9 Meaning, discourse, temporal & sentiment (layers 14–19)
+### 5.10 Meaning, discourse, temporal & sentiment (layers 14–19)
 
 Semantic role labeling, word-sense disambiguation, AMR meaning graphs, PDTB discourse relations,
 TimeML (TIMEX/EVENT/TLINK), and sentiment.
@@ -1045,7 +1076,7 @@ TimeML (TIMEX/EVENT/TLINK), and sentiment.
 - **Index** `idx_sentiment_target_span`: public.sentiment USING btree (target_span_id)
 - **RLS:** enabled — read/write policies via *annotation_id → annotations* (FORCED)
 
-### 5.10 Distributed representations (layer 20)
+### 5.11 Distributed representations (layer 20)
 
 pgvector embeddings over spans, ANN-indexed with HNSW (cosine).
 
@@ -1062,7 +1093,7 @@ pgvector embeddings over spans, ANN-indexed with HNSW (cosine).
 - **Index** `idx_embedding_hnsw`: public.embedding USING hnsw (vector vector_cosine_ops)
 - **RLS:** enabled — read/write policies via *span_id → spans* (FORCED)
 
-### 5.11 Collections & curation
+### 5.12 Collections & curation
 
 Operator-facing curation surfaces: manual and smart (rule-driven) document collections, and the
 reviewed-suggestion queue for LLM/heuristic metadata proposals (BL-058).
@@ -1135,7 +1166,7 @@ reviewed-suggestion queue for LLM/heuristic metadata proposals (BL-058).
 - **Index** `idx_document_metadata_suggestion_doc`: public.document_metadata_suggestion USING btree (document_id, status, confidence DESC)
 - **RLS:** enabled — read/write policies via *document_id* (FORCED)
 
-### 5.12 Access control — RBAC & row-level security
+### 5.13 Access control — RBAC & row-level security
 
 Principals, roles, permissions and per-document ACLs. Every document-scoped table above is protected
 by tenant-scoped RLS keyed on these (see §Access control).
@@ -1248,7 +1279,7 @@ Tenant partition catalogue; the default tenant preserves existing deployments.
 - **Index** `idx_document_acl_principal`: public.document_acl USING btree (principal_id)
 - **RLS:** enabled — read/write policies via *?* (FORCED)
 
-### 5.13 Authentication & identity provisioning
+### 5.14 Authentication & identity provisioning
 
 Local self-service auth (argon2id credentials, e-mail verification, refresh tokens — migration 074),
 account preferences and email-change requests, OAuth 2.1 authorization-code/PKCE client state, plus
@@ -1460,7 +1491,7 @@ operator-seeded; self-registered principals get the reader role only.
 - **Check:** CHECK (((metadata_url IS NOT NULL) OR (metadata_xml IS NOT NULL)))
 - **Index** `idx_tenant_saml_idp_entity`: public.tenant_saml_identity_providers USING btree (entity_id)
 
-### 5.14 Billing & payment operations
+### 5.15 Billing & payment operations
 
 Tenant-scoped Stripe customer accounts, current subscription snapshots, and the signed webhook event
 ledger that backs Checkout, Portal, entitlement decisions, and payment audit views.
@@ -1525,7 +1556,7 @@ ledger that backs Checkout, Portal, entitlement decisions, and payment audit vie
 - **Index** `idx_stripe_webhook_events_type_time`: public.stripe_webhook_events USING btree (event_type, created_at DESC)
 - **RLS:** enabled — read/write policies via *signed Stripe webhook ledger, app-owned* (FORCED)
 
-### 5.15 Security audit trail
+### 5.16 Security audit trail
 
 Append-only access and authentication events: who did what, against which target, from which source
 address, and whether it succeeded or was denied.
@@ -1559,7 +1590,7 @@ address, and whether it succeeded or was denied.
 - **Index** `idx_audit_events_time`: public.audit_events USING btree (occurred_at DESC)
 - **RLS:** enabled — read/write policies via *insert-only security audit log* (FORCED)
 
-### 5.16 Evaluation & drift artifacts
+### 5.17 Evaluation & drift artifacts
 
 Corpus snapshots, evaluation runs, metric rows, and gold samples make quality and drift measurements
 durable and citeable instead of one-off operator observations.
@@ -1640,12 +1671,13 @@ durable and citeable instead of one-off operator observations.
 - **FK:** FOREIGN KEY (span_id) REFERENCES spans(id) ON DELETE CASCADE
 - **Index** `idx_gold_sample_label`: public.gold_sample USING btree (label, created_at DESC)
 
-### 5.17 Jobs & operations
+### 5.18 Jobs & operations
 
 The background job queue (claimed FOR UPDATE SKIP LOCKED, heartbeat + drain-aware reaping, first-
 class progress), the applied-migration ledger, the schema's SemVer, and the corpus-backup catalogue.
 `backups` and the `jobs` queue are excluded from every snapshot and from restore, so a restore never
-clobbers the queue or the archive index it is reading from.
+clobbers the queue or the archive index it is reading from. `job_telemetry` is an append-only per-
+job execution record (GPU/CPU lane, timings) for cost attribution (migration 126).
 
 #### `jobs`
 
@@ -1733,7 +1765,34 @@ clobbers the queue or the archive index it is reading from.
 - **Index** `idx_backups_created`: public.backups USING btree (created_at DESC)
 - **RLS:** enabled — read/write policies via *docray_is_admin()* (FORCED)
 
-### 5.18 Prism visual layer
+#### `job_telemetry`
+
+| Column | Type | Null | Key | Default | Notes |
+|---|---|---|---|---|---|
+| `id` | bigint |  | PK | `nextval('job_telemetry_id_seq'::regclass)` |  |
+| `job_id` | text |  |  |  |  |
+| `kind` | text |  |  |  |  |
+| `lane` | text |  |  |  |  |
+| `outcome` | text |  |  |  |  |
+| `attempt` | integer |  |  |  |  |
+| `document_id` | uuid | yes |  |  |  |
+| `worker_id` | text |  |  |  |  |
+| `host` | text |  |  |  |  |
+| `device` | text |  |  |  |  |
+| `work_units` | bigint | yes |  |  |  |
+| `duration_ms` | bigint |  |  |  |  |
+| `started_at` | timestamp with time zone |  |  |  |  |
+| `finished_at` | timestamp with time zone |  |  | `now()` |  |
+
+- **Primary key:** (id)
+- **Check:** CHECK ((duration_ms >= 0))
+- **Check:** CHECK ((lane = ANY (ARRAY['gpu'::text, 'cpu'::text])))
+- **Check:** CHECK ((outcome = ANY (ARRAY['succeeded'::text, 'failed'::text, 'canceled'::text])))
+- **Index** `job_telemetry_finished_at_idx`: public.job_telemetry USING btree (finished_at DESC)
+- **Index** `job_telemetry_host_kind_idx`: public.job_telemetry USING btree (host, kind, finished_at DESC)
+- **RLS:** enabled — read/write policies via *?* (FORCED)
+
+### 5.19 Prism visual layer
 
 The visual/multimodal layer over the corpus (docs/proposals/prism-visual-layer.md), document-scoped
 under the same RLS as the NLP layers. Tier-1 `document_image`/`image_tier1_features` are
@@ -1889,7 +1948,7 @@ low-confidence output.
 - **Index** `idx_visual_review_pending`: public.visual_review USING btree (document_id) WHERE (status = 'pending'::text)
 - **RLS:** enabled — read/write policies via *document_id* (FORCED)
 
-### 5.19 Read-model rollups (D-024)
+### 5.20 Read-model rollups (D-024)
 
 Derived aggregates over the large append-mostly fact tables, refreshed by the trusted batch writer
 at the pipeline job boundary and never computed on the request path (migrations 095/098/100). Each
@@ -2059,7 +2118,7 @@ document-scoped table. A principal may **read** a same-tenant document iff it is
 *admin* or holds any `document_acl` row on it, and may **write** iff *admin* or
 holds an `annotate`/`delete`/`admin` grant.
 
-**Enforcement.** RLS is `ENABLE`d (not `FORCE`) on 58 tables (incl. `jobs` and
+**Enforcement.** RLS is `ENABLE`d (not `FORCE`) on 60 tables (incl. `jobs` and
 `backups` since migration 043 — BL-064). The `docray`
 role is a **superuser and table owner**, so it **bypasses RLS** — the ingest
 pipeline and admin tooling use it as the trusted batch writer. End-user / API
@@ -2222,5 +2281,8 @@ owner's bypass.
 | 121 | `121_lens_registry.sql` | Lens Registry: is_scope/parent_lens_id/default_lens_id + global lens (Block B) |
 | 122 | `122_schema_version_1_41_0.sql` | advance the schema SemVer to 1.41.0 |
 | 123 | `123_resolution_review_client_read.sql` | grant + RLS on resolution_review so client reads (resolutionReview) work (#15 sweep) |
-| 124 | `124_semantic_embedding_cutover.sql` | NLP Layer 20 hard cutover: purge discarded hash-bow-768 rows, advance schema SemVer to 1.42.0 (#20/#21) |
+| 124 | `124_semantic_embedding_cutover.sql` | NLP Layer 20 hard cutover: purge hash-bow-768 and advance SemVer to 1.42.0 |
 | 125 | `125_schema_version_1_43_0.sql` | advance the schema SemVer to 1.43.0 for epic #23 |
+| 126 | `126_job_telemetry.sql` | append-only per-job execution telemetry for cost attribution |
+| 127 | `127_document_classification.sql` | document_classification table (genre axis + resolution-policy input) + RLS + grants |
+| 128 | `128_schema_version_1_45_0.sql` | advance the schema SemVer to 1.45.0 for genre classification |

@@ -24,6 +24,12 @@ import psycopg
 from doc_ray.adapters import queue_postgres as queue
 from doc_ray.adapters import telemetry_store
 from doc_ray.adapters.compute_device import describe_device
+from doc_ray.application.backup import (
+    handle_backup as handle_backup,
+)
+from doc_ray.application.backup import (
+    handle_restore as handle_restore,
+)
 from doc_ray.application.job_handlers import (
     HANDLERS as HANDLERS,
 )
@@ -40,9 +46,6 @@ from doc_ray.application.job_handlers import (
     handle_archive_document as handle_archive_document,
 )
 from doc_ray.application.job_handlers import (
-    handle_backup as handle_backup,
-)
-from doc_ray.application.job_handlers import (
     handle_canonicalize as handle_canonicalize,
 )
 from doc_ray.application.job_handlers import (
@@ -56,9 +59,6 @@ from doc_ray.application.job_handlers import (
 )
 from doc_ray.application.job_handlers import (
     handle_reextract as handle_reextract,
-)
-from doc_ray.application.job_handlers import (
-    handle_restore as handle_restore,
 )
 from doc_ray.application.job_handlers import (
     handle_restore_document as handle_restore_document,

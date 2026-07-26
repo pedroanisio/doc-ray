@@ -16,7 +16,9 @@ from typing import TYPE_CHECKING, Any, cast
 
 import psycopg
 
+from doc_ray.application.backup import handle_backup, handle_restore
 from doc_ray.application.document_stats import refresh_document_stats as _refresh_document_stats
+from doc_ray.application.genre_classification import handle_classify_genre
 from doc_ray.application.semantic_embed import handle_semantic_embed
 from doc_ray.domain.jobs import (
     KIND_ADD_DOCUMENT_TAGS,
@@ -25,6 +27,7 @@ from doc_ray.domain.jobs import (
     KIND_ARCHIVE_DOCUMENT,
     KIND_BACKUP,
     KIND_CANONICALIZE,
+    KIND_CLASSIFY_GENRE,
     KIND_DELETE,
     KIND_INGEST,
     KIND_REANNOTATE,
@@ -496,41 +499,10 @@ def handle_canonicalize(
     return out
 
 
-def handle_backup(
-    conn: psycopg.Connection[Any], store: ObjectStore | None, job: Job
-) -> dict[str, Any]:
-    """Create a full backup archive (DB dump + object-store blobs)."""
-    from doc_ray.application import backup as bk
-
-    if store is None:
-        raise RuntimeError("backup requires an object store")
-    report_progress(0, 1, "Creating backup archive")
-    summary = bk.create_backup(conn, store, note=job.payload.get("note"))
-    # Keep the recorded result compact; the per-table breakdown lives in the archive.
-    return {
-        k: summary[k]
-        for k in ("id", "object_key", "archive_bytes", "table_rows", "blob_count", "doc_count")
-    }
-
-
-def handle_restore(
-    conn: psycopg.Connection[Any], store: ObjectStore | None, job: Job
-) -> dict[str, Any]:
-    """Restore the corpus (DB data + blobs) from a catalogued backup archive."""
-    from doc_ray.application import backup as bk
-
-    if store is None:
-        raise RuntimeError("restore requires an object store")
-    backup_id = job.payload.get("backup_id")
-    if not backup_id:
-        raise RuntimeError("restore requires a backup_id")
-    report_progress(0, 1, "Restoring backup archive")
-    return bk.restore_backup(conn, store, str(backup_id))
-
-
 HANDLERS: dict[str, Handler] = {
     KIND_ANNOTATE: handle_annotate,
     KIND_APPLY_CORRECTIONS: handle_apply_corrections,
+    KIND_CLASSIFY_GENRE: handle_classify_genre,
     KIND_SEMANTIC_ENRICH: handle_semantic_enrich,
     KIND_SEMANTIC_EMBED: handle_semantic_embed,
     KIND_VISUAL_EXTRACT: handle_visual_extract,

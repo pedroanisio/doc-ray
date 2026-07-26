@@ -88,6 +88,7 @@ _READ_CALLS = [
     lambda: semantic.semantic_search_sentences("photosynthesis"),
     lambda: semantic.semantic_search_sentences("photosynthesis", document_id=_DOC),
     lambda: corpus.entity_mention_corrections(_DOC),
+    lambda: structure.document_classification(_DOC),
     lambda: corpus.document_images(_DOC),
     lambda: corpus.image_class_summary(_DOC),
     lambda: corpus.visual_captions(_DOC),
@@ -112,6 +113,8 @@ _WRITE_CALLS = [
     lambda: mutations.correct_entity_mention(
         _DOC, "adjust_span", 16, 22, new_char_start=16, new_char_end=26
     ),
+    lambda: mutations.classify_document(_DOC),
+    lambda: mutations.confirm_document_classification(_DOC, "fiction", subtype="novel"),
     lambda: mutations.decide_seeds(approve_ids=["s1"]),
     lambda: mutations.decide_document_metadata_suggestions(approve_ids=["m1"]),
     lambda: mutations.decide_visual_captions(approve_ids=["v1"]),
@@ -219,6 +222,8 @@ async def test_every_write_tool_is_contract_checked() -> None:
         "update_document_metadata",
         "bulk_tag_documents",
         "correct_entity_mention",
+        "classify_document",
+        "confirm_document_classification",
         "decide_seeds",
         "decide_document_metadata_suggestions",
         "decide_visual_captions",

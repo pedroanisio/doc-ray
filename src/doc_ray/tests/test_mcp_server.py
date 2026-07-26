@@ -41,6 +41,7 @@ _READ_TOOL_NAMES = {
     "visual_review",
     # NER-correction audit log (Block A)
     "entity_mention_corrections",
+    "document_classification",
     # composition-grounding tools
     "briefing_pack",
     "entity_dossier",
@@ -68,6 +69,8 @@ _WRITE_TOOL_NAMES = {
     "update_document_metadata",
     "bulk_tag_documents",
     "correct_entity_mention",
+    "classify_document",
+    "confirm_document_classification",
     "decide_seeds",
     "decide_document_metadata_suggestions",
     "decide_visual_captions",

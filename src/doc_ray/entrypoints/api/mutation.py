@@ -40,6 +40,7 @@ from doc_ray.domain.jobs import (
 )
 from doc_ray.entrypoints.api.context import MAX_BATCH_IDS
 from doc_ray.entrypoints.api.mutation_billing import BillingMutations
+from doc_ray.entrypoints.api.mutation_classification import ClassificationMutations
 from doc_ray.entrypoints.api.mutation_collections import CollectionMutations
 from doc_ray.entrypoints.api.mutation_corrections import CorrectionMutations
 from doc_ray.entrypoints.api.mutation_guards import (
@@ -63,6 +64,7 @@ from doc_ray.entrypoints.api.types import Info, Job
 @strawberry.type
 class Mutation(
     BillingMutations,
+    ClassificationMutations,
     CollectionMutations,
     CorrectionMutations,
     LensMutations,

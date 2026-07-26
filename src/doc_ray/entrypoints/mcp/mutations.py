@@ -432,6 +432,55 @@ async def set_document_default_lens(document_id: str, lens_id: str | None = None
 #: (reannotate … suggest_document_metadata), curation (update_document_metadata,
 #: bulk_tag_documents, decide_*, seed_approved), and collection management
 #: (create/add/remove) only — no destructive/admin verbs.
+async def classify_document(document_id: str) -> dict[str, Any]:
+    """Enqueue a heuristic genre classification for a document (SLP Block C); returns the job.
+
+    The worker reads the document's text and writes a **pending** machine genre
+    guess (fiction / non_fiction / mixed / unknown) to its classification, using
+    deterministic signals — no model. A pending result is a GUESS, not a decided
+    genre: read it with ``document_classification`` and make it authoritative with
+    ``confirm_document_classification``. The job never overwrites a human-confirmed
+    classification. Poll it with ``get_job``. Requires a write grant on the
+    document (BL-064).
+    """
+    _require_uuid(document_id, "document_id")
+    data = await gql(
+        f"mutation($id:ID!){{classifyDocument(documentId:$id){{{JOB_FIELDS}}}}}",
+        {"id": document_id},
+    )
+    job: dict[str, Any] = data["classifyDocument"]
+    return job
+
+
+async def confirm_document_classification(
+    document_id: str,
+    genre: str,
+    subtype: str | None = None,
+    rationale: str | None = None,
+) -> dict[str, Any]:
+    """Confirm a document's genre as a human decision (SLP Block C); returns the classification.
+
+    This is the verification step that turns a machine guess into a decided genre:
+    it records ``status='confirmed'``, ``method='human'``, the reviewer, and your
+    ``rationale``, and overrides any prior value. ``genre`` must be one of
+    ``fiction``, ``non_fiction``, ``mixed``, ``unknown``; ``subtype`` is an optional
+    finer label (e.g. ``novel``, ``biography``, ``paper``). Use this only when you
+    have actually judged the document — a confirmed genre feeds identity-resolution
+    policy downstream. Requires a write grant on the document (BL-064).
+    """
+    _require_uuid(document_id, "document_id")
+    _require_nonempty(genre, "genre")
+    query = (
+        "mutation($id:ID!,$g:String!,$st:String,$r:String)"
+        "{confirmDocumentClassification(documentId:$id,genre:$g,subtype:$st,rationale:$r)"
+        "{documentId genre subtype confidence method status reviewer rationale "
+        "createdAt updatedAt}}"
+    )
+    data = await gql(query, {"id": document_id, "g": genre, "st": subtype, "r": rationale})
+    classification: dict[str, Any] = data["confirmDocumentClassification"]
+    return classification
+
+
 TOOLS: tuple[Any, ...] = (
     reannotate,
     reextract_document,
@@ -444,6 +493,8 @@ TOOLS: tuple[Any, ...] = (
     update_document_metadata,
     bulk_tag_documents,
     correct_entity_mention,
+    classify_document,
+    confirm_document_classification,
     decide_seeds,
     decide_document_metadata_suggestions,
     decide_visual_captions,

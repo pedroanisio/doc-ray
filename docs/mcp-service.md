@@ -19,13 +19,14 @@ Exposes the doc-ray corpus to agentic AI over the **Model Context Protocol
 (MCP)**, authenticating each caller to a doc-ray principal so Postgres RLS scopes
 what they can read.
 
-**Status: live in production and verified end-to-end.** The server ships **25
+**Status: live in production and verified end-to-end.** The server ships **26
 read tools** (18 from `entrypoints/mcp/corpus.py` — incl. `read_document_sentences`,
 `corpus_manifest`, `corpus_shard`, `get_job`, `list_collections`, `get_collection`,
-`entity_mention_corrections`, and the 4 Prism visual tools — + 3 structure tools from
+`entity_mention_corrections`, and the 4 Prism visual tools — + 4 structure tools from
 `entrypoints/mcp/structure.py` (`read_document_outline`, `entity_profiles`,
-`term_frequency`) + 3 composition-grounding tools from `entrypoints/mcp/compose.py`
-+ 1 semantic-search tool… see §3) always registered, plus **22 opt-in write tools**
+`term_frequency`, `document_classification`) + 3 composition-grounding tools from
+`entrypoints/mcp/compose.py`
++ 1 semantic-search tool… see §3) always registered, plus **24 opt-in write tools**
 (reprocessing + curation + full collection lifecycle) registered only when
 `DOCRAY_MCP_ENABLE_WRITE=true` — the default surface stays read-only. It also
 declares MCP's **resources** primitive: 3 listable `docray://` entry points +
@@ -154,6 +155,7 @@ but had no passage cited on this page. Example:
 | `get_document(document_id)` | `document` | metadata + counts |
 | `get_job(job_id)` | `job` | poll a job enqueued by a write tool |
 | `entity_mention_corrections(document_id)` | `entityMentionCorrections` | the human NER-correction audit log for a document |
+| `document_classification(document_id)` | `documentClassification` | the document's genre axis; `status` tells you if it is a `pending` guess or a `confirmed` human decision |
 | `list_collections(limit, kind?, after?)` | `collections` | native containers; keyset `cursor` |
 | `get_collection(collection_id, document_limit)` | `collection` | one collection + its member documents |
 | `list_lenses(limit, after?)` | `lenses` | the collections marked as entity-resolution scopes (Block B); keyset `cursor` — see §3.5 |
@@ -561,6 +563,8 @@ engineering decision **D-030**.
 | `update_document_metadata(document_id, title?, description?, tags?, authors?)` | `updateDocumentMetadata` | `Job` |
 | `bulk_tag_documents(document_ids, tags)` | `bulkTagDocuments` | `[Job]` |
 | `correct_entity_mention(document_id, action, char_start, char_end, entity_type?, surface?, new_char_start?, new_char_end?, original_type?, rationale?)` | `correctEntityMention` | `Job` (`apply_corrections`) |
+| `classify_document(document_id)` | `classifyDocument` | `Job` (`classify_genre`) |
+| `confirm_document_classification(document_id, genre, subtype?, rationale?)` | `confirmDocumentClassification` | the confirmed `DocumentClassification` |
 | `decide_seeds(approve_ids?, reject_ids?)` | `decideSeeds` | `Int` (rows updated) |
 | `decide_document_metadata_suggestions(approve_ids?, reject_ids?)` | `decideDocumentMetadataSuggestions` | `Int` |
 | `seed_approved(document_id)` | `seedApproved` | `Job` |
@@ -617,6 +621,33 @@ first to avoid re-recording a fix that already exists.
 Use `reject` for a span that is not an entity, `add` for one the model missed
 (pass `entity_type`), and `adjust_span` with `new_char_start` / `new_char_end`
 when the entity is real but its boundaries are wrong.
+
+`classify_document` / `confirm_document_classification` are the genre half of the
+verification layer (SLP Block C). A document's genre decides whether its entities
+resolve inside the work (fiction) or against the shared world (non-fiction), so a
+wrong genre would later drive a wrong identity merge — which is why a machine guess
+is only ever `pending` and a human confirms it. A `pending` classification must
+**not** be relied on for identity decisions.
+
+**Example — classify a document, then confirm the genre:**
+
+```jsonc
+// Enqueue the heuristic classifier (no model — deterministic signals).
+{"name": "classify_document", "arguments": {"document_id": "f0b3d10c-…"}}
+// → {"id": "01K…", "kind": "classify_genre", "status": "queued", "documentId": "f0b3d10c-…"}
+
+// Poll it, then read the machine guess.
+{"name": "get_job", "arguments": {"job_id": "01K…"}}
+// → {"status": "succeeded", "result": {"genre": "fiction", "status": "pending", "written": true}}
+{"name": "document_classification", "arguments": {"document_id": "f0b3d10c-…"}}
+// → {"genre": "fiction", "subtype": "novel", "confidence": 1.0, "method": "heuristic", "status": "pending"}
+
+// Having judged it, confirm the genre — this asserts it (method=human, status=confirmed).
+{"name": "confirm_document_classification", "arguments": {
+   "document_id": "f0b3d10c-…", "genre": "fiction", "subtype": "novel",
+   "rationale": "first-person novel with chapter structure"}}
+// → {"genre": "fiction", "status": "confirmed", "method": "human", "reviewer": "…"}
+```
 
 The three lens tools apply **synchronously** (like the collection tools) and
 return the updated `DocumentCollection` / `Document`, not a `Job`. Promoting a
