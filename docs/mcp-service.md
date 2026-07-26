@@ -19,16 +19,16 @@ Exposes the doc-ray corpus to agentic AI over the **Model Context Protocol
 (MCP)**, authenticating each caller to a doc-ray principal so Postgres RLS scopes
 what they can read.
 
-**Status: live in production and verified end-to-end.** The server ships **31
-read tools** (18 from `entrypoints/mcp/corpus.py` — incl. `read_document_sentences`,
+**Status: live in production and verified end-to-end.** The server ships **32
+read tools** (19 from `entrypoints/mcp/corpus.py` — incl. `read_document_sentences`,
 `corpus_manifest`, `corpus_shard`, `get_job`, `list_collections`, `get_collection`,
-`entity_mention_corrections`, and the 4 Prism visual tools — + 9 structure tools from
+`entity_mention_corrections`, and the 5 Prism visual tools — + 9 structure tools from
 `entrypoints/mcp/structure.py` (`read_document_outline`, `entity_profiles`,
 `term_frequency`, `document_classification`, the SLP Block D `entity_projection`, the
 Block F hyper-context readers `lens_entities` / `entity_relations` / `related_entities`,
 and the Block E `allusions` reader) + 3
 composition-grounding tools from `entrypoints/mcp/compose.py`
-+ 1 semantic-search tool… see §3) always registered, plus **29 opt-in write tools**
++ 1 semantic-search tool… see §3) always registered, plus **30 opt-in write tools**
 (reprocessing + curation + full collection lifecycle + projection review
 `confirm_projection` / `reject_projection` + allusion curation `propose_allusion` /
 `confirm_allusion` / `reject_allusion`) registered only when
@@ -101,8 +101,11 @@ every other read rule.
 | `src/doc_ray/entrypoints/mcp/tokens.py` | starlette + `mcp` | Per-call bearer-token resolution: live request wins, `caller_token` contextvar is the stdio fallback |
 | `src/doc_ray/entrypoints/mcp/corpus.py` | httpx only | GraphQL-passthrough client + read-tool functions (SDK-independent) |
 | `src/doc_ray/entrypoints/mcp/auth.py` | starlette only | Bearer/JWT validation + `BearerAuthMiddleware` (reuses `tokens`) |
-| `src/doc_ray/entrypoints/mcp/structure.py` | httpx only | Structure read tools: `read_document_outline` + `entity_profiles` (split from `corpus.py` for D-015) |
-| `src/doc_ray/entrypoints/mcp/mutations.py` | httpx only | Write tools (reprocessing + curation mutations); registered only when writes are enabled |
+| `src/doc_ray/entrypoints/mcp/structure.py` | httpx only | The 9 structure/SLP read tools: outline, `entity_profiles`, `term_frequency`, `document_classification`, and the lens-scoped `entity_projection` / `lens_entities` / `entity_relations` / `related_entities` / `allusions` (split from `corpus.py` for D-015) |
+| `src/doc_ray/entrypoints/mcp/compose.py` | httpx only | The 3 composition-grounding read tools (`briefing_pack`, `entity_dossier`, `document_evidence`) |
+| `src/doc_ray/entrypoints/mcp/semantic.py` | httpx only | The semantic-search read tool (`semantic_search_sentences`) |
+| `src/doc_ray/entrypoints/mcp/mutations.py` | httpx only | The 30 write tools (reprocessing + curation mutations); registered only when writes are enabled |
+| `src/doc_ray/entrypoints/mcp/prompts.py` | `mcp` | The 4 user-selectable workflow prompts (§3.7) |
 | `src/doc_ray/entrypoints/mcp/resources.py` | httpx only | `docray://` resources + RFC 6570 templates over the read tools (addressing layer) |
 | `src/doc_ray/entrypoints/mcp/server.py` | `mcp` (new dep) | Thin FastMCP glue: register tools, mount middleware, expose ASGI `app` |
 | `docker-compose.mcp.yml` | — | `mcp` service; dev forwards to `http://api:8000/graphql` (in-network), prod to `https://doc-ray.com/graphql` |
@@ -151,11 +154,11 @@ but had no passage cited on this page. Example:
 
 | MCP tool | GraphQL field | Notes |
 |---|---|---|
-| `search_sentences(term, document_id?, limit, response_format?)` | `searchSentences` | KWIC pre/hit/post; term-filtered. Returns `{hits, coverage, note}` — see §3.1 |
+| `search_sentences(term, document_id?, limit, after?, response_format?)` | `searchSentences` | KWIC pre/hit/post; term-filtered. Returns `{hits, coverage, note}` — see §3.1 |
 | `read_document_sentences(document_id, limit, after?, from_ordinal?, to_ordinal?, page?, response_format?)` | `document { sentences }` | in-order read: **sequential** walk *or* **random-access** ordinal/page slice; verbatim text + citation offsets |
 | `read_document_outline(document_id, max_entries)` | `documentOutline` | the map that aims the ranged reader: addressable ordinal ranges + `source` provenance — see §3.2 |
 | `full_text_search(query, limit)` | `fullTextSearch` | ranked docs |
-| `list_documents(limit, doc_type?, status?)` | `documents` | keyset `cursor` |
+| `list_documents(limit, doc_type?, status?, after?)` | `documents` | keyset `cursor` |
 | `get_document(document_id)` | `document` | metadata + counts |
 | `get_job(job_id)` | `job` | poll a job enqueued by a write tool |
 | `entity_mention_corrections(document_id)` | `entityMentionCorrections` | the human NER-correction audit log for a document |
@@ -175,7 +178,7 @@ but had no passage cited on this page. Example:
 | `term_frequency(terms, document_id?)` | `termFrequency` | flood-risk pre-flight: `floodRisk` verdict per candidate term BEFORE searching; corpus-wide only (`document_id` → typed `unsupported`) — see §3.6 |
 | `lexeme_kwic(uid, document_id?, limit)` | `lexeme { occurrences }` | KWIC is a **nested** resolver, not a root field |
 | `semantic_search_sentences(query, document_id?, limit)` | `semanticSearchSentences` | meaning-based (learned-embedding) sentence retrieval; the antidote to lexical `search_sentences` flooding. Typed `unsupported` where the sentence stack is absent |
-| `document_images(document_id, limit)` | `document { images }` | Prism visual layer: extracted/rendered page images |
+| `document_images(document_id, limit, after?)` | `documentImages` | Prism visual layer: extracted/rendered page images |
 | `image_class_summary(document_id)` | `imageClassSummary` | per-document tally of image tier classes |
 | `visual_captions(document_id, limit)` | `visualCaptions` | generated captions for a document's images |
 | `cross_modal_image_search(query, limit)` | `crossModalImageSearch` | text→image search; typed `unsupported` where the vision stack is absent |
@@ -596,7 +599,7 @@ called by the container runtime, which holds no token — and both probes bypass
 | `GET /readyz` | none | **Readiness.** `200` only when the config loaded **and** the GraphQL upstream answers; otherwise `503` with `{"ready":false,"checks":{…}}` naming the failed check. The upstream probe is a ≤2 s GET to the API's own `/health`; a **negative** result is cached ~5 s so a readiness storm cannot amplify an upstream outage. Failures carry an error *kind* only — never the upstream host, URL, or a stack trace. |
 
 ```bash
-curl -fsS localhost:8080/health   # → {"status":"ok","version":"1.42.0"}
+curl -fsS localhost:8080/health   # → {"status":"ok","version":"1.48.0"}
 curl -sS -o /dev/null -w '%{http_code}\n' localhost:8080/readyz   # 200 ready, 503 if the API is unreachable
 ```
 
@@ -663,6 +666,7 @@ engineering decision **D-030**.
 | `reject_allusion(allusion_id)` | `rejectAllusion` | the `rejected` edge |
 | `decide_seeds(approve_ids?, reject_ids?)` | `decideSeeds` | `Int` (rows updated) |
 | `decide_document_metadata_suggestions(approve_ids?, reject_ids?)` | `decideDocumentMetadataSuggestions` | `Int` |
+| `decide_visual_captions(approve_ids?, reject_ids?)` | `decideVisualCaptions` | `Int` (rows updated) |
 | `seed_approved(document_id)` | `seedApproved` | `Job` |
 | `create_collection(name, description="", kind="manual", rule?, doc_type?, status?, tags?)` | `createCollection` | `DocumentCollection` |
 | `add_document_to_collection(collection_id, document_id)` | `addDocumentToCollection` | `DocumentCollection` |
@@ -928,8 +932,8 @@ unaffected.
       Registration → `/authorize` (browser login + consent, PKCE S256) → `/token`
       (authorization_code + PKCE), reusing the existing RLS-bound access JWTs.
       See `application/oauth_server.py`, `webapp/oauth_web.py`, migration `082`.
-- [x] **Write tools — DONE.** `mutations.TOOLS` registers 22 write tools (reprocessing
-      + curation + full collection lifecycle), advertised only when
+- [x] **Write tools — DONE.** `mutations.TOOLS` registers 30 write tools (reprocessing
+      + curation + full collection lifecycle + SLP projection/allusion review), advertised only when
       `DOCRAY_MCP_ENABLE_WRITE=true`; each remains gated by the API's `write` scope and
       per-document ACLs (`test_mcp_server.py::_WRITE_TOOL_NAMES`).
 - [ ] **gRPC gateway** (if required) — a separate service exposing the same

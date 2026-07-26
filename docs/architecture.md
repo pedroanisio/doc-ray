@@ -110,8 +110,9 @@ A job's payload can carry a `chain`: on success, `run_once` enqueues the next
 kind for the same document with the remaining chain before returning —
 deterministic and auditable in the `jobs` table, and the mechanism behind
 `ingestDocument(pipeline: true)` reaching a fully annotated, semantically
-enriched, and canonicalized document (`annotate` -> `semantic_enrich` ->
-`canonicalize`) with no further calls.
+enriched, canonicalized document plus Prism Tier-1 visual feature extraction
+(`annotate` -> `semantic_enrich` -> `canonicalize` -> `visual_extract`, the
+`DEFAULT_PIPELINE_CHAIN`) with no further calls.
 
 The API also exposes `GET /jobs/events` as a Server-Sent Events stream for
 pipeline status changes. Query with `document_id=<uuid>` to receive only jobs
@@ -201,8 +202,9 @@ nests it, and `documents.default_lens_id` names a document's default. A reserved
 real-world scope. Integrity — a parent lens is a scope, a default lens is a scope
 the document belongs to, no parent cycle — is enforced in the database
 (migration 121), and the `global` lens's completeness check runs BYPASSRLS as
-`docray_batch` (migration 114's pattern). **Block B ships this vocabulary only:
-no entity resolution changes; a later projection layer consumes it.** The GraphQL
+`docray_batch` (migration 114's pattern). **Block B shipped this vocabulary only —
+no entity resolution changed at the time; the projection engine (Block D, shipped,
+below) now consumes it.** The GraphQL
 surface is `lenses` (read) and `promoteCollectionToLens` / `demoteLens` /
 `setDocumentDefaultLens` (write); MCP mirrors it with `list_lenses` and the three
 write tools.
@@ -243,16 +245,17 @@ The correctness core is the **pure resolver** `domain.projection.project`
 (stdlib-only, exhaustively unit-tested before any SQL): *the reserved `global` lens
 forces GLOBAL; a scope lens applies the Block C genre policy per type; then
 local-first lookup → global fallback → explicit unresolved* — a mention is never
-silently dropped (invariant 4). Migration 129 adds four additive tables, all with
-RLS + FORCE and reproducible from substrate + lens + policy, none mutating the
+silently dropped (invariant 4). Migration 129 adds three durable additive tables, all
+with RLS + FORCE and reproducible from substrate + lens + policy, none mutating the
 substrate (invariants 1–2): `entity_projection` (one row per mention × projecting
 lens — `scope`, a nullable `canonical_id`, a `proposed`/`confirmed`/`rejected`
 status; batch-owned, SELECT-only to the API — the Block A ownership finding);
 `lens_local_entity` (the stable registry that mints one `canonical` row per (lens,
-surface, type) so a rebuild is byte-identical); `entity_projection_review` (human
+surface, type) so a rebuild is byte-identical); and `entity_projection_review` (human
 confirm/reject keyed by the **stable span**, so a decision survives re-annotation —
-Block A's record-then-apply shape, applied by the refresh); and `lens_entity_stats`
-(the per-lens entity rollup `lensEntities` reads — D-024, never a live aggregate).
+Block A's record-then-apply shape, applied by the refresh). (129 also added a thin
+per-lens stats rollup, `lens_entity_stats`, since superseded and dropped by Block F's
+`lens_entity_rollup` — see below.)
 Only a lens with `document_collections.projects` set is materialized (FR-2 cost
 control, bounded per document). The `KIND_REFRESH_PROJECTION` job refreshes one
 document (chained after canonicalize / reannotate / apply_corrections) or rebuilds

@@ -6,7 +6,7 @@ disclaimer:
     or verifiable reference may be invalid, erroneous, or a hallucination.
   generated_by: "Claude Opus 4.8 (1M context) via Claude Code"
   date: "2026-07-24"
-status: draft
+status: implemented
 ---
 
 # Architecture Proposal — The Entity Fabric at Scale: Substrate · Lens · Projection
@@ -16,10 +16,28 @@ status: draft
 This work is subject to the methodological caveats and commitments described in [@DISCLAIMER.md](../../DISCLAIMER.md).
 > No statement or premise not backed by a real logical definition or verifiable reference should be taken for granted.
 
-> **Status: draft for review.** This proposes a target architecture and a
-> delivery path. It does not change code. Every claim about the current schema
-> is cited to a migration; every borrowed pattern is named to a real system.
-> Where I give engineering judgment rather than established fact, I say so.
+> **Status: IMPLEMENTED (this proposal has shipped in full).** The whole programme
+> below has since landed; the future-tense roadmap (§8) and target schema deltas (§7)
+> now describe *built* reality, not intent. Read them as the design record, not as
+> pending work. Shipped blocks and where to see them:
+> - **A — Substrate corrections** (P0): `entity_mention_correction`, migration 115.
+> - **B — Lens registry** (P1, issue #5): `document_collections.is_scope` /
+>   `parent_lens_id`, `documents.default_lens_id`, migration 121.
+> - **C — Genre classification** (issue #6): `document_classification` +
+>   `domain.genre_policy`, migration 127 (schema 1.45.0).
+> - **D — Projection engine** (P2, issue #8): `entity_projection` +
+>   `lens_local_entity` + `entity_projection_review`, migration 129 (1.46.0).
+> - **E — Allusion edges** (issue #9): `entity_allusion`, migration 131 (1.47.0).
+> - **F — Hyper-context rollups** (P3, issue #10): `lens_entity_rollup` +
+>   `lens_entity_relation` (co-occurrence NPMI + bounded N-hop), migration 133 (1.48.0).
+>
+> Still open: **Block G — confidence surfacing** (issue #7) — the one §10 open
+> question (persisting the model confidence score) maps to it. Narrative per-lens
+> summaries are deferred (backlog BL-161). Everything else here is live.
+>
+> *(Original framing, for the record:)* This proposed a target architecture and a
+> delivery path. Every claim about the (then-)current schema is cited to a migration;
+> every borrowed pattern is named to a real system.
 
 ---
 

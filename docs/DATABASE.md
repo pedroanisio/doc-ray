@@ -2298,10 +2298,12 @@ document-scoped table. A principal may **read** a same-tenant document iff it is
 *admin* or holds any `document_acl` row on it, and may **write** iff *admin* or
 holds an `annotate`/`delete`/`admin` grant.
 
-**Enforcement.** RLS is `ENABLE`d (not `FORCE`) on 66 tables (incl. `jobs` and
-`backups` since migration 043 — BL-064). The `docray`
-role is a **superuser and table owner**, so it **bypasses RLS** — the ingest
-pipeline and admin tooling use it as the trusted batch writer. End-user / API
+**Enforcement.** RLS is `ENABLE`d **and `FORCE`d** on 66 tables (incl. `jobs`
+and `backups` since migration 043 — BL-064; `FORCE` applied fleet-wide by migration 106
+— BL-138, so even a table owner is filtered). The `docray`
+role is a **superuser**, so it **bypasses RLS** (superusers are exempt even under
+`FORCE`) — the ingest pipeline and admin tooling use it, and the trusted batch writer
+`docray_batch` carries `BYPASSRLS` (migration 106) for the same reason. End-user / API
 traffic must run as the non-superuser role **`docray_api`** (`SET ROLE
 docray_api`) and set the principal per transaction:
 

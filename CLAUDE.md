@@ -48,15 +48,16 @@ Replace `<RELATIVE_PATH_TO_DISCLAIMER>` with the correct path for the file's dep
 
 ### MANDATORY
 
-- Never propose changes that conflict with `@PURPOSE.md`, once it exists.
+- Never propose changes that conflict with `@PURPOSE.md`.
 - Do not justify decisions based primarily on the current state of the codebase.
-- Always prioritize moving the codebase toward the desired target state defined by `@PURPOSE.md`, once it exists, even when that requires departing from the existing implementation.
+- Always prioritize moving the codebase toward the desired target state defined by `@PURPOSE.md`, even when that requires departing from the existing implementation.
 - Production assets are exempted from this disclaimer.
-- **`PURPOSE.md` does not exist yet at the repo root.** The two rules above are
-  dormant until an operator creates it. Do not fabricate its content (why the
-  project exists, product vision, and beliefs are the operator's call, not
-  something to infer from the current code) — flag its absence and ask before
-  assuming what it would say.
+- **`PURPOSE.md` exists at the repo root** — the two rules above are ACTIVE. It is the
+  operator's product identity (why the project exists, product vision, beliefs, and the
+  Today/Becoming boundary). Do not fabricate or rewrite its content, and do not infer it
+  from the current code — its Today/Becoming boundary is the operator's call, so flag drift
+  there (e.g. a capability shipped but still listed under "Becoming") and let the operator
+  reclassify rather than editing it unilaterally.
 
 ---
 
@@ -66,9 +67,12 @@ doc-ray is a living library and knowledge base (see `PURPOSE.md` for the product
 identity and its Today/Becoming boundary). Concretely, it ingests documents
 (PDF/EPUB/TXT/MD/DOCX) into a PostgreSQL-backed corpus (full text, sentences, a
 20-layer linguistic annotation graph, entity canonicalization to shared
-identities, semantic enrichment), stores original bytes content-addressed in
+identities, semantic enrichment, and the Substrate·Lens·Projection entity fabric —
+genre classification, lens-scoped projections, cross-lens allusion edges, and
+per-lens hyper-context rollups), stores original bytes content-addressed in
 MinIO/S3, and exposes the result through a GraphQL API (Strawberry), a
-read-oriented Flask webapp, and a read-only MCP server for AI agents.
+read-oriented Flask webapp, and an MCP server for AI agents that is read-only by
+default (opt-in write tools behind `DOCRAY_MCP_ENABLE_WRITE`).
 
 ```
 .
