@@ -52,6 +52,9 @@ _API_ONLY_ALLOWLIST: dict[str, str] = {
     "confirmDocumentClassification": (
         "Human genre confirmation is an agent/API + MCP verification action (Block C)."
     ),
+    # Lens-scoped identity review (SLP Block D) is an agent/API + MCP verification action;
+    # the read webapp does not yet surface projections.
+    "confirmProjection": "Projection confirmation is an agent/API + MCP review action (Block D).",
     # Shards are orchestration primitives rather than an end-user corpus interaction.
     "corpusManifest": "Deterministic fan-out metadata is an agent/operations primitive.",
     "corpusShard": "Deterministic shard traversal is an agent/operations primitive.",
@@ -82,20 +85,29 @@ _API_ONLY_ALLOWLIST: dict[str, str] = {
     ),
     # Structured profiles are optimized for agent traversal, while the reader shows entities.
     "entityProfiles": "Entity profiles are an agent/MCP structural-retrieval primitive.",
+    # Lens-scoped identity (SLP Block D) is an agent/MCP retrieval primitive; the read
+    # webapp does not yet surface projections.
+    "entityProjection": "Lens-scoped identity is an agent/MCP retrieval primitive (Block D).",
     # Browser keyword search uses its established direct-SQL sentence query.
     "fullTextSearch": "Search and Briefing provide human retrieval through their own bindings.",
+    # Per-lens entity survey (SLP Block D) is an agent/MCP retrieval primitive.
+    "lensEntities": "The per-lens entity rollup is an agent/MCP retrieval primitive (Block D).",
     # Fleet-wide re-extraction is privileged and lives in the admin console.
     "reextractDocuments": "The admin-console Jobs page exposes this admin-only batch action.",
     # The collection member form owns the same relation through RLS-scoped SQL.
     "removeDocumentFromCollection": "The Collections page removes members through SQL.",
     # Restore is intentionally an API/operator recovery verb, not a general-user action.
     "restoreDocument": "Deleted-document recovery is API/operator-only; browser lists active docs.",
+    # Lens-scoped identity review (SLP Block D) is an agent/API + MCP verification action.
+    "rejectProjection": "Projection rejection is an agent/API + MCP review action (Block D).",
     # Billing-event replay is a privileged control in the admin console.
     "retryBillingEvent": "The admin-console Billing page exposes this admin-only retry.",
     # Browser keyword search performs the same RLS-scoped sentence read through SQL.
     "searchSentences": "The Search page binds sentence search through its indexed SQL read.",
     # The seeding and unified review pages read the proposal table directly.
     "seedSuggestions": "Seeding and Review pages render suggestions through RLS-scoped SQL.",
+    # Lens projection designation (SLP Block D) is an agent/API curation action.
+    "setLensProjects": "Designating a projecting lens is an agent/API curation action (Block D).",
     # The reader's word-frequency panel uses bounded direct SQL over the same document.
     "termFrequency": "The document reader renders per-document word frequency through SQL.",
     # Collection editing remains within the existing direct-SQL web flow.

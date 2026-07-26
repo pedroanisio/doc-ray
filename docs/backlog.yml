@@ -110,7 +110,7 @@ metadata:
   generated_by:     "Claude Sonnet 5 via Claude Code (merge of Claude Opus 4.8 backlog + OpenAI Codex improvement-proposal candidates)"
   generated_on:     "2026-07-05"
   system_of_record: "docs/backlog.yml"
-  total_items:      157
+  total_items:      158
 
 items:
 
@@ -5392,3 +5392,50 @@ items:
     owner:        "shared"
     source:       "GitHub issue #6 (SLP Block C, epic entity-fabric); implemented with strict TDD (Claude Opus 4.8 (1M context) via Claude Code)."
     tags:         ["slp", "entity-fabric", "genre", "resolution", "feature"]
+
+  - id:          "BL-158"
+    title:        "SLP Block D: projection engine — lens-scoped entity identity without lossy merges"
+    summary:      "Identity was global and unparameterised (one canonical registry per tenant), so fiction and non-fiction could not coexist without either merging unrelated fictional entities or fragmenting real ones. Added project(mention, lens) as a derived, refreshable interpretation: a pure resolver, four additive tables, a refresh job, and GraphQL + MCP surfaces. Consumes Block C (#6) genre policy and Block B (#5) lenses; unblocks Blocks E (#9) and F (#10)."
+    description: |
+      domain.projection.project (pure, stdlib-only, exhaustively unit-tested) encodes
+      the law: the global lens forces GLOBAL; a scope lens applies genre_policy per
+      type; then local-first lookup -> global fallback -> explicit unresolved (never a
+      silent drop). Migration 129 (RLS+FORCE, all additive) adds entity_projection
+      (one row per mention x projecting lens; scope, nullable canonical_id, review
+      status; batch-owned, SELECT-only to the API), lens_local_entity (stable registry
+      minting one canonical per (lens, surface, type) so a rebuild is byte-identical),
+      entity_projection_review (human confirm/reject keyed by the stable span, so a
+      decision survives re-annotation; re-applied by the refresh), and lens_entity_stats
+      (the per-lens rollup lensEntities reads, D-024). document_collections.projects
+      designates a projecting lens (FR-2 cost control, bounded per document).
+      KIND_REFRESH_PROJECTION refreshes one document (chained after
+      canonicalize/reannotate/apply_corrections) or rebuilds the corpus. Every machine
+      projection is proposed (PALS's Law). GraphQL: entityProjection/lensEntities (read),
+      confirmProjection/rejectProjection/setLensProjects (write); MCP mirrors the reads
+      and the two review writes (gated on DOCRAY_MCP_ENABLE_WRITE). Schema SemVer ->
+      1.46.0 (migration 130). The substrate is never mutated (invariants 1-2).
+    category:     "api"
+    type:         "feature"
+    status:       "done"
+    complexity:   "XL"
+    priority:     "medium"
+    rationale:    "This is the heart of the SLP architecture: it makes lens-scoped identity real, applying the genre policy Block C defined and the lenses Block B established, so a 10k-document corpus of fiction and non-fiction shares real-world identities while keeping fictional ones local — with no lossy merge, because a projection is derived and rebuildable where a merge is destructive."
+    acceptance_criteria:
+      - "entity_projection exists with RLS, FORCE, batch-only writes, and the documented indexes; project() is pure and deterministic."
+      - "Fiction isolation: the same fictional surface in two lenses resolves to different canonical_ids; non-fiction sharing: the same real surface shares one."
+      - "Reproducibility: truncating and rebuilding the projection yields byte-identical rows; the substrate (entity_mention, canonical) is provably unmutated."
+      - "Global fallback: an unmatched mention resolves globally or is explicitly unresolved, never dropped; embedding/model links land status='proposed'."
+      - "Re-annotating a document leaves projections consistent (cascade + rebuild), and a human review re-applies by stable span; no live aggregate over entity_projection on a read path (D-024)."
+      - "Capability exposed consistently across GraphQL and MCP with agent-facing docstrings and examples."
+    dependencies: ["BL-157"]
+    references:
+      - "docs/proposals/entity-fabric-substrate-lens-projection.md"
+      - "db/migrations/129_entity_projection.sql"
+      - "src/doc_ray/domain/projection.py"
+      - "src/doc_ray/application/projection.py"
+      - "src/doc_ray/adapters/projection_store.py"
+      - "src/doc_ray/entrypoints/api/projection_query.py"
+      - "src/doc_ray/entrypoints/api/projection_mutation.py"
+    owner:        "shared"
+    source:       "GitHub issue #8 (SLP Block D, epic entity-fabric); implemented with strict TDD (Claude Opus 4.8 via Claude Code)."
+    tags:         ["slp", "entity-fabric", "projection", "lens", "resolution", "feature"]

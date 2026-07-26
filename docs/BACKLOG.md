@@ -524,6 +524,7 @@ against.
 | BL-155 | Graceful shutdown for the migration runner: cancel in-flight statements instead of SIGKILL (exit 137) | ops | bug | done | S | medium | shared |
 | BL-156 | Admin Console operator-health panel: fix the JSON-parse misdiagnosis, contract drift, and misleading token copy | webapp | bug | done | M | medium | shared |
 | BL-157 | SLP Block C: genre/type classification + per-entity-type resolution policy | api | feature | done | L | medium | shared |
+| BL-158 | SLP Block D: projection engine — lens-scoped entity identity without lossy merges | api | feature | done | XL | medium | shared |
 
 See [`backlog.yml`](backlog.yml) for each item's full description, rationale,
 acceptance criteria, dependencies, related decisions (`D-###`), and references.

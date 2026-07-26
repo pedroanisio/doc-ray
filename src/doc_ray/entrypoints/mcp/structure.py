@@ -164,10 +164,63 @@ async def document_classification(document_id: str) -> dict[str, Any] | None:
     return row
 
 
+async def entity_projection(
+    document_id: str, lens_id: str | None = None, limit: int = 100, after: str | None = None
+) -> dict[str, Any]:
+    """A document's entity identity through a lens — ``project(mention, lens)`` (SLP Block D).
+
+    Answers "which entity is each mention, *within this lens*". ``scope`` is ``local``
+    (an identity local to a fictional work) or ``global`` (the shared real-world
+    registry); ``canonicalId`` is null when a mention is explicitly unresolved (it is
+    never silently dropped). ``status`` is the trust signal: ``proposed`` is an
+    UNVERIFIED machine guess — confirm it with ``confirm_projection`` before relying on
+    it (PALS's Law). Omit ``lensId`` to use the document's default lens, else the
+    ``global`` lens; ``ambiguous`` is true when it fell back to ``global`` because the
+    document has several projecting lenses and no default. Page with ``entities[-1].cursor``
+    as ``after``. RLS-scoped to documents your token may read.
+    """
+    _require_uuid(document_id, "document_id")
+    if lens_id is not None:
+        _require_uuid(lens_id, "lens_id")
+    data = await gql(
+        "query($d:ID!,$l:ID,$n:Int!,$a:String){entityProjection"
+        "(documentId:$d,lensId:$l,limit:$n,after:$a){lensId isDefault ambiguous nextCursor "
+        "entities{mentionId lensId documentId canonicalId scope method confidence status "
+        "surface mentionType charStart charEnd preferred canonicalType wikidataId cursor}}}",
+        {"d": document_id, "l": lens_id, "n": limit, "a": after},
+    )
+    result: dict[str, Any] = data["entityProjection"]
+    return result
+
+
+async def lens_entities(
+    lens_id: str, limit: int = 100, after: str | None = None
+) -> list[dict[str, Any]]:
+    """The entities that live in a lens, most-mentioned first (SLP Block D).
+
+    Use this to survey a fictional work's cast/places (a scope lens) — each entry has
+    the entity's ``preferred`` name, its ``scope`` (``local``/``global``), and its
+    lens-wide ``nMentions`` / ``nDocuments``. Reads a precomputed rollup, so it is
+    cheap. Scope lenses only: for the corpus-wide real-world entity distribution use
+    ``entity_profiles`` / ``entity_frequency`` instead. Page with a row's ``cursor`` as
+    ``after``. RLS-scoped to lenses whose documents your token may read.
+    """
+    _require_uuid(lens_id, "lens_id")
+    data = await gql(
+        "query($l:ID!,$n:Int!,$a:String){lensEntities(lensId:$l,limit:$n,after:$a)"
+        "{canonicalId preferred entityType wikidataId scope nMentions nDocuments cursor}}",
+        {"l": lens_id, "n": limit, "a": after},
+    )
+    rows: list[dict[str, Any]] = data["lensEntities"]
+    return rows
+
+
 #: Registered by ``server.build_server`` next to the corpus read tools.
 TOOLS: tuple[Callable[..., Any], ...] = (
     read_document_outline,
     entity_profiles,
     term_frequency,
     document_classification,
+    entity_projection,
+    lens_entities,
 )

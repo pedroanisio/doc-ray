@@ -67,6 +67,11 @@ KIND_APPLY_CORRECTIONS = "apply_corrections"
 # stored full text — so it is not long-running. Writes a pending machine guess to
 # document_classification; only a human confirmation asserts a genre.
 KIND_CLASSIFY_GENRE = "classify_genre"
+# Block D (#8): (re)materialize the entity projection — project(mention, lens) — for
+# a document, one lens, or the whole corpus (payload rebuild=true). Deterministic,
+# no model; chained after the entity pipeline and enqueued by the projection review
+# mutations to apply a confirm/reject promptly. Not long-running per document.
+KIND_REFRESH_PROJECTION = "refresh_projection"
 
 # The default post-ingest pipeline: Stage-1 annotation, deterministic semantic
 # enrichment, then deterministic canonicalization, then Prism Tier-1 visual

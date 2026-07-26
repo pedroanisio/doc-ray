@@ -28,6 +28,7 @@ from doc_ray.entrypoints.api.classification_query import ClassificationQueries
 from doc_ray.entrypoints.api.collection_query import CollectionQueries
 from doc_ray.entrypoints.api.ids import clean_uuid as _clean_uuid
 from doc_ray.entrypoints.api.mutation_guards import _require_admin_read
+from doc_ray.entrypoints.api.projection_query import ProjectionQueries
 from doc_ray.entrypoints.api.security_audit import record_audit_event
 from doc_ray.entrypoints.api.security_audit_types import SecurityAuditEvent
 from doc_ray.entrypoints.api.semantic_query import SemanticQueries
@@ -57,6 +58,7 @@ class Query(
     StructureQueries,
     CollectionQueries,
     ClassificationQueries,
+    ProjectionQueries,
 ):
     """The GraphQL query root."""
 

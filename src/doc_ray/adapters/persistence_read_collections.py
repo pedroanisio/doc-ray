@@ -118,7 +118,7 @@ async def list_collections(
     rows = await _rows(
         conn,
         """
-        SELECT id, name, description, kind, rule, is_scope, parent_lens_id,
+        SELECT id, name, description, kind, rule, is_scope, projects, parent_lens_id,
                created_at, updated_at
         FROM document_collections
         WHERE (%(kind)s::text IS NULL OR kind = %(kind)s)
@@ -156,7 +156,7 @@ async def list_lenses(
     rows = await _rows(
         conn,
         """
-        SELECT id, name, description, kind, rule, is_scope, parent_lens_id,
+        SELECT id, name, description, kind, rule, is_scope, projects, parent_lens_id,
                created_at, updated_at
         FROM document_collections
         WHERE is_scope
@@ -179,7 +179,7 @@ async def get_collection(conn: _AConn, collection_id: str) -> Row | None:
     row = await _row(
         conn,
         """
-        SELECT id, name, description, kind, rule, is_scope, parent_lens_id,
+        SELECT id, name, description, kind, rule, is_scope, projects, parent_lens_id,
                created_at, updated_at
         FROM document_collections
         WHERE id = %s
@@ -194,7 +194,7 @@ async def collections_for_document(conn: _AConn, document_id: str) -> list[Row]:
     rows = await _rows(
         conn,
         """
-        SELECT c.id, c.name, c.description, c.kind, c.rule, c.is_scope,
+        SELECT c.id, c.name, c.description, c.kind, c.rule, c.is_scope, c.projects,
                c.parent_lens_id, c.created_at, c.updated_at
         FROM document_collections c
         JOIN documents d ON d.id = %(doc)s::uuid

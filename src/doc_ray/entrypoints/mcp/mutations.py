@@ -481,6 +481,45 @@ async def confirm_document_classification(
     return classification
 
 
+async def confirm_projection(mention_id: str, lens_id: str) -> dict[str, Any]:
+    """Confirm a mention's lens-scoped identity — the verification step (SLP Block D).
+
+    Turns a ``proposed`` projection into a ``confirmed`` one: records your decision
+    keyed by the mention's stable text span (so it survives re-annotation) and enqueues
+    a refresh that applies it. Use this only when you have actually judged that this
+    mention resolves to this entity within the lens (PALS's Law — a projection is a
+    proposal until a human confirms). ``mention_id`` is a mention id from
+    ``entity_projection``; ``lens_id`` is the lens it was projected through. Poll the
+    returned job with ``get_job``. Requires a write grant on the document.
+    """
+    _require_nonempty(mention_id, "mention_id")
+    _require_uuid(lens_id, "lens_id")
+    data = await gql(
+        f"mutation($m:ID!,$l:ID!){{confirmProjection(mentionId:$m,lensId:$l){{{JOB_FIELDS}}}}}",
+        {"m": mention_id, "l": lens_id},
+    )
+    job: dict[str, Any] = data["confirmProjection"]
+    return job
+
+
+async def reject_projection(mention_id: str, lens_id: str) -> dict[str, Any]:
+    """Reject a mention's lens-scoped identity (SLP Block D); returns the job.
+
+    The mirror of ``confirm_projection``: records a ``rejected`` decision (keyed by the
+    stable span) and enqueues the refresh that applies it. The substrate is untouched —
+    only the derived projection's review status changes. Requires a write grant on the
+    document.
+    """
+    _require_nonempty(mention_id, "mention_id")
+    _require_uuid(lens_id, "lens_id")
+    data = await gql(
+        f"mutation($m:ID!,$l:ID!){{rejectProjection(mentionId:$m,lensId:$l){{{JOB_FIELDS}}}}}",
+        {"m": mention_id, "l": lens_id},
+    )
+    job: dict[str, Any] = data["rejectProjection"]
+    return job
+
+
 TOOLS: tuple[Any, ...] = (
     reannotate,
     reextract_document,
@@ -495,6 +534,8 @@ TOOLS: tuple[Any, ...] = (
     correct_entity_mention,
     classify_document,
     confirm_document_classification,
+    confirm_projection,
+    reject_projection,
     decide_seeds,
     decide_document_metadata_suggestions,
     decide_visual_captions,

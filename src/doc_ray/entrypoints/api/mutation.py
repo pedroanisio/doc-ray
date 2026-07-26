@@ -58,6 +58,7 @@ from doc_ray.entrypoints.api.mutation_lenses import LensMutations
 from doc_ray.entrypoints.api.mutation_semantic import SemanticMutations
 from doc_ray.entrypoints.api.mutation_sharing import SharingMutations
 from doc_ray.entrypoints.api.mutation_visual_review import VisualReviewMutations
+from doc_ray.entrypoints.api.projection_mutation import ProjectionMutations
 from doc_ray.entrypoints.api.types import Info, Job
 
 
@@ -68,6 +69,7 @@ class Mutation(
     CollectionMutations,
     CorrectionMutations,
     LensMutations,
+    ProjectionMutations,
     SemanticMutations,
     SharingMutations,
     VisualReviewMutations,

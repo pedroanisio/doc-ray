@@ -19,6 +19,42 @@ doc-ray carries **one global version** covering both the application package
 (`docray_schema_version()`). They are kept in lockstep by
 `scripts/check_version_consistency.py`, which fails the build on any drift.
 
+## [1.46.0]
+
+### Added
+
+- **Projection Engine — lens-scoped entity identity without lossy merges (SLP Block D,
+  issue #8).** Entity identity is no longer a fact baked into the substrate; it is a
+  **derived, refreshable interpretation**: `entity = project(mention, lens)`. The same
+  corpus can now hold fiction and non-fiction side by side — a fictional *Duncan* stays
+  inside its work lens while the real *Paris* is shared across every history — with no
+  lossy merge, because a projection is derived (drop and rebuild) where a merge is
+  destructive. The pure resolver (`domain.projection.project`) encodes the law —
+  *policy decides local vs global → local-first lookup → global fallback → explicit
+  unresolved* — consuming the Block C genre policy (#6) and the Block B lenses (#5).
+  - **Schema (migration 129, additive; RLS + FORCE on every table):**
+    `entity_projection` (one row per mention × projecting lens; `scope` local/global,
+    a nullable `canonical_id` where NULL = explicitly unresolved, and a
+    `proposed`/`confirmed`/`rejected` review status — batch-owned, SELECT-only to the
+    API); `lens_local_entity` (the stable registry that mints one `canonical` row per
+    (lens, surface, type) so a rebuild is byte-identical); `entity_projection_review`
+    (human confirm/reject keyed by the **stable span**, so a decision survives
+    re-annotation — Block A's record-then-apply shape); `lens_entity_stats` (the
+    per-lens entity rollup `lensEntities` reads, D-024); and
+    `document_collections.projects` — only a **designated** lens is materialized
+    (FR-2 cost control, bounded per document).
+  - **Refresh:** `KIND_REFRESH_PROJECTION` / `handle_refresh_projection` — incremental
+    per document (chained after canonicalize / reannotate / apply_corrections, so a
+    projection is never stale) and a full operator rebuild. Reproducible from
+    substrate + lens + policy; the substrate is never mutated (invariants 1–2).
+  - **Surfaces:** GraphQL `entityProjection` / `lensEntities` (reads),
+    `confirmProjection` / `rejectProjection` / `setLensProjects` (writes, guarded +
+    audited); MCP `entity_projection` / `lens_entities` (reads) and the write-gated
+    `confirm_projection` / `reject_projection`. Absent a `lensId`, a read uses the
+    document's default lens, else `global` — every existing caller is unchanged.
+    Schema SemVer → **1.46.0** (migration 130). See `docs/architecture.md` and
+    `docs/mcp-service.md`.
+
 ## [1.45.0]
 
 ### Added

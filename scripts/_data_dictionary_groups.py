@@ -93,6 +93,26 @@ GROUPS: list[tuple[str, str, list[str]]] = [
         ["document_classification"],
     ),
     (
+        "Projection engine (SLP Block D)",
+        "Lens-scoped entity identity as a derived, refreshable view: "
+        "`entity_projection` is one row per (mention, projecting lens) holding "
+        "`project(mention, lens)` — `scope` local/global, a nullable `canonical_id` "
+        "(NULL = explicitly unresolved), and a `proposed`/`confirmed`/`rejected` "
+        "review status. `lens_local_entity` is the stable registry that mints one "
+        "`canonical` row per (lens, surface, type) so a rebuild is reproducible; "
+        "`entity_projection_review` records human confirm/reject keyed by the stable "
+        "span (survives re-annotation); `lens_entity_stats` is the per-lens entity "
+        "rollup `lensEntities` reads (D-024). A lens projects only when "
+        "`document_collections.projects` is set (FR-2 designation). All are derived "
+        "from the substrate + lens + policy and never mutate it (invariants 1–2).",
+        [
+            "entity_projection",
+            "lens_local_entity",
+            "entity_projection_review",
+            "lens_entity_stats",
+        ],
+    ),
+    (
         "Canonical entities & resolution",
         "The tenant-global canonical entity registry mentions link to: `canonical` "
         "rows carry KB identity + an HNSW-indexed name embedding, `form_index` maps "

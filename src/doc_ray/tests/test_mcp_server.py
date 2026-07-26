@@ -42,6 +42,9 @@ _READ_TOOL_NAMES = {
     # NER-correction audit log (Block A)
     "entity_mention_corrections",
     "document_classification",
+    # lens-scoped entity identity (Block D)
+    "entity_projection",
+    "lens_entities",
     # composition-grounding tools
     "briefing_pack",
     "entity_dossier",
@@ -84,6 +87,9 @@ _WRITE_TOOL_NAMES = {
     "promote_collection_to_lens",
     "demote_lens",
     "set_document_default_lens",
+    # Projection engine (Block D): human review of lens-scoped identity
+    "confirm_projection",
+    "reject_projection",
 }
 
 

@@ -288,6 +288,24 @@ _ENTITIES = EvalTask(
     budget=TaskBudget(max_calls=5, max_chars=20_000),
 )
 
+_PROJECTION = EvalTask(
+    id="coverage-projection",
+    kind="coverage",
+    prompt="How does each mention in the entity document resolve within a lens, "
+    "and which entities live in that lens?",
+    grounded_in="reachability: entity_projection / lens_entities (SLP Block D)",
+    steps=(
+        Step(structure.entity_projection, lambda ctx: {"document_id": _entity(ctx)}),
+        Step(structure.lens_entities, lambda ctx: {"lens_id": ctx.ids["collection_id"]}),
+    ),
+    assertions=(
+        _ok("entity_projection"),
+        _ok("lens_entities"),
+        _within(TaskBudget(max_calls=3, max_chars=15_000)),
+    ),
+    budget=TaskBudget(max_calls=3, max_chars=15_000),
+)
+
 _JOBS = EvalTask(
     id="coverage-job-status",
     kind="coverage",
@@ -407,6 +425,7 @@ TASKS: tuple[EvalTask, ...] = (
     _COLLECTIONS,
     _MAP,
     _ENTITIES,
+    _PROJECTION,
     _JOBS,
     _VISUAL,
     _COMPOSE,

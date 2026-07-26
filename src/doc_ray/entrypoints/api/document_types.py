@@ -52,6 +52,7 @@ class DocumentCollection:
     rule_summary: str
     document_count: int
     is_scope: bool
+    projects: bool
     parent_lens_id: strawberry.ID | None
     created_at: datetime
     updated_at: datetime
@@ -70,6 +71,7 @@ class DocumentCollection:
             rule_summary=row.get("rule_summary") or "",
             document_count=int(row.get("document_count") or 0),
             is_scope=bool(row.get("is_scope")),
+            projects=bool(row.get("projects")),
             parent_lens_id=strawberry.ID(str(parent)) if parent else None,
             created_at=row["created_at"],
             updated_at=row["updated_at"],

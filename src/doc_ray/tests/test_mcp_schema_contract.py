@@ -24,6 +24,7 @@ from doc_ray.entrypoints.mcp import corpus, mutations, semantic, server, structu
 
 _GRAPHQL_SCHEMA = build_schema(build_strawberry_schema(debug=True).as_str())
 _DOC = "11111111-1111-1111-1111-111111111111"
+_MENTION = "01ARZ3NDEKTSV4RRFFQ69G5FAV"  # a ULID (entity_mention.id)
 
 
 class _AutoData(dict):
@@ -77,6 +78,9 @@ _READ_CALLS = [
     lambda: structure.entity_profiles(),
     lambda: structure.entity_profiles(document_id=_DOC, entity_type="PERSON"),
     lambda: structure.term_frequency(["spice", "kwisatz"]),
+    lambda: structure.entity_projection(_DOC),
+    lambda: structure.entity_projection(_DOC, lens_id=_DOC, limit=10, after="c"),
+    lambda: structure.lens_entities(_DOC),
     lambda: corpus.get_job("job-1"),
     lambda: corpus.list_collections(),
     lambda: corpus.get_collection(_DOC),
@@ -115,6 +119,8 @@ _WRITE_CALLS = [
     ),
     lambda: mutations.classify_document(_DOC),
     lambda: mutations.confirm_document_classification(_DOC, "fiction", subtype="novel"),
+    lambda: mutations.confirm_projection(_MENTION, _DOC),
+    lambda: mutations.reject_projection(_MENTION, _DOC),
     lambda: mutations.decide_seeds(approve_ids=["s1"]),
     lambda: mutations.decide_document_metadata_suggestions(approve_ids=["m1"]),
     lambda: mutations.decide_visual_captions(approve_ids=["v1"]),
@@ -224,6 +230,8 @@ async def test_every_write_tool_is_contract_checked() -> None:
         "correct_entity_mention",
         "classify_document",
         "confirm_document_classification",
+        "confirm_projection",
+        "reject_projection",
         "decide_seeds",
         "decide_document_metadata_suggestions",
         "decide_visual_captions",

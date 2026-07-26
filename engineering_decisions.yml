@@ -50,7 +50,7 @@ source_schema:         "db/migrations"
 # by tenant-scoped Stripe billing status (migration 085).
 # Kept in lockstep with doc_ray.__version__
 # by scripts/check_version_consistency.py.
-source_schema_version: "1.45.0"
+source_schema_version: "1.46.0"
 target_engine:         "PostgreSQL 16"
 total_decisions:       33
 

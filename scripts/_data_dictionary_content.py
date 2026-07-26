@@ -37,6 +37,10 @@ RLS_PATH = {
     "resolution_review": "mention_id → entity_mention → annotations",
     "entity_mention_correction": "document_id",
     "document_classification": "document_id",
+    "entity_projection": "document_id",
+    "entity_projection_review": "document_id",
+    "lens_entity_stats": "lens_id → document_collection_members → documents",
+    "lens_local_entity": "admin-only (batch-owned local-identity registry)",
     "entity_link": "mention_id → entity_mention → annotations",
     "srl_predicate": "annotation_id → annotations",
     "srl_argument": "span_id → spans",
@@ -308,6 +312,12 @@ MIGRATIONS = [
         "document_classification table (genre axis + resolution-policy input) + RLS + grants",
     ),
     ("128_schema_version_1_45_0", "advance the schema SemVer to 1.45.0 for genre classification"),
+    (
+        "129_entity_projection",
+        "projection engine (Block D): entity_projection + lens_local_entity + "
+        "entity_projection_review + lens_entity_stats + collections.projects col (RLS + grants)",
+    ),
+    ("130_schema_version_1_46_0", "advance the schema SemVer to 1.46.0 for the projection engine"),
 ]
 
 # ---------------------------------------------------------------------------

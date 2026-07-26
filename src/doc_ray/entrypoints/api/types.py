@@ -387,3 +387,113 @@ class DocumentShare:
             permission=row["permission"],
             granted_at=cast(datetime, row["granted_at"]),
         )
+
+
+@strawberry.type
+class EntityProjection:
+    """One mention's derived identity within a lens (SLP Block D, #8).
+
+    ``project(mention, lens)`` materialized: the mention is the immutable fact, and
+    this is *who it is* through one lens. ``scope`` is ``'local'`` (a work-local
+    identity) or ``'global'`` (the shared real-world registry); ``canonicalId`` is
+    null when the mention is **explicitly unresolved** (matched no identity, not
+    dropped). ``status`` is ``'proposed'`` (a machine guess — do NOT treat as a
+    settled fact, PALS's Law), ``'confirmed'``, or ``'rejected'``. ``method`` is how
+    it resolved (``'exact_form'`` / ``'unresolved'`` / ``'human'``). The span
+    (``charStart``/``charEnd``) and ``surface`` cite the mention back to the text.
+    """
+
+    mention_id: strawberry.ID
+    lens_id: strawberry.ID
+    document_id: strawberry.ID
+    canonical_id: int | None
+    scope: str
+    method: str
+    confidence: float | None
+    status: str
+    surface: str
+    mention_type: str
+    char_start: int
+    char_end: int
+    preferred: str | None
+    canonical_type: str | None
+    wikidata_id: str | None
+    refreshed_at: datetime
+    cursor: str
+
+    @classmethod
+    def from_row(cls, row: Row) -> EntityProjection:
+        """Build an ``EntityProjection`` from a projection read row."""
+        cid = row.get("canonical_id")
+        return cls(
+            mention_id=strawberry.ID(str(row["mention_id"])),
+            lens_id=strawberry.ID(str(row["lens_id"])),
+            document_id=strawberry.ID(str(row["document_id"])),
+            canonical_id=int(cid) if cid is not None else None,
+            scope=row["scope"],
+            method=row["method"],
+            confidence=row.get("confidence"),
+            status=row["status"],
+            surface=row["surface"],
+            mention_type=row["mention_type"],
+            char_start=int(row["char_start"]),
+            char_end=int(row["char_end"]),
+            preferred=row.get("preferred"),
+            canonical_type=row.get("canonical_type"),
+            wikidata_id=row.get("wikidata_id"),
+            refreshed_at=cast(datetime, row["refreshed_at"]),
+            cursor=str(row["cursor"]),
+        )
+
+
+@strawberry.type
+class LensProjection:
+    """A document's projection through one lens, plus how that lens was chosen.
+
+    ``isDefault`` is true when the lens came from the document's ``defaultLensId``;
+    ``ambiguous`` is true when no ``lensId`` was given, no usable default existed, and
+    the document belongs to more than one projecting scope lens — so the read fell
+    back to ``global`` rather than pick a scope arbitrarily (D-4). ``lensId`` is null
+    only if no ``global`` lens exists (never in a migrated database).
+    """
+
+    lens_id: strawberry.ID | None
+    is_default: bool
+    ambiguous: bool
+    entities: list[EntityProjection]
+    next_cursor: str | None
+
+
+@strawberry.type
+class LensEntity:
+    """An entity that lives in a lens, with its lens-wide frequency (SLP Block D, #8).
+
+    The read side of the per-lens rollup: ``nMentions`` / ``nDocuments`` are counts
+    across the lens (lens-wide, not filtered to the caller's ACL subset — the same
+    trade-off ``corpusStats`` makes for a non-summable distinct). ``scope`` says
+    whether this is a work-local (``'local'``) or shared real-world (``'global'``)
+    identity within the lens.
+    """
+
+    canonical_id: int
+    preferred: str
+    entity_type: str
+    wikidata_id: str | None
+    scope: str
+    n_mentions: int
+    n_documents: int
+    cursor: str
+
+    @classmethod
+    def from_row(cls, row: Row) -> LensEntity:
+        """Build a ``LensEntity`` from a ``lens_entity_stats`` join row."""
+        return cls(
+            canonical_id=int(row["canonical_id"]),
+            preferred=row["preferred"],
+            entity_type=row["entity_type"],
+            wikidata_id=row.get("wikidata_id"),
+            scope=row["scope"],
+            n_mentions=int(row["n_mentions"]),
+            n_documents=int(row["n_documents"]),
+            cursor=str(row["cursor"]),
+        )

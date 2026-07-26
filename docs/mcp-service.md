@@ -19,15 +19,17 @@ Exposes the doc-ray corpus to agentic AI over the **Model Context Protocol
 (MCP)**, authenticating each caller to a doc-ray principal so Postgres RLS scopes
 what they can read.
 
-**Status: live in production and verified end-to-end.** The server ships **26
+**Status: live in production and verified end-to-end.** The server ships **28
 read tools** (18 from `entrypoints/mcp/corpus.py` — incl. `read_document_sentences`,
 `corpus_manifest`, `corpus_shard`, `get_job`, `list_collections`, `get_collection`,
-`entity_mention_corrections`, and the 4 Prism visual tools — + 4 structure tools from
+`entity_mention_corrections`, and the 4 Prism visual tools — + 6 structure tools from
 `entrypoints/mcp/structure.py` (`read_document_outline`, `entity_profiles`,
-`term_frequency`, `document_classification`) + 3 composition-grounding tools from
+`term_frequency`, `document_classification`, and the SLP Block D lens-scoped identity
+readers `entity_projection`, `lens_entities`) + 3 composition-grounding tools from
 `entrypoints/mcp/compose.py`
-+ 1 semantic-search tool… see §3) always registered, plus **24 opt-in write tools**
-(reprocessing + curation + full collection lifecycle) registered only when
++ 1 semantic-search tool… see §3) always registered, plus **26 opt-in write tools**
+(reprocessing + curation + full collection lifecycle + projection review —
+`confirm_projection`, `reject_projection`) registered only when
 `DOCRAY_MCP_ENABLE_WRITE=true` — the default surface stays read-only. It also
 declares MCP's **resources** primitive: 3 listable `docray://` entry points +
 5 drill-down templates (§3) addressing the same RLS-scoped reads by URI, and its
@@ -156,6 +158,8 @@ but had no passage cited on this page. Example:
 | `get_job(job_id)` | `job` | poll a job enqueued by a write tool |
 | `entity_mention_corrections(document_id)` | `entityMentionCorrections` | the human NER-correction audit log for a document |
 | `document_classification(document_id)` | `documentClassification` | the document's genre axis; `status` tells you if it is a `pending` guess or a `confirmed` human decision |
+| `entity_projection(document_id, lens_id?, limit, after?)` | `entityProjection` | `project(mention, lens)` — each mention's identity within a lens; `scope` local/global, `canonicalId` null = unresolved, `status` proposed/confirmed/rejected (Block D) |
+| `lens_entities(lens_id, limit, after?)` | `lensEntities` | the entities that live in a lens, most-mentioned first (Block D); keyset `cursor` |
 | `list_collections(limit, kind?, after?)` | `collections` | native containers; keyset `cursor` |
 | `get_collection(collection_id, document_limit)` | `collection` | one collection + its member documents |
 | `list_lenses(limit, after?)` | `lenses` | the collections marked as entity-resolution scopes (Block B); keyset `cursor` — see §3.5 |
@@ -388,6 +392,37 @@ themselves are shared corpus navigation metadata. Block B ships the vocabulary
 only — nothing about how entities resolve changes yet (a later projection block
 consumes it).
 
+### 3.5.1 `entity_projection` / `lens_entities` — lens-scoped identity (Block D)
+
+The projection engine makes lens-scoped identity real: `entity = project(mention,
+lens)` is a *derived* interpretation, so the same corpus holds fiction and
+non-fiction without a lossy merge. `entity_projection` answers "which entity is
+each mention, within this lens"; `lens_entities` surveys the cast/places of a
+lens. Omit `lens_id` to use the document's default lens, else `global` — so an
+existing reader is unchanged. Every machine projection is `proposed` until a human
+confirms it with `confirm_projection` (PALS's Law); the substrate is never mutated.
+
+```jsonc
+// Who is each mention in this novel, read through its work lens?
+{"name": "entity_projection", "arguments": {"document_id": "…", "lens_id": "…"}}
+// → {"lensId": "…", "isDefault": true, "ambiguous": false,
+//    "entities": [{"mentionId": "01J…", "scope": "local", "status": "proposed",
+//                  "canonicalId": 8842, "surface": "Duncan", "preferred": "Duncan"}]}
+
+// Confirm one — a proposal becomes a decided identity (worker applies it):
+{"name": "confirm_projection", "arguments": {"mention_id": "01J…", "lens_id": "…"}}
+// → {"id": "…", "kind": "refresh_projection", "status": "queued"}   // poll with get_job
+
+// Survey the whole lens, most-mentioned first:
+{"name": "lens_entities", "arguments": {"lens_id": "…", "limit": 50}}
+// → [{"canonicalId": 8842, "preferred": "Duncan", "scope": "local", "nMentions": 42, "nDocuments": 1}]
+```
+
+`lens_entities` reads a precomputed per-lens rollup (cheap); for the corpus-wide
+real-world entity distribution use `entity_profiles` instead. `reject_projection`
+is the mirror of `confirm_projection`. A projection is derived and rebuildable, so
+a wrong one is never load-bearing — drop and re-derive, never a destructive merge.
+
 ### 3.6 `term_frequency` — the flood-risk pre-flight (Item 10)
 
 BL-145 shipped the *diagnosis*: after a `search_sentences` call floods, its
@@ -565,6 +600,8 @@ engineering decision **D-030**.
 | `correct_entity_mention(document_id, action, char_start, char_end, entity_type?, surface?, new_char_start?, new_char_end?, original_type?, rationale?)` | `correctEntityMention` | `Job` (`apply_corrections`) |
 | `classify_document(document_id)` | `classifyDocument` | `Job` (`classify_genre`) |
 | `confirm_document_classification(document_id, genre, subtype?, rationale?)` | `confirmDocumentClassification` | the confirmed `DocumentClassification` |
+| `confirm_projection(mention_id, lens_id)` | `confirmProjection` | `Job` (`refresh_projection`) — promotes a projection to `confirmed` |
+| `reject_projection(mention_id, lens_id)` | `rejectProjection` | `Job` (`refresh_projection`) — marks a projection `rejected` |
 | `decide_seeds(approve_ids?, reject_ids?)` | `decideSeeds` | `Int` (rows updated) |
 | `decide_document_metadata_suggestions(approve_ids?, reject_ids?)` | `decideDocumentMetadataSuggestions` | `Int` |
 | `seed_approved(document_id)` | `seedApproved` | `Job` |

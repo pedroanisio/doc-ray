@@ -19,6 +19,10 @@ import psycopg
 from doc_ray.application.backup import handle_backup, handle_restore
 from doc_ray.application.document_stats import refresh_document_stats as _refresh_document_stats
 from doc_ray.application.genre_classification import handle_classify_genre
+from doc_ray.application.projection import (
+    handle_refresh_projection,
+    refresh_projections_for_document,
+)
 from doc_ray.application.semantic_embed import handle_semantic_embed
 from doc_ray.domain.jobs import (
     KIND_ADD_DOCUMENT_TAGS,
@@ -32,6 +36,7 @@ from doc_ray.domain.jobs import (
     KIND_INGEST,
     KIND_REANNOTATE,
     KIND_REEXTRACT,
+    KIND_REFRESH_PROJECTION,
     KIND_RESTORE,
     KIND_RESTORE_DOCUMENT,
     KIND_SEED_APPROVED,
@@ -58,6 +63,21 @@ _logger = logging.getLogger("doc_ray.jobs")
 
 #: A handler runs one job and returns a JSON-able result recorded on the job row.
 Handler = Callable[[psycopg.Connection[Any], ObjectStore | None, Job], dict[str, Any]]
+
+
+def _refresh_projections_chained(conn: psycopg.Connection[Any], document_id: str) -> None:
+    """Rebuild a document's projections after its mentions/links change (Block D, #8).
+
+    Chained after the entity-finalizing stages (canonicalize / reannotate /
+    apply_corrections) so a projection is never left stale relative to the substrate.
+    Best-effort like ``refresh_document_stats``: a projection is derived convenience
+    data, so a refresh failure is logged and swallowed rather than failing a pipeline
+    stage that already committed its real work — the next refresh reconciles.
+    """
+    try:
+        refresh_projections_for_document(conn, document_id)
+    except Exception:  # pragma: no cover - defensive; refresh must never fail a job
+        _logger.warning("projection refresh failed for document %s", document_id)
 
 
 def handle_delete(
@@ -160,6 +180,9 @@ def handle_reannotate(
     report_progress(0, 1, "Re-annotating document")
     info = reann.reannotate_document(conn, job.document_id, cache={}, lang_default=lang)
     _refresh_document_stats(conn, job.document_id)
+    # entity_mention was rebuilt, so its projections cascaded away — rebuild them
+    # against the fresh mentions (durable reviews re-apply by stable span, #8).
+    _refresh_projections_chained(conn, job.document_id)
     return info or {"skipped": True}
 
 
@@ -285,6 +308,9 @@ def handle_apply_corrections(
     changed = ner_corrections_store.apply_corrections_to_document(conn, job.document_id)
     if changed:
         _refresh_document_stats(conn, job.document_id)
+        # A correction may retype a mention (e.g. PERSON→GPE), which changes its
+        # local/global resolution — reproject so the projection tracks the fix (#8).
+        _refresh_projections_chained(conn, job.document_id)
     return {"document_id": job.document_id, "corrections_applied": changed}
 
 
@@ -496,6 +522,9 @@ def handle_canonicalize(
                 "review": outcome.review,
             }
         )
+    # Global links are now settled — (re)materialize the projection so lens-scoped
+    # identity reflects this document's fresh canonicalization (Block D, #8).
+    _refresh_projections_chained(conn, job.document_id)
     return out
 
 
@@ -519,6 +548,7 @@ HANDLERS: dict[str, Handler] = {
     KIND_SEED_APPROVED: handle_seed_approved,
     KIND_SUGGEST_DOCUMENT_METADATA: handle_suggest_document_metadata,
     KIND_CANONICALIZE: handle_canonicalize,
+    KIND_REFRESH_PROJECTION: handle_refresh_projection,
     KIND_BACKUP: handle_backup,
     KIND_RESTORE: handle_restore,
     KIND_UPDATE_METADATA: handle_update_metadata,

@@ -187,6 +187,17 @@ fiction / non_fiction / mixed / unknown), `classifyDocument(documentId:)`
 genre is an unverified guess, never relied on for identity; only a human
 confirmation asserts it. This block defines the policy; it does not yet change
 how any entity resolves.
+Projection engine (SLP Block D — lens-scoped entity identity):
+`entityProjection(documentId:, lensId:)` (read `project(mention, lens)` for a
+document through a lens — `scope` local/global, `canonicalId` null when
+explicitly unresolved, `status` proposed/confirmed/rejected; omit `lensId` to use
+the document's default lens, else `global`) / `lensEntities(lensId:, limit:,
+after:)` (the entities that live in a lens, most-mentioned first) /
+`confirmProjection(mentionId:, lensId:)` / `rejectProjection(mentionId:, lensId:)`
+(human review, recorded by stable span so it survives re-annotation; applied by a
+refresh job) / `setLensProjects(lensId:, projects:)` (designate a lens as
+projecting — only designated lenses are materialized). Every machine projection is
+`proposed` until a human confirms it (PALS's Law); the substrate is never mutated.
 Backup/restore:
 `backupEnabled` (read — whether this deployment has the in-app backup subsystem
 switched on; clients check it before offering the actions) /

@@ -68,6 +68,10 @@ WIPED_TABLES = (
     "entity_link",
     "entity_mention",
     "entity_mention_correction",
+    # Projection engine (Block D, #8): derived per-document interpretation + the
+    # human review log keyed to it. Wiped with the mentions/documents they project.
+    "entity_projection",
+    "entity_projection_review",
     "event",
     "sentiment",
     "srl_argument",
@@ -88,6 +92,11 @@ WIPED_TABLES = (
     "corpus_stats",
     "lexeme_stats",
     "entity_frequency_stats",
+    # Block D (#8): the per-lens entity rollup and the stable local-identity registry.
+    # Derived from the projection above (and referencing the WIPED document_collections),
+    # so they are wiped with the corpus and rebuilt on the next refresh.
+    "lens_entity_stats",
+    "lens_local_entity",
     "seed_suggestion",
     "resolution_review",
     # Prism visual layer — derived per-document corpus data, wiped with the corpus.

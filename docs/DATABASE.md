@@ -1,6 +1,6 @@
 # doc-ray — Database ERD & Data Dictionary
 
-**Schema version `1.45.0`** (SemVer) · 128 migrations applied
+**Schema version `1.27.0`** (SemVer) · 130 migrations applied
 
 > Generated from the live schema by `scripts/gen_data_dictionary.py`. Do not edit by hand — re-run the generator.
 
@@ -784,7 +784,103 @@ globally. The policy is defined here; Block D (#8) applies it.
 - **Check:** CHECK ((status = ANY (ARRAY['pending'::text, 'confirmed'::text, 'rejected'::text])))
 - **RLS:** enabled — read/write policies via *document_id* (FORCED)
 
-### 5.9 Canonical entities & resolution
+### 5.9 Projection engine (SLP Block D)
+
+Lens-scoped entity identity as a derived, refreshable view: `entity_projection` is one row per
+(mention, projecting lens) holding `project(mention, lens)` — `scope` local/global, a nullable
+`canonical_id` (NULL = explicitly unresolved), and a `proposed`/`confirmed`/`rejected` review
+status. `lens_local_entity` is the stable registry that mints one `canonical` row per (lens,
+surface, type) so a rebuild is reproducible; `entity_projection_review` records human confirm/reject
+keyed by the stable span (survives re-annotation); `lens_entity_stats` is the per-lens entity rollup
+`lensEntities` reads (D-024). A lens projects only when `document_collections.projects` is set (FR-2
+designation). All are derived from the substrate + lens + policy and never mutate it (invariants
+1–2).
+
+#### `entity_projection`
+
+| Column | Type | Null | Key | Default | Notes |
+|---|---|---|---|---|---|
+| `mention_id` | ulid |  | PK, FK→entity_mention |  |  |
+| `lens_id` | uuid |  | PK, FK→document_collections |  |  |
+| `document_id` | uuid |  | FK→documents |  |  |
+| `canonical_id` | bigint | yes | FK→canonical |  |  |
+| `scope` | text |  |  |  |  |
+| `confidence` | real | yes |  |  |  |
+| `method` | text |  |  |  |  |
+| `status` | text |  |  | `'proposed'::text` |  |
+| `refreshed_at` | timestamp with time zone |  |  | `now()` |  |
+
+- **Primary key:** (mention_id, lens_id)
+- **FK:** FOREIGN KEY (canonical_id) REFERENCES canonical(id) ON DELETE SET NULL
+- **FK:** FOREIGN KEY (document_id) REFERENCES documents(id) ON DELETE CASCADE
+- **FK:** FOREIGN KEY (lens_id) REFERENCES document_collections(id) ON DELETE CASCADE
+- **FK:** FOREIGN KEY (mention_id) REFERENCES entity_mention(id) ON DELETE CASCADE
+- **Check:** CHECK (((confidence >= (0)::double precision) AND (confidence <= (1)::double precision)))
+- **Check:** CHECK ((scope = ANY (ARRAY['local'::text, 'global'::text])))
+- **Check:** CHECK ((status = ANY (ARRAY['proposed'::text, 'confirmed'::text, 'rejected'::text])))
+- **Index** `idx_entity_projection_document_lens`: public.entity_projection USING btree (document_id, lens_id)
+- **Index** `idx_entity_projection_lens_canonical`: public.entity_projection USING btree (lens_id, canonical_id)
+- **RLS:** enabled — read/write policies via *document_id* (FORCED)
+
+#### `lens_local_entity`
+
+| Column | Type | Null | Key | Default | Notes |
+|---|---|---|---|---|---|
+| `lens_id` | uuid |  | PK, FK→document_collections |  |  |
+| `surface_norm` | text |  | PK |  |  |
+| `entity_type` | text |  | PK |  |  |
+| `canonical_id` | bigint |  | FK→canonical |  |  |
+| `created_at` | timestamp with time zone |  |  | `now()` |  |
+
+- **Primary key:** (lens_id, surface_norm, entity_type)
+- **FK:** FOREIGN KEY (canonical_id) REFERENCES canonical(id) ON DELETE CASCADE
+- **FK:** FOREIGN KEY (lens_id) REFERENCES document_collections(id) ON DELETE CASCADE
+- **Index** `idx_lens_local_entity_canonical`: public.lens_local_entity USING btree (canonical_id)
+- **RLS:** enabled — read/write policies via *admin-only (batch-owned local-identity registry)* (FORCED)
+
+#### `entity_projection_review`
+
+| Column | Type | Null | Key | Default | Notes |
+|---|---|---|---|---|---|
+| `id` | uuid |  | PK | `gen_random_uuid()` |  |
+| `document_id` | uuid |  | FK→documents |  |  |
+| `lens_id` | uuid |  | FK→document_collections |  |  |
+| `char_start` | integer |  |  |  |  |
+| `char_end` | integer |  |  |  |  |
+| `entity_type` | text |  |  |  |  |
+| `decision` | text |  |  |  |  |
+| `reviewer` | uuid | yes | FK→principals |  |  |
+| `rationale` | text | yes |  |  |  |
+| `created_at` | timestamp with time zone |  |  | `now()` |  |
+
+- **Primary key:** (id)
+- **FK:** FOREIGN KEY (document_id) REFERENCES documents(id) ON DELETE CASCADE
+- **FK:** FOREIGN KEY (lens_id) REFERENCES document_collections(id) ON DELETE CASCADE
+- **FK:** FOREIGN KEY (reviewer) REFERENCES principals(id) ON DELETE SET NULL
+- **Check:** CHECK ((char_end >= char_start))
+- **Check:** CHECK ((decision = ANY (ARRAY['confirmed'::text, 'rejected'::text])))
+- **Index** `idx_epr_doc_lens_span`: public.entity_projection_review USING btree (document_id, lens_id, char_start, char_end, created_at DESC)
+- **RLS:** enabled — read/write policies via *document_id* (FORCED)
+
+#### `lens_entity_stats`
+
+| Column | Type | Null | Key | Default | Notes |
+|---|---|---|---|---|---|
+| `lens_id` | uuid |  | PK, FK→document_collections |  |  |
+| `canonical_id` | bigint |  | PK, FK→canonical |  |  |
+| `scope` | text |  |  |  |  |
+| `n_mentions` | bigint |  |  | `0` |  |
+| `n_documents` | bigint |  |  | `0` |  |
+| `updated_at` | timestamp with time zone |  |  | `now()` |  |
+
+- **Primary key:** (lens_id, canonical_id)
+- **FK:** FOREIGN KEY (canonical_id) REFERENCES canonical(id) ON DELETE CASCADE
+- **FK:** FOREIGN KEY (lens_id) REFERENCES document_collections(id) ON DELETE CASCADE
+- **Check:** CHECK ((scope = ANY (ARRAY['local'::text, 'global'::text])))
+- **Index** `idx_lens_entity_stats_lens_mentions`: public.lens_entity_stats USING btree (lens_id, n_mentions DESC, canonical_id)
+- **RLS:** enabled — read/write policies via *lens_id → document_collection_members → documents* (FORCED)
+
+### 5.10 Canonical entities & resolution
 
 The tenant-global canonical entity registry mentions link to: `canonical` rows carry KB identity +
 an HNSW-indexed name embedding, `form_index` maps normalized surface forms to canonicals,
@@ -894,7 +990,7 @@ operator workflow queues for seeding and ambiguous-link review.
 - **Index** `idx_resolution_review_status`: public.resolution_review USING btree (status, id)
 - **RLS:** enabled — read/write policies via *mention_id → entity_mention → annotations* (FORCED)
 
-### 5.10 Meaning, discourse, temporal & sentiment (layers 14–19)
+### 5.11 Meaning, discourse, temporal & sentiment (layers 14–19)
 
 Semantic role labeling, word-sense disambiguation, AMR meaning graphs, PDTB discourse relations,
 TimeML (TIMEX/EVENT/TLINK), and sentiment.
@@ -1076,7 +1172,7 @@ TimeML (TIMEX/EVENT/TLINK), and sentiment.
 - **Index** `idx_sentiment_target_span`: public.sentiment USING btree (target_span_id)
 - **RLS:** enabled — read/write policies via *annotation_id → annotations* (FORCED)
 
-### 5.11 Distributed representations (layer 20)
+### 5.12 Distributed representations (layer 20)
 
 pgvector embeddings over spans, ANN-indexed with HNSW (cosine).
 
@@ -1093,7 +1189,7 @@ pgvector embeddings over spans, ANN-indexed with HNSW (cosine).
 - **Index** `idx_embedding_hnsw`: public.embedding USING hnsw (vector vector_cosine_ops)
 - **RLS:** enabled — read/write policies via *span_id → spans* (FORCED)
 
-### 5.12 Collections & curation
+### 5.13 Collections & curation
 
 Operator-facing curation surfaces: manual and smart (rule-driven) document collections, and the
 reviewed-suggestion queue for LLM/heuristic metadata proposals (BL-058).
@@ -1111,15 +1207,18 @@ reviewed-suggestion queue for LLM/heuristic metadata proposals (BL-058).
 | `updated_at` | timestamp with time zone |  |  | `now()` |  |
 | `is_scope` | boolean |  |  | `false` |  |
 | `parent_lens_id` | uuid | yes | FK→document_collections |  |  |
+| `projects` | boolean |  |  | `false` |  |
 
 - **Primary key:** (id)
 - **Unique:** UNIQUE (name)
 - **FK:** FOREIGN KEY (parent_lens_id) REFERENCES document_collections(id) ON DELETE SET NULL
+- **Check:** CHECK (((projects IS FALSE) OR (is_scope IS TRUE)))
 - **Check:** CHECK (((kind = 'smart'::text) OR (rule = '{}'::jsonb)))
 - **Check:** CHECK ((kind = ANY (ARRAY['manual'::text, 'smart'::text])))
 - **Index** `document_collections_name_key`: public.document_collections USING btree (name)
 - **Index** `idx_document_collections_kind`: public.document_collections USING btree (kind, name)
 - **Index** `idx_document_collections_parent_lens`: public.document_collections USING btree (parent_lens_id) WHERE (parent_lens_id IS NOT NULL)
+- **Index** `idx_document_collections_projects`: public.document_collections USING btree (id) WHERE projects
 - **Index** `idx_document_collections_rule`: public.document_collections USING gin (rule jsonb_path_ops)
 - **Index** `idx_document_collections_scope`: public.document_collections USING btree (name, id) WHERE is_scope
 
@@ -1166,7 +1265,7 @@ reviewed-suggestion queue for LLM/heuristic metadata proposals (BL-058).
 - **Index** `idx_document_metadata_suggestion_doc`: public.document_metadata_suggestion USING btree (document_id, status, confidence DESC)
 - **RLS:** enabled — read/write policies via *document_id* (FORCED)
 
-### 5.13 Access control — RBAC & row-level security
+### 5.14 Access control — RBAC & row-level security
 
 Principals, roles, permissions and per-document ACLs. Every document-scoped table above is protected
 by tenant-scoped RLS keyed on these (see §Access control).
@@ -1279,7 +1378,7 @@ Tenant partition catalogue; the default tenant preserves existing deployments.
 - **Index** `idx_document_acl_principal`: public.document_acl USING btree (principal_id)
 - **RLS:** enabled — read/write policies via *?* (FORCED)
 
-### 5.14 Authentication & identity provisioning
+### 5.15 Authentication & identity provisioning
 
 Local self-service auth (argon2id credentials, e-mail verification, refresh tokens — migration 074),
 account preferences and email-change requests, OAuth 2.1 authorization-code/PKCE client state, plus
@@ -1491,7 +1590,7 @@ operator-seeded; self-registered principals get the reader role only.
 - **Check:** CHECK (((metadata_url IS NOT NULL) OR (metadata_xml IS NOT NULL)))
 - **Index** `idx_tenant_saml_idp_entity`: public.tenant_saml_identity_providers USING btree (entity_id)
 
-### 5.15 Billing & payment operations
+### 5.16 Billing & payment operations
 
 Tenant-scoped Stripe customer accounts, current subscription snapshots, and the signed webhook event
 ledger that backs Checkout, Portal, entitlement decisions, and payment audit views.
@@ -1556,7 +1655,7 @@ ledger that backs Checkout, Portal, entitlement decisions, and payment audit vie
 - **Index** `idx_stripe_webhook_events_type_time`: public.stripe_webhook_events USING btree (event_type, created_at DESC)
 - **RLS:** enabled — read/write policies via *signed Stripe webhook ledger, app-owned* (FORCED)
 
-### 5.16 Security audit trail
+### 5.17 Security audit trail
 
 Append-only access and authentication events: who did what, against which target, from which source
 address, and whether it succeeded or was denied.
@@ -1590,7 +1689,7 @@ address, and whether it succeeded or was denied.
 - **Index** `idx_audit_events_time`: public.audit_events USING btree (occurred_at DESC)
 - **RLS:** enabled — read/write policies via *insert-only security audit log* (FORCED)
 
-### 5.17 Evaluation & drift artifacts
+### 5.18 Evaluation & drift artifacts
 
 Corpus snapshots, evaluation runs, metric rows, and gold samples make quality and drift measurements
 durable and citeable instead of one-off operator observations.
@@ -1671,7 +1770,7 @@ durable and citeable instead of one-off operator observations.
 - **FK:** FOREIGN KEY (span_id) REFERENCES spans(id) ON DELETE CASCADE
 - **Index** `idx_gold_sample_label`: public.gold_sample USING btree (label, created_at DESC)
 
-### 5.18 Jobs & operations
+### 5.19 Jobs & operations
 
 The background job queue (claimed FOR UPDATE SKIP LOCKED, heartbeat + drain-aware reaping, first-
 class progress), the applied-migration ledger, the schema's SemVer, and the corpus-backup catalogue.
@@ -1792,7 +1891,7 @@ job execution record (GPU/CPU lane, timings) for cost attribution (migration 126
 - **Index** `job_telemetry_host_kind_idx`: public.job_telemetry USING btree (host, kind, finished_at DESC)
 - **RLS:** enabled — read/write policies via *?* (FORCED)
 
-### 5.19 Prism visual layer
+### 5.20 Prism visual layer
 
 The visual/multimodal layer over the corpus (docs/proposals/prism-visual-layer.md), document-scoped
 under the same RLS as the NLP layers. Tier-1 `document_image`/`image_tier1_features` are
@@ -1948,7 +2047,7 @@ low-confidence output.
 - **Index** `idx_visual_review_pending`: public.visual_review USING btree (document_id) WHERE (status = 'pending'::text)
 - **RLS:** enabled — read/write policies via *document_id* (FORCED)
 
-### 5.20 Read-model rollups (D-024)
+### 5.21 Read-model rollups (D-024)
 
 Derived aggregates over the large append-mostly fact tables, refreshed by the trusted batch writer
 at the pipeline job boundary and never computed on the request path (migrations 095/098/100). Each
@@ -2118,7 +2217,7 @@ document-scoped table. A principal may **read** a same-tenant document iff it is
 *admin* or holds any `document_acl` row on it, and may **write** iff *admin* or
 holds an `annotate`/`delete`/`admin` grant.
 
-**Enforcement.** RLS is `ENABLE`d (not `FORCE`) on 60 tables (incl. `jobs` and
+**Enforcement.** RLS is `ENABLE`d (not `FORCE`) on 64 tables (incl. `jobs` and
 `backups` since migration 043 — BL-064). The `docray`
 role is a **superuser and table owner**, so it **bypasses RLS** — the ingest
 pipeline and admin tooling use it as the trusted batch writer. End-user / API
@@ -2286,3 +2385,5 @@ owner's bypass.
 | 126 | `126_job_telemetry.sql` | append-only per-job execution telemetry for cost attribution |
 | 127 | `127_document_classification.sql` | document_classification table (genre axis + resolution-policy input) + RLS + grants |
 | 128 | `128_schema_version_1_45_0.sql` | advance the schema SemVer to 1.45.0 for genre classification |
+| 129 | `129_entity_projection.sql` | projection engine (Block D): entity_projection + lens_local_entity + entity_projection_review + lens_entity_stats + document_collections.projects + RLS + grants |
+| 130 | `130_schema_version_1_46_0.sql` | advance the schema SemVer to 1.46.0 for the projection engine |

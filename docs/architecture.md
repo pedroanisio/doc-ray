@@ -229,6 +229,40 @@ it** — the projection engine (Block D, #8) consumes it. GraphQL:
 `documentClassification` (read), `classifyDocument` / `confirmDocumentClassification`
 (write); MCP mirrors all three (the writes gated on `DOCRAY_MCP_ENABLE_WRITE`).
 
+### Projection engine (SLP Block D)
+
+The projection engine is where lens-scoped identity becomes real: `entity =
+project(mention, lens)` is a **derived, refreshable interpretation**, not a fact
+baked into the substrate. The mention is the immutable fact; *who it is* depends on
+the lens — so the same corpus holds fiction and non-fiction side by side (a
+fictional *Duncan* local to its work, the real *Paris* shared across histories)
+with no lossy merge, because a projection is derived (drop and rebuild) where a
+merge is destructive and unrecoverable.
+
+The correctness core is the **pure resolver** `domain.projection.project`
+(stdlib-only, exhaustively unit-tested before any SQL): *the reserved `global` lens
+forces GLOBAL; a scope lens applies the Block C genre policy per type; then
+local-first lookup → global fallback → explicit unresolved* — a mention is never
+silently dropped (invariant 4). Migration 129 adds four additive tables, all with
+RLS + FORCE and reproducible from substrate + lens + policy, none mutating the
+substrate (invariants 1–2): `entity_projection` (one row per mention × projecting
+lens — `scope`, a nullable `canonical_id`, a `proposed`/`confirmed`/`rejected`
+status; batch-owned, SELECT-only to the API — the Block A ownership finding);
+`lens_local_entity` (the stable registry that mints one `canonical` row per (lens,
+surface, type) so a rebuild is byte-identical); `entity_projection_review` (human
+confirm/reject keyed by the **stable span**, so a decision survives re-annotation —
+Block A's record-then-apply shape, applied by the refresh); and `lens_entity_stats`
+(the per-lens entity rollup `lensEntities` reads — D-024, never a live aggregate).
+Only a lens with `document_collections.projects` set is materialized (FR-2 cost
+control, bounded per document). The `KIND_REFRESH_PROJECTION` job refreshes one
+document (chained after canonicalize / reannotate / apply_corrections) or rebuilds
+the corpus. Every machine projection is `proposed` (PALS's Law); confirming is a
+human decision. GraphQL: `entityProjection` / `lensEntities` (read),
+`confirmProjection` / `rejectProjection` / `setLensProjects` (write); MCP mirrors
+the reads and the two review writes (gated on `DOCRAY_MCP_ENABLE_WRITE`). Block D
+unblocks the cross-lens allusion edges (Block E, #9) and per-lens hyper-context
+(Block F, #10).
+
 ## Access-control boundary
 
 The API authenticates inbound bearer/API-token requests with

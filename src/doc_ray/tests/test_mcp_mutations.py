@@ -452,6 +452,8 @@ def test_tools_tuple_is_the_reprocessing_and_curation_writers() -> None:
         "correct_entity_mention",
         "classify_document",
         "confirm_document_classification",
+        "confirm_projection",
+        "reject_projection",
         "decide_seeds",
         "decide_document_metadata_suggestions",
         "decide_visual_captions",
