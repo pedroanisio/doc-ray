@@ -27,6 +27,7 @@ method. Neither opens a database connection.
 | `check_surface_parity.py` | Offline GraphQL-root inventory: reports every field as webapp-surfaced, explicitly allowlisted with a reason, or unsurfaced; `--strict` is the D-034 landing gate. |
 | `run_capacity_model.py` | Analytical PostgreSQL capacity model at ~10k users / 1M documents: table/index sizing, QPS/latency/connection projections, vacuum/WAL/checkpoint pressure, bottlenecks, sensitivity ranking. Pure computation (no DB). See [capacity_model/README.md](./capacity_model/README.md). |
 | `cost_telemetry.py` | Empirical counterpart to the capacity model: fits a per-stage cost model (`seconds = fixed + per_sentence × sentences`) from completed `jobs` rows, splits hours across the GPU/CPU worker lanes, measures storage per document, and projects the resource draw and cost of any corpus size. Unit prices come from [config/cost_rates.yaml](../config/cost_rates.yaml); unset rates report as unpriced rather than zero. Reads the live database. |
+| `user_stats.py` | Who is actually registered: self-service signups (`principal_credentials`) split by verified/unverified/disabled, login-activity and signup windows (1d/7d/30d), live webapp sessions, the identity mix in `principals` (human vs service vs SSO-only vs SCIM-managed), a per-tenant breakdown, and the most recent signups with masked addresses (`--emails` unmasks). Text or `--json`. Read-only; reads the live database. |
 | `showcase.sql` | Illustrative queries against the corpus. |
 
 ## Relationship to the pipeline
