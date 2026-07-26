@@ -88,6 +88,15 @@ def ingest_bytes(
     report_progress(1, 5, "Checking duplicate content")
     existing = db.find_by_sha256(conn, sha)
     if existing:
+        if existing.get("status") == "failed":
+            # These exact bytes are already recorded as a *failed* document, so
+            # this is not a duplicate of anything usable — and re-extraction can
+            # never run, because this very lookup short-circuits it. Reporting
+            # "duplicate" made a permanent failure read as a benign no-op: the
+            # Spaces loader marked such objects terminal-OK and exited 0 while
+            # the documents sat in status='failed'. Re-surface the failure.
+            detail = str(existing.get("error") or "previously failed to extract")
+            return IngestResult(label, str(existing["id"]), "failed", detail)
         return IngestResult(label, str(existing["id"]), "duplicate")
 
     # Content-addressed key keeps the bucket flat and collision-free.
@@ -254,7 +263,7 @@ def ingest_paths(
     with db.connect(cfg) as conn:
         for p in paths:
             result = ingest_file(conn, store, p)
-            _finalize_new_document(conn, result, chain)
+            finalize_new_document(conn, result, chain)
             results.append(result)
     return results
 
@@ -309,20 +318,32 @@ def ingest_refs(
                 source_url=fetched.source_url,
             )
             result.path = ref
-            _finalize_new_document(conn, result, chain)
+            finalize_new_document(conn, result, chain)
             results.append(result)
     return results
 
 
-def _finalize_new_document(
+def finalize_new_document(
     conn: psycopg.Connection[Any],
     result: IngestResult,
     chain: Sequence[str] | None,
-) -> None:
+) -> str | None:
     """Refresh stats and enqueue the post-ingest chain for a *new* document.
 
     Duplicates and failures never enter the chain — the guard every ingest
-    path shares (BL-162).
+    path shares (BL-162). Public because "what a new document owes" must have
+    exactly one definition: the out-of-package bulk loaders
+    (``scripts/ingest_from_spaces.py``) call this rather than re-deriving it,
+    which is how the Spaces loader came to chain its documents without ever
+    refreshing their read-model rollup.
+
+    Args:
+        conn: Live database connection.
+        result: The ingest outcome; its ``detail`` gains the queued head job.
+        chain: Post-ingest job kinds; ``None``/``()`` enqueues nothing.
+
+    Returns:
+        The id of the enqueued head job, or ``None`` when nothing was queued.
     """
     # Imported lazily: the job machinery pulls in the queue adapter and the
     # handler registry, which this module must not require at import time
@@ -331,12 +352,14 @@ def _finalize_new_document(
     from doc_ray.application.jobs import enqueue_chain_head
 
     if result.status != "ingested" or result.document_id is None:
-        return
+        return None
     refresh_document_stats(conn, result.document_id)
-    if chain:
-        job_id = enqueue_chain_head(conn, result.document_id, chain)
-        if job_id:
-            result.detail += f", queued {chain[0]}"
+    if not chain:
+        return None
+    job_id = enqueue_chain_head(conn, result.document_id, chain)
+    if job_id:
+        result.detail += f", queued {chain[0]}"
+    return job_id
 
 
 def expand_paths(inputs: list[str], extensions: set[str]) -> list[Path]:

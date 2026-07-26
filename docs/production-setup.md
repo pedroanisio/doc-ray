@@ -291,6 +291,10 @@ Then load the corpus by whichever fits:
   (`scripts/ingest_from_spaces.py`). Each new document also enqueues the standard
   post-ingest pipeline, so the worker must be running for the load to finish;
   add `--owner <login-email>` unless the corpus is meant to stay admin-only.
+  Objects that fail extraction (typically scanned PDFs with no text layer) land
+  as `status='failed'` documents and are *not* retried on later runs: identical
+  bytes dedupe to the same failed row before extraction can re-run. OCR the file
+  — which changes its ETag — and it re-enters on the next pass.
 - **Restore a snapshot** — `createBackup` on the old DB, `restoreBackup` on prod
   (schema versions must match). Requires `DOCRAY_BACKUP_ENABLED=true` on *both*
   ends; the subsystem is off by default (D-033).

@@ -2,19 +2,22 @@
 """Idempotently ingest documents from a DigitalOcean Spaces (S3) bucket into doc-ray.
 
 The source bucket (default ``doc-ray-dev`` at ``sfo3.digitaloceanspaces.com``) is
-listed over the S3 API, each supported object is streamed through the same
-:func:`doc_ray.application.pipeline.ingest_file` primitive the ``cli`` entrypoint
-uses, and the original bytes land in doc-ray's own content-addressed object store
-(``S3_ENDPOINT``/``S3_BUCKET``). The source bucket is read-only; nothing is written
-back to it.
+listed over the S3 API, each supported object is fetched and run through the same
+:func:`doc_ray.application.pipeline.ingest_bytes` primitive every other intake
+path uses, and the original bytes land in doc-ray's own content-addressed object
+store (``S3_ENDPOINT``/``S3_BUCKET``). The source bucket is read-only; nothing is
+written back to it. Each document records its ``s3://bucket/key`` origin in its
+metadata, so a corpus entry can always be traced back to the object it came from.
 
-Ingest is only the first stage. Each newly ingested document is handed to the
+Ingest is only the first stage. Each newly ingested document is handed to
+:func:`doc_ray.application.pipeline.finalize_new_document` — the single
+definition of what a new document owes: a read-model rollup refresh plus the
 shared post-ingest pipeline (``DEFAULT_PIPELINE_CHAIN``: annotate →
-semantic_enrich → canonicalize → visual_extract) by enqueuing the chain head,
-exactly as an API upload does — so a bulk load fills the worker queue instead of
-leaving a corpus of text with no annotation layers. ``--no-pipeline`` loads the
-bytes only. A *duplicate* never re-enters the pipeline: its content is already
-in the corpus and has already been processed.
+semantic_enrich → canonicalize → visual_extract), exactly as an API upload gets.
+So a bulk load fills the worker queue instead of leaving a corpus of text with no
+annotation layers. ``--no-pipeline`` loads the bytes only. A *duplicate* never
+re-enters the pipeline: its content is already in the corpus and has already been
+processed.
 
 Ownership follows migration 102: documents land unowned (admin-only, the org
 corpus seam) unless ``--owner <login-email>`` names a principal to own them.
@@ -22,13 +25,13 @@ corpus seam) unless ``--owner <login-email>`` names a principal to own them.
 Idempotency has two layers, so re-running is always safe:
 
 1. **Authoritative** — doc-ray dedupes on the SHA-256 of the content
-   (``documents.content_sha256`` is ``UNIQUE``; :func:`ingest_file` returns
+   (``documents.content_sha256`` is ``UNIQUE``; :func:`ingest_bytes` returns
    ``duplicate`` for already-known bytes). Re-running never creates a second
    document, even if the local manifest is deleted.
-2. **Efficient** — a local JSON manifest keyed by object key + ETag lets an
-   unchanged object be skipped *without downloading it again*. An object whose
-   ETag changed (i.e. it was replaced in Spaces) is re-ingested; its new content
-   becomes a new document, the old one is left intact.
+2. **Efficient** — a local JSON manifest, per source bucket, keyed by object key
+   + ETag lets an unchanged object be skipped *without downloading it again*. An
+   object whose ETag changed (i.e. it was replaced in Spaces) is re-ingested; its
+   new content becomes a new document, the old one is left intact.
 
 The manifest is an optimisation, not the source of truth. If the corpus is wiped
 (e.g. ``make truncate-db``) while the manifest still says "ingested", re-run with
@@ -54,7 +57,6 @@ import argparse
 import json
 import os
 import sys
-import tempfile
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -70,15 +72,14 @@ from doc_ray.adapters import persistence as db
 from doc_ray.adapters.extraction import is_supported_extension
 from doc_ray.adapters.object_store import ObjectStore
 from doc_ray.adapters.persistence import find_principal_id_by_email
-from doc_ray.application.jobs import enqueue_chain_head
-from doc_ray.application.pipeline import IngestResult, ingest_file
+from doc_ray.application.pipeline import IngestResult, finalize_new_document, ingest_bytes
 from doc_ray.config import Config
 from doc_ray.domain.jobs import DEFAULT_PIPELINE_CHAIN
 
 DEFAULT_ENDPOINT = "https://sfo3.digitaloceanspaces.com"
 DEFAULT_BUCKET = "doc-ray-dev"
 DEFAULT_REGION = "sfo3"
-DEFAULT_STATE = ".ingest-state/doc-ray-dev.json"
+DEFAULT_STATE_DIR = ".ingest-state"
 
 #: Manifest statuses that mean "already handled" — an unchanged object recorded
 #: with one of these is skipped without being downloaded again.
@@ -134,9 +135,22 @@ class SourceObject:
 def decide_action(obj: SourceObject, prior: dict[str, Any] | None, *, force: bool) -> str:
     """Return ``"ingest"`` or ``"skip"`` for *obj* given its recorded manifest state.
 
-    A never-seen object, a changed ETag, or a non-terminal prior outcome all
-    trigger a (re-)ingest; an unchanged object that already ingested or deduped is
-    skipped. ``force`` ignores the manifest entirely.
+    A never-seen object, a changed ETag, or a prior failure that never reached
+    the corpus all trigger a (re-)ingest; an unchanged object that already
+    ingested, deduped, or *failed extraction* is skipped. ``force`` ignores the
+    manifest entirely.
+
+    A failed prior is discriminated by ``document_id``, because the two failure
+    modes have opposite retry semantics:
+
+    * **With** a document id, extraction failed and the corpus holds a
+      ``status='failed'`` row under these exact bytes. Retrying is provably
+      futile — :func:`ingest_bytes` dedupes on the SHA and short-circuits before
+      extraction ever runs — so the retry only burns a full download. Fixing the
+      file (e.g. OCR) changes its bytes, hence its ETag, which re-ingests it
+      through the rule above.
+    * **Without** one, the object never reached the corpus (the download itself
+      failed). That is transient and must be retried.
 
     Args:
         obj: The listed source object.
@@ -150,9 +164,54 @@ def decide_action(obj: SourceObject, prior: dict[str, Any] | None, *, force: boo
         return "ingest"
     if prior.get("etag") != obj.etag:
         return "ingest"
-    if prior.get("status") in _TERMINAL_OK:
+    status = prior.get("status")
+    if status in _TERMINAL_OK:
+        return "skip"
+    if status == "failed" and prior.get("document_id"):
         return "skip"
     return "ingest"
+
+
+def plan_actions(
+    objects: list[SourceObject],
+    state: dict[str, dict[str, Any]],
+    *,
+    force: bool,
+    limit: int | None,
+) -> tuple[list[tuple[SourceObject, str]], int]:
+    """Decide every object's action once, capping the run at *limit* ingests.
+
+    ``--limit`` bounds the objects a run *ingests*, not the objects it looks at.
+    Slicing the sorted key list before the manifest was consulted made the flag
+    useless for incremental loading: the budget was spent on already-loaded keys
+    at the head of the list, so ``--limit 10`` against a mostly-loaded bucket
+    ingested nothing.
+
+    Skips stay in the plan — they cost one dict lookup and keep the summary
+    honest — while ingests past the budget are held back for a later run.
+
+    Args:
+        objects: Supported source objects, in key order.
+        state: The manifest from previous runs.
+        force: When true, every object is an ingest.
+        limit: Maximum objects to ingest this run; ``None`` for no cap.
+
+    Returns:
+        The ``(object, action)`` plan, and the number of ingests the limit held
+        back.
+    """
+    planned: list[tuple[SourceObject, str]] = []
+    ingests = 0
+    held = 0
+    for obj in objects:
+        action = decide_action(obj, state.get(obj.key), force=force)
+        if action == "ingest":
+            if limit is not None and ingests >= limit:
+                held += 1
+                continue
+            ingests += 1
+        planned.append((obj, action))
+    return planned, held
 
 
 def supported_only(objects: list[SourceObject]) -> list[SourceObject]:
@@ -201,13 +260,19 @@ def save_state(path: Path, state: dict[str, dict[str, Any]]) -> None:
 
 
 def _state_entry(
-    obj: SourceObject, status: str, document_id: str | None, job_id: str | None = None
+    obj: SourceObject,
+    status: str,
+    document_id: str | None,
+    job_id: str | None = None,
+    detail: str = "",
 ) -> dict[str, Any]:
     """Build a manifest entry recording this run's outcome for *obj*.
 
     ``job_id`` is the head of the post-ingest chain, recorded so an operator can
     trace a loaded object to the pipeline work it queued (``jobs`` rows carry the
-    rest of the chain in their payload).
+    rest of the chain in their payload). ``detail`` keeps the outcome's reason —
+    above all *why* a failure failed — in the manifest, so diagnosing a bulk load
+    does not mean re-running it to read the console again.
     """
     return {
         "etag": obj.etag,
@@ -215,8 +280,21 @@ def _state_entry(
         "status": status,
         "document_id": document_id,
         "job_id": job_id,
+        "detail": detail,
         "updated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
     }
+
+
+def resolve_state_path(args: argparse.Namespace) -> Path:
+    """Return the manifest path for this run — one file per source bucket.
+
+    A manifest is keyed by object key alone, so pointing two buckets at one file
+    lets a key present in both mask the other's copy. ``--state`` (or
+    ``DOCRAY_SOURCE_STATE``) overrides for operators who want one elsewhere.
+    """
+    if args.state:
+        return Path(args.state)
+    return Path(DEFAULT_STATE_DIR) / f"{args.bucket}.json"
 
 
 def pipeline_chain(args: argparse.Namespace) -> tuple[str, ...]:
@@ -330,76 +408,84 @@ def _download(client: BaseClient, bucket: str, key: str) -> bytes:
 def ingest_object(
     conn: Any,
     store: ObjectStore,
+    bucket: str,
     key: str,
     data: bytes,
     owner_principal_id: str | None = None,
 ) -> IngestResult:
-    """Ingest downloaded *data* for *key* via the shared ingest primitive.
+    """Ingest downloaded *data* for *key* via the shared bytes-first primitive.
 
-    The bytes are written to a temporary file carrying *key*'s basename so the
-    extractor registry dispatches on the right suffix and the persisted record
-    keeps a meaningful ``original_filename``. The blob is then re-stored,
-    content-addressed, by :func:`ingest_file`.
+    The key's basename is passed as the filename so the extractor registry
+    dispatches on the right suffix and the persisted record keeps a meaningful
+    ``original_filename``; the object's ``s3://`` reference is passed as the
+    source URL so the document's metadata records where it came from, which a
+    filesystem round trip through :func:`ingest_file` could not carry.
 
     Args:
         conn: Live database connection.
         store: doc-ray's own object store (the ingest sink).
+        bucket: Source bucket name, for the recorded provenance URL.
         key: Source object key; its basename names the document.
         data: Raw object bytes.
         owner_principal_id: Principal the document belongs to (migration 102),
             or ``None`` for unowned operator ingest.
 
     Returns:
-        The :class:`IngestResult` from :func:`ingest_file`.
+        The :class:`IngestResult` from :func:`ingest_bytes`.
     """
-    with tempfile.TemporaryDirectory(prefix="docray-spaces-") as tmp_dir:
-        tmp_path = Path(tmp_dir) / Path(key).name
-        tmp_path.write_bytes(data)
-        return ingest_file(conn, store, tmp_path, owner_principal_id=owner_principal_id)
+    return ingest_bytes(
+        conn,
+        store,
+        data,
+        filename=Path(key).name,
+        source_url=f"s3://{bucket}/{key}",
+        owner_principal_id=owner_principal_id,
+    )
 
 
 def _ingest_one(ctx: IngestContext, obj: SourceObject, state: dict[str, dict[str, Any]]) -> str:
     """Download, ingest and pipeline one object, updating *state*; return its status.
 
-    Only a genuinely new document enters the pipeline: a ``duplicate`` is content
-    already in the corpus, which the earlier ingest already annotated, so
-    re-chaining it would re-process the corpus on every ``--force`` run — the
-    same guard :func:`doc_ray.application.jobs._advance_chain` applies.
+    Finalization is delegated to
+    :func:`doc_ray.application.pipeline.finalize_new_document`, so a bulk-loaded
+    document gets exactly what an API upload gets — the read-model rollup
+    refreshed *and* the chain enqueued. Only a genuinely new document enters the
+    pipeline: a ``duplicate`` is content already in the corpus, which the earlier
+    ingest already annotated, so re-chaining it would re-process the corpus on
+    every ``--force`` run — the same guard the shared finalizer applies.
     """
     try:
         data = _download(ctx.client, ctx.bucket, obj.key)
     except (ClientError, BotoCoreError) as exc:
         print(f"  [ERR] {obj.key} -> download failed ({exc})")
-        state[obj.key] = _state_entry(obj, "failed", None)
+        # No document id: the bytes never reached the corpus, so this failure is
+        # transient and decide_action retries it on the next run.
+        state[obj.key] = _state_entry(obj, "failed", None, detail=f"download failed: {exc}")
         return "failed"
-    result = ingest_object(ctx.conn, ctx.store, obj.key, data, ctx.owner_principal_id)
-    job_id: str | None = None
-    if result.status == "ingested" and result.document_id is not None and ctx.chain:
-        job_id = enqueue_chain_head(ctx.conn, result.document_id, ctx.chain)
-    state[obj.key] = _state_entry(obj, result.status, result.document_id, job_id)
+    result = ingest_object(ctx.conn, ctx.store, ctx.bucket, obj.key, data, ctx.owner_principal_id)
+    job_id = finalize_new_document(ctx.conn, result, ctx.chain)
+    state[obj.key] = _state_entry(obj, result.status, result.document_id, job_id, result.detail)
     tag = _TAGS.get(result.status, "?")
     detail = f"  ({result.detail})" if result.detail else ""
-    queued = f"  [queued {ctx.chain[0]}]" if job_id else ""
-    print(f"  [{tag}] {obj.key} -> {result.document_id or '-'}{detail}{queued}")
+    print(f"  [{tag}] {obj.key} -> {result.document_id or '-'}{detail}")
     return result.status
 
 
 def _report_dry_run(
-    objects: list[SourceObject],
-    state: dict[str, dict[str, Any]],
+    planned: list[tuple[SourceObject, str]],
     *,
-    force: bool,
     chain: tuple[str, ...],
     owner_email: str | None,
 ) -> int:
     """Print the planned action per object without touching the database or sink.
 
-    The owner email is echoed, not resolved: a dry run stays DB-free, so an
-    unknown email surfaces on the real run instead (exit 1, before any ingest).
+    Consumes the same plan the real run does, so a dry run can never disagree
+    with what a subsequent ingest actually does. The owner email is echoed, not
+    resolved: a dry run stays DB-free, so an unknown email surfaces on the real
+    run instead (exit 1, before any ingest).
     """
     counts: dict[str, int] = {}
-    for obj in objects:
-        action = decide_action(obj, state.get(obj.key), force=force)
+    for obj, action in planned:
         counts[action] = counts.get(action, 0) + 1
         print(f"  [{action.upper():6}] {obj.key}")
     summary = ", ".join(f"{k}={v}" for k, v in sorted(counts.items()))
@@ -422,24 +508,21 @@ def run(args: argparse.Namespace) -> int:
         return 2
 
     supported = supported_only(listed)
-    objects = supported[: args.limit] if args.limit is not None else supported
     scope = f"s3://{args.bucket}/{args.prefix}" if args.prefix else f"s3://{args.bucket}"
-    print(
-        f"Source {scope}: {len(listed)} object(s), "
-        f"{len(supported)} supported, {len(objects)} selected."
-    )
+    print(f"Source {scope}: {len(listed)} object(s), {len(supported)} supported.")
 
-    state_path = Path(args.state)
+    state_path = resolve_state_path(args)
     state = load_state(state_path)
     chain = pipeline_chain(args)
+    planned, held = plan_actions(supported, state, force=args.force, limit=args.limit)
+    if held:
+        print(f"Limit {args.limit}: {held} more object(s) left for a later run.")
 
     if args.dry_run:
-        return _report_dry_run(
-            objects, state, force=args.force, chain=chain, owner_email=args.owner
-        )
+        return _report_dry_run(planned, chain=chain, owner_email=args.owner)
 
     try:
-        counts = _ingest_all(args, client, objects, state, chain)
+        counts = _ingest_all(args, client, planned, state, chain)
     except OwnerNotFound as exc:
         print(f"error: no principal with login email {str(exc)!r}", file=sys.stderr)
         return 1
@@ -456,11 +539,11 @@ def run(args: argparse.Namespace) -> int:
 def _ingest_all(
     args: argparse.Namespace,
     client: BaseClient,
-    objects: list[SourceObject],
+    planned: list[tuple[SourceObject, str]],
     state: dict[str, dict[str, Any]],
     chain: tuple[str, ...],
 ) -> dict[str, int]:
-    """Ingest every actionable object under one connection; return outcome counts.
+    """Execute *planned* under one connection; return outcome counts.
 
     Raises:
         OwnerNotFound: ``--owner`` names an unknown email. Resolved before the
@@ -480,8 +563,8 @@ def _ingest_all(
             owner_principal_id=owner,
             chain=chain,
         )
-        for obj in objects:
-            if decide_action(obj, state.get(obj.key), force=args.force) == "skip":
+        for obj, action in planned:
+            if action == "skip":
                 counts["skipped"] = counts.get("skipped", 0) + 1
                 continue
             status = _ingest_one(ctx, obj, state)
@@ -512,12 +595,17 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--prefix", default="", help="Only ingest keys under this prefix.")
     parser.add_argument(
-        "--limit", type=int, default=None, help="Ingest at most N supported objects."
+        "--limit",
+        type=int,
+        default=None,
+        help="Ingest at most N objects this run; already-loaded objects do not "
+        "count against the budget.",
     )
     parser.add_argument(
         "--state",
-        default=os.environ.get("DOCRAY_SOURCE_STATE", DEFAULT_STATE),
-        help="Path to the local idempotency manifest.",
+        default=os.environ.get("DOCRAY_SOURCE_STATE"),
+        help=f"Path to the local idempotency manifest "
+        f"(default: {DEFAULT_STATE_DIR}/<bucket>.json).",
     )
     parser.add_argument(
         "--access-key",

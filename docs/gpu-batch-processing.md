@@ -121,6 +121,8 @@ set -a; source .env; set +a
 python scripts/ingest_from_spaces.py            # idempotent; skips already-loaded
 python scripts/ingest_from_spaces.py --owner someone@example.com   # own the load
 python scripts/ingest_from_spaces.py --no-pipeline                 # bytes only
+python scripts/ingest_from_spaces.py --limit 50  # ingest 50 NEW objects (skips
+                                                 # don't spend the budget)
 
 # (b) The deferred oversized documents (tag 'pending-trf-h200') — enqueue an
 #     annotate job each. See PENDING_TRF_H200.md for the exact snippet.

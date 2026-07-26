@@ -72,6 +72,72 @@ def test_ingest_file_duplicate_is_noop(pg, store, tmp_path):
     assert again.document_id == first.document_id
 
 
+def test_reingesting_previously_failed_bytes_reports_failed_not_duplicate(pg, store, tmp_path):
+    # Regression: the SHA dedup returns the *failed* document row written by the
+    # first attempt, so extraction can never re-run for these bytes. Calling that
+    # a "duplicate" turned a permanent failure into a benign-looking no-op — the
+    # Spaces loader recorded it as terminal-OK and exited 0 while the document
+    # sat in status='failed'. The second attempt must report the failure, carry
+    # the recorded error, and point at the same document row.
+    path = _txt(tmp_path, f"nofail-{_itdb.unique_sha()[:8]}.txt", "\x00\x00 \x00\n")
+
+    conn, created = pg
+    first = pipeline.ingest_file(conn, store, path)
+    created.append(first.document_id)
+    again = pipeline.ingest_file(conn, store, path)
+
+    assert first.status == "failed"
+    assert again.status == "failed"
+    assert again.document_id == first.document_id
+    assert "no extractable text" in (again.detail or "")
+
+
+def test_finalize_new_document_refreshes_stats_before_chaining(pg, tmp_path, store):
+    # Regression: the rollup refresh and the chain enqueue are one indivisible
+    # obligation. A caller that enqueued the chain but skipped the refresh (the
+    # Spaces loader, pre-fix) left a fresh document reading zero sentences until
+    # some later job happened to refresh it — and forever under --no-pipeline.
+    conn, created = pg
+    path = _txt(tmp_path, f"fin-{_itdb.unique_sha()[:8]}.txt", "Alpha beta. Gamma delta.")
+    result = pipeline.ingest_file(conn, store, path)
+    created.append(result.document_id)
+
+    try:
+        job_id = pipeline.finalize_new_document(conn, result, ("annotate",))
+
+        assert job_id is not None
+        stats = conn.execute(
+            "SELECT n_sentences FROM document_stats WHERE document_id=%s", (result.document_id,)
+        ).fetchone()
+        assert stats is not None and stats["n_sentences"] == 2
+        assert "queued annotate" in result.detail
+    finally:
+        conn.execute("DELETE FROM jobs WHERE document_id=%s", (result.document_id,))
+
+
+def test_finalize_new_document_refreshes_stats_even_with_no_chain(pg, tmp_path, store):
+    # --no-pipeline must still leave an accurate read-model rollup: the document
+    # is complete as text, it simply owes no queue work.
+    conn, created = pg
+    path = _txt(tmp_path, f"nochain-{_itdb.unique_sha()[:8]}.txt", "Alpha beta. Gamma delta.")
+    result = pipeline.ingest_file(conn, store, path)
+    created.append(result.document_id)
+
+    assert pipeline.finalize_new_document(conn, result, ()) is None
+    stats = conn.execute(
+        "SELECT n_sentences FROM document_stats WHERE document_id=%s", (result.document_id,)
+    ).fetchone()
+    assert stats is not None and stats["n_sentences"] == 2
+
+
+def test_finalize_new_document_ignores_duplicates_and_failures(pg, tmp_path, store):
+    conn, _created = pg
+    for status in ("duplicate", "failed"):
+        result = pipeline.IngestResult("x", "doc-absent", status)
+        assert pipeline.finalize_new_document(conn, result, ("annotate",)) is None
+        assert result.detail == ""
+
+
 def test_ingest_file_extraction_failure_records_failed_doc(pg, store, tmp_path):
     conn, created = pg
     bad = tmp_path / f"bad-{_itdb.unique_sha()[:8]}.zzz"  # unsupported extension

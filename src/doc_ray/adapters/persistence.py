@@ -88,9 +88,14 @@ def find_by_sha256(conn: DictConnection, sha256: str) -> dict[str, Any] | None:
         sha256: Hex-encoded SHA-256 of the document content.
 
     Returns:
-        A ``{id, status}`` mapping for the matching document, or ``None``.
+        An ``{id, status, error}`` mapping for the matching document, or
+        ``None``. ``status`` and ``error`` matter to the caller: a match whose
+        status is ``failed`` is not a usable duplicate but a record that these
+        exact bytes already defeated extraction.
     """
-    cur = conn.execute("SELECT id, status FROM documents WHERE content_sha256 = %s", (sha256,))
+    cur = conn.execute(
+        "SELECT id, status, error FROM documents WHERE content_sha256 = %s", (sha256,)
+    )
     return cur.fetchone()
 
 
