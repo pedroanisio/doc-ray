@@ -215,6 +215,37 @@ async def lens_entities(
     return rows
 
 
+async def allusions(
+    canonical_id: int,
+    lens_id: str,
+    direction: str = "both",
+    limit: int = 50,
+    after: str | None = None,
+) -> list[dict[str, Any]]:
+    """Cross-lens allusion edges for an entity — a typed link, NOT an identity (SLP Block E).
+
+    ⚠ An allusion is an EDGE, never an equality. It records that one entity *alludes to /
+    depicts / references / is adapted from / inspired by* another (e.g. a novel's Paris →
+    the real Paris) WITHOUT merging them. **Never treat a returned edge as identity**, and
+    **never chain edges transitively**: ``A→B`` and ``B→C`` does NOT mean ``A→C`` or
+    ``A≡C``. ``direction`` = ``outgoing`` (what this entity alludes to), ``incoming``
+    (what alludes to it), or ``both``. ``status`` tells you whether an edge is a
+    ``proposed`` guess or a ``confirmed`` human decision. Only edges whose both lenses
+    (and evidence document) your token may see are returned. Page with a row's ``cursor``.
+    """
+    _require_uuid(lens_id, "lens_id")
+    data = await gql(
+        "query($c:Int!,$l:ID!,$d:String!,$n:Int!,$a:String){allusions"
+        "(canonicalId:$c,lensId:$l,direction:$d,limit:$n,after:$a){id edgeType status "
+        "confidence method fromCanonicalId fromLensId toCanonicalId toLensId "
+        "fromPreferred toPreferred fromLensName toLensName evidenceDocumentId rationale "
+        "createdAt cursor}}",
+        {"c": canonical_id, "l": lens_id, "d": direction, "n": limit, "a": after},
+    )
+    rows: list[dict[str, Any]] = data["allusions"]
+    return rows
+
+
 #: Registered by ``server.build_server`` next to the corpus read tools.
 TOOLS: tuple[Callable[..., Any], ...] = (
     read_document_outline,
@@ -223,4 +254,5 @@ TOOLS: tuple[Callable[..., Any], ...] = (
     document_classification,
     entity_projection,
     lens_entities,
+    allusions,
 )

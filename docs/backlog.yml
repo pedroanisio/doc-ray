@@ -110,7 +110,7 @@ metadata:
   generated_by:     "Claude Sonnet 5 via Claude Code (merge of Claude Opus 4.8 backlog + OpenAI Codex improvement-proposal candidates)"
   generated_on:     "2026-07-05"
   system_of_record: "docs/backlog.yml"
-  total_items:      158
+  total_items:      159
 
 items:
 
@@ -5439,3 +5439,47 @@ items:
     owner:        "shared"
     source:       "GitHub issue #8 (SLP Block D, epic entity-fabric); implemented with strict TDD (Claude Opus 4.8 via Claude Code)."
     tags:         ["slp", "entity-fabric", "projection", "lens", "resolution", "feature"]
+
+  - id:          "BL-159"
+    title:        "SLP Block E: allusion edges — typed cross-lens links that never assert identity"
+    summary:      "After Block D (#8) a novel's Paris and the real Paris are distinct entities with no relationship between them; the only primitive to connect them would be a merge, which invariant 2 forbids. Added entity_allusion — a typed, directional cross-lens edge (alludes_to/depicts/references/adapted_from/inspired_by) with a review status — plus a pure domain, GraphQL + MCP surfaces, and an optional deterministic proposer. An edge is not an identity and is never transitive."
+    description: |
+      entity_allusion (migration 131, additive) links (from_canonical_id, from_lens_id)
+      -> (to_canonical_id, to_lens_id) with a typed relation, confidence, method, a
+      proposed/confirmed/rejected status, reviewer, rationale, and an evidence document.
+      UNIQUE makes proposal idempotent; a CHECK forbids a self-edge within one lens. It is
+      a curation table the API writes directly (docray_client) — not a derived fact table.
+      RLS is cross-lens: an edge is visible only when the caller can read BOTH endpoint
+      lenses (global is public; a scope lens needs a readable member doc) AND the evidence
+      document, so it never reveals an entity in an unreadable lens; the write policy is
+      FOR INSERT/UPDATE only (never FOR ALL, which would leak reads). domain.allusions is
+      pure (vocabulary, self-edge/validation, is_identity_claim()->False, no transitive
+      closure). Recording an edge changes nothing about projection/resolution/canonical
+      (checksum-proven). GraphQL: allusions (bidirectional read), proposeAllusion /
+      confirmAllusion / rejectAllusion (guarded+audited writes). MCP mirrors them (writes
+      gated), docstrings warning against identity/transitive misuse. Optional
+      KIND_PROPOSE_ALLUSIONS deterministically proposes alludes_to edges where a
+      work-local entity's surface matches a KB-linked global entity (proposed only).
+      Schema SemVer -> 1.47.0 (migration 132).
+    category:     "api"
+    type:         "feature"
+    status:       "done"
+    complexity:   "L"
+    priority:     "medium"
+    rationale:    "The 'hyper-context' axis of the mandate needs the honest representation of a cross-scope relationship: an edge, not an equality. Recording the novel's Paris -> real Paris as identity would corrupt both; as a typed edge it preserves both and makes the connection queryable, and it is only expressible once projections (Block D) exist. Unblocks Block F (#10) hyper-context rollups alongside Block D."
+    acceptance_criteria:
+      - "entity_allusion exists with RLS, FORCE, the UNIQUE and both CHECKs; self-edge and bad edge_type rejected by the database."
+      - "An edge changes nothing about resolution: a before/after checksum on entity_projection and canonical proves it."
+      - "Bidirectional query returns correct direction semantics; duplicate proposal is idempotent."
+      - "RLS: a caller who can read only one of the two lenses sees no edge (asymmetry test); machine-proposed edges land proposed."
+      - "Transitivity is deliberately absent and documented; capability exposed consistently across GraphQL and MCP with agent-facing docstrings and examples."
+    dependencies: ["BL-158"]
+    references:
+      - "docs/proposals/entity-fabric-substrate-lens-projection.md"
+      - "db/migrations/131_allusion_edges.sql"
+      - "src/doc_ray/domain/allusions.py"
+      - "src/doc_ray/adapters/allusion_store.py"
+      - "src/doc_ray/entrypoints/api/allusion_mutation.py"
+    owner:        "shared"
+    source:       "GitHub issue #9 (SLP Block E, epic entity-fabric); implemented with strict TDD (Claude Opus 4.8 via Claude Code)."
+    tags:         ["slp", "entity-fabric", "allusion", "lens", "hyper-context", "feature"]

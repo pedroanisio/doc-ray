@@ -198,6 +198,15 @@ after:)` (the entities that live in a lens, most-mentioned first) /
 refresh job) / `setLensProjects(lensId:, projects:)` (designate a lens as
 projecting — only designated lenses are materialized). Every machine projection is
 `proposed` until a human confirms it (PALS's Law); the substrate is never mutated.
+Allusion edges (SLP Block E — typed cross-lens links that never assert identity):
+`allusions(canonicalId:, lensId:, direction:, limit:, after:)` (read an entity's
+edges — `direction` outgoing/incoming/both) / `proposeAllusion(fromCanonicalId:,
+fromLensId:, toCanonicalId:, toLensId:, edgeType:, evidenceDocumentId:, confidence:,
+rationale:)` / `confirmAllusion(id:)` / `rejectAllusion(id:)`. An allusion records
+that one entity *alludes to / depicts / references / is adapted from / inspired by*
+another (e.g. a novel's Paris → the real Paris) **without merging them** — an edge
+is not an equality, changes nothing about identity, and is never transitive.
+Machine-proposed edges land `proposed` until confirmed.
 Backup/restore:
 `backupEnabled` (read — whether this deployment has the in-app backup subsystem
 switched on; clients check it before offering the actions) /

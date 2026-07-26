@@ -34,6 +34,7 @@ from doc_ray.domain.jobs import (
     KIND_CLASSIFY_GENRE,
     KIND_DELETE,
     KIND_INGEST,
+    KIND_PROPOSE_ALLUSIONS,
     KIND_REANNOTATE,
     KIND_REEXTRACT,
     KIND_REFRESH_PROJECTION,
@@ -528,6 +529,24 @@ def handle_canonicalize(
     return out
 
 
+def handle_propose_allusions(
+    conn: psycopg.Connection[Any], store: ObjectStore | None, job: Job
+) -> dict[str, Any]:
+    """Propose ``alludes_to`` edges for a document's local entities (Block E, #9, FR-5).
+
+    Deterministic surface + KB match; emits ``proposed`` edges only (never confirms) —
+    the primary path is the propose/confirm/reject API, this is a bulk convenience.
+    """
+    from doc_ray.adapters import allusion_store
+
+    if job.document_id is None:
+        raise RuntimeError("propose_allusions requires a document_id")
+    report_progress(0, 1, "Proposing allusion edges")
+    return allusion_store.propose_allusions_for_document(
+        cast(psycopg.Connection[dict[str, Any]], conn), job.document_id
+    )
+
+
 HANDLERS: dict[str, Handler] = {
     KIND_ANNOTATE: handle_annotate,
     KIND_APPLY_CORRECTIONS: handle_apply_corrections,
@@ -549,6 +568,7 @@ HANDLERS: dict[str, Handler] = {
     KIND_SUGGEST_DOCUMENT_METADATA: handle_suggest_document_metadata,
     KIND_CANONICALIZE: handle_canonicalize,
     KIND_REFRESH_PROJECTION: handle_refresh_projection,
+    KIND_PROPOSE_ALLUSIONS: handle_propose_allusions,
     KIND_BACKUP: handle_backup,
     KIND_RESTORE: handle_restore,
     KIND_UPDATE_METADATA: handle_update_metadata,

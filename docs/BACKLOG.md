@@ -525,6 +525,7 @@ against.
 | BL-156 | Admin Console operator-health panel: fix the JSON-parse misdiagnosis, contract drift, and misleading token copy | webapp | bug | done | M | medium | shared |
 | BL-157 | SLP Block C: genre/type classification + per-entity-type resolution policy | api | feature | done | L | medium | shared |
 | BL-158 | SLP Block D: projection engine — lens-scoped entity identity without lossy merges | api | feature | done | XL | medium | shared |
+| BL-159 | SLP Block E: allusion edges — typed cross-lens links that never assert identity | api | feature | done | L | medium | shared |
 
 See [`backlog.yml`](backlog.yml) for each item's full description, rationale,
 acceptance criteria, dependencies, related decisions (`D-###`), and references.

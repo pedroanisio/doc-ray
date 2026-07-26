@@ -16,6 +16,7 @@ from doc_ray.adapters import persistence_read as read
 from doc_ray.adapters import queue_postgres as queue
 from doc_ray.adapters import seed_suggestion_store as seeds
 from doc_ray.application import billing
+from doc_ray.entrypoints.api.allusion_query import AllusionQueries
 from doc_ray.entrypoints.api.audit_types import DocumentMetadataChange, DocumentMetadataSuggestion
 from doc_ray.entrypoints.api.billing_types import BillingEvent, BillingStatus
 from doc_ray.entrypoints.api.briefing_query import BriefingQueries
@@ -27,6 +28,7 @@ from doc_ray.entrypoints.api.canonical_types import (
 from doc_ray.entrypoints.api.classification_query import ClassificationQueries
 from doc_ray.entrypoints.api.collection_query import CollectionQueries
 from doc_ray.entrypoints.api.ids import clean_uuid as _clean_uuid
+from doc_ray.entrypoints.api.meta_query import MetaQueries
 from doc_ray.entrypoints.api.mutation_guards import _require_admin_read
 from doc_ray.entrypoints.api.projection_query import ProjectionQueries
 from doc_ray.entrypoints.api.security_audit import record_audit_event
@@ -59,27 +61,10 @@ class Query(
     CollectionQueries,
     ClassificationQueries,
     ProjectionQueries,
+    AllusionQueries,
+    MetaQueries,
 ):
     """The GraphQL query root."""
-
-    @strawberry.field
-    def version(self) -> str:
-        """Return the running service's semantic version (``doc_ray.__version__``)."""
-        from doc_ray import __version__
-
-        return __version__
-
-    @strawberry.field
-    def backup_enabled(self, info: Info) -> bool:
-        """Whether the in-app backup subsystem is switched on for this deployment.
-
-        Clients read this to decide whether to *offer* backup actions at all;
-        it is a capability hint, not an authorization check. ``createBackup`` /
-        ``restoreBackup`` enforce the same flag server-side and additionally
-        require an admin principal.
-        """
-        settings = info.context.settings
-        return bool(settings is not None and settings.backup_enabled)
 
     @strawberry.field
     async def documents(

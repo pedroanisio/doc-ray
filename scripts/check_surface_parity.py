@@ -39,6 +39,9 @@ _API_ONLY_ALLOWLIST: dict[str, str] = {
     "auditEvents": "The admin-console Audit page is the dedicated human surface.",
     # Both UIs resolve the deployment toggle locally; the admin console also queries it.
     "backupEnabled": "Webapp nav uses the same env capability; admin-console queries this field.",
+    # Cross-lens allusion edges (SLP Block E) are an agent/API + MCP curation primitive;
+    # the read webapp does not yet surface them.
+    "allusions": "Cross-lens allusion edges are an agent/MCP retrieval primitive (Block E).",
     # Billing is intentionally isolated in the privileged operator console.
     "billingEvents": "The admin-console Billing page is the dedicated human surface.",
     "billingStatus": "The admin-console Billing page is the dedicated human surface.",
@@ -55,6 +58,7 @@ _API_ONLY_ALLOWLIST: dict[str, str] = {
     # Lens-scoped identity review (SLP Block D) is an agent/API + MCP verification action;
     # the read webapp does not yet surface projections.
     "confirmProjection": "Projection confirmation is an agent/API + MCP review action (Block D).",
+    "confirmAllusion": "Allusion confirmation is an agent/API + MCP review action (Block E).",
     # Shards are orchestration primitives rather than an end-user corpus interaction.
     "corpusManifest": "Deterministic fan-out metadata is an agent/operations primitive.",
     "corpusShard": "Deterministic shard traversal is an agent/operations primitive.",
@@ -100,6 +104,8 @@ _API_ONLY_ALLOWLIST: dict[str, str] = {
     "restoreDocument": "Deleted-document recovery is API/operator-only; browser lists active docs.",
     # Lens-scoped identity review (SLP Block D) is an agent/API + MCP verification action.
     "rejectProjection": "Projection rejection is an agent/API + MCP review action (Block D).",
+    "proposeAllusion": "Proposing a cross-lens allusion is an agent/API curation action (Block E).",
+    "rejectAllusion": "Allusion rejection is an agent/API + MCP review action (Block E).",
     # Billing-event replay is a privileged control in the admin console.
     "retryBillingEvent": "The admin-console Billing page exposes this admin-only retry.",
     # Browser keyword search performs the same RLS-scoped sentence read through SQL.

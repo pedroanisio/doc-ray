@@ -113,6 +113,19 @@ GROUPS: list[tuple[str, str, list[str]]] = [
         ],
     ),
     (
+        "Allusion edges (SLP Block E)",
+        "Typed, directional cross-lens links that record a relationship without asserting "
+        "identity: `entity_allusion` says one entity *alludes to / depicts / references / "
+        "is adapted from / inspired by* another (e.g. a novel's Paris → the real Paris) "
+        "across lenses, carrying a confidence, method, review status, and evidence "
+        "document. An edge changes NOTHING about projection or canonical identity "
+        "(invariant 2) and is never transitive. A curation table the API writes directly "
+        "(docray_client); machine-proposed edges land `proposed` for review. Its RLS is "
+        "cross-lens: an edge is visible only when the caller can see BOTH endpoint lenses "
+        "and the evidence document, so it never reveals an entity in an unreadable lens.",
+        ["entity_allusion"],
+    ),
+    (
         "Canonical entities & resolution",
         "The tenant-global canonical entity registry mentions link to: `canonical` "
         "rows carry KB identity + an HNSW-indexed name embedding, `form_index` maps "

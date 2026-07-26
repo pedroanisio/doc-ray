@@ -43,6 +43,7 @@ _READ_PATHS: tuple[str, ...] = (
     "src/doc_ray/adapters/persistence_read.py",
     "src/doc_ray/adapters/persistence_read_collections.py",
     "src/doc_ray/adapters/persistence_layers_read.py",
+    "src/doc_ray/adapters/persistence_allusion_read.py",
     "src/doc_ray/adapters/persistence_canonical_read.py",
     "src/doc_ray/adapters/persistence_projection_read.py",
     "src/doc_ray/adapters/persistence_read_structure.py",

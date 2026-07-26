@@ -19,17 +19,18 @@ Exposes the doc-ray corpus to agentic AI over the **Model Context Protocol
 (MCP)**, authenticating each caller to a doc-ray principal so Postgres RLS scopes
 what they can read.
 
-**Status: live in production and verified end-to-end.** The server ships **28
+**Status: live in production and verified end-to-end.** The server ships **29
 read tools** (18 from `entrypoints/mcp/corpus.py` — incl. `read_document_sentences`,
 `corpus_manifest`, `corpus_shard`, `get_job`, `list_collections`, `get_collection`,
-`entity_mention_corrections`, and the 4 Prism visual tools — + 6 structure tools from
+`entity_mention_corrections`, and the 4 Prism visual tools — + 7 structure tools from
 `entrypoints/mcp/structure.py` (`read_document_outline`, `entity_profiles`,
-`term_frequency`, `document_classification`, and the SLP Block D lens-scoped identity
-readers `entity_projection`, `lens_entities`) + 3 composition-grounding tools from
-`entrypoints/mcp/compose.py`
-+ 1 semantic-search tool… see §3) always registered, plus **26 opt-in write tools**
-(reprocessing + curation + full collection lifecycle + projection review —
-`confirm_projection`, `reject_projection`) registered only when
+`term_frequency`, `document_classification`, the SLP Block D lens-scoped identity
+readers `entity_projection`, `lens_entities`, and the Block E `allusions` reader) + 3
+composition-grounding tools from `entrypoints/mcp/compose.py`
++ 1 semantic-search tool… see §3) always registered, plus **29 opt-in write tools**
+(reprocessing + curation + full collection lifecycle + projection review
+`confirm_projection` / `reject_projection` + allusion curation `propose_allusion` /
+`confirm_allusion` / `reject_allusion`) registered only when
 `DOCRAY_MCP_ENABLE_WRITE=true` — the default surface stays read-only. It also
 declares MCP's **resources** primitive: 3 listable `docray://` entry points +
 5 drill-down templates (§3) addressing the same RLS-scoped reads by URI, and its
@@ -160,6 +161,7 @@ but had no passage cited on this page. Example:
 | `document_classification(document_id)` | `documentClassification` | the document's genre axis; `status` tells you if it is a `pending` guess or a `confirmed` human decision |
 | `entity_projection(document_id, lens_id?, limit, after?)` | `entityProjection` | `project(mention, lens)` — each mention's identity within a lens; `scope` local/global, `canonicalId` null = unresolved, `status` proposed/confirmed/rejected (Block D) |
 | `lens_entities(lens_id, limit, after?)` | `lensEntities` | the entities that live in a lens, most-mentioned first (Block D); keyset `cursor` |
+| `allusions(canonical_id, lens_id, direction, limit, after?)` | `allusions` | typed cross-lens edges for an entity (Block E) — `direction` outgoing/incoming/both; an edge is NOT identity and NOT transitive |
 | `list_collections(limit, kind?, after?)` | `collections` | native containers; keyset `cursor` |
 | `get_collection(collection_id, document_limit)` | `collection` | one collection + its member documents |
 | `list_lenses(limit, after?)` | `lenses` | the collections marked as entity-resolution scopes (Block B); keyset `cursor` — see §3.5 |
@@ -423,6 +425,35 @@ real-world entity distribution use `entity_profiles` instead. `reject_projection
 is the mirror of `confirm_projection`. A projection is derived and rebuildable, so
 a wrong one is never load-bearing — drop and re-derive, never a destructive merge.
 
+### 3.5.2 `allusions` / `propose_allusion` — cross-lens links, NOT identity (Block E)
+
+Projection keeps a novel's Paris and the real Paris distinct. An **allusion** is the
+honest way to connect them: a typed, directional edge (`alludes_to`, `depicts`,
+`references`, `adapted_from`, `inspired_by`) that records the relationship **without
+merging the entities**. ⚠ An edge is *not* an equality and is *never transitive* — do
+not read one as "these are the same," and do not chain `A→B`, `B→C` into `A→C`. Reading
+`allusions` requires visibility of **both** lenses (and the evidence document), so an
+edge never reveals an entity in a lens you cannot see.
+
+```jsonc
+// The novel's Paris (a work-local entity) alludes to the real Paris (global):
+{"name": "propose_allusion", "arguments": {
+  "from_canonical_id": 5001, "from_lens_id": "<novel-lens>",
+  "to_canonical_id": 84, "to_lens_id": "<global-lens>",
+  "edge_type": "alludes_to", "evidence_document_id": "<the-novel-doc>"}}
+// → {"id": "…", "edgeType": "alludes_to", "status": "proposed", "method": "human"}
+
+{"name": "confirm_allusion", "arguments": {"allusion_id": "…"}}   // human verification
+// → {"id": "…", "status": "confirmed"}
+
+// What does the novel's Paris allude to? (outgoing) / what alludes to the real Paris? (incoming)
+{"name": "allusions", "arguments": {"canonical_id": 5001, "lens_id": "<novel-lens>", "direction": "outgoing"}}
+```
+
+Machine-proposed edges (including the optional `propose_allusions` batch job) land
+`proposed`; only `confirm_allusion` asserts the relationship — and even then it is a
+relationship, never an identity.
+
 ### 3.6 `term_frequency` — the flood-risk pre-flight (Item 10)
 
 BL-145 shipped the *diagnosis*: after a `search_sentences` call floods, its
@@ -602,6 +633,9 @@ engineering decision **D-030**.
 | `confirm_document_classification(document_id, genre, subtype?, rationale?)` | `confirmDocumentClassification` | the confirmed `DocumentClassification` |
 | `confirm_projection(mention_id, lens_id)` | `confirmProjection` | `Job` (`refresh_projection`) — promotes a projection to `confirmed` |
 | `reject_projection(mention_id, lens_id)` | `rejectProjection` | `Job` (`refresh_projection`) — marks a projection `rejected` |
+| `propose_allusion(from_canonical_id, from_lens_id, to_canonical_id, to_lens_id, edge_type, evidence_document_id, confidence?, rationale?)` | `proposeAllusion` | the proposed `AllusionEdge` (a link, NOT an identity) |
+| `confirm_allusion(allusion_id)` | `confirmAllusion` | the `confirmed` edge |
+| `reject_allusion(allusion_id)` | `rejectAllusion` | the `rejected` edge |
 | `decide_seeds(approve_ids?, reject_ids?)` | `decideSeeds` | `Int` (rows updated) |
 | `decide_document_metadata_suggestions(approve_ids?, reject_ids?)` | `decideDocumentMetadataSuggestions` | `Int` |
 | `seed_approved(document_id)` | `seedApproved` | `Job` |

@@ -72,6 +72,10 @@ WIPED_TABLES = (
     # human review log keyed to it. Wiped with the mentions/documents they project.
     "entity_projection",
     "entity_projection_review",
+    # Allusion edges (Block E, #9): cross-lens curation anchored to document_collections
+    # (the lenses), which are WIPED — an edge to/from a wiped lens is meaningless, and
+    # classifying it preserved would break the FK-consistency gate. So it is wiped too.
+    "entity_allusion",
     "event",
     "sentiment",
     "srl_argument",

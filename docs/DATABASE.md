@@ -1,6 +1,6 @@
 # doc-ray — Database ERD & Data Dictionary
 
-**Schema version `1.27.0`** (SemVer) · 130 migrations applied
+**Schema version `1.27.0`** (SemVer) · 132 migrations applied
 
 > Generated from the live schema by `scripts/gen_data_dictionary.py`. Do not edit by hand — re-run the generator.
 
@@ -880,7 +880,54 @@ designation). All are derived from the substrate + lens + policy and never mutat
 - **Index** `idx_lens_entity_stats_lens_mentions`: public.lens_entity_stats USING btree (lens_id, n_mentions DESC, canonical_id)
 - **RLS:** enabled — read/write policies via *lens_id → document_collection_members → documents* (FORCED)
 
-### 5.10 Canonical entities & resolution
+### 5.10 Allusion edges (SLP Block E)
+
+Typed, directional cross-lens links that record a relationship without asserting identity:
+`entity_allusion` says one entity *alludes to / depicts / references / is adapted from / inspired
+by* another (e.g. a novel's Paris → the real Paris) across lenses, carrying a confidence, method,
+review status, and evidence document. An edge changes NOTHING about projection or canonical identity
+(invariant 2) and is never transitive. A curation table the API writes directly (docray_client);
+machine-proposed edges land `proposed` for review. Its RLS is cross-lens: an edge is visible only
+when the caller can see BOTH endpoint lenses and the evidence document, so it never reveals an
+entity in an unreadable lens.
+
+#### `entity_allusion`
+
+| Column | Type | Null | Key | Default | Notes |
+|---|---|---|---|---|---|
+| `id` | uuid |  | PK | `gen_random_uuid()` |  |
+| `from_canonical_id` | bigint |  | FK→canonical, UQ |  |  |
+| `from_lens_id` | uuid |  | FK→document_collections, UQ |  |  |
+| `to_canonical_id` | bigint |  | FK→canonical, UQ |  |  |
+| `to_lens_id` | uuid |  | FK→document_collections, UQ |  |  |
+| `edge_type` | text |  | UQ |  |  |
+| `confidence` | real | yes |  |  |  |
+| `method` | text |  |  |  |  |
+| `status` | text |  |  | `'proposed'::text` |  |
+| `reviewer` | uuid | yes | FK→principals |  |  |
+| `rationale` | text | yes |  |  |  |
+| `evidence_document_id` | uuid | yes | FK→documents |  |  |
+| `created_at` | timestamp with time zone |  |  | `now()` |  |
+
+- **Primary key:** (id)
+- **Unique:** UNIQUE (from_canonical_id, from_lens_id, to_canonical_id, to_lens_id, edge_type)
+- **FK:** FOREIGN KEY (evidence_document_id) REFERENCES documents(id) ON DELETE SET NULL
+- **FK:** FOREIGN KEY (from_canonical_id) REFERENCES canonical(id) ON DELETE CASCADE
+- **FK:** FOREIGN KEY (from_lens_id) REFERENCES document_collections(id) ON DELETE CASCADE
+- **FK:** FOREIGN KEY (reviewer) REFERENCES principals(id) ON DELETE SET NULL
+- **FK:** FOREIGN KEY (to_canonical_id) REFERENCES canonical(id) ON DELETE CASCADE
+- **FK:** FOREIGN KEY (to_lens_id) REFERENCES document_collections(id) ON DELETE CASCADE
+- **Check:** CHECK (((from_canonical_id <> to_canonical_id) OR (from_lens_id <> to_lens_id)))
+- **Check:** CHECK (((confidence >= (0)::double precision) AND (confidence <= (1)::double precision)))
+- **Check:** CHECK ((edge_type = ANY (ARRAY['alludes_to'::text, 'depicts'::text, 'references'::text, 'adapted_from'::text, 'inspired_by'::text])))
+- **Check:** CHECK ((status = ANY (ARRAY['proposed'::text, 'confirmed'::text, 'rejected'::text])))
+- **Index** `entity_allusion_from_canonical_id_from_lens_id_to_canonical_key`: public.entity_allusion USING btree (from_canonical_id, from_lens_id, to_canonical_id, to_lens_id, edge_type)
+- **Index** `idx_entity_allusion_evidence`: public.entity_allusion USING btree (evidence_document_id) WHERE (evidence_document_id IS NOT NULL)
+- **Index** `idx_entity_allusion_from`: public.entity_allusion USING btree (from_canonical_id, from_lens_id)
+- **Index** `idx_entity_allusion_to`: public.entity_allusion USING btree (to_canonical_id, to_lens_id)
+- **RLS:** enabled — read/write policies via *both lenses via document_collection_members + evidence_document_id* (FORCED)
+
+### 5.11 Canonical entities & resolution
 
 The tenant-global canonical entity registry mentions link to: `canonical` rows carry KB identity +
 an HNSW-indexed name embedding, `form_index` maps normalized surface forms to canonicals,
@@ -990,7 +1037,7 @@ operator workflow queues for seeding and ambiguous-link review.
 - **Index** `idx_resolution_review_status`: public.resolution_review USING btree (status, id)
 - **RLS:** enabled — read/write policies via *mention_id → entity_mention → annotations* (FORCED)
 
-### 5.11 Meaning, discourse, temporal & sentiment (layers 14–19)
+### 5.12 Meaning, discourse, temporal & sentiment (layers 14–19)
 
 Semantic role labeling, word-sense disambiguation, AMR meaning graphs, PDTB discourse relations,
 TimeML (TIMEX/EVENT/TLINK), and sentiment.
@@ -1172,7 +1219,7 @@ TimeML (TIMEX/EVENT/TLINK), and sentiment.
 - **Index** `idx_sentiment_target_span`: public.sentiment USING btree (target_span_id)
 - **RLS:** enabled — read/write policies via *annotation_id → annotations* (FORCED)
 
-### 5.12 Distributed representations (layer 20)
+### 5.13 Distributed representations (layer 20)
 
 pgvector embeddings over spans, ANN-indexed with HNSW (cosine).
 
@@ -1189,7 +1236,7 @@ pgvector embeddings over spans, ANN-indexed with HNSW (cosine).
 - **Index** `idx_embedding_hnsw`: public.embedding USING hnsw (vector vector_cosine_ops)
 - **RLS:** enabled — read/write policies via *span_id → spans* (FORCED)
 
-### 5.13 Collections & curation
+### 5.14 Collections & curation
 
 Operator-facing curation surfaces: manual and smart (rule-driven) document collections, and the
 reviewed-suggestion queue for LLM/heuristic metadata proposals (BL-058).
@@ -1265,7 +1312,7 @@ reviewed-suggestion queue for LLM/heuristic metadata proposals (BL-058).
 - **Index** `idx_document_metadata_suggestion_doc`: public.document_metadata_suggestion USING btree (document_id, status, confidence DESC)
 - **RLS:** enabled — read/write policies via *document_id* (FORCED)
 
-### 5.14 Access control — RBAC & row-level security
+### 5.15 Access control — RBAC & row-level security
 
 Principals, roles, permissions and per-document ACLs. Every document-scoped table above is protected
 by tenant-scoped RLS keyed on these (see §Access control).
@@ -1378,7 +1425,7 @@ Tenant partition catalogue; the default tenant preserves existing deployments.
 - **Index** `idx_document_acl_principal`: public.document_acl USING btree (principal_id)
 - **RLS:** enabled — read/write policies via *?* (FORCED)
 
-### 5.15 Authentication & identity provisioning
+### 5.16 Authentication & identity provisioning
 
 Local self-service auth (argon2id credentials, e-mail verification, refresh tokens — migration 074),
 account preferences and email-change requests, OAuth 2.1 authorization-code/PKCE client state, plus
@@ -1590,7 +1637,7 @@ operator-seeded; self-registered principals get the reader role only.
 - **Check:** CHECK (((metadata_url IS NOT NULL) OR (metadata_xml IS NOT NULL)))
 - **Index** `idx_tenant_saml_idp_entity`: public.tenant_saml_identity_providers USING btree (entity_id)
 
-### 5.16 Billing & payment operations
+### 5.17 Billing & payment operations
 
 Tenant-scoped Stripe customer accounts, current subscription snapshots, and the signed webhook event
 ledger that backs Checkout, Portal, entitlement decisions, and payment audit views.
@@ -1655,7 +1702,7 @@ ledger that backs Checkout, Portal, entitlement decisions, and payment audit vie
 - **Index** `idx_stripe_webhook_events_type_time`: public.stripe_webhook_events USING btree (event_type, created_at DESC)
 - **RLS:** enabled — read/write policies via *signed Stripe webhook ledger, app-owned* (FORCED)
 
-### 5.17 Security audit trail
+### 5.18 Security audit trail
 
 Append-only access and authentication events: who did what, against which target, from which source
 address, and whether it succeeded or was denied.
@@ -1689,7 +1736,7 @@ address, and whether it succeeded or was denied.
 - **Index** `idx_audit_events_time`: public.audit_events USING btree (occurred_at DESC)
 - **RLS:** enabled — read/write policies via *insert-only security audit log* (FORCED)
 
-### 5.18 Evaluation & drift artifacts
+### 5.19 Evaluation & drift artifacts
 
 Corpus snapshots, evaluation runs, metric rows, and gold samples make quality and drift measurements
 durable and citeable instead of one-off operator observations.
@@ -1770,7 +1817,7 @@ durable and citeable instead of one-off operator observations.
 - **FK:** FOREIGN KEY (span_id) REFERENCES spans(id) ON DELETE CASCADE
 - **Index** `idx_gold_sample_label`: public.gold_sample USING btree (label, created_at DESC)
 
-### 5.19 Jobs & operations
+### 5.20 Jobs & operations
 
 The background job queue (claimed FOR UPDATE SKIP LOCKED, heartbeat + drain-aware reaping, first-
 class progress), the applied-migration ledger, the schema's SemVer, and the corpus-backup catalogue.
@@ -1891,7 +1938,7 @@ job execution record (GPU/CPU lane, timings) for cost attribution (migration 126
 - **Index** `job_telemetry_host_kind_idx`: public.job_telemetry USING btree (host, kind, finished_at DESC)
 - **RLS:** enabled — read/write policies via *?* (FORCED)
 
-### 5.20 Prism visual layer
+### 5.21 Prism visual layer
 
 The visual/multimodal layer over the corpus (docs/proposals/prism-visual-layer.md), document-scoped
 under the same RLS as the NLP layers. Tier-1 `document_image`/`image_tier1_features` are
@@ -2047,7 +2094,7 @@ low-confidence output.
 - **Index** `idx_visual_review_pending`: public.visual_review USING btree (document_id) WHERE (status = 'pending'::text)
 - **RLS:** enabled — read/write policies via *document_id* (FORCED)
 
-### 5.21 Read-model rollups (D-024)
+### 5.22 Read-model rollups (D-024)
 
 Derived aggregates over the large append-mostly fact tables, refreshed by the trusted batch writer
 at the pipeline job boundary and never computed on the request path (migrations 095/098/100). Each
@@ -2217,7 +2264,7 @@ document-scoped table. A principal may **read** a same-tenant document iff it is
 *admin* or holds any `document_acl` row on it, and may **write** iff *admin* or
 holds an `annotate`/`delete`/`admin` grant.
 
-**Enforcement.** RLS is `ENABLE`d (not `FORCE`) on 64 tables (incl. `jobs` and
+**Enforcement.** RLS is `ENABLE`d (not `FORCE`) on 65 tables (incl. `jobs` and
 `backups` since migration 043 — BL-064). The `docray`
 role is a **superuser and table owner**, so it **bypasses RLS** — the ingest
 pipeline and admin tooling use it as the trusted batch writer. End-user / API
@@ -2385,5 +2432,7 @@ owner's bypass.
 | 126 | `126_job_telemetry.sql` | append-only per-job execution telemetry for cost attribution |
 | 127 | `127_document_classification.sql` | document_classification table (genre axis + resolution-policy input) + RLS + grants |
 | 128 | `128_schema_version_1_45_0.sql` | advance the schema SemVer to 1.45.0 for genre classification |
-| 129 | `129_entity_projection.sql` | projection engine (Block D): entity_projection + lens_local_entity + entity_projection_review + lens_entity_stats + document_collections.projects + RLS + grants |
+| 129 | `129_entity_projection.sql` | projection engine (Block D): entity_projection + lens_local_entity + entity_projection_review + lens_entity_stats + collections.projects col (RLS + grants) |
 | 130 | `130_schema_version_1_46_0.sql` | advance the schema SemVer to 1.46.0 for the projection engine |
+| 131 | `131_allusion_edges.sql` | entity_allusion (typed cross-lens links that never assert identity, Block E) + cross-lens RLS + grants |
+| 132 | `132_schema_version_1_47_0.sql` | advance the schema SemVer to 1.47.0 for allusion edges |

@@ -41,6 +41,7 @@ RLS_PATH = {
     "entity_projection_review": "document_id",
     "lens_entity_stats": "lens_id → document_collection_members → documents",
     "lens_local_entity": "admin-only (batch-owned local-identity registry)",
+    "entity_allusion": "both lenses via document_collection_members + evidence_document_id",
     "entity_link": "mention_id → entity_mention → annotations",
     "srl_predicate": "annotation_id → annotations",
     "srl_argument": "span_id → spans",
@@ -318,6 +319,12 @@ MIGRATIONS = [
         "entity_projection_review + lens_entity_stats + collections.projects col (RLS + grants)",
     ),
     ("130_schema_version_1_46_0", "advance the schema SemVer to 1.46.0 for the projection engine"),
+    (
+        "131_allusion_edges",
+        "entity_allusion (typed cross-lens links that never assert identity, Block E) "
+        "+ cross-lens RLS + grants",
+    ),
+    ("132_schema_version_1_47_0", "advance the schema SemVer to 1.47.0 for allusion edges"),
 ]
 
 # ---------------------------------------------------------------------------

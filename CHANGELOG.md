@@ -19,6 +19,40 @@ doc-ray carries **one global version** covering both the application package
 (`docray_schema_version()`). They are kept in lockstep by
 `scripts/check_version_consistency.py`, which fails the build on any drift.
 
+## [1.47.0]
+
+### Added
+
+- **Allusion edges — typed cross-lens links that never assert identity (SLP Block E,
+  issue #9).** Block D (#8) deliberately keeps a novel's Paris and the real Paris as
+  distinct entities (no lossy merge); this block records the honest relationship between
+  them — the novel's Paris *alludes to* the real Paris — as a typed, directional edge
+  that preserves both and makes the connection queryable. An edge is **not** an equality:
+  it changes nothing about projection, resolution, or the canonical registry, and edges
+  are **never transitive** (A→B, B→C does not imply A→C or A≡C).
+  - **Schema (migration 131, additive):** `entity_allusion` — `(from_canonical_id,
+    from_lens_id) → (to_canonical_id, to_lens_id)` with `edge_type` ∈
+    `alludes_to`/`depicts`/`references`/`adapted_from`/`inspired_by`, confidence, method,
+    a `proposed`/`confirmed`/`rejected` review status, reviewer, rationale, and an
+    evidence document. `UNIQUE` makes proposal idempotent; a `CHECK` forbids a self-edge
+    within one lens. It is a **curation** table the API writes directly (docray_client),
+    not a derived fact table.
+  - **RLS (the hard part):** an edge is readable only when the caller can see BOTH
+    endpoint lenses (the `global` lens is public; a scope lens needs a readable member
+    document) AND the evidence document — so it never reveals an entity in a lens the
+    caller cannot see. The write policy is `FOR INSERT`/`UPDATE` only (never `FOR ALL`,
+    which would leak reads); proven by an asymmetry test (a caller who sees one side sees
+    no edge).
+  - **Surfaces:** GraphQL `allusions` (bidirectional read), `proposeAllusion` /
+    `confirmAllusion` / `rejectAllusion` (guarded + audited writes); MCP `allusions` +
+    write-gated `propose_allusion` / `confirm_allusion` / `reject_allusion`, whose
+    docstrings warn that an allusion is not an identity and must not be traversed
+    transitively. An optional deterministic proposer (`KIND_PROPOSE_ALLUSIONS`, FR-5)
+    suggests `alludes_to` edges where a work-local entity's surface matches a KB-linked
+    global entity — `proposed` only. Schema SemVer → **1.47.0** (migration 132).
+  - Machine-proposed edges land `status='proposed'` (PALS's Law); only a human confirms.
+    Unblocks Block F (#10, hyper-context) alongside Block D.
+
 ## [1.46.0]
 
 ### Added

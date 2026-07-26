@@ -45,6 +45,8 @@ _READ_TOOL_NAMES = {
     # lens-scoped entity identity (Block D)
     "entity_projection",
     "lens_entities",
+    # cross-lens allusion edges (Block E)
+    "allusions",
     # composition-grounding tools
     "briefing_pack",
     "entity_dossier",
@@ -90,6 +92,10 @@ _WRITE_TOOL_NAMES = {
     # Projection engine (Block D): human review of lens-scoped identity
     "confirm_projection",
     "reject_projection",
+    # Allusion edges (Block E): typed cross-lens curation
+    "propose_allusion",
+    "confirm_allusion",
+    "reject_allusion",
 }
 
 

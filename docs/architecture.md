@@ -263,6 +263,32 @@ the reads and the two review writes (gated on `DOCRAY_MCP_ENABLE_WRITE`). Block 
 unblocks the cross-lens allusion edges (Block E, #9) and per-lens hyper-context
 (Block F, #10).
 
+### Allusion edges (SLP Block E)
+
+Projection keeps a novel's Paris and the real Paris distinct so nothing is fabricated
+by a merge (invariant 2) — but separation alone loses real knowledge. The allusion
+edge is the honest representation of the relationship: the novel's Paris *alludes to*
+the real Paris. It is an **edge, not an equality**. `entity_allusion` (migration 131)
+links `(from_canonical_id, from_lens_id) → (to_canonical_id, to_lens_id)` with a typed
+relation (`alludes_to` / `depicts` / `references` / `adapted_from` / `inspired_by`),
+confidence, method, a `proposed`/`confirmed`/`rejected` review status, and an evidence
+document. Recording an edge changes **nothing** about projection, resolution, or the
+canonical registry (a before/after checksum proves it), and edges are **never
+transitive** — `A→B` and `B→C` yields neither `A→C` nor `A≡C`. The pure
+`domain.allusions` module carries the vocabulary and the negative invariants
+(`is_identity_claim() → False`; no closure primitive exists to misuse). Unlike Block
+D's derived fact tables, `entity_allusion` is a **curation** table the API writes
+directly (docray_client). Its RLS is the delicate part: an edge is visible only when
+the caller can read **both** endpoint lenses (the `global` lens is public; a scope lens
+needs a readable member document) **and** the evidence document, so it never reveals an
+entity in an unreadable lens — and the write policy is `FOR INSERT`/`UPDATE` only, never
+`FOR ALL` (which, being OR-ed with the read policy, would leak reads to anyone who can
+write the evidence). GraphQL: `allusions` (bidirectional read), `proposeAllusion` /
+`confirmAllusion` / `rejectAllusion` (write); MCP mirrors them (writes gated), with
+docstrings that warn an agent never to treat an edge as identity or chain it. A machine
+proposal (including the optional deterministic `KIND_PROPOSE_ALLUSIONS` proposer) lands
+`proposed`; only a human confirms (PALS's Law).
+
 ## Access-control boundary
 
 The API authenticates inbound bearer/API-token requests with
