@@ -19,7 +19,7 @@ doc-ray carries **one global version** covering both the application package
 (`docray_schema_version()`). They are kept in lockstep by
 `scripts/check_version_consistency.py`, which fails the build on any drift.
 
-## [Unreleased]
+## [1.48.1]
 
 ### Fixed
 

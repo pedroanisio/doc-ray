@@ -48,12 +48,12 @@ source_schema:         "db/migrations"
 # deploy-safe job drain release (jobs.drain_requested_at, migration 072),
 # then to 1.27.0 by migration 086 for tenant-catalogue read access required
 # by tenant-scoped Stripe billing status (migration 085), then advancing across
-# migrations 087-134 to 1.48.0 — notably the Substrate·Lens·Projection entity
+# migrations 087-135 to 1.48.1 — notably the Substrate·Lens·Projection entity
 # fabric: 1.45.0 genre classification (127), 1.46.0 projection engine (129),
 # 1.47.0 allusion edges (131), 1.48.0 hyper-context rollups (133).
 # Kept in lockstep with doc_ray.__version__
 # by scripts/check_version_consistency.py.
-source_schema_version: "1.48.0"
+source_schema_version: "1.48.1"
 target_engine:         "PostgreSQL 16"
 total_decisions:       33
 
