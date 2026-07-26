@@ -74,6 +74,38 @@ def test_caption_image_conditions_only_when_evidence_supplied(monkeypatch: Any) 
     assert "Context from the document: Figure 3 shows an A330" in captured["body"]["prompt"]
 
 
+def test_host_reads_the_canonical_docray_ollama_host(monkeypatch: Any) -> None:
+    """DOCRAY_OLLAMA_HOST is the registered var; the VLM must honour it.
+
+    The defect this pins (found in production, 2026-07-25): the compose overlay
+    sets only ``DOCRAY_OLLAMA_HOST`` on the workers — the same var
+    :mod:`doc_ray.adapters.resolver_ollama` reads — while this adapter looked at
+    ``OLLAMA_HOST`` alone and therefore fell back to ``localhost`` inside the
+    worker container, where nothing serves Ollama. Every Tier-3 caption job
+    would have failed to connect.
+    """
+    monkeypatch.delenv("OLLAMA_HOST", raising=False)
+    monkeypatch.setenv("DOCRAY_OLLAMA_HOST", "http://ollama:11434")
+    captured: dict[str, Any] = {}
+    _patch(monkeypatch, captured)
+
+    OllamaVisionLanguageModel().caption_image(b"img", "")
+
+    assert captured["url"] == "http://ollama:11434/api/generate"
+
+
+def test_ollama_host_still_wins_for_ancillary_tooling(monkeypatch: Any) -> None:
+    """OLLAMA_HOST (the Ollama CLI's own var) keeps precedence when both are set."""
+    monkeypatch.setenv("DOCRAY_OLLAMA_HOST", "http://ollama:11434")
+    monkeypatch.setenv("OLLAMA_HOST", "http://elsewhere:11434")
+    captured: dict[str, Any] = {}
+    _patch(monkeypatch, captured)
+
+    OllamaVisionLanguageModel().caption_image(b"img", "")
+
+    assert captured["url"] == "http://elsewhere:11434/api/generate"
+
+
 def test_defaults_and_env_overrides(monkeypatch: Any) -> None:
     monkeypatch.delenv("DOCRAY_VLM_MODEL", raising=False)
     monkeypatch.delenv("DOCRAY_VLM_NUM_PREDICT", raising=False)
