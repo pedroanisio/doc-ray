@@ -2,6 +2,7 @@ import { useApiClient } from "../services";
 import { useAsync } from "../hooks/useAsync";
 import { fetchLiveness, fetchReadiness, fetchOperatorHealth } from "../api/ops";
 import { PageHeader } from "../components/common";
+import type { OperatorIssue, OperatorJobCount } from "../api/types";
 
 /**
  * Operational overview: liveness, readiness, and the webapp operator-health
@@ -47,28 +48,19 @@ export function DashboardPage() {
         <h2>Operator health snapshot</h2>
         {health.loading && health.data === null && <p className="muted">Loading…</p>}
         {health.error && (
+          // Show the error verbatim: client.rest() / fetchOperatorHealth already
+          // produce a cause-accurate message (routing/parse vs 404-token vs 5xx).
+          // The old blanket "requires DOCRAY_OPERATOR_HEALTH_TOKEN" suffix
+          // mislabeled every failure as a token bug (#22, defect 4).
           <p role="alert" className="alert">
-            {health.error} — the operator snapshot requires DOCRAY_OPERATOR_HEALTH_TOKEN
-            configured on the webapp proxy.
+            {health.error}
           </p>
         )}
         {health.data && (
           <>
-            <MetricGrid title="Corpus" metrics={health.data.corpus} />
-            <MetricGrid title="Jobs" metrics={health.data.jobs} />
-            {health.data.issues && health.data.issues.length > 0 && (
-              <div className="issues">
-                <h3>Issues</h3>
-                <ul>
-                  {health.data.issues.map((issue, i) => (
-                    <li key={i} className={`issue sev-${issue.severity ?? "info"}`}>
-                      <strong>{issue.code ?? issue.severity ?? "issue"}</strong>{" "}
-                      {issue.message ?? JSON.stringify(issue)}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
+            <MetricGrid title="Corpus" metrics={health.data.corpus?.totals} />
+            <MetricGrid title="Jobs" metrics={jobsToMetrics(health.data.corpus?.jobs)} />
+            <IssueList issues={collectIssues(health.data)} />
           </>
         )}
       </section>
@@ -99,6 +91,42 @@ function MetricGrid({ title, metrics }: { title: string; metrics?: Record<string
           </div>
         ))}
       </div>
+    </div>
+  );
+}
+
+/**
+ * The v1 job spool is a list of (kind, status, count) rows. Fold it into a
+ * `kind/status → count` metric map so the existing MetricGrid renders it.
+ * Defensive against a missing/renamed field — the wire format is untrusted.
+ */
+function jobsToMetrics(jobs?: OperatorJobCount[]): Record<string, number> {
+  if (!jobs) return {};
+  const out: Record<string, number> = {};
+  for (const j of jobs) {
+    out[`${j.kind ?? "unknown"}/${j.status ?? "unknown"}`] = j.count ?? 0;
+  }
+  return out;
+}
+
+/** v1 issues live in BOTH corpus and database; the panel surfaces them together. */
+function collectIssues(data: { corpus?: { issues?: OperatorIssue[] }; database?: { issues?: OperatorIssue[] } }): OperatorIssue[] {
+  return [...(data.corpus?.issues ?? []), ...(data.database?.issues ?? [])];
+}
+
+function IssueList({ issues }: { issues: OperatorIssue[] }) {
+  if (issues.length === 0) return null;
+  return (
+    <div className="issues">
+      <h3>Issues</h3>
+      <ul>
+        {issues.map((issue, i) => (
+          <li key={i} className={`issue sev-${issue.severity ?? "info"}`}>
+            <strong>{issue.code ?? issue.severity ?? "issue"}</strong>{" "}
+            {issue.detail ?? JSON.stringify(issue)}
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }

@@ -63,22 +63,59 @@ export interface Document {
   updatedAt: string | null;
 }
 
-// webapp GET /operator/health.json — webapp/operator_health.py contract.
-// Kept intentionally open (Record) beyond the fields the dashboard reads,
-// because the operator-health payload is an evolving operational snapshot.
+// webapp GET /operator/health.json — the `operator-health.v1` contract in
+// webapp/health_contract.py (operator_health_payload). Mirrored EXACTLY: metrics
+// are nested under corpus.totals, jobs are a (kind,status,count) spool summary,
+// and issues live in BOTH corpus and database carrying `detail` (not `message`).
+// A drift guard cross-checks this against health_contract.py — see
+// src/doc_ray/tests/test_admin_console_contract.py.
+export interface OperatorHealthTotals {
+  documents: number;
+  sentences: number;
+  tokens: number;
+  entity_mentions: number;
+  entity_links: number;
+  canonical_entries: number;
+  lexemes: number;
+  embeddings: number;
+  // The snapshot may gain totals over time; every value is a count.
+  [key: string]: number;
+}
+
+export interface OperatorJobCount {
+  kind: string;
+  status: string;
+  count: number;
+}
+
+export interface OperatorHealthCorpus {
+  totals: OperatorHealthTotals;
+  issues: OperatorIssue[];
+  issue_groups: unknown[];
+  jobs: OperatorJobCount[];
+  job_spool: unknown[];
+}
+
+export interface OperatorHealthDatabase {
+  size: { bytes: number; pretty: string };
+  connections: { used: number; max: number; states: { state: string; count: number }[] };
+  tables: unknown[];
+  issues: OperatorIssue[];
+  issue_groups: unknown[];
+}
+
 export interface OperatorHealth {
-  corpus?: Record<string, number>;
-  jobs?: Record<string, number>;
-  database?: Record<string, unknown>;
-  issues?: OperatorIssue[];
-  issue_groups?: Record<string, unknown>;
+  schema_version: string;
+  corpus: OperatorHealthCorpus;
+  database: OperatorHealthDatabase;
   [key: string]: unknown;
 }
 
 export interface OperatorIssue {
-  code?: string;
-  severity?: string;
-  message?: string;
+  code: string;
+  severity: string;
+  detail: string;
+  document_id?: string;
   [key: string]: unknown;
 }
 

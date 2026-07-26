@@ -81,6 +81,22 @@ export class ApiClient {
   /** GET a JSON REST endpoint. */
   async rest<T>(path: string): Promise<T> {
     const res = await this.send(path, { method: "GET" });
+    // Guard the content-type before parsing. A 2xx with an HTML body means the
+    // request was NOT proxied to the backend — nginx's SPA fallback served
+    // index.html instead (e.g. the `location /operator/` proxy block is missing
+    // or WEBAPP_UPSTREAM did not resolve). Parsing that would throw the cryptic
+    // "Unexpected token '<', \"<!doctype \"..."; surface an actionable message
+    // that points straight at the routing problem (issue #22, PALS's Law: the
+    // wire format is untrusted and must be validated at the boundary).
+    const contentType = res.headers.get("content-type") ?? "";
+    if (!contentType.includes("json")) {
+      throw new ApiError(
+        `expected JSON from ${path} but received ${contentType || "an unknown content-type"} ` +
+          `(HTTP ${res.status}). An HTML body means the SPA shell was served instead of the ` +
+          `backend — check that ${path} is reverse-proxied to the doc-ray API/webapp.`,
+        { status: res.status },
+      );
+    }
     return (await res.json()) as T;
   }
 

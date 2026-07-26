@@ -30,5 +30,22 @@ export async function fetchReadiness(client: ApiClient): Promise<Readiness> {
 }
 
 export async function fetchOperatorHealth(client: ApiClient): Promise<OperatorHealth> {
-  return client.rest<OperatorHealth>("/operator/health.json");
+  try {
+    return await client.rest<OperatorHealth>("/operator/health.json");
+  } catch (err) {
+    // Only a 404 is the token-missing case: require_operator_health() aborts 404
+    // when no token/session is present. Give THAT case the accurate token hint;
+    // let every other failure keep its own message — a routing/parse error from
+    // client.rest() already points at the proxy, and a 500/503 is not a token
+    // problem (issue #22, defect 4: stop mislabeling every failure as a token bug).
+    if (err instanceof ApiError && err.status === 404) {
+      throw new ApiError(
+        "operator health is not authorized (HTTP 404) — the webapp needs " +
+          "DOCRAY_OPERATOR_HEALTH_TOKEN set, and this browser must have bootstrapped an " +
+          "operator session (open /operator/?token=… once on this origin).",
+        { status: 404 },
+      );
+    }
+    throw err;
+  }
 }

@@ -110,7 +110,7 @@ metadata:
   generated_by:     "Claude Sonnet 5 via Claude Code (merge of Claude Opus 4.8 backlog + OpenAI Codex improvement-proposal candidates)"
   generated_on:     "2026-07-05"
   system_of_record: "docs/backlog.yml"
-  total_items:      155
+  total_items:      156
 
 items:
 
@@ -5314,3 +5314,42 @@ items:
     owner:        "shared"
     source:       "GitHub issue #4; implemented with strict TDD (Claude Opus 4.8 (1M context) via Claude Code)."
     tags:         ["ops", "docker", "migrations", "reliability", "bug"]
+
+  - id:          "BL-156"
+    title:        "Admin Console operator-health panel: fix the JSON-parse misdiagnosis, contract drift, and misleading token copy"
+    summary:      "The panel's 'Unexpected token <, <!doctype …' was a JSON.parse of nginx's SPA-shell HTML (a routing failure), but the UI blamed a missing DOCRAY_OPERATOR_HEALTH_TOKEN for every failure. Added a content-type guard in client.rest(), aligned the OperatorHealth type + dashboard to the operator-health.v1 contract, made errors cause-specific, and added contract/routing regression guards."
+    description: |
+      Client-side (TDD, admin-console vitest): (1) client.rest() guards the
+      response content-type and raises an actionable, routing-pointed ApiError
+      instead of a cryptic SyntaxError when a 2xx body is HTML (SPA-shell misroute);
+      (2) the OperatorHealth type and DashboardPage follow operator-health.v1 —
+      corpus.totals metrics, corpus.jobs spool, and issues (detail, not message)
+      from corpus.issues + database.issues — so the panel renders real data;
+      (3) fetchOperatorHealth maps a 404 to the token/authorization message and lets
+      routing/parse/5xx errors keep their own message, and the dashboard drops the
+      blanket token suffix. Regression guards (Python, runs in the Docker suite) tie
+      the TS OperatorHealth type to webapp/health_contract.py and assert the nginx
+      `location /operator/` block proxies to WEBAPP_UPSTREAM. Deployment routing
+      (defect 1) is environment-side; the guard keeps the template from silently
+      losing the proxy block.
+    category:     "webapp"
+    type:         "bug"
+    status:       "done"
+    complexity:   "M"
+    priority:     "medium"
+    rationale:    "The operator dashboard is the console's headline screen; a misdiagnosis that blames a token for a routing/contract failure sends operators down the wrong path, and the contract drift meant the panel rendered empty even once routing was fixed. Nothing guarded the REST OperatorHealth type against the v1 contract, so the drift was invisible to CI."
+    acceptance_criteria:
+      - "client.rest() raises an actionable ApiError (never a SyntaxError) when a 2xx response is not JSON, naming the content-type and the proxy."
+      - "OperatorHealth type + dashboard render operator-health.v1: corpus.totals, corpus.jobs, and issues.detail from corpus and database."
+      - "Errors are cause-specific: 404 -> token/session, content-type -> routing, 5xx -> webapp; no blanket token suffix."
+      - "Regression guards tie the TS type to health_contract.py and assert the nginx /operator/ -> WEBAPP_UPSTREAM proxy block."
+      - "TDD across client.test.ts, ops.test.ts, DashboardPage.test.tsx, and the Python contract guards; vitest + typecheck green."
+    references:
+      - "admin-console/src/api/client.ts"
+      - "admin-console/src/api/types.ts"
+      - "admin-console/src/api/ops.ts"
+      - "admin-console/src/pages/DashboardPage.tsx"
+      - "src/doc_ray/tests/test_admin_console_contract.py"
+    owner:        "shared"
+    source:       "GitHub issue #22; implemented with strict TDD (Claude Opus 4.8 (1M context) via Claude Code)."
+    tags:         ["webapp", "admin-console", "ops", "contract", "bug"]

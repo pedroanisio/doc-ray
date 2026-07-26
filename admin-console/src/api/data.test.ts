@@ -43,10 +43,15 @@ describe("ops module", () => {
     expect((await fetchReadiness(client)).ready).toBe(true);
   });
 
-  it("fetchOperatorHealth reads the webapp operator snapshot", async () => {
-    const { client, fetchImpl } = clientReturning({ corpus: { documents: 12 }, issues: [] });
+  it("fetchOperatorHealth reads the webapp operator snapshot (operator-health.v1)", async () => {
+    // Metrics are nested under corpus.totals in the v1 contract — not flat (#22).
+    const { client, fetchImpl } = clientReturning({
+      schema_version: "operator-health.v1",
+      corpus: { totals: { documents: 12 } },
+      database: {},
+    });
     const health = await fetchOperatorHealth(client);
-    expect(health.corpus?.documents).toBe(12);
+    expect(health.corpus?.totals?.documents).toBe(12);
     expect(fetchImpl.mock.calls[0][0]).toBe("/operator/health.json");
   });
 });

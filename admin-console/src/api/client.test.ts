@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { ApiClient, AuthError } from "./client";
+import { ApiClient, ApiError, AuthError } from "./client";
 import { jsonResponse, makeFetchMock } from "../test/http";
 
 function makeClient(
@@ -119,5 +119,43 @@ describe("ApiClient.rest", () => {
     const fetchImpl = makeFetchMock(async () => new Response("boom", { status: 500 }));
     const client = makeClient(fetchImpl);
     await expect(client.rest("/health")).rejects.toMatchObject({ name: "ApiError", status: 500 });
+  });
+
+  it("raises an actionable ApiError when a 2xx body is HTML, not JSON (SPA-shell misroute)", async () => {
+    // The exact incident (#22): nginx's SPA fallback returns index.html with a 200
+    // for a request that should have been proxied to the webapp. res.json() would
+    // throw the cryptic "Unexpected token '<', \"<!doctype \"...". The content-type
+    // guard turns that into a clear, routing-pointed message — never a SyntaxError.
+    const fetchImpl = makeFetchMock(
+      async () =>
+        new Response("<!doctype html><html><body>app shell</body></html>", {
+          status: 200,
+          headers: { "content-type": "text/html; charset=utf-8" },
+        }),
+    );
+    const client = makeClient(fetchImpl);
+
+    const err = await client.rest("/operator/health.json").catch((e: unknown) => e);
+
+    expect(err).toBeInstanceOf(ApiError);
+    expect((err as ApiError).name).toBe("ApiError");
+    expect((err as ApiError).status).toBe(200);
+    expect((err as ApiError).message).toMatch(/JSON/i);
+    expect((err as ApiError).message).toMatch(/text\/html/);
+    expect((err as ApiError).message).toMatch(/operator/);
+  });
+
+  it("accepts application/json with a charset parameter", async () => {
+    const fetchImpl = makeFetchMock(
+      async () =>
+        new Response(JSON.stringify({ ok: true }), {
+          status: 200,
+          headers: { "content-type": "application/json; charset=utf-8" },
+        }),
+    );
+    const client = makeClient(fetchImpl);
+    await expect(client.rest<{ ok: boolean }>("/operator/health.json")).resolves.toEqual({
+      ok: true,
+    });
   });
 });

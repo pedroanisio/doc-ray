@@ -64,9 +64,18 @@ Sign-in uses local password auth, which is **off by default**. On the `api` (and
   `src/doc_ray/entrypoints/auth_admin.py`: `principal create --role admin` then
   `db-login create` / local credential setup). Admin-gated screens (audit,
   cancel-job, backups) require `docray_is_admin()` to hold for the caller.
-- `DOCRAY_OPERATOR_HEALTH_TOKEN` on the webapp for the operator-health snapshot
-  (otherwise `/operator/health.json` returns 404 and the dashboard shows a
-  clear notice).
+- `DOCRAY_OPERATOR_HEALTH_TOKEN` on the webapp for the operator-health snapshot.
+  Without it — or without a bootstrapped operator session on this origin (open
+  `/operator/?token=…` once) — `/operator/health.json` returns **404** and the
+  dashboard shows an authorization notice that names the token. The panel now
+  reports other failures *distinctly*, never relabeling them as a token problem
+  (issue #22): a **JSON / content-type error** means `/operator/*` is not being
+  reverse-proxied to the webapp — nginx served the SPA shell instead, so check
+  the `location /operator/` block and that `WEBAPP_UPSTREAM` resolved — and a
+  5xx is a webapp fault. The snapshot itself follows the `operator-health.v1`
+  contract (`webapp/health_contract.py`): corpus metrics under `corpus.totals`,
+  the job spool under `corpus.jobs`, and issues (with a `detail` field) under
+  both `corpus.issues` and `database.issues`.
 
 ## Run it
 

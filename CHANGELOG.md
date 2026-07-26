@@ -53,6 +53,23 @@ doc-ray carries **one global version** covering both the application package
 
 ### Fixed
 
+- **Admin Console operator-health panel: correct diagnosis + contract (issue #22).**
+  The panel's `Unexpected token '<', "<!doctype "…` error was a `JSON.parse`
+  failure — nginx's SPA fallback served `index.html` (HTTP 200 + HTML) for a
+  request that was not reverse-proxied to the webapp — but the UI blamed a missing
+  `DOCRAY_OPERATOR_HEALTH_TOKEN` for **every** failure. Fixes: (1) `client.rest()`
+  now guards the response content-type and raises an actionable, routing-pointed
+  `ApiError` instead of a cryptic `SyntaxError`; (2) the `OperatorHealth` type and
+  the dashboard now follow the `operator-health.v1` contract — corpus metrics under
+  `corpus.totals`, the job spool under `corpus.jobs`, and issues (with `detail`, not
+  `message`) from both `corpus.issues` and `database.issues` — so the panel renders
+  real data instead of blanks; (3) errors are reported by cause (404 → token/session,
+  content-type → routing, 5xx → webapp fault), dropping the blanket token suffix;
+  (4) new regression guards tie the TS `OperatorHealth` type to
+  `webapp/health_contract.py` and assert the nginx `location /operator/` block
+  proxies to `WEBAPP_UPSTREAM`. The deployment-side routing fix (defect 1) is
+  environment work — the guard prevents the template from silently losing the block.
+
 - **Migration runner survives a stop mid-migration (issue #4).** A routine
   `docker compose down`/stop while a long backfill (e.g.
   `040_chunk_surface_backfill.sql`) was running used to escalate SIGTERM to SIGKILL
