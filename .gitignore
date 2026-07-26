@@ -29,7 +29,7 @@ visual-essay/
 concept-cinema/
 .claude/settings.json
 pgadmin/servers.json
-.ingest-state/doc-ray-dev.json
+.ingest-state/
 .mypy_cache/
 out/logotype-composition-guide.yaml
 out/
@@ -52,3 +52,4 @@ ENV-WORKER.md
 
 # Local lab experiments (POCs, scratch models, benchmark output) — never shipped.
 experiments/
+docs/the-delegation-of-doubt.md
