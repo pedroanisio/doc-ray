@@ -11,6 +11,7 @@ from the catalog.
 
 from __future__ import annotations
 
+import glob
 import os
 import textwrap
 
@@ -21,6 +22,7 @@ from psycopg.rows import dict_row
 
 DB = os.environ.get("DATABASE_URL", "postgresql://docray:docray@localhost:5455/docray")
 OUT = os.path.join(os.path.dirname(__file__), "..", "docs", "DATABASE.md")
+MIGRATIONS_DIR = os.path.join(os.path.dirname(__file__), "..", "db", "migrations")
 
 
 # ---------------------------------------------------------------------------
@@ -272,6 +274,28 @@ def _in_sync(text: str, out_path: str) -> tuple[bool, str]:
     )
 
 
+def _migration_file_stems() -> set[str]:
+    """Stems of every committed migration (``db/migrations/NNN_name.sql``)."""
+    return {
+        os.path.splitext(os.path.basename(p))[0]
+        for p in glob.glob(os.path.join(MIGRATIONS_DIR, "*.sql"))
+    }
+
+
+def _migration_narrative_gap(files: set[str], narrated: set[str]) -> tuple[set[str], set[str]]:
+    """Return ``(files_without_entry, entries_without_file)`` for the §9 narrative.
+
+    Pure and offline (no DB) so the completeness invariant is unit-testable. The
+    §9 migration narrative in ``_data_dictionary_content.MIGRATIONS`` is
+    hand-maintained; ``--check`` renders §9 from that list and diffs it against a
+    copy rendered from the *same* list, so a migration absent from the list diffs
+    clean and ships a dictionary whose history silently skips it. A migration file
+    with no narrative entry (or an entry naming no file) must therefore be a hard
+    error at generation time, not an invisible omission (drift map H3).
+    """
+    return files - narrated, narrated - files
+
+
 def _coverage_gap(live_tables: set[str], grouped_tables: set[str]) -> tuple[set[str], set[str]]:
     """Return ``(ungrouped_live, grouped_but_absent)`` — the §5 GROUPS coverage gap.
 
@@ -318,6 +342,23 @@ def main(argv: list[str] | None = None) -> int:
     args = ap.parse_args(argv)
     if args.skip_without_db and not args.check:
         ap.error("--skip-without-db is only meaningful with --check")
+
+    # §9 narrative completeness — offline, before any DB work, so it holds even on
+    # the --skip-without-db path: every migration file needs a MIGRATIONS entry and
+    # vice-versa. The text-diff drift gate cannot see this (both sides render from
+    # the same hand list), so enforce it here (drift map H3).
+    missing, phantom = _migration_narrative_gap(
+        _migration_file_stems(), {name for name, _ in MIGRATIONS}
+    )
+    if missing or phantom:
+        print(
+            "MIGRATIONS is out of sync with db/migrations/*.sql — edit "
+            "scripts/_data_dictionary_content.py:\n"
+            f"  migration files with no §9 entry: {sorted(missing) or 'none'}\n"
+            f"  §9 entries with no migration file: {sorted(phantom) or 'none'}"
+        )
+        return 1
+
     try:
         conn = psycopg.connect(DB, row_factory=dict_row, autocommit=True)
     except psycopg.OperationalError as exc:

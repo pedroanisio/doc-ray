@@ -174,6 +174,42 @@ def test_registry_has_no_app_keys_the_code_never_reads(by_key):
     )
 
 
+def _compose_interpolated_keys() -> set[str]:
+    """Every ``${VAR}`` interpolated by any docker-compose file in the repo."""
+    keys: set[str] = set()
+    for path in _ROOT.rglob("docker-compose*.yml"):
+        if "_ephemeral" in path.parts:
+            continue
+        keys.update(re.findall(r"\$\{([A-Z0-9_]+)", path.read_text(encoding="utf-8")))
+    return keys
+
+
+def test_registry_has_no_compose_keys_absent_from_every_compose_file(by_key):
+    """A ``compose``-scoped key must actually be interpolated by some compose file.
+
+    Symmetric with the app-scope phantom guard: an app key must be read by code; a
+    compose key must be consumed by a ``docker-compose*.yml``. A compose-scoped
+    entry no compose file uses is dead registry weight — or a sign a var was
+    renamed in Compose without updating the registry. The env↔code coupling is
+    already guarded above; this closes the registry↔compose direction (drift-map
+    finding M3), for which the forward "wired into the right service" mapping does
+    not exist in the registry and so cannot be asserted.
+    """
+    compose_keys = {k for k, v in by_key.items() if v["scope"] == "compose"}
+    phantom = sorted(compose_keys - _compose_interpolated_keys())
+    assert not phantom, (
+        f"config/env.registry.yaml lists compose-scoped key(s) no compose file "
+        f"interpolates: {phantom}. Remove them, or fix the compose reference."
+    )
+
+
+def test_compose_interpolation_scan_is_nonvacuous():
+    """Guard the guard: the compose scan must find real vars and reject fakes."""
+    keys = _compose_interpolated_keys()
+    assert "WORKER_ONLY_KINDS" in keys, "compose scan found nothing — glob/regex regressed"
+    assert "DOCRAY_DEFINITELY_NOT_A_COMPOSE_VAR" not in keys
+
+
 # --- default fidelity (anti-slop core) -------------------------------------
 
 
