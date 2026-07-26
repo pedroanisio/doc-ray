@@ -70,9 +70,19 @@ def test_briefing_pack_uses_only_the_callers_rls_connection(monkeypatch):
         calls.append(("entities", conn))
         return [{"text": f"Entity {conn}", "entity_type": "ORG", "count": 2}]
 
+    async def semantic(self, query, *, document_id=None, limit=25):
+        # This test uses a sentinel string as the "connection"; keep it a pure
+        # lexical RLS test by making the #33 semantic probe unavailable (it would
+        # otherwise try to embed + read against the fake conn). Bound as a class
+        # method, so it takes `self`.
+        raise briefing_query.SemanticUnavailable("stack disabled for this test")
+
     monkeypatch.setattr(briefing_query.read, "fulltext_search", fulltext)
     monkeypatch.setattr(briefing_query.read, "search_sentences", sentences)
     monkeypatch.setattr(briefing_query.read, "entity_frequency", entities)
+    monkeypatch.setattr(
+        briefing_query._GraphQLBriefingReader, "semantic_search_sentences", semantic
+    )
     schema = build_schema()
 
     async def execute_for(principal_conn: str):

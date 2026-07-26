@@ -22,6 +22,28 @@ doc-ray carries **one global version** covering both the application package
 ## [1.44.0]
 
 ### Added
+- **Semantic retrieval for `briefingPack` — rank passages by meaning, not keywords**
+  (Claude Opus 4.8 (1M context) via Claude Code; issue #33, under epic #23). The
+  shared `application.briefing` service now ranks each matched document's passages by
+  **learned semantic similarity** (the same sentence encoder behind
+  `semanticSearchSentences`), RLS-scoped, so a paraphrase surfaces even with no shared
+  words. The ranking lives once in the shared service — MCP `briefing_pack`, GraphQL
+  `briefingPack`, and the `/briefing` webapp add none — so the three surfaces stay
+  **byte-equivalent** for the same visible slice. No schema change; no version bump.
+  - **Deterministic, reported fallback** (never silent): when the sentence stack is
+    not installed (`SemanticUnavailable`) or a document has no visible sentence
+    vectors, it ranks by full-text/keyword instead and states which path ran in
+    `retrieval` — and in `gaps` when it fell back. Document discovery remains
+    full-text. Cite handles, ordinals, coverage, entity evidence, passage budgets, and
+    gap reporting are unchanged.
+  - **Concurrency fix (latent):** the GraphQL reader serves all reads on one
+    request-scoped connection, which cannot run the service's `asyncio.gather`ed reads
+    concurrently; a per-reader lock now serializes that connection (the MCP reader is
+    unaffected — it opens a client per call). This surfaced only once a real
+    connection drove the briefing under load.
+  - New: `BriefingReader.semantic_search_sentences` + `SemanticUnavailable` in
+    `application/briefing.py`; reader wiring in `entrypoints/mcp/compose.py` and
+    `entrypoints/api/briefing_query.py`. Docs: `docs/mcp-service.md`, `docs/architecture.md`.
 
 - **Pipeline cost telemetry (migration 126):** append-only per-job execution
   telemetry for cost attribution, with a GPU/CPU lane mapping so a GPU host-hour

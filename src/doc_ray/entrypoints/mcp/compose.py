@@ -13,13 +13,14 @@ from typing import Any
 
 from doc_ray.application.briefing import (
     BriefingReader,
+    SemanticUnavailable,
     build_briefing_pack,
     clipped_passage_text,
     ranked_passages,
     terms_tried,
 )
 from doc_ray.application.composition import budget_gap, budget_passages, cite
-from doc_ray.entrypoints.mcp import corpus
+from doc_ray.entrypoints.mcp import corpus, semantic
 
 _MAX_PASSAGE_CHARS = 1_000
 _BRIEFING_PASSAGE_BUDGET = 12_000
@@ -48,6 +49,29 @@ class _MCPBriefingReader(BriefingReader):
 
     async def entity_frequency(self, *, document_id: str, limit: int) -> list[dict[str, Any]]:
         return await corpus.entity_frequency(document_id=document_id, limit=limit)
+
+    async def semantic_search_sentences(
+        self, query: str, *, document_id: str | None = None, limit: int
+    ) -> list[dict[str, Any]]:
+        try:
+            rows = await semantic.semantic_search_sentences(
+                query, document_id=document_id, limit=limit
+            )
+        except corpus.ToolCallError as exc:
+            # A host without the sentence stack answers `unsupported`; the shared
+            # service falls back to lexical retrieval on this signal.
+            if exc.kind == "unsupported":
+                raise SemanticUnavailable(str(exc)) from exc
+            raise
+        return [
+            {
+                "id": row.get("sentenceId"),
+                "documentId": row.get("documentId"),
+                "ordinal": row.get("ordinal"),
+                "text": row.get("text"),
+            }
+            for row in rows
+        ]
 
 
 _MCP_READER = _MCPBriefingReader()
