@@ -22,10 +22,11 @@ from doc_ray.domain.progress import report_progress
 
 @dataclass
 class IngestResult:
-    """Outcome of ingesting a single file.
+    """Outcome of ingesting a single document.
 
     Attributes:
-        path: The source path that was ingested.
+        path: Label of what was ingested — a filesystem path for file intake,
+            the remote reference for source intake (:func:`ingest_refs`).
         document_id: Id of the stored document, if one was created.
         status: One of ``'ingested'``, ``'duplicate'`` or ``'failed'``.
         detail: Optional human-readable detail (counts or error text).
@@ -42,18 +43,32 @@ def _sha256(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
-def ingest_file(
+def ingest_bytes(
     conn: psycopg.Connection[Any],
     store: ObjectStore,
-    path: Path,
+    data: bytes,
+    *,
+    filename: str,
+    title: str | None = None,
+    source_url: str | None = None,
     owner_principal_id: str | None = None,
 ) -> IngestResult:
-    """Ingest a single file: dedupe, store the blob, extract, and persist.
+    """Ingest raw bytes: dedupe, store the blob, extract, and persist.
+
+    The bytes-first core every intake path shares — local files
+    (:func:`ingest_file`), queued uploads (``handle_ingest``), and remote
+    sources (:func:`ingest_refs`) all land here.
 
     Args:
         conn: Live database connection.
         store: Object store for the original bytes.
-        path: File to ingest.
+        data: Raw document bytes.
+        filename: Safe basename (with extension); drives extractor dispatch
+            and the fallback title. Never a caller-controlled path.
+        title: Authoritative title override (e.g. from the arXiv Atom API).
+            ``None`` keeps the extractor-derived title.
+        source_url: Where the bytes came from, recorded in the document's
+            ``metadata`` for provenance; also labels the result.
         owner_principal_id: Principal the resulting document belongs to
             (migration 102). An authenticated upload carries the uploader here
             so the document lands in *their* corpus; operator CLI ingest leaves
@@ -63,17 +78,18 @@ def ingest_file(
         An ``IngestResult`` describing the outcome (ingested, duplicate, or
         failed).
     """
-    report_progress(0, 5, "Reading file")
-    data = path.read_bytes()
+    label = source_url or filename
+    name = Path(filename).name
+    stem = Path(name).stem
+    ext = Path(name).suffix
     sha = _sha256(data)
 
     # Dedupe: identical bytes are skipped.
     report_progress(1, 5, "Checking duplicate content")
     existing = db.find_by_sha256(conn, sha)
     if existing:
-        return IngestResult(str(path), str(existing["id"]), "duplicate")
+        return IngestResult(label, str(existing["id"]), "duplicate")
 
-    ext = path.suffix
     # Content-addressed key keeps the bucket flat and collision-free.
     key = f"{sha[:2]}/{sha}{ext}"
 
@@ -82,7 +98,7 @@ def ingest_file(
         uri = store.put(key, data, "application/octet-stream")
         provenance = prov_mod.build_events(
             content_sha256=sha,
-            source_filename=path.name,
+            source_filename=name,
             byte_size=len(data),
             storage_bucket=store.bucket,
             storage_key=key,
@@ -92,9 +108,9 @@ def ingest_file(
         )
         doc_id = db.insert_document(
             conn,
-            title=path.stem,
+            title=title or stem,
             doc_type=ext.lstrip(".") or "unknown",
-            original_filename=path.name,
+            original_filename=name,
             source_uri=uri,
             content_sha256=sha,
             byte_size=len(data),
@@ -105,11 +121,11 @@ def ingest_file(
             provenance=provenance,
             owner_principal_id=owner_principal_id,
         )
-        return IngestResult(str(path), doc_id, "failed", error)
+        return IngestResult(label, doc_id, "failed", error)
 
     try:
         report_progress(2, 5, "Extracting document text")
-        extracted = extract_mod.extract(data, filename=path.stem, extension=ext)
+        extracted = extract_mod.extract(data, filename=stem, extension=ext)
     except Exception as exc:  # extraction failed -> still record the blob + failure
         return record_failure(str(exc))
 
@@ -130,7 +146,7 @@ def ingest_file(
     report_progress(4, 5, "Persisting extracted document")
     provenance = prov_mod.build_events(
         content_sha256=sha,
-        source_filename=path.name,
+        source_filename=name,
         byte_size=len(data),
         storage_bucket=store.bucket,
         storage_key=key,
@@ -143,12 +159,15 @@ def ingest_file(
         text_sha256=text_sha,
         sentence_count=len(sentences),
     )
+    metadata = dict(extracted.metadata)  # {pdf_producer, pdf_creator, ...}
+    if source_url:
+        metadata.setdefault("source_url", source_url)
     doc_id = db.insert_document(
         conn,
-        title=extracted.title,
+        title=title or extracted.title,
         doc_type=extracted.doc_type,
         mime_type=extracted.content_type,
-        original_filename=path.name,
+        original_filename=name,
         source_uri=uri,
         content_sha256=sha,
         byte_size=len(data),
@@ -158,7 +177,7 @@ def ingest_file(
         full_text=extracted.full_text,
         status="extracted",
         authors=[extracted.author] if extracted.author else [],
-        metadata=extracted.metadata,  # {pdf_producer, pdf_creator, ...}
+        metadata=metadata,
         sentences=sentences,
         provenance=provenance,
         page_runs=extracted.page_runs,
@@ -166,11 +185,40 @@ def ingest_file(
         owner_principal_id=owner_principal_id,
     )
     return IngestResult(
-        str(path),
+        label,
         doc_id,
         "ingested",
         f"{len(sentences)} sentences, {len(provenance)} prov",
     )
+
+
+def ingest_file(
+    conn: psycopg.Connection[Any],
+    store: ObjectStore,
+    path: Path,
+    owner_principal_id: str | None = None,
+) -> IngestResult:
+    """Ingest a single file: read bytes and delegate to :func:`ingest_bytes`.
+
+    Args:
+        conn: Live database connection.
+        store: Object store for the original bytes.
+        path: File to ingest.
+        owner_principal_id: See :func:`ingest_bytes`.
+
+    Returns:
+        An ``IngestResult`` labeled with the filesystem *path*.
+    """
+    report_progress(0, 5, "Reading file")
+    result = ingest_bytes(
+        conn,
+        store,
+        path.read_bytes(),
+        filename=path.name,
+        owner_principal_id=owner_principal_id,
+    )
+    result.path = str(path)
+    return result
 
 
 def ingest_paths(
@@ -200,26 +248,95 @@ def ingest_paths(
         One ``IngestResult`` per input path, in order. A chained document's
         ``detail`` names the queued head job (``", queued annotate"``).
     """
-    # Imported lazily: the job machinery pulls in the queue adapter and the
-    # handler registry, which this module must not require at import time
-    # (job_handlers imports this module's ingest_file the same lazy way).
-    from doc_ray.application.document_stats import refresh_document_stats
-    from doc_ray.application.jobs import enqueue_chain_head
-
     store = ObjectStore(cfg)
     store.ensure_bucket()
     results: list[IngestResult] = []
     with db.connect(cfg) as conn:
         for p in paths:
             result = ingest_file(conn, store, p)
-            if result.status == "ingested" and result.document_id is not None:
-                refresh_document_stats(conn, result.document_id)
-                if chain:
-                    job_id = enqueue_chain_head(conn, result.document_id, chain)
-                    if job_id:
-                        result.detail += f", queued {chain[0]}"
+            _finalize_new_document(conn, result, chain)
             results.append(result)
     return results
+
+
+def ingest_refs(
+    cfg: Config,
+    refs: list[str],
+    *,
+    chain: Sequence[str] | None = DEFAULT_PIPELINE_CHAIN,
+) -> list[IngestResult]:
+    """Fetch every remote reference through its source adapter and ingest it.
+
+    The remote mirror of :func:`ingest_paths`: each ref is resolved against the
+    source registry (``adapters.document_source``), fetched, and run through
+    :func:`ingest_bytes` with the source's title and URL. New documents owe the
+    same post-ingest chain as every other intake path (BL-162); fetch failures
+    become ``failed`` results without a document row — there are no bytes to
+    keep for forensics.
+
+    Args:
+        cfg: Runtime configuration.
+        refs: Remote references (e.g. arXiv URLs/ids).
+        chain: Post-ingest job kinds per new document; ``None``/``()`` opts out.
+
+    Returns:
+        One ``IngestResult`` per ref, in order, labeled by the ref itself.
+    """
+    # Imported lazily like the job machinery: sources pull in httpx, which
+    # this module must not require at import time.
+    from doc_ray.adapters import document_source as source_mod
+
+    store = ObjectStore(cfg)
+    store.ensure_bucket()
+    results: list[IngestResult] = []
+    with db.connect(cfg) as conn:
+        for ref in refs:
+            source = source_mod.resolve_source(ref)
+            if source is None:
+                results.append(IngestResult(ref, None, "failed", "no source adapter matches"))
+                continue
+            try:
+                fetched = source.fetch(ref)
+            except Exception as exc:
+                results.append(IngestResult(ref, None, "failed", f"{source.name}: {exc}"))
+                continue
+            result = ingest_bytes(
+                conn,
+                store,
+                fetched.data,
+                filename=fetched.filename,
+                title=fetched.title,
+                source_url=fetched.source_url,
+            )
+            result.path = ref
+            _finalize_new_document(conn, result, chain)
+            results.append(result)
+    return results
+
+
+def _finalize_new_document(
+    conn: psycopg.Connection[Any],
+    result: IngestResult,
+    chain: Sequence[str] | None,
+) -> None:
+    """Refresh stats and enqueue the post-ingest chain for a *new* document.
+
+    Duplicates and failures never enter the chain — the guard every ingest
+    path shares (BL-162).
+    """
+    # Imported lazily: the job machinery pulls in the queue adapter and the
+    # handler registry, which this module must not require at import time
+    # (job_handlers imports this module's ingest_bytes the same lazy way).
+    from doc_ray.application.document_stats import refresh_document_stats
+    from doc_ray.application.jobs import enqueue_chain_head
+
+    if result.status != "ingested" or result.document_id is None:
+        return
+    refresh_document_stats(conn, result.document_id)
+    if chain:
+        job_id = enqueue_chain_head(conn, result.document_id, chain)
+        if job_id:
+            result.detail += f", queued {chain[0]}"
 
 
 def expand_paths(inputs: list[str], extensions: set[str]) -> list[Path]:

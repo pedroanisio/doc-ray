@@ -9,7 +9,6 @@ routes claimed jobs here through :data:`HANDLERS`.
 from __future__ import annotations
 
 import logging
-import tempfile
 from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
@@ -206,7 +205,7 @@ def handle_ingest(
     because by the time the job runs there is no request principal to consult.
     """
     from doc_ray.application.integrity import verify_bytes
-    from doc_ray.application.pipeline import ingest_file
+    from doc_ray.application.pipeline import ingest_bytes
 
     if store is None:
         raise RuntimeError("ingest requires an object store")
@@ -220,20 +219,17 @@ def handle_ingest(
     report_progress(1, 3, "Preparing uploaded file")
     original = job.payload.get("original_filename") or f"upload{job.payload.get('extension', '')}"
     safe_name = Path(str(original)).name or "upload"
-    # pipeline.ingest_file is path-based; materialise the blob under its real name so
-    # the proven pipeline is reused unchanged (its re-PUT is content-addressed/idempotent).
-    with tempfile.TemporaryDirectory() as tmpdir:
-        tmp_path = Path(tmpdir) / safe_name
-        tmp_path.write_bytes(data)
-        # store is the concrete S3 adapter at runtime; the pipeline is typed against it.
-        report_progress(2, 3, "Extracting and storing document")
-        owner = job.payload.get("owner_principal_id")
-        result = ingest_file(
-            conn,
-            cast("S3ObjectStore", store),
-            tmp_path,
-            owner_principal_id=str(owner) if owner else None,
-        )
+    # store is the concrete S3 adapter at runtime; the pipeline is typed against it.
+    # The blob's re-PUT is content-addressed/idempotent.
+    report_progress(2, 3, "Extracting and storing document")
+    owner = job.payload.get("owner_principal_id")
+    result = ingest_bytes(
+        conn,
+        cast("S3ObjectStore", store),
+        data,
+        filename=safe_name,
+        owner_principal_id=str(owner) if owner else None,
+    )
 
     title = job.payload.get("title")
     if title and result.status == "ingested" and result.document_id is not None:

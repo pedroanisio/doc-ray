@@ -358,8 +358,12 @@ def test_ingest_bytes_applies_title_and_source_url(pg, store):
     )
     created.append(r.document_id)
     assert r.status == "ingested"
+    # Per-document metadata is 4NF-normalised into document_metadata (migration
+    # 004); documents.metadata has not existed since.
     row = conn.execute(
-        "SELECT title, metadata->>'source_url' AS src FROM documents WHERE id=%s",
+        "SELECT d.title, m.value AS src FROM documents d "
+        "LEFT JOIN document_metadata m ON m.document_id = d.id AND m.key = 'source_url' "
+        "WHERE d.id=%s",
         (r.document_id,),
     ).fetchone()
     assert row["title"] == "Chosen Title"
@@ -413,7 +417,9 @@ def test_ingest_refs_fetches_and_persists(pg, monkeypatch):
     assert r.status == "ingested"
     assert r.path == f"https://example.org/{marker}"  # result labeled by the ref
     row = conn.execute(
-        "SELECT title, metadata->>'source_url' AS src FROM documents WHERE id=%s",
+        "SELECT d.title, m.value AS src FROM documents d "
+        "LEFT JOIN document_metadata m ON m.document_id = d.id AND m.key = 'source_url' "
+        "WHERE d.id=%s",
         (r.document_id,),
     ).fetchone()
     assert row["title"] == "Fetched Title"

@@ -6,6 +6,7 @@ no explicit subclassing is required). This is what lets extraction, storage,
 persistence, and annotation be swapped without touching the domain.
 
     TextExtractor   <- adapters.extraction   (PyMuPDF / pypdf / txt / html / epub / docx)
+    DocumentSource  <- adapters.document_source_arxiv (arXiv PDF + Atom title)
     ObjectStore     <- adapters.object_store (MinIO / S3)
     Repository      <- adapters.persistence  (Postgres via psycopg)
     Annotator       <- domain.lexemes.RuleAnalyzer / adapters.annotation_spacy.SpacyAnnotator
@@ -13,6 +14,7 @@ persistence, and annotation be swapped without touching the domain.
 """
 
 from doc_ray.ports.annotator import Annotator
+from doc_ray.ports.document_source import DocumentSource, FetchedDocument
 from doc_ray.ports.object_store import ObjectStore
 from doc_ray.ports.repository import Repository
 from doc_ray.ports.text_extractor import ExtractedText, TextExtractor
@@ -20,6 +22,8 @@ from doc_ray.ports.verification import ModelOutputVerifier, VerificationIssue, V
 
 __all__ = [
     "Annotator",
+    "DocumentSource",
+    "FetchedDocument",
     "ObjectStore",
     "Repository",
     "ExtractedText",

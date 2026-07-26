@@ -93,6 +93,11 @@ _CONTENT_TYPES = {
 }
 
 
+def supported_extensions() -> frozenset[str]:
+    """Return every registered extension (lowercase, with the leading dot)."""
+    return frozenset(_EXTRACTORS)
+
+
 def is_supported_extension(extension: str) -> bool:
     """Return whether ``extension`` (with leading dot) has a registered extractor.
 

@@ -398,11 +398,11 @@ def test_handle_ingest_threads_the_payload_owner_to_the_pipeline(qconn, monkeypa
 
     seen: dict[str, object] = {}
 
-    def _fake_ingest_file(_conn, _store, path, owner_principal_id=None):
+    def _fake_ingest_bytes(_conn, _store, _data, *, filename, owner_principal_id=None, **_kw):
         seen["owner"] = owner_principal_id
-        return pipeline_mod.IngestResult(str(path), None, "duplicate")
+        return pipeline_mod.IngestResult(filename, None, "duplicate")
 
-    monkeypatch.setattr(pipeline_mod, "ingest_file", _fake_ingest_file)
+    monkeypatch.setattr(pipeline_mod, "ingest_bytes", _fake_ingest_bytes)
     store = _BlobStore()
     key = _seed_blob(store, b"Owned upload body.", ".txt")
     job = Job(
@@ -433,11 +433,11 @@ def test_handle_ingest_without_an_owner_passes_none_not_the_string_none(qconn, m
 
     seen: dict[str, object] = {}
 
-    def _fake_ingest_file(_conn, _store, path, owner_principal_id=None):
+    def _fake_ingest_bytes(_conn, _store, _data, *, filename, owner_principal_id=None, **_kw):
         seen["owner"] = owner_principal_id
-        return pipeline_mod.IngestResult(str(path), None, "duplicate")
+        return pipeline_mod.IngestResult(filename, None, "duplicate")
 
-    monkeypatch.setattr(pipeline_mod, "ingest_file", _fake_ingest_file)
+    monkeypatch.setattr(pipeline_mod, "ingest_bytes", _fake_ingest_bytes)
     store = _BlobStore()
     key = _seed_blob(store, b"Ownerless upload body.", ".txt")
     job = Job(
