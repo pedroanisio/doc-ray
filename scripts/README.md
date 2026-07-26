@@ -26,6 +26,7 @@ method. Neither opens a database connection.
 | `gen_feature_inventory.py` | Mechanized capability inventory: enumerates GraphQL fields, MCP tools/resources, HTTP + webapp routes, job kinds, ingest formats, annotation layers, config variables and operator scripts from the live registries, with source locations and evidence-derived confidence. Markdown or JSON. See [README.feature_inventory.md](./README.feature_inventory.md). |
 | `check_surface_parity.py` | Offline GraphQL-root inventory: reports every field as webapp-surfaced, explicitly allowlisted with a reason, or unsurfaced; `--strict` is the D-034 landing gate. |
 | `run_capacity_model.py` | Analytical PostgreSQL capacity model at ~10k users / 1M documents: table/index sizing, QPS/latency/connection projections, vacuum/WAL/checkpoint pressure, bottlenecks, sensitivity ranking. Pure computation (no DB). See [capacity_model/README.md](./capacity_model/README.md). |
+| `cost_telemetry.py` | Empirical counterpart to the capacity model: fits a per-stage cost model (`seconds = fixed + per_sentence × sentences`) from completed `jobs` rows, splits hours across the GPU/CPU worker lanes, measures storage per document, and projects the resource draw and cost of any corpus size. Unit prices come from [config/cost_rates.yaml](../config/cost_rates.yaml); unset rates report as unpriced rather than zero. Reads the live database. |
 | `showcase.sql` | Illustrative queries against the corpus. |
 
 ## Relationship to the pipeline

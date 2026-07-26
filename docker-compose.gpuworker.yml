@@ -60,7 +60,7 @@ services:
     environment:
       # The GPU lane, explicitly. Mirrors doc_ray.domain.jobs.LONG_RUNNING_JOB_KINDS;
       # src/doc_ray/tests/test_job_kind_config.py fails if the two drift.
-      WORKER_ONLY_KINDS: ${WORKER_ONLY_KINDS:-annotate,reannotate,visual_extract,semantic_embed,visual_embed,visual_caption}
+      WORKER_ONLY_KINDS: ${WORKER_ONLY_KINDS:-annotate,reannotate,visual_extract,semantic_embed,visual_embed}
       # Recorded on every telemetry row so cost is attributable to this machine
       # rather than to an anonymous process id. Set it to something you can put
       # on an invoice — the droplet name, not the container hostname.
