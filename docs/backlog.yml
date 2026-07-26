@@ -110,7 +110,7 @@ metadata:
   generated_by:     "Claude Sonnet 5 via Claude Code (merge of Claude Opus 4.8 backlog + OpenAI Codex improvement-proposal candidates)"
   generated_on:     "2026-07-05"
   system_of_record: "docs/backlog.yml"
-  total_items:      164
+  total_items:      165
 
 items:
 
@@ -5692,3 +5692,52 @@ items:
     owner:        "shared"
     source:       "Self-disclosed by a corpus-grounded field guide built from the doc-ray Postgres corpus, which recorded on its front matter that term_frequency called shared_buffers unattested while the texts use it constantly, and hedged its own pgbouncer absence claim for want of a completeness signal. Root-caused to _WORD_RE and confirmed end-to-end against the live corpus 2026-07-26 (Claude Opus 5 via Claude Code); digit half of the blast radius found during that root-cause."
     tags:         ["mcp", "retrieval", "lexemes", "false-negative", "grounding"]
+
+  - id:          "BL-165"
+    title:        "Five pytest failures reproduce at clean HEAD on a host-run against a fresh pgvector test DB"
+    summary:      "Running `pytest tests src/doc_ray/tests` on the host against a freshly migrated pgvector/pg16 database (dbname docray_test, satisfying the _itdb guard) fails 5 tests that also fail from a clean HEAD worktree: test_api::test_document_bibliographic_and_token_count (tokenCount reads 0 while 9 tokens were inserted), three billing tests, and test_mcp_eval::test_full_scripted_run_passes_every_task. Not attributable to in-flight work — reproduced with an unmodified checkout."
+    description: |
+      Repro (2026-07-26):
+        docker run -d --rm --name docray-test-pg -e POSTGRES_USER=docray_test \
+          -e POSTGRES_PASSWORD=x -e POSTGRES_DB=docray_test -p 127.0.0.1:15433:5432 \
+          pgvector/pgvector:pg16
+        DATABASE_URL=postgresql://docray_test:x@127.0.0.1:15433/docray_test \
+          python -m doc_ray.entrypoints.migrate   # 134 applied
+        DATABASE_URL=... python -m pytest tests src/doc_ray/tests -q
+        # -> 3-5 failed (set varies slightly run to run), 2653 passed
+
+      Failing set (also failing when run from a clean `git worktree add ... HEAD`):
+        - src/doc_ray/tests/test_api.py::test_document_bibliographic_and_token_count
+          (asserts d["tokenCount"] == 9, reads 0 — read-model rollup or fixture
+          refresh gap, worth checking against D-024's rollup contract)
+        - src/doc_ray/tests/test_billing_checkout.py::test_billing_console_queries_allow_read_scoped_admin
+        - src/doc_ray/tests/test_billing_entitlement.py::test_billing_console_queries_remain_available_when_unpaid_and_enforced
+        - src/doc_ray/tests/test_billing_invoices_extra.py::test_process_webhook_events_are_idempotent_and_update_subscription
+        - src/doc_ray/tests/test_mcp_eval.py::test_full_scripted_run_passes_every_task
+
+      Open question: whether these pass inside the canonical hermetic runner
+      (docker-compose.test.yml provides MinIO + full env; the host run has no
+      S3_*/billing env) — i.e. env-gated tests that should skip-not-fail
+      outside the runner, or genuine regressions on main. Two attempts to get a
+      clean canonical-runner verdict this session were lost to compose-project
+      collisions between concurrent sessions sharing the docray-test project
+      name. Either outcome is actionable: env-dependent tests must skip with a
+      reason when their environment is absent; a real regression must be fixed.
+    category:     "testing"
+    type:         "bug"
+    status:       "ready"
+    complexity:   "S"
+    priority:     "medium"
+    rationale:    "A test that fails for environment reasons is indistinguishable from a real regression at exactly the moment it matters (pre-landing). The landing checklist's pytest gate is only trustworthy if the suite is green-or-skipped on a fresh checkout without the hermetic runner."
+    acceptance_criteria:
+      - "On a host run against a fresh migrated pgvector DB with no S3_*/billing env, the five tests either pass or skip with an explicit missing-environment reason — zero failures from a clean checkout."
+      - "If any of the five is a genuine regression, it is fixed and the fix is covered by the same test."
+    dependencies: []
+    references:
+      - "src/doc_ray/tests/test_api.py"
+      - "src/doc_ray/tests/test_billing_checkout.py"
+      - "src/doc_ray/tests/test_mcp_eval.py"
+      - "docker-compose.test.yml"
+    owner:        "shared"
+    source:       "Found while landing the DocumentSource port + arXiv ingest adapter (2026-07-26, Claude Fable 5 via Claude Code): the full battery was run on the host against a throwaway pgvector DB and the failures were baselined against a clean HEAD worktree to rule out the in-flight diff."
+    tags:         ["testing", "flaky", "environment", "landing-checklist"]

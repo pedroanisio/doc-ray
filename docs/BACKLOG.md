@@ -532,6 +532,7 @@ against.
 | BL-162 | MCP page-size clamp made visible (coverage.requested_limit + clamp note; last-row cursor docstrings); CLI ingest_paths now enqueues DEFAULT_PIPELINE_CHAIN + refreshes document_stats | api | bug | done | S | high | shared |
 | BL-163 | Test suite carries 5 deterministic reds from shared test-DB residue (billing webhook fixture ids, stale rollups, mcp_eval) | testing | bug | ready | S | medium | unassigned |
 | BL-164 | term_frequency reported unattested for terms the lexeme index cannot hold (`shared_buffers`, `COVID-19`); search coverage never affirmed completeness | api | bug | done | S | high | shared |
+| BL-165 | Five pytest failures reproduce at clean HEAD on a host-run against a fresh pgvector test DB | testing | bug | ready | S | medium | shared |
 
 See [`backlog.yml`](backlog.yml) for each item's full description, rationale,
 acceptance criteria, dependencies, related decisions (`D-###`), and references.
