@@ -49,10 +49,11 @@ surface in both `read_only` and `write_enabled` modes: `tool_count`, exact
 `instructions_chars`, `resources_count`, `resource_templates_count`, and
 `prompts_count`. This is the preamble cost every client pays before its first
 tool call; it is separate from the per-task response totals above. The current
-post-#39/#40/#41 baseline is 33 tools / 45,049 characters (~11,262 tokens) read-only
-and 65 / 77,967 (~19,491 tokens) with writes enabled. The extra write tool is
-the dry-run-first `correct_entity_surface` workflow; the read-only discovery
-cost is unchanged.
+post-#46 baseline is 33 tools / 45,466 characters (~11,366 tokens) read-only
+and 65 / 78,384 (~19,596 tokens) with writes enabled; instructions are 2,915
+characters in both modes. The verified phrase-count fields and steering explain
+the intentional delta. The extra write tool remains the dry-run-first
+`correct_entity_surface` workflow.
 
 It measures the **agent-facing surface**, not the GraphQL API or Postgres, and not
 model quality. It reports numbers; it does not conclude which model is better.

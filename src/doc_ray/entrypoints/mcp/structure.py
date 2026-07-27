@@ -115,16 +115,19 @@ async def term_frequency(terms: list[str], document_id: str | None = None) -> li
     **Multi-word phrases and compounds are measured, not declined.** The lexeme
     index tokenizes on underscores and digits, so it cannot hold ``Model Context
     Protocol``, ``shared_buffers`` or ``COVID-19`` as single entries. Rather than
-    answering ``unknown``, the server counts the sentences that actually contain the
-    term as a literal substring — the same rule ``search_sentences`` matches on — and
-    returns ``method: "sentence_scan"`` with ``sentenceHits``, ``totalSentences`` and
-    ``floodRisk``. For those terms the verdict predicts ``search_sentences`` exactly,
-    because it is measured with that tool's own rule. Batch your multi-word
-    candidates: they cost one statement together.
+    answering ``unknown``, SQL fetches a bounded candidate superset and the server
+    verifies every occurrence under ``surface_word_v1``. It returns ``method:
+    "sentence_scan"``, ``profile``, ``sentenceHits`` (candidate sentences),
+    ``occurrenceSentences`` (verified sentences), ``occurrences`` (all overlapping
+    verified starts), ``totalSentences``, and ``floodRisk``. The verdict and
+    ``attested`` use the verified sentence count, so word-internal false positives
+    do not inflate either. Batch candidates: they cost one statement together.
 
-    ``capped: true`` means the count stopped at the server's cap, so ``sentenceHits``
-    is a FLOOR — at least that many, total unknown. Treat it as "floods", never as an
-    exact number. ``parts`` still carries the rarest-component upper bound as
+    ``capped: true`` means candidate fetching stopped at the server's cap, so
+    ``sentenceHits``, ``occurrenceSentences``, and ``occurrences`` are all FLOORS —
+    unseen candidates may add matches. Treat the result as "floods", never as exact.
+    If none of the fetched candidates verifies, ``attested`` is null rather than
+    a false absence claim. ``parts`` still carries the rarest-component upper bound as
     secondary evidence. A single word keeps ``method: "lexeme_lemma"`` and its exact
     lexeme numbers, unchanged.
 
@@ -141,8 +144,9 @@ async def term_frequency(terms: list[str], document_id: str | None = None) -> li
     return corpus numbers mislabelled as document-scoped.
 
     Returns a list of ``{term, normalizedTerm, uses, totalUses, share, floodRisk,
-    attested, indexable, measurement, parts, note, method, sentenceHits,
-    totalSentences, capped}``, one per distinct term, in input order.
+    attested, indexable, measurement, parts, note, method, profile, sentenceHits,
+    occurrenceSentences, occurrences, totalSentences, capped}``, one per distinct
+    term, in input order.
     """
     if document_id is not None:
         _require_uuid(document_id, "document_id")
@@ -164,7 +168,8 @@ async def term_frequency(terms: list[str], document_id: str | None = None) -> li
     data = await gql(
         "query($t:[String!]!){termFrequency(terms:$t)"
         "{term normalizedTerm uses totalUses share floodRisk attested indexable measurement "
-        "parts{part uses} note method sentenceHits totalSentences capped}}",
+        "parts{part uses} note method profile sentenceHits occurrenceSentences occurrences "
+        "totalSentences capped}}",
         {"t": terms},
     )
     return list(data["termFrequency"])

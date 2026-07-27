@@ -11,9 +11,9 @@ doc_type: "reference"
 audience: ["integrator", "developer"]
 surfaces: ["mcp"]
 classification: "public"
-applies_to: "1.51.0"
+applies_to: "1.53.1"
 owner: "documentation-maintainer"
-last_reviewed: "2026-07-26"
+last_reviewed: "2026-07-27"
 status: "current"
 ---
 
@@ -49,7 +49,7 @@ The default MCP surface is **read-only**. Write tools are registered only when `
 | `list_collections` | List Collections the caller can see. | `limit`, `kind`, `after` |
 | `get_collection` | Fetch one Collection with its member Documents. | `collection_id`, `document_limit` |
 | `semantic_search_sentences` | Rank Sentences by learned semantic similarity (meaning, not keywords). | `query`, `document_id`, `limit` |
-| `term_frequency` | Check candidate frequency before searching; phrase results explicitly report a component upper bound, not an exact phrase count. | `terms`, `document_id` |
+| `term_frequency` | Check candidate frequency before searching; phrases expose bounded candidates plus `surface_word_v1` verified sentence/occurrence counts. | `terms`, `document_id` |
 | `document_classification` | Read a Document's genre classification and review status. | `document_id` |
 | `entity_projection` | Read how a Document's mentions resolve under a Lens (local, global, or unresolved). | `document_id`, `lens_id`, `limit`, `after` |
 | `lens_entities` | Significant entities for a Lens with volumes, type profile, and staleness stamp. | `lens_id`, `limit`, `after`, `min_mentions` |
@@ -71,6 +71,19 @@ The default MCP surface is **read-only**. Write tools are registered only when `
 | `visual_captions` | Return a Document's committed, grounded captions. | `document_id`, `limit` |
 
 Prefer `entity_profiles` over `entity_frequency` for "who/what": a low `typeConsistency` means the type is contested, not that the entity is unimportant. When `search_sentences` reports low `coverage`, a common term flooded one region; retry with rare, specific terms.
+
+Batch phrase candidates through `term_frequency` before searching. A
+`method: "sentence_scan"` row returns `profile: "surface_word_v1"`,
+`sentenceHits` (bounded candidate sentences), `occurrenceSentences` (verified
+sentences), and `occurrences` (every overlap-aware verified occurrence).
+`floodRisk` and `attested` use the verified sentence count. When `capped` is
+true, all three counts are floors, not totals; a capped verified zero leaves
+`attested` null because unseen candidates may match. The same flat fields are exposed
+by GraphQL `termFrequency`; Doc-Ray publishes no separate client SDK.
+
+```json
+{"name":"term_frequency","arguments":{"terms":["Algorithm Design","shared_buffers"]}}
+```
 
 ## Composition tools (always available)
 

@@ -134,7 +134,10 @@ _API_ONLY_ALLOWLIST: dict[str, str] = {
     # Lens projection designation (SLP Block D) is an agent/API curation action.
     "setLensProjects": "Designating a projecting lens is an agent/API curation action (Block D).",
     # The reader's word-frequency panel uses bounded direct SQL over the same document.
-    "termFrequency": "The document reader renders per-document word frequency through SQL.",
+    "termFrequency": (
+        "Verified corpus pre-flight is an agent/API + MCP retrieval primitive; "
+        "the reader separately renders per-document word frequency through SQL."
+    ),
     # Block G deliberately ships agent/API review access first; its issue excludes
     # a dedicated browser queue while retaining correctEntityMention as the action.
     "uncertainMentions": (

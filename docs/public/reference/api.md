@@ -25,7 +25,7 @@ This page is the field-level contract for the Doc-Ray GraphQL API: the endpoint,
 
 The GraphQL API is served at `/graphql`. All operations are sent as HTTP `POST` requests with a JSON body carrying `query` and optional `variables`.
 
-Doc-Ray publishes no client SDK in 1.51.0. Use a standard GraphQL client against
+Doc-Ray publishes no client SDK in 1.53.1. Use a standard GraphQL client against
 this contract or connect through the MCP server; do not treat internal Python
 modules as a stable external SDK.
 
@@ -87,13 +87,34 @@ Listings are **keyset-paginated**. A list field returns objects each carrying a 
 | `fullTextSearch` | Rank whole Documents by language-aware full-text relevance; `TERMS` requires all stemmed terms in any position, while `PHRASE` requires them in order. | `query`, `limit`, `mode` |
 | `searchSentences` | Keyword-in-context Sentence search; `SUBSTRING` is unchanged, while `PHRASE` adds verified absolute occurrences. | `term`, `documentId`, `limit`, `after`, `match` |
 | `searchSentencePage` | Metadata-bearing Sentence search envelope for phrase profile and candidate-cap completeness. | `term`, `documentId`, `limit`, `after`, `match` |
-| `termFrequency` | Check candidate frequency before searching; single lexemes are exact, while whitespace phrases declare a rarest-component upper bound in `measurement`. | `terms`, `documentId` |
+| `termFrequency` | Check candidate frequency before searching; single lexemes are exact, while phrases expose bounded candidates plus `surface_word_v1` verified sentence/occurrence counts. | `terms`, `documentId` |
 | `semanticSearchSentences` | Rank Sentences by learned semantic similarity. | `query`, `documentId`, `limit` |
 | `crossModalImageSearch` | Find images by meaning from a text query. | `query`, `limit` |
 | `lexeme` | Fetch one Lexeme by uid, with its occurrences. | `uid` |
 | `lexemes` | Search Lexemes by form, part of speech, language, or Document. | `q`, `pos`, `lang`, `documentId`, `limit`, `after` |
 
 A result whose `coverage` field and `note` report truncation means a common term flooded one region; prefer rare, specific terms. See [Search returns too few results](../troubleshooting/search-returns-too-few-results.md).
+
+For a `termFrequency` row with `method: "sentence_scan"`, read the scan fields
+together: `sentenceHits` is the bounded SQL candidate-sentence count,
+`occurrenceSentences` is the number with at least one profile-valid occurrence,
+and `occurrences` is the total overlapping occurrence count. `profile` is
+`surface_word_v1`; `attested` and `floodRisk` derive from
+`occurrenceSentences`, not candidate false positives. The invariant is
+`occurrences >= occurrenceSentences <= sentenceHits`. If `capped` is true, all
+three counts are floors because unseen candidates may add matches. Exact
+single-lexeme rows retain `method: "lexeme_lemma"` and null scan fields. A capped
+verified zero also leaves `attested` null; only an uncapped zero proves absence.
+
+```graphql
+query VerifyCandidateFrequency {
+  termFrequency(terms: ["Algorithm Design", "shared_buffers"]) {
+    term method profile floodRisk attested
+    sentenceHits occurrenceSentences occurrences totalSentences capped
+    measurement uses parts { part uses } note
+  }
+}
+```
 
 `semanticSearchSentences` requires embeddings from the active learned model. An
 empty result can mean the visible Documents have not been backfilled; operators

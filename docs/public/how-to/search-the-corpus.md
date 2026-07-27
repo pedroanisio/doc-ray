@@ -11,9 +11,9 @@ doc_type: "how-to"
 audience: ["end-user", "integrator"]
 surfaces: ["webapp", "mcp", "api"]
 classification: "public"
-applies_to: "1.43.0"
+applies_to: "1.53.1"
 owner: "documentation-maintainer"
-last_reviewed: "2026-07-25"
+last_reviewed: "2026-07-27"
 status: "current"
 ---
 
@@ -86,6 +86,20 @@ gallery in the webapp to inspect the actual image bytes and committed caption.
 when words, order, and boundaries must all agree. Read `coverage` and `note`:
 `limit_reached` can mean either a full hit page or that phrase verification hit
 its independent candidate cap.
+
+Before spending a phrase search, batch candidate terms through the pre-flight:
+
+```
+term_frequency  terms=["Algorithm Design","algorithm","shared_buffers"]
+```
+
+For a phrase/compound row, `sentenceHits` is a bounded candidate count;
+`occurrenceSentences` and `occurrences` are the `surface_word_v1` verified
+sentence and overlap-aware occurrence counts. Choose using `floodRisk`, which is
+based on `occurrenceSentences`, not substring false positives. If `capped` is
+true, all three counts are floors and the result is incomplete/high-risk. A
+capped verified zero leaves `attested` null rather than claiming absence. A
+single indexed word keeps the exact lexeme path and has null scan fields.
 
 1. Search a rare term, optionally scoped to one Document:
 

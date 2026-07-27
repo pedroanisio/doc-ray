@@ -50,6 +50,31 @@ doc-ray carries **one global version** covering both the application package
   migration, reindex, token backfill, environment variable, or SDK release
   (Doc-Ray publishes GraphQL and MCP contracts, not a client SDK).
 
+- **`termFrequency` now verifies phrase occurrences instead of exposing only
+  substring candidates (#46).** Multi-word and otherwise unindexable terms keep
+  `method: "sentence_scan"`, but its flat contract now separates
+  `sentenceHits` (bounded SQL candidate sentences) from
+  `occurrenceSentences` (sentences with a `surface_word_v1` match) and
+  `occurrences` (all overlap-aware verified starts), with `profile` naming the
+  rule. `attested` and `floodRisk` use verified sentences, so `algorithm
+  designed` no longer inflates the verdict for `algorithm design`.
+
+- **Phrase-frequency candidate work stays one bounded statement per batch.**
+  Multi-word terms reuse phrase search's parameterized AND-of-words candidate
+  clause; one-profile-word compounds such as `shared_buffers` reuse the literal
+  match clause. Debug logs distinguish candidates fetched from verified
+  sentences and occurrences. `occurrences >= occurrenceSentences <=
+  sentenceHits`; when `capped` is true, all three are floors and the verdict is
+  high/incomplete. A capped verified zero leaves `attested` null because unseen
+  candidates may still match.
+
+  **Migration:** additive GraphQL/MCP fields only. Existing single-lexeme rows
+  and callers that select the old fields remain compatible. Phrase consumers
+  should use `occurrenceSentences` for prevalence and `occurrences` for total
+  matches; `sentenceHits` is now explicitly candidate evidence. No database
+  migration, reindex, token backfill, environment/configuration change, or SDK
+  release is required.
+
 ### Fixed
 
 - **`termFrequency` no longer reports positive phrase hits out of zero sentences

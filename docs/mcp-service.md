@@ -195,9 +195,11 @@ permission.
 At the #35 checkpoint, compact `tools/list` JSON for 64 tools grew from
 **63,438 bytes** without metadata to **71,969 bytes** with all titles and hints:
 **8,531 bytes** of one-time discovery overhead. After #41 adds
-`correct_entity_surface`, the measured write-enabled surface is **65 tools / 77,967
-bytes** (~19,491 estimated tokens); read-only is **33 / 45,049** (~11,262). The
-evaluator baseline owns these current discovery totals.
+`correct_entity_surface`, and #46 teaches verified phrase counts. The measured
+write-enabled surface is now **65 tools / 78,384 bytes** (~19,596 estimated
+tokens); read-only is **33 / 45,466** (~11,366). Instructions are 2,915
+characters in both modes. The evaluator baseline owns these current discovery
+totals.
 
 ## 3. Tool inventory
 
@@ -270,7 +272,7 @@ but had no passage cited on this page. Example:
 | `corpus_shard(shard_index, shard_count, limit, after?)` | `corpusShard` | one deterministic, disjoint slice of the corpus; keyset `cursor` |
 | `entity_frequency(document_id?, entity_type?, limit)` | `entityFrequency` | **raw** NER rows, one per (surface, type) — prefer `entity_profiles` |
 | `entity_profiles(document_id?, entity_type?, limit)` | `entityProfiles` | one row per entity: merged spellings, measured type spread, `typeConsistency` — see §3.3 |
-| `term_frequency(terms, document_id?)` | `termFrequency` | flood-risk pre-flight: exact single-lexeme counts (`method: lexeme_lemma`), or a bounded measured sentence-hit verdict for phrases/compounds (`method: sentence_scan`); corpus-wide only (`document_id` → typed `unsupported`) — see §3.6 |
+| `term_frequency(terms, document_id?)` | `termFrequency` | flood-risk pre-flight: exact single-lexeme counts (`method: lexeme_lemma`), or bounded candidates plus `surface_word_v1` verified sentence/occurrence counts for phrases/compounds (`method: sentence_scan`); corpus-wide only (`document_id` → typed `unsupported`) — see §3.6 |
 | `lexeme_kwic(uid, document_id?, limit)` | `lexeme { occurrences }` | KWIC is a **nested** resolver, not a root field |
 | `semantic_search_sentences(query, document_id?, limit)` | `semanticSearchSentences` | meaning-based (learned-embedding) sentence retrieval; the antidote to lexical `search_sentences` flooding. Typed `unsupported` where the sentence stack is absent |
 | `document_images(document_id, limit, after?)` | `documentImages` | Prism visual layer: extracted/rendered page images |
@@ -760,24 +762,41 @@ nothing". That was a false negative on exactly the rare, specific technical term
 this tool exists to steer callers *toward* — and it contradicted `search_sentences`,
 whose literal-substring match finds them without difficulty.
 
-**Since 1.52.0 (#39) such a term is measured rather than declined.** The lexeme
-index still cannot hold it, so instead of reporting the gap the server *counts the
-sentences that contain it* — through the same `match_clause` rule
-`search_sentences(match="substring")` uses. For these terms the pre-flight
-therefore predicts substring mode exactly and phrase mode's candidate ceiling,
-rather than pretending boundary verification already happened:
+**Since 1.53.1 (#46), candidate counts are verified occurrence counts.** The
+lexeme index still cannot hold the term. Multi-word scans reuse phrase search's
+parameterized AND-of-words `phrase_candidate_clause`; one-profile-word compounds
+such as `shared_buffers` reuse the existing literal `match_clause`. These are
+index-backed candidate supersets, not the answer. One `UNION ALL` statement
+fetches bounded Sentence ids/text for the whole term batch, and the pure domain
+stage verifies boundaries, order, adjacency, joiners, and overlapping starts with
+`phrase_profile.find_occurrences`.
+
+The stable flat contract makes the distinction explicit:
+
+- `profile: "surface_word_v1"` names the verification policy;
+- `sentenceHits` is the bounded number of SQL candidate sentences;
+- `occurrenceSentences` is the candidate sentences with one or more verified
+  occurrences;
+- `occurrences` is the total verified, overlap-aware occurrence count.
+
+The invariant is `occurrences >= occurrenceSentences <= sentenceHits`.
+`attested` and `floodRisk` use `occurrenceSentences`, never `sentenceHits`, so
+`algorithm designed` can be a cheap candidate for `algorithm design` without
+becoming false attestation or a false flood warning.
 
 ```jsonc
 {"name": "term_frequency", "arguments": {"terms": ["Model Context Protocol", "shared_buffers"]}}
 // → [{"term": "Model Context Protocol", "method": "sentence_scan",
-//     "floodRisk": "moderate", "sentenceHits": 412, "totalSentences": 1500000,
-//     "capped": false, "attested": true,
+//     "profile": "surface_word_v1", "floodRisk": "moderate",
+//     "sentenceHits": 520, "occurrenceSentences": 412, "occurrences": 447,
+//     "totalSentences": 1500000, "capped": false, "attested": true,
 //     "uses": 500, "measurement": "component_upper_bound",   // secondary evidence
 //     "parts": [{"part": "model", "uses": 900}, …],
-//     "note": "'Model Context Protocol' matches 412 of 1500000 sentences — more than
-//              one page, so a search will hit its per-call limit. …"},
+//     "note": "'Model Context Protocol' has verified surface_word_v1 occurrences
+//              in 412 of 1500000 sentences — more than one page …"},
 //    {"term": "shared_buffers", "method": "sentence_scan", "floodRisk": "low",
-//     "sentenceHits": 37, "attested": true,
+//     "profile": "surface_word_v1", "sentenceHits": 40,
+//     "occurrenceSentences": 37, "occurrences": 42, "attested": true,
 //     "uses": null, "share": null,        // no lexeme count exists, so none is invented
 //     "parts": [{"part": "shared", "uses": 12}, {"part": "buffers", "uses": 70}]}]
 ```
@@ -791,29 +810,35 @@ the response keeps the measured hit count and absolute hit-band verdict but retu
 ```jsonc
 // The same shape is returned by GraphQL termFrequency and MCP term_frequency.
 {"term": "Model Context Protocol", "method": "sentence_scan",
- "sentenceHits": 43, "totalSentences": null, "capped": false,
+ "profile": "surface_word_v1", "sentenceHits": 48,
+ "occurrenceSentences": 43, "occurrences": 47,
+ "totalSentences": null, "capped": false,
  "floodRisk": "low", "attested": true,
  "note": "… total-sentence denominator is unavailable because corpus_stats rollup is empty; …"}
 ```
 
 This is an integrity-degraded result, never “43 of 0 sentences.” The `floodRisk`
-remains usable because scan bands are based on the bounded absolute hit count. A
+remains usable because scan bands use the bounded verified-sentence count. A
 genuinely empty visible corpus still returns zero hits with `totalSentences: 0`.
 Operators should apply migration 146 and run `make prod-check NO_SEND=1`; a failing
 `corpus_rollups` check means the maintained tenant total disagrees with its
 document-level inputs and must be repaired before deployment is declared healthy.
 
-**`capped` is a floor, not a total.** The scan stops at `SENTENCE_HIGH_HITS`, so a
-phrase that floods the corpus costs the same as a rare one. When it stops there,
-`capped: true` and `sentenceHits` means *at least* that many — never present it as
-an exact count.
+**`capped` makes all three counts floors, not totals.** Candidate fetching stops
+at `SENTENCE_HIGH_HITS`, so a phrase that floods the corpus costs no more than
+the cap. When `capped: true`, `sentenceHits`, `occurrenceSentences`, and
+`occurrences` are each lower bounds: unseen candidates may add verified
+sentences and occurrences. Treat the verdict as high/incomplete even when many
+fetched candidates are rejected. If none verifies, `attested` is null: unseen
+candidates may still match, so `false` would be an unsupported absence claim.
 
-**Sentence-scan bands.** Keyed to the page a search actually serves: **`low`** below
-`SENTENCE_PAGE_SIZE` (200 — the result fits one page), **`moderate`** up to
+**Sentence-scan bands.** Keyed to verified `occurrenceSentences`: **`low`** below
+`SENTENCE_PAGE_SIZE` (200 — the verified result fits one page), **`moderate`** up to
 `SENTENCE_HIGH_HITS` (2001 — ten pages), **`high`** at or beyond it, or whenever the
 count was capped. Like the share thresholds these are parameters, not law: they live
-in `doc_ray.domain.term_frequency` and the payload exposes `sentenceHits` /
-`totalSentences` so a caller can recompute. `SENTENCE_PAGE_SIZE` mirrors the
+in `doc_ray.domain.term_frequency` and the payload exposes `sentenceHits`,
+`occurrenceSentences`, `occurrences`, and `totalSentences` so a caller can
+recompute. `SENTENCE_PAGE_SIZE` mirrors the
 platform's `MAX_PAGE_SIZE` and a contract test keeps the two equal — re-tune it only
 by changing the page cap, or the "fits in one page" meaning is lost. **To re-tune
 `SENTENCE_HIGH_HITS`**, measure how many pages a caller will realistically read
@@ -850,15 +875,15 @@ a bug:
 
 | Surface | Matches on | Example |
 |---|---|---|
-| `term_frequency` | lexeme lemma (`norm_lemma`) for a single word; **the literal substring rule itself** for phrases/compounds (`sentence_scan`) | `running` → lemma `run`; `design decision` → sentences containing that exact string |
+| `term_frequency` | lexeme lemma (`norm_lemma`) for a single word; **`surface_word_v1` verified occurrences** for phrases/compounds (`sentence_scan`) | `running` → lemma `run`; `design decision` rejects `design decisions` and counts adjacent whole words |
 | `search_sentences` | default: **case-insensitive literal substring**; opt-in `phrase`: `surface_word_v1` whole-word adjacency | substring `run` matches `overrun`; phrase `ngram` rejects `Tangram` |
 | `full_text_search` | **Snowball stem** (`plainto_tsquery`, per-doc config) | `running` → stem `run` |
 
 So `term_frequency` is a **corpus-saturation signal**, a strong proxy for — not an
 exact predictor of — any one tool's hit count. It is most precise for base-form
-content words (surface ≈ lemma); phrase/compound scans directly predict
-`search_sentences` substring mode and upper-bound phrase candidates, while their
-`uses` component evidence remains an upper bound;
+content words (surface ≈ lemma); phrase/compound scans use the same verified
+profile as `search_sentences(match="phrase")`, while `sentenceHits` remains
+candidate evidence and `uses` remains a component upper bound;
 single lexemes diverge for inflected or substring queries;
 when in doubt, trust the exposed numbers over the bucket. **Corpus-wide only for
 now** (Open decision 1(a)): passing `documentId`/`document_id` returns a typed

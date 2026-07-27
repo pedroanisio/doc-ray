@@ -8,22 +8,26 @@ scope's total, both RLS-scoped to the caller's tenant by the ``lexeme_stats``
 policy (``tenant_id = docray_current_tenant()``).
 
 Split from ``persistence_read_structure.py`` for D-015 headroom and registered in
-``scripts/check_read_path_aggregates.py``'s ``_READ_PATHS``. The verdict is decided
-in :mod:`doc_ray.domain.term_frequency`; this module only fetches the numbers.
+``scripts/check_read_path_aggregates.py``'s ``_READ_PATHS``. Phrase scans fetch a
+bounded candidate superset in one statement, then the pure domain verifies every
+occurrence under ``surface_word_v1``. Verdict bands remain domain-owned.
 """
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from psycopg import AsyncConnection
 from psycopg.rows import dict_row
 
-from doc_ray.adapters.sentence_search_sql import match_clause
-from doc_ray.domain.term_frequency import SentenceScan
+from doc_ray.adapters.sentence_search_sql import match_clause, phrase_candidate_clause
+from doc_ray.domain.phrase_profile import phrase_words
+from doc_ray.domain.term_frequency import SentenceScan, verify_sentence_candidates
 
 _AConn = AsyncConnection[Any]
 Row = dict[str, Any]
+_logger = logging.getLogger("doc_ray.retrieval")
 
 #: ONE statement for the whole batch — never N queries in a loop (the cost this
 #: issue removes). ``unnest`` turns the key array into rows; the LEFT JOIN onto the
@@ -80,25 +84,26 @@ async def term_frequencies(conn: _AConn, keys: list[str]) -> tuple[dict[str, int
 
 
 def _scan_sql(keys_to_text: dict[str, str]) -> tuple[str, dict[str, Any]]:
-    """Build ONE statement counting matching sentences per term, each bounded by a cap.
+    """Build ONE statement fetching bounded candidate sentences for every term.
 
     Shape per term::
 
-        SELECT %(kN)s AS key, count(*) AS hits
-        FROM (SELECT 1 FROM sentences s WHERE <match_clause> LIMIT %(cap)s) b
+        SELECT %(kN)s AS key, b.id, b.text
+        FROM (VALUES (1)) seed
+        LEFT JOIN LATERAL (
+          SELECT id, text FROM sentences s WHERE <candidate> LIMIT %(cap)s
+        ) b ON TRUE
 
     The ``LIMIT`` inside the subquery is what bounds the work: Postgres stops
-    reading once the cap is reached, so a term that floods the corpus costs the
-    same as one that appears ``cap`` times. ``hits >= cap`` is therefore a floor,
-    reported as ``capped``.
+    reading once the cap is reached. The outer left lateral join preserves a row
+    for a term with no candidates, keeping the entire batch in one statement.
 
-    The predicate comes from :func:`match_clause` and never from an inlined
-    ``ILIKE``. That single-rule seam is the whole point: it is what makes this
-    verdict predict ``search_sentences`` instead of merely resembling it, and it
-    is why a typed ``'`` finds the typographic ``’`` the extractor stored.
+    Multi-word terms reuse :func:`phrase_candidate_clause`; one-profile-word
+    compounds reuse :func:`match_clause`. Both are parameterized index-backed
+    supersets. The pure domain verifier removes their false positives.
 
     Args:
-        keys_to_text: Result key -> the raw term to match as a literal substring.
+        keys_to_text: Result key -> raw term to generate and verify candidates for.
 
     Returns:
         ``(sql, params)`` for a single ``UNION ALL`` statement.
@@ -106,13 +111,17 @@ def _scan_sql(keys_to_text: dict[str, str]) -> tuple[str, dict[str, Any]]:
     parts: list[str] = []
     params: dict[str, Any] = {}
     for index, (key, term) in enumerate(keys_to_text.items()):
-        predicate, clause_params = match_clause("s.text", term, prefix=f"t{index}")
+        clause = phrase_candidate_clause if len(phrase_words(term)) > 1 else match_clause
+        predicate, clause_params = clause("s.text", term, prefix=f"t{index}")
         params.update(clause_params)
         params[f"k{index}"] = key
         parts.append(
-            f"SELECT %(k{index})s AS key, count(*)::bigint AS hits, "
+            f"SELECT %(k{index})s AS key, b{index}.id AS sentence_id, "
+            f"b{index}.text AS text, "
             f"{_TOTAL_SENTENCES_SQL} AS total_sentences "
-            f"FROM (SELECT 1 FROM sentences s WHERE {predicate} LIMIT %(cap)s) b{index}"
+            f"FROM (VALUES (1)) seed{index}(one) "
+            f"LEFT JOIN LATERAL (SELECT s.id, s.text FROM sentences s "
+            f"WHERE {predicate} LIMIT %(cap)s) b{index} ON TRUE"
         )
     return "\nUNION ALL\n".join(parts), params
 
@@ -120,11 +129,12 @@ def _scan_sql(keys_to_text: dict[str, str]) -> tuple[str, dict[str, Any]]:
 async def sentence_hit_counts(
     conn: _AConn, keys_to_text: dict[str, str], *, cap: int
 ) -> tuple[dict[str, SentenceScan], int]:
-    """Return ``(per-key bounded sentence hits, tenant total sentences)``.
+    """Return bounded candidates and verified occurrence counts per key.
 
     The measured half of the term-frequency pre-flight (#39): for terms the lexeme
-    index cannot hold, this counts the sentences a literal-substring search would
-    actually match, bounded so the count can never become a corpus scan.
+    index cannot hold, SQL fetches an index-backed candidate superset bounded so
+    the work cannot become a corpus scan. Pure ``surface_word_v1`` verification
+    then counts boundary/adjacency-valid, overlapping occurrences.
 
     ``cap`` is supplied by the caller from the domain's band constant — the
     adapter must not decide where "too many to matter" sits.
@@ -136,7 +146,8 @@ async def sentence_hit_counts(
     Args:
         conn: Async database connection (RLS decides tenant visibility).
         keys_to_text: Result key -> raw term text to match.
-        cap: Maximum hits to count per term; reaching it sets ``capped``.
+        cap: Maximum candidates to fetch per term; reaching it makes every count
+            a floor and sets ``capped``.
 
     Returns:
         Per-key :class:`~doc_ray.domain.term_frequency.SentenceScan` values, and
@@ -147,9 +158,23 @@ async def sentence_hit_counts(
     sql, params = _scan_sql(keys_to_text)
     params["cap"] = int(cap)
     rows = await _rows(conn, sql, params)
-    scans = {
-        str(row["key"]): SentenceScan(hits=int(row["hits"]), capped=int(row["hits"]) >= int(cap))
-        for row in rows
-    }
+    candidates: dict[str, list[str]] = {key: [] for key in keys_to_text}
+    for row in rows:
+        if row["sentence_id"] is not None:
+            candidates[str(row["key"])].append(str(row["text"]))
+    scans: dict[str, SentenceScan] = {}
+    for key, term in keys_to_text.items():
+        scan = verify_sentence_candidates(term, candidates[key], cap=int(cap))
+        scans[key] = scan
+        _logger.debug(
+            "term_frequency verified key=%r candidate_fetched=%d "
+            "occurrence_sentences=%d occurrences=%d capped=%s profile=%s",
+            key,
+            scan.hits,
+            scan.occurrence_sentences,
+            scan.occurrences,
+            scan.capped,
+            scan.profile,
+        )
     total_sentences = int(rows[0]["total_sentences"]) if rows else 0
     return scans, total_sentences

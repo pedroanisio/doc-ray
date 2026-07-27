@@ -83,16 +83,16 @@
   "surface": {
     "read_only": {
       "candidate_tool_count": 33,
-      "candidate_tools_list_chars": 45293,
+      "candidate_tools_list_chars": 45710,
       "current_tool_count": 33,
-      "current_tools_list_chars": 45049,
+      "current_tools_list_chars": 45466,
       "delta_chars": 244
     },
     "write_enabled": {
       "candidate_tool_count": 65,
-      "candidate_tools_list_chars": 78403,
+      "candidate_tools_list_chars": 78820,
       "current_tool_count": 65,
-      "current_tools_list_chars": 77967,
+      "current_tools_list_chars": 78384,
       "delta_chars": 436
     }
   }

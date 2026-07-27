@@ -94,9 +94,12 @@ class StructureQueries:
 
         A term the lexeme index cannot count exactly — a whitespace phrase, an
         underscore compound, an alphanumeric — is **measured** instead of declined:
-        the server counts the sentences matching the same literal-substring rule
-        ``searchSentences`` applies, bounded by a cap, and returns
-        ``method: "sentence_scan"`` with ``sentenceHits``/``totalSentences``/``capped``.
+        the server fetches a bounded SQL candidate superset and verifies every
+        occurrence under ``surface_word_v1``. ``method: "sentence_scan"`` returns
+        ``sentenceHits`` (candidates), ``occurrenceSentences`` (verified sentences),
+        ``occurrences`` (all verified overlapping starts), ``profile``,
+        ``totalSentences``, and ``capped``. Attestation and flood risk use verified
+        sentences, not candidate false positives.
         The rarest-component upper bound rides along as secondary evidence. If a
         positive scan exposes a missing sentence-total rollup, ``totalSentences`` is
         null and ``note`` says the denominator is unavailable; the API never emits

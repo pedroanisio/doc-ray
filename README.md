@@ -155,8 +155,9 @@ ranges — detected headings, or an even grid where a document has none, with
 `lexeme(s)` / `entities` / `entityFrequency` (raw NER rows) /
 `entityProfiles(documentId:, entityType:)` (the same mentions reconciled to one
 row per entity, with the measured type spread and `typeConsistency`) /
-`termFrequency(terms:)` (a flood-risk pre-flight: exact for one lexeme, explicitly
-an upper bound for a whitespace phrase, so an agent picks a rarer candidate) /
+`termFrequency(terms:)` (a flood-risk pre-flight: exact for one lexeme; phrases
+report bounded candidates plus `surface_word_v1` verified sentence/occurrence
+counts, so an agent picks a rarer candidate without trusting substring noise) /
 `job` / `jobs` /
 `documentMetadataSuggestions` / `collections` / `collection` /
 `lenses` (the collections marked as entity-resolution scopes — Block B) /

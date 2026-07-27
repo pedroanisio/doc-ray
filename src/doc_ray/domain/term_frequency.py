@@ -14,8 +14,8 @@ the exact normalization the lexeme writer applies before storing a lemma
 lexeme layer actually indexed. It is a strong proxy for, but deliberately not
 identical to, what the two search tools match:
 
-* ``search_sentences`` matches a **case-insensitive literal substring** (ILIKE),
-  no stemming or lemmatization;
+* ``search_sentences`` defaults to a **case-insensitive literal substring** and
+  offers opt-in ``surface_word_v1`` whole-word phrase verification;
 * ``full_text_search`` matches **Snowball-stemmed** tokens (``plainto_tsquery``
   with the document's text-search config).
 
@@ -41,6 +41,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
 from doc_ray.domain.lexemes import iter_words, norm_lemma
+from doc_ray.domain.phrase_profile import PROFILE_SURFACE_WORD_V1, find_occurrences
 
 #: Batch cap: this triages an agent's candidate search terms, it is not a bulk
 #: frequency dump. Bounds the ``= ANY`` array so the single statement stays cheap.
@@ -73,9 +74,8 @@ UNAVAILABLE = "unavailable"
 
 #: Provenance of the *verdict* (distinct from ``measurement``, which describes the
 #: lexeme-side numbers). ``lexeme_lemma`` is the historical proxy; ``sentence_scan``
-#: is a bounded count of sentences matching the same literal-substring rule
-#: ``search_sentences`` uses, so for the terms it serves the proxy gap is zero by
-#: construction (#39).
+#: is a bounded SQL candidate fetch followed by ``surface_word_v1`` verification
+#: and occurrence counting (#46).
 METHOD_LEXEME = "lexeme_lemma"
 METHOD_SENTENCE_SCAN = "sentence_scan"
 
@@ -158,7 +158,7 @@ class TermVerdict:
     parts: tuple[PartCount, ...]
     note: str | None
     #: Which measurement produced ``flood_risk``: the lexeme-lemma proxy, or a
-    #: bounded sentence scan under the literal-substring rule (#39).
+    #: bounded candidate scan plus profile verification (#46).
     method: str = METHOD_LEXEME
     #: Sentence-scan results — ``None`` exactly when the method is not a scan.
     #: Never 0: an unmeasured field that reads as a measurement is the BL-164
@@ -166,6 +166,12 @@ class TermVerdict:
     sentence_hits: int | None = None
     total_sentences: int | None = None
     capped: bool | None = None
+    #: Verified sentence-scan results. ``sentence_hits`` is the bounded candidate
+    #: count; these fields report the boundary/adjacency-valid occurrences that
+    #: survive the named profile. All are null on the lexeme path.
+    profile: str | None = None
+    occurrence_sentences: int | None = None
+    occurrences: int | None = None
 
 
 def _is_whitespace_phrase(term: str, parts: Sequence[str]) -> bool:
@@ -253,11 +259,11 @@ def lookup_keys(prepared: Sequence[PreparedTerm]) -> list[str]:
 
 
 def scan_text(item: PreparedTerm) -> str:
-    """Return the raw spelling a sentence scan should match on.
+    """Return the raw spelling a candidate scan and verifier should use.
 
-    The scan matches a literal substring of ``sentences.text``, so it wants what
-    the caller typed — not ``key``, which is casefolded and NFC-normalized for the
-    lexeme index.
+    Candidate generation segments this value and verification applies the phrase
+    profile to it, so both want what the caller typed — not ``key``, which is
+    casefolded and NFC-normalized for the lexeme index.
     """
     return item.term
 
@@ -292,19 +298,60 @@ def flood_risk(uses: int, total_uses: int) -> str:
 
 @dataclass(frozen=True)
 class SentenceScan:
-    """A bounded count of sentences containing a term as a literal substring.
+    """A bounded candidate scan plus its verified phrase-occurrence counts.
 
     ``capped`` marks a count that stopped at the cap: the true total is unknown
-    and *at least* ``hits``. It must ride every surface — a bound nobody can see
-    is the invisible-clamp defect BL-162 exists to prevent.
+    and all three counts are floors. The optional defaults preserve the pre-#46
+    domain seam for callers that supply a legacy scan; persistence-created scans
+    always populate the verified fields and profile.
     """
 
     hits: int
     capped: bool
+    occurrence_sentences: int | None = None
+    occurrences: int | None = None
+    profile: str | None = None
+
+    def __post_init__(self) -> None:
+        """Reject internally contradictory verified counts."""
+        if self.hits < 0:
+            raise ValueError("sentence hits cannot be negative")
+        verified = (self.occurrence_sentences, self.occurrences, self.profile)
+        if all(value is None for value in verified):
+            return
+        if any(value is None for value in verified):
+            raise ValueError("verified scans require occurrence counts and profile together")
+        assert self.occurrence_sentences is not None
+        assert self.occurrences is not None
+        if not 0 <= self.occurrence_sentences <= self.hits:
+            raise ValueError("occurrence sentences must be between zero and candidate hits")
+        if self.occurrences < self.occurrence_sentences:
+            raise ValueError("occurrences cannot be below occurrence sentences")
+
+
+def verify_sentence_candidates(term: str, texts: Sequence[str], *, cap: int) -> SentenceScan:
+    """Verify bounded SQL candidates under ``surface_word_v1``.
+
+    Candidate generation is deliberately a permissive, index-backed superset.
+    This pure second stage enforces word boundaries and adjacency, counts every
+    overlapping occurrence, and records how many candidate sentences contain at
+    least one. Reaching the candidate cap makes every reported count a floor.
+    """
+    if cap <= 0:
+        raise ValueError("sentence scan cap must be positive")
+    per_sentence = [len(find_occurrences(text, term)) for text in texts]
+    occurrence_sentences = sum(count > 0 for count in per_sentence)
+    return SentenceScan(
+        hits=len(texts),
+        capped=len(texts) >= cap,
+        occurrence_sentences=occurrence_sentences,
+        occurrences=sum(per_sentence),
+        profile=PROFILE_SURFACE_WORD_V1,
+    )
 
 
 def sentence_flood_risk(hits: int, capped: bool) -> str:
-    """Return the categorical verdict from a bounded sentence-hit count.
+    """Return the categorical verdict from a verified occurrence-sentence count.
 
     ``low`` when the hits fit in one page (the caller reads them all), ``moderate``
     up to ten pages, ``high`` beyond that — or whenever the count was capped, since
@@ -358,38 +405,49 @@ def _phrase_note(term: str, parts: Sequence[PartCount], upper_bound: int) -> str
 
 
 def _scan_note(term: str, scan: SentenceScan, total_sentences: int | None, risk: str) -> str | None:
-    """The BL-145-voice steering line for a measured sentence scan.
+    """The BL-145-voice steering line for a verified sentence scan.
 
     States the bound before the number whenever the count is a floor, and stays
     silent in the low band where the numbers already answer the question.
     """
+    verified = scan.occurrence_sentences if scan.occurrence_sentences is not None else scan.hits
+    profile = scan.profile or PROFILE_SURFACE_WORD_V1
     scope = f" of {total_sentences}" if total_sentences is not None and total_sentences > 0 else ""
     denominator_warning = (
         " The total-sentence denominator is unavailable because its corpus_stats "
-        "rollup is empty; sentenceHits remains measured, and floodRisk uses the "
-        "absolute bounded-hit bands."
+        "rollup is empty; occurrenceSentences remains measured, and floodRisk uses "
+        "the absolute bounded verified-sentence bands."
         if total_sentences is None
         else ""
     )
-    if scan.hits <= 0:
+    if scan.capped:
         return (
-            f"{term!r} does not occur as a literal substring in any of the "
-            f"{total_sentences} sentences searchable here. That is a measured "
-            "absence of the exact string, NOT absence of the idea — check the "
-            "spelling, or try a synonym or a shorter fragment of the phrase."
+            f"{term!r} reached the bounded candidate cap. There are at least "
+            f"{scan.hits} candidate sentences; sentenceHits, occurrenceSentences, "
+            f"and occurrences are all floors under {profile}; "
+            "unseen candidates may add verified occurrences, so floodRisk is high. "
+            f"Prefer a rarer or longer phrase.{denominator_warning}"
+        )
+    if verified <= 0:
+        return (
+            f"{term!r} has no boundary-valid occurrence under {profile} in the "
+            f"{scan.hits} candidate sentences. Candidate substring matches can be "
+            "false positives; this is measured absence of the requested surface "
+            "phrase, NOT absence of the idea — check the spelling, or try a "
+            f"synonym.{denominator_warning}"
         )
     if risk == HIGH:
-        floor = "at least " if scan.capped else ""
         return (
-            f"{term!r} saturates the corpus: it matches {floor}{scan.hits}"
-            f"{scope} sentences, so a search returns a wall of hits clustered in "
+            f"{term!r} saturates the corpus: {verified}{scope} sentences contain a "
+            f"verified {profile} occurrence, so a search returns a wall of hits clustered in "
             "one region and starves coverage of the rest. Prefer a rarer or longer "
             "phrase, or read a section evenly with read_document_outline + "
             f"read_document_sentences.{denominator_warning}"
         )
     if risk == MODERATE:
         return (
-            f"{term!r} matches {scan.hits}{scope} sentences — more than one page, so "
+            f"{term!r} has verified {profile} occurrences in {verified}{scope} "
+            "sentences — more than one page, so "
             "a search will hit its per-call limit. Scope the read to one document, "
             f"or pair it with a rarer term, to keep coverage even.{denominator_warning}"
         )
@@ -436,8 +494,9 @@ def build_verdicts(
         prepared: The terms from :func:`prepare_terms`, order preserved.
         counts: Mapping of normalized key -> corpus-wide use count (missing = 0).
         total_uses: The scope's total lexeme uses (the share denominator).
-        scans: Bounded sentence-hit counts keyed by :attr:`PreparedTerm.key`, for
-            the terms named by :func:`scan_keys`. Omitted keys fall back.
+        scans: Bounded candidates and verified counts keyed by
+            :attr:`PreparedTerm.key`, for the terms named by :func:`scan_keys`.
+            Omitted keys fall back.
         total_sentences: The scope's total sentences, reported alongside a scan.
 
     Returns:
@@ -449,19 +508,21 @@ def build_verdicts(
     for item in prepared:
         scan = scanned.get(item.key) if item.measurement != EXACT else None
         if scan is not None:
-            # Measured under the same rule search_sentences applies, so this
-            # verdict predicts that tool exactly. The lexeme-side component
-            # counts ride along as secondary evidence, not as the answer.
+            # Verified under the same profile as phrase search. The lexeme-side
+            # component counts ride along as secondary evidence, not the answer.
             parts = tuple(PartCount(part, int(counts.get(part, 0))) for part in item.parts)
             component_bound = (
                 min((part.uses for part in parts), default=0)
                 if item.measurement == COMPONENT_UPPER_BOUND
                 else None
             )
-            risk = sentence_flood_risk(scan.hits, scan.capped)
-            # A positive numerator with a zero denominator is an impossible
-            # statistic, not an empty corpus. Keep the hit measurement and band,
-            # but expose the broken rollup as null + an actionable note (#42).
+            verified_sentences = (
+                scan.occurrence_sentences if scan.occurrence_sentences is not None else scan.hits
+            )
+            risk = sentence_flood_risk(verified_sentences, scan.capped)
+            # Any fetched candidate proves the visible corpus is non-empty. A
+            # zero denominator is then stale even if profile verification rejects
+            # that candidate; expose it as null + an actionable note (#42).
             reported_total_sentences = (
                 None if scan.hits > 0 and int(total_sentences) <= 0 else int(total_sentences)
             )
@@ -477,9 +538,9 @@ def build_verdicts(
                         else (0.0 if component_bound is not None else None)
                     ),
                     flood_risk=risk,
-                    # The literal-substring match proves occurrence outright —
-                    # the exact claim a component upper bound could never make.
-                    attested=scan.hits > 0,
+                    # Verification proves positives. An uncapped zero proves
+                    # absence; a capped zero is incomplete and stays unknown.
+                    attested=(True if verified_sentences > 0 else (None if scan.capped else False)),
                     indexable=item.indexable,
                     measurement=item.measurement,
                     parts=parts,
@@ -488,6 +549,9 @@ def build_verdicts(
                     sentence_hits=scan.hits,
                     total_sentences=reported_total_sentences,
                     capped=scan.capped,
+                    profile=scan.profile,
+                    occurrence_sentences=scan.occurrence_sentences,
+                    occurrences=scan.occurrences,
                 )
             )
             continue

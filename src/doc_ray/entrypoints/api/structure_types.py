@@ -104,18 +104,21 @@ class TermFrequency:
     its ``measurement`` is ``unavailable``.
 
     ``method`` says which measurement produced ``floodRisk``. ``lexeme_lemma`` is the
-    proxy described above. ``sentence_scan`` is a **direct measurement**: for a term
-    the lexeme index cannot count exactly, the server counts the sentences matching
-    the same literal-substring rule ``searchSentences`` applies, so the verdict
-    predicts that tool rather than approximating it. Then ``sentenceHits`` is
-    populated, ``attested`` reflects whether the string actually occurs, and
-    ``floodRisk`` is banded on hits (one page / ten pages). ``totalSentences`` is
+    proxy described above. ``sentence_scan`` fetches a bounded SQL candidate
+    superset, then verifies word boundaries and adjacency under ``profile``.
+    ``sentenceHits`` is the candidate count, ``occurrenceSentences`` is the number
+    of candidates with at least one verified occurrence, and ``occurrences`` counts
+    every verified overlapping start. The invariant is ``occurrences >=
+    occurrenceSentences <= sentenceHits``. ``attested`` and ``floodRisk`` use
+    ``occurrenceSentences``, not candidate false positives. A capped scan with no
+    verified occurrence leaves ``attested`` null because unseen candidates can
+    still match. ``totalSentences`` is
     normally the maintained corpus denominator; it is ``null``, with an explicit
-    unavailable-denominator ``note``, when positive hits prove that rollup is stale
-    or missing. It is never reported as a contradictory ``0``. ``capped`` is
-    ``true`` when the count stopped at the server's cap: the true total is unknown
-    and *at least* ``sentenceHits`` — a floor, never a total. The scan-only fields
-    are all ``null`` when the method is not a scan.
+    unavailable-denominator ``note``, when fetched candidates prove that rollup is
+    stale or missing. It is never reported as a contradictory ``0``. ``capped`` is
+    ``true`` when candidate fetching stopped at the server's cap: all three counts
+    are floors, never exact totals. The scan-only fields are all ``null`` when the
+    method is not a scan.
     """
 
     term: str
@@ -131,6 +134,9 @@ class TermFrequency:
     note: str | None
     method: str
     sentence_hits: int | None
+    profile: str | None
+    occurrence_sentences: int | None
+    occurrences: int | None
     total_sentences: int | None
     capped: bool | None
 
@@ -151,6 +157,9 @@ class TermFrequency:
             note=verdict.note,
             method=verdict.method,
             sentence_hits=verdict.sentence_hits,
+            profile=verdict.profile,
+            occurrence_sentences=verdict.occurrence_sentences,
+            occurrences=verdict.occurrences,
             total_sentences=verdict.total_sentences,
             capped=verdict.capped,
         )

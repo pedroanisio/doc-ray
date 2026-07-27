@@ -415,14 +415,14 @@ them is the most common source of "why didn't this match?".
 | `fullTextSearch` (document-level) | `persistence_fulltext_read.py::fulltext_search` | Postgres `tsvector`, ranked by `ts_rank`; `TERMS` uses `plainto_tsquery`, `PHRASE` uses `phraseto_tsquery`, and both are **stemmed per document language** |
 | `searchSentences` (sentence-level) | `persistence_sentence_search.py::search_sentences` | `SUBSTRING` (default) is unchanged literal, case-insensitive containment; `PHRASE` verifies whole-word adjacency under `surface_word_v1`; **neither stems or ranks** |
 | `lexemeKwic` | `persistence_read.py::lexeme_kwic` | exact lexeme-id lookup over `lexeme_occurrences`, with a ±45-character window |
-| `termFrequency` (pre-flight) | `persistence_read_terms.py` + `domain/term_frequency.py` | exact lexeme-rollup measurement for one lexeme; whitespace phrases retain a rarest-component saturation ceiling; multi-word/unindexable terms use a cap-bounded sentence scan under `searchSentences`' literal rule |
+| `termFrequency` (pre-flight) | `persistence_read_terms.py` + `domain/term_frequency.py` | exact lexeme-rollup measurement for one lexeme; whitespace phrases retain a rarest-component saturation ceiling; multi-word/unindexable terms fetch a cap-bounded candidate superset and report `surface_word_v1` verified sentence/occurrence counts |
 
 The sentence scan reads its denominator from `corpus_stats.n_sentences`, which is
 maintained from `document_stats` at the batch boundary rather than counted from the
 `sentences` fact table on the request path (D-025). A positive scan paired with a
 zero rollup is evidence that the denominator is unavailable, not evidence of a
 zero-sentence corpus: GraphQL and MCP return `totalSentences: null` plus an explicit
-note while preserving the absolute, bounded-hit `floodRisk` band. Migration 146
+note while preserving the absolute, bounded verified-sentence `floodRisk` band. Migration 146
 repairs the full-refresh path and backfills existing tenants; `prod-check` verifies
 the rollup against its maintained document-level inputs without scanning fact tables.
 
@@ -471,19 +471,31 @@ builder and verifier. No schema, index, token-table, model, or configuration
 change is involved.
 
 **How the `termFrequency` verdict tiers compose.** A single indexed lexeme uses
-the maintained lexeme rollup and reports `measurement: "exact"`. For a
-whitespace phrase, `measurement: "component_upper_bound"` is the rarest
-component's saturation ceiling: useful pre-flight evidence, but not proof that
-the components occur adjacently. The measured half reports `method:
-"sentence_scan"` and counts sentences with the same `match_clause` rule used by
-`searchSentences` **substring mode**. That scan stops at
-`SENTENCE_HIGH_HITS = 2001`; when `capped` is true, the reported hit count is a
-floor rather than an exact total. For phrase mode it is a candidate upper bound
-because boundary verification can reject those rows.
+the maintained lexeme rollup and reports `measurement: "exact"`; that tier and
+its nullable scan fields are unchanged. A whitespace phrase retains
+`measurement: "component_upper_bound"` and the rarest component's saturation
+ceiling as secondary evidence. The primary `method: "sentence_scan"` tier now
+reuses the phrase-search `phrase_candidate_clause` for multi-word terms and the
+single-pattern `match_clause` for one-profile-word compounds such as
+`shared_buffers`. One `UNION ALL` statement fetches no more than
+`SENTENCE_HIGH_HITS = 2001` candidate Sentence ids/texts per term.
+
+The pure domain verifier then runs `phrase_profile.find_occurrences` on every
+candidate. `profile: "surface_word_v1"` names the rule; `sentenceHits` is the
+bounded candidate count, `occurrenceSentences` counts candidates with at least
+one valid occurrence, and `occurrences` counts every overlapping occurrence.
+Consequently `occurrences >= occurrenceSentences <= sentenceHits`. `attested`
+and `floodRisk` use `occurrenceSentences`, so `algorithm designed` may be a SQL
+candidate for `algorithm design` without inflating the verdict. When `capped` is
+true, all three counts are floors because unseen candidates may add matches, and
+the verdict is always high/incomplete. A capped verified zero leaves `attested`
+null rather than claiming absence from incomplete work. Debug logs distinguish candidates fetched
+from verified sentences/occurrences. This adds no schema, index, token table,
+model, or configuration.
 
 **Versioned phrase profile.** `domain/phrase_profile.py` defines
 `surface_word_v1`, the shared word-boundary contract used by phrase search and
-future verified occurrence counts. Unicode letters, digits, and underscore form words;
+verified term-frequency counts. Unicode letters, digits, and underscore form words;
 whitespace plus folded apostrophe/hyphen variants preserve adjacency, while
 other punctuation breaks it. Matching reuses `search_terms.fold`, reports exact
 offsets into the original text, and counts overlapping starts. Every result must

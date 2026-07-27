@@ -107,10 +107,10 @@ disclaimer: |
 
 metadata:
   schema_version:   "1.0.0"
-  generated_by:     "Claude Sonnet 5 via Claude Code (merge of Claude Opus 4.8 backlog + OpenAI Codex improvement-proposal candidates); BL-181/BL-182 by OpenAI GPT-5 via Codex"
+  generated_by:     "Claude Sonnet 5 via Claude Code (merge of Claude Opus 4.8 backlog + OpenAI Codex improvement-proposal candidates); BL-181/BL-182/BL-183 by OpenAI GPT-5 via Codex"
   generated_on:     "2026-07-27"
   system_of_record: "docs/backlog.yml"
-  total_items:      182
+  total_items:      183
 
 items:
 
@@ -6590,3 +6590,56 @@ items:
     owner:        "shared"
     source:       "GitHub issue #45 (2026-07-27); strict TDD implementation by OpenAI Codex after operator approval."
     tags:         ["phrase-retrieval", "graphql", "mcp", "webapp", "citations", "tdd"]
+
+  - id:          "BL-183"
+    title:        "term_frequency verified phrase-occurrence counts"
+    summary:      "Upgrade the bounded sentence-scan verdict from substring candidates to surface_word_v1 verified sentence and occurrence counts."
+    description: |
+      Implemented by GitHub issue #46 as the verified-count half of the phrase
+      architecture. The existing single-indexed-lexeme tier is unchanged.
+      Multi-word terms reuse phrase search's shared parameterized AND-of-words
+      candidate clause; one-profile-word compounds such as `shared_buffers`
+      reuse the existing single-pattern match clause. One UNION ALL statement
+      fetches at most 2,001 Sentence ids/texts per term for the whole batch.
+
+      Pure domain verification calls `phrase_profile.find_occurrences` on every
+      candidate. The flat GraphQL/MCP result names `profile: surface_word_v1`,
+      keeps `sentenceHits` as candidate evidence, and adds
+      `occurrenceSentences` plus overlap-aware `occurrences`. Attestation and
+      flood risk derive from verified sentences, so word-internal candidates do
+      not become claims. A candidate-cap hit makes all three counts floors and
+      always yields a high/incomplete verdict; a capped verified zero leaves
+      attestation unknown rather than claiming absence from incomplete work.
+
+      GraphQL, MCP selection, tool descriptions, server instructions, API/MCP
+      references, architecture, usage examples, changelog, release notes, and
+      migration/configuration guidance expose the same contract. No database,
+      index, token, model, configuration, webapp, or SDK change is required.
+    category:     "api"
+    type:         "feature"
+    status:       "done"
+    complexity:   "M"
+    priority:     "high"
+    rationale:    "Candidate containment is deliberately permissive for indexed retrieval; only profile verification can turn it into an occurrence claim or a trustworthy flood-risk verdict."
+    acceptance_criteria:
+      - "Every sentence-scan row carries profile, sentenceHits, occurrenceSentences, occurrences, and capped with occurrences >= occurrenceSentences <= sentenceHits."
+      - "Flood risk and attestation use occurrenceSentences; candidate false positives do not inflate either."
+      - "Multi-word and single-profile-word terms share one bounded UNION ALL batch statement with their respective candidate builders."
+      - "A cap hit makes all three counts explicit floors and forces high/incomplete steering."
+      - "A capped verified zero leaves attested null; only an uncapped verified zero proves absence."
+      - "The exact single-lexeme tier remains unchanged with all scan fields null."
+      - "GraphQL, MCP, discovery instructions, internal/public docs, changelog, migration/configuration guidance, and examples align."
+      - "Strict red/green tests cover domain invariants, boundaries, overlaps, database batching, GraphQL, MCP, and complete-suite regression."
+    dependencies: ["BL-181", "BL-182"]
+    references:
+      - "src/doc_ray/domain/term_frequency.py"
+      - "src/doc_ray/adapters/persistence_read_terms.py"
+      - "src/doc_ray/entrypoints/api/structure_types.py"
+      - "src/doc_ray/entrypoints/mcp/structure.py"
+      - "src/doc_ray/tests/test_term_frequency_verified.py"
+      - "src/doc_ray/tests/test_term_frequency_verified_db.py"
+      - "docs/mcp-service.md"
+      - "docs/public/release-notes/1.53.1.md"
+    owner:        "shared"
+    source:       "GitHub issue #46 (2026-07-27); strict TDD implementation by OpenAI Codex after operator approval."
+    tags:         ["term-frequency", "phrase-retrieval", "occurrence-counts", "graphql", "mcp", "tdd"]
