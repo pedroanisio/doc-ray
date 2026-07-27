@@ -362,8 +362,10 @@ which is merged into both the job result and the provenance parameters.
 
 **Where:** `domain/ner_corrections.py` (pure logic),
 `adapters/ner_corrections_store.py` (persistence), migration
-`115_ner_corrections.sql`, GraphQL `correctEntityMention`, MCP
-`correct_entity_mention` / `entity_mention_corrections`.
+`115_ner_corrections.sql` + `140_entity_surface_corrections.sql`, GraphQL
+`correctEntityMention` / `entitySurfaceOccurrences` / `correctEntitySurface`,
+MCP `correct_entity_mention` / `correct_entity_surface` /
+`entity_mention_corrections`.
 
 NER is the layer where model error is most visible to a reader, so it carries an
 explicit human-override layer.
@@ -371,11 +373,13 @@ explicit human-override layer.
 The design constraint is structural: `entity_mention` rows are
 `ON DELETE CASCADE` from `annotations`, and every annotation run deletes and
 rebuilds them. A correction stored on the mention row would be destroyed by the
-next pass. Corrections are therefore keyed by the **stable span identity**
-`(document_id, char_start, char_end)` in `entity_mention_correction`, and
-replayed onto each fresh set of ML mentions.
+next pass. A one-off correction is therefore keyed by the **stable span
+identity** `(document_id, char_start, char_end)` in
+`entity_mention_correction`. A systematic rule instead has honest `NULL` span
+coordinates and an exact, case-sensitive `(surface, surface_original_type)`
+matcher. Both shapes replay chronologically onto each fresh set of ML mentions.
 
-Four actions are supported:
+Six actions are supported:
 
 | Action | Meaning |
 |---|---|
@@ -383,14 +387,17 @@ Four actions are supported:
 | `reject` | the span is not an entity at all |
 | `add` | a real entity the model missed |
 | `adjust_span` | the entity is real, the boundary is wrong |
+| `reclassify_surface` | retype every exact surface/current-type match in the target Document |
+| `reject_surface` | remove every exact surface/current-type match in the target Document |
 
 `reconcile(mentions, corrections)` is pure, deterministic, and idempotent: it
-indexes mentions by span, applies corrections in order (later corrections for the
-same span win), and returns the merged set sorted by span. Every action is
-upsert-style, so a fix survives even if the model stops emitting the span
-entirely. Corrected mentions carry `source="human"` instead of `"ml"`, and the
-stored correction records the original ML value and the reviewer — attributable
-and reversible.
+indexes mentions by span, applies span and surface corrections in one order
+(later decisions win), and returns the merged set sorted by span. Span actions
+are upsert-style, so a fix survives even if the model stops emitting the span
+entirely; surface actions apply to future exact matches created by later model
+runs. Corrected mentions carry `source="human"` instead of `"ml"`, and the stored
+correction records the original ML value and the reviewer — attributable and
+reversible.
 
 Because the reconcile needs no spaCy, a freshly recorded correction can be
 applied through the cheap `apply_corrections` job rather than a full
@@ -405,9 +412,10 @@ them is the most common source of "why didn't this match?".
 
 | Path | Implementation | Semantics |
 |---|---|---|
-| `fullTextSearch` (document-level) | `persistence_read.py::fulltext_search` | Postgres `tsvector`/`plainto_tsquery`, ranked by `ts_rank`, **stemmed per document language** |
+| `fullTextSearch` (document-level) | `persistence_fulltext_read.py::fulltext_search` | Postgres `tsvector`, ranked by `ts_rank`; `TERMS` uses `plainto_tsquery`, `PHRASE` uses `phraseto_tsquery`, and both are **stemmed per document language** |
 | `searchSentences` (sentence-level) | `persistence_read.py::search_sentences` | `ILIKE '%term%'` — literal, case-insensitive substring; **no stemming, no ranking** |
 | `lexemeKwic` | `persistence_read.py::lexeme_kwic` | exact lexeme-id lookup over `lexeme_occurrences`, with a ±45-character window |
+| `termFrequency` (pre-flight) | `persistence_read_terms.py` + `domain/term_frequency.py` | exact rollup count for one lexeme; a whitespace phrase returns the rarest-component upper bound with explicit measurement provenance |
 
 **Language-aware full-text search.** Migration `016_fts_language_aware.sql`
 replaced the original generated `fts` column (hardcoded to the `english` config)
@@ -416,7 +424,10 @@ with a trigger-maintained `tsvector`. `docray_ts_config(lang)` maps
 triggers keep it current: one on content write, one on `documents.language`
 change — necessary because language is detected *after* the content row exists.
 Queries parse with the same per-document config, which
-`tests/test_fts_language_config.py` guards statically.
+`tests/test_fts_language_config.py` guards statically. The default `TERMS` mode
+preserves the historical all-terms match. `PHRASE` adds ordered phrase matching
+without exposing raw `tsquery` syntax; stop words and stemming still follow each
+Document's selected Postgres text-search configuration.
 
 One consequence follows directly from the mapping: French is a supported
 *annotation* language (`fr_core_news_sm`) but not a supported *search-stemming*
@@ -703,15 +714,18 @@ precomputed at pipeline boundaries (migration 100), because
 `.chunks`, `.dependencies`, `.corefChains`, `.entityLinks`, plus `Query.lexemes`
 / `lexeme` / `Lexeme.occurrences`, `Query.entities`, `entityFrequency`,
 `entityProfiles`, `searchSentences`, `fullTextSearch`, `unresolvedMentions`,
-`resolutionReview`, `seedSuggestions`, `entityMentionCorrections`. All reads use
-bounded keyset pagination.
+`resolutionReview`, `seedSuggestions`, `entityMentionCorrections`, and the
+explicit-document, capped `entitySurfaceOccurrences` preview. All reads are
+bounded.
 
 **MCP** (`src/doc_ray/entrypoints/mcp/`) — the agent-facing surface, which fronts
 GraphQL rather than the database. NLP-relevant tools: `read_document_outline`,
 `read_document_sentences`, `search_sentences`, `full_text_search`,
 `entity_profiles`, `entity_frequency`, `entity_dossier`, `lexeme_kwic`,
 `briefing_pack`, `document_evidence`, `cross_modal_image_search`,
-`visual_captions`, `correct_entity_mention`. The server's instructions steer
+`visual_captions`, `correct_entity_mention`, `correct_entity_surface`. The
+systematic tool defaults to dry-run preview and refuses an unprovably complete
+200-member Collection page. The server's instructions steer
 agents toward `entity_profiles` over raw `entity_frequency` precisely because of
 the type-splitting problem in section 12.
 

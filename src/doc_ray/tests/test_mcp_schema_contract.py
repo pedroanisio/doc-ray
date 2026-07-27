@@ -12,6 +12,7 @@ from __future__ import annotations
 import contextlib
 import re
 from typing import Any
+from unittest.mock import AsyncMock
 
 import pytest
 from graphql import build_schema, parse, validate
@@ -21,7 +22,15 @@ from doc_ray.entrypoints.api.schema import build_schema as build_strawberry_sche
 # Import the server eagerly so the `mcp` SDK is loaded before any test patches
 # httpx.AsyncClient — tokens._current_request() lazily imports it on first tool
 # call, and the SDK evaluates `httpx.AsyncClient | None` at import time.
-from doc_ray.entrypoints.mcp import corpus, mutations, semantic, server, structure  # noqa: F401
+from doc_ray.entrypoints.mcp import (  # noqa: F401
+    corpus,
+    mention_confidence,
+    mutations,
+    mutations_surface,
+    semantic,
+    server,
+    structure,
+)
 
 _GRAPHQL_SCHEMA = build_schema(build_strawberry_schema(debug=True).as_str())
 _DOC = "11111111-1111-1111-1111-111111111111"
@@ -60,7 +69,7 @@ class _CapturingClient:
 
 async def _capture(monkeypatch: pytest.MonkeyPatch, call) -> str:
     sink: dict[str, str] = {}
-    monkeypatch.setattr(corpus.httpx, "AsyncClient", lambda **kw: _CapturingClient(sink))
+    monkeypatch.setattr(corpus, "acquire_client", AsyncMock(return_value=_CapturingClient(sink)))
     # The document under test is captured in `post`, before the tool interprets
     # the response. `_AutoData` answers every field with `[]`, which some tools
     # correctly reject (semantic search treats an empty ranking as "nothing in
@@ -84,6 +93,7 @@ _READ_CALLS = [
     lambda: structure.read_document_outline(_DOC),
     lambda: structure.entity_profiles(),
     lambda: structure.entity_profiles(document_id=_DOC, entity_type="PERSON"),
+    lambda: mention_confidence.uncertain_mentions(_DOC, entity_type="PERSON"),
     lambda: structure.term_frequency(["spice", "kwisatz"]),
     lambda: structure.entity_projection(_DOC),
     lambda: structure.entity_projection(_DOC, lens_id=_DOC, limit=10, after="c"),
@@ -132,6 +142,14 @@ _WRITE_CALLS = [
     ),
     lambda: mutations.correct_entity_mention(
         _DOC, "adjust_span", 16, 22, new_char_start=16, new_char_end=26
+    ),
+    lambda: mutations_surface.correct_entity_surface(
+        "Apple",
+        "ORG",
+        "reclassify_surface",
+        document_id=_DOC,
+        entity_type="PRODUCT",
+        dry_run=False,
     ),
     lambda: mutations.classify_document(_DOC),
     lambda: mutations.confirm_document_classification(_DOC, "fiction", subtype="novel"),
@@ -269,3 +287,4 @@ async def test_every_write_tool_is_contract_checked() -> None:
         "set_document_default_lens",
     }
     assert {fn.__name__ for fn in mutations.TOOLS} == covered
+    assert {fn.__name__ for fn in mutations_surface.TOOLS} == {"correct_entity_surface"}

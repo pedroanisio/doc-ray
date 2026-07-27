@@ -210,13 +210,13 @@ def test_seed_approved_job_seeds_and_finalizes(sg_env, monkeypatch):
         conn.execute("DELETE FROM jobs WHERE id = %s", (job_id,))
 
 
-def test_graphql_surface_covers_the_curation_loop(sg_env):
+@pytest.mark.asyncio
+async def test_graphql_surface_covers_the_curation_loop(sg_env):
     # The webapp's contract: list suggestions, decide them, enqueue the seed job
     # — all through the GraphQL API.
-    from fastapi.testclient import TestClient
-
     from doc_ray.config import Config
     from doc_ray.entrypoints.api.app import create_app
+    from doc_ray.tests._asgi import asgi_client
 
     conn, doc_id = sg_env
     principal = conn.execute(
@@ -245,10 +245,10 @@ def test_graphql_surface_covers_the_curation_loop(sg_env):
         api_allow_anonymous=False,
     )
     app = create_app(cfg)
-    with TestClient(app) as client:
+    async with asgi_client(app) as client:
 
-        def gql(query, variables=None):
-            r = client.post(
+        async def gql(query, variables=None):
+            r = await client.post(
                 "/graphql",
                 json={"query": query, "variables": variables or {}},
                 headers={"Authorization": "Bearer test-token"},
@@ -258,17 +258,21 @@ def test_graphql_surface_covers_the_curation_loop(sg_env):
             assert body.get("errors") is None, body
             return body["data"]
 
-        listed = gql(
-            "query($d: ID!) { seedSuggestions(documentId: $d) { id term qid description status } }",
-            {"d": doc_id},
+        listed = (
+            await gql(
+                "query($d: ID!) { seedSuggestions(documentId: $d) { id term qid description status } }",
+                {"d": doc_id},
+            )
         )["seedSuggestions"]
         assert {s["term"] for s in listed} == {"flombard", "noisyterm"}
         by_term = {s["term"]: s for s in listed}
         assert by_term["flombard"]["description"] == "fictive press"
 
-        n = gql(
-            "mutation($a: [ID!], $r: [ID!]) { decideSeeds(approveIds: $a, rejectIds: $r) }",
-            {"a": [sid], "r": [rid]},
+        n = (
+            await gql(
+                "mutation($a: [ID!], $r: [ID!]) { decideSeeds(approveIds: $a, rejectIds: $r) }",
+                {"a": [sid], "r": [rid]},
+            )
         )["decideSeeds"]
         assert n == 2  # both the approve and the reject branch ran
 
@@ -277,9 +281,11 @@ def test_graphql_surface_covers_the_curation_loop(sg_env):
         ).fetchone()
         assert rejected["status"] == "rejected"
 
-        job = gql(
-            "mutation($d: ID!) { seedApproved(documentId: $d) { id kind status } }",
-            {"d": doc_id},
+        job = (
+            await gql(
+                "mutation($d: ID!) { seedApproved(documentId: $d) { id kind status } }",
+                {"d": doc_id},
+            )
         )["seedApproved"]
         assert job["kind"] == "seed_approved"
         conn.execute("DELETE FROM jobs WHERE id = %s", (job["id"],))

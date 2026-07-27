@@ -8,6 +8,26 @@
     "total_est_tokens": 12620
   },
   "mode": "scripted",
+  "surface": {
+    "read_only": {
+      "instructions_chars": 2118,
+      "prompts_count": 4,
+      "resource_templates_count": 5,
+      "resources_count": 3,
+      "tool_count": 33,
+      "tools_list_chars": 45049,
+      "tools_list_est_tokens": 11262
+    },
+    "write_enabled": {
+      "instructions_chars": 2118,
+      "prompts_count": 4,
+      "resource_templates_count": 5,
+      "resources_count": 3,
+      "tool_count": 65,
+      "tools_list_chars": 77967,
+      "tools_list_est_tokens": 19491
+    }
+  },
   "tasks": [
     {
       "assertions": [

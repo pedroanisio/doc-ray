@@ -65,6 +65,12 @@ HIGH = "high"
 #: from ``LOW``, which is a measurement, not an inability to measure.
 UNKNOWN = "unknown"
 
+#: Provenance of the numeric result. A phrase upper bound is useful steering
+#: evidence, but it must never be presented as an exact occurrence count.
+EXACT = "exact"
+COMPONENT_UPPER_BOUND = "component_upper_bound"
+UNAVAILABLE = "unavailable"
+
 
 class InvalidTerms(ValueError):
     """Raised when a batch of terms cannot be served (empty, all-blank, or oversized)."""
@@ -102,21 +108,22 @@ class PreparedTerm:
 
     term: str  # first raw spelling that produced this key, trimmed (echoed back)
     key: str  # norm_lemma(term) — the exact lexeme lookup key
-    #: True only when the index can hold ``key`` verbatim — i.e. the tokenizer
-    #: yields exactly one word and it normalizes to ``key``. False for underscore
+    #: True when every requested unit can be represented: either one exact
+    #: lexeme or 2+ words separated only by whitespace. False for underscore
     #: compounds, alphanumerics, and punctuation, whose counts are unknowable here.
     indexable: bool
-    #: The keys the index does hold for this term (``(key,)`` when indexable).
+    #: The keys the index holds (one for exact terms, 2+ for phrases/evidence).
     parts: tuple[str, ...]
+    measurement: str
 
 
 @dataclass(frozen=True)
 class TermVerdict:
     """One term's frequency verdict with the numbers that justify it.
 
-    ``uses``, ``share`` and ``attested`` are ``None`` exactly when
-    ``indexable`` is False: the lexeme index cannot answer for that term, and a
-    fabricated 0 would read as a measured absence (BL-164).
+    ``measurement`` distinguishes exact single-lexeme counts, phrase component
+    upper bounds, and unavailable compound counts. For a positive phrase upper
+    bound, ``attested`` remains ``None`` because components do not prove adjacency.
     """
 
     term: str
@@ -127,10 +134,25 @@ class TermVerdict:
     flood_risk: str
     attested: bool | None
     indexable: bool
+    measurement: str
     #: Evidence for an unindexable term: the parts it was split into, with their
     #: counts. Empty for indexable terms, where ``uses`` is already the answer.
     parts: tuple[PartCount, ...]
     note: str | None
+
+
+def _is_whitespace_phrase(term: str, parts: Sequence[str]) -> bool:
+    """Return whether 2+ indexed words fully cover *term* with whitespace separators."""
+    if len(parts) < 2:
+        return False
+    stripped = term.strip()
+    matches = list(iter_words(stripped))
+    if matches[0][1] != 0 or matches[-1][2] != len(stripped):
+        return False
+    return all(
+        stripped[left[2] : right[1]].isspace()
+        for left, right in zip(matches, matches[1:], strict=False)
+    )
 
 
 def prepare_terms(raw: Sequence[str]) -> list[PreparedTerm]:
@@ -161,8 +183,19 @@ def prepare_terms(raw: Sequence[str]) -> list[PreparedTerm]:
         # key we would look up. Anything else (underscore compound, alphanumeric,
         # punctuation) cannot exist in the index under `key`, so querying it would
         # buy a guaranteed miss and report it as absence (BL-164).
-        indexable = len(parts) == 1 and parts[0] == key
-        out.append(PreparedTerm(term=item.strip(), key=key, indexable=indexable, parts=parts))
+        exact = len(parts) == 1 and parts[0] == key
+        phrase = _is_whitespace_phrase(item, parts)
+        indexable = exact or phrase
+        measurement = EXACT if exact else COMPONENT_UPPER_BOUND if phrase else UNAVAILABLE
+        out.append(
+            PreparedTerm(
+                term=item.strip(),
+                key=key,
+                indexable=indexable,
+                parts=parts,
+                measurement=measurement,
+            )
+        )
     if not out:
         raise InvalidTerms("no searchable terms after normalization (all blank?)")
     return out
@@ -185,7 +218,7 @@ def lookup_keys(prepared: Sequence[PreparedTerm]) -> list[str]:
     keys: list[str] = []
     seen: set[str] = set()
     for item in prepared:
-        for key in (item.key,) if item.indexable else item.parts:
+        for key in (item.key,) if item.measurement == EXACT else item.parts:
             if key not in seen:
                 seen.add(key)
                 keys.append(key)
@@ -227,6 +260,24 @@ def _unindexable_note(term: str, parts: Sequence[PartCount]) -> str:
         f"unknown — this is NOT an absence, and the term may well be frequent. "
         f"search_sentences matches a case-insensitive literal substring and "
         f"handles this term directly; use it to find out."
+    )
+
+
+def _phrase_note(term: str, parts: Sequence[PartCount], upper_bound: int) -> str:
+    """Explain phrase evidence without dressing an upper bound as an exact count."""
+    if upper_bound <= 0:
+        absent = next(part.part for part in parts if part.uses <= 0)
+        return (
+            f"{term!r} is unattested as a lexeme phrase because component {absent!r} "
+            "has no indexed uses. Confirm retrieval semantics with "
+            "full_text_search(mode='phrase')."
+        )
+    rarest = min(parts, key=lambda part: part.uses)
+    return (
+        f"{term!r} has a component upper bound of {upper_bound} uses from its "
+        f"rarest component {rarest.part!r}. This is NOT an exact phrase count: "
+        "positive component counts do not prove adjacency. Confirm matches with "
+        "full_text_search(mode='phrase')."
     )
 
 
@@ -285,8 +336,30 @@ def build_verdicts(
                     flood_risk=UNKNOWN,
                     attested=None,
                     indexable=False,
+                    measurement=UNAVAILABLE,
                     parts=parts,
                     note=_unindexable_note(item.term, parts),
+                )
+            )
+            continue
+        if item.measurement == COMPONENT_UPPER_BOUND:
+            parts = tuple(PartCount(part, int(counts.get(part, 0))) for part in item.parts)
+            uses = min((part.uses for part in parts), default=0)
+            risk = flood_risk(uses, total)
+            share = (uses / total) if (uses > 0 and total > 0) else 0.0
+            verdicts.append(
+                TermVerdict(
+                    term=item.term,
+                    normalized_term=item.key,
+                    uses=uses,
+                    total_uses=total,
+                    share=share,
+                    flood_risk=risk,
+                    attested=False if uses <= 0 else None,
+                    indexable=True,
+                    measurement=COMPONENT_UPPER_BOUND,
+                    parts=parts,
+                    note=_phrase_note(item.term, parts, uses),
                 )
             )
             continue
@@ -303,6 +376,7 @@ def build_verdicts(
                 flood_risk=risk,
                 attested=uses > 0,
                 indexable=True,
+                measurement=EXACT,
                 parts=(),
                 note=_note(item.term, uses, risk),
             )

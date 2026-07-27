@@ -102,6 +102,12 @@ def test_term_frequencies_report_real_counts_and_every_verdict_from_real_data(pg
         assert missing.flood_risk == "low" and missing.attested is False
         assert "unattested" in (missing.note or "").lower()
 
+        # A phrase reuses those component counts from the same batched read. Its
+        # rarest component is a declared upper bound, never an adjacency claim.
+        (phrase,) = tf.build_verdicts(tf.prepare_terms([f"{_FLOOD} {_RARE}"]), counts, total_uses)
+        assert phrase.measurement == tf.COMPONENT_UPPER_BOUND
+        assert phrase.uses == 1 and phrase.attested is None
+
     asyncio.run(check())
 
 

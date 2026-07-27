@@ -5,13 +5,11 @@ dispatching (read live from the SDK's per-message request context), else the
 token stashed by :class:`~doc_ray.entrypoints.mcp.auth.BearerAuthMiddleware` at
 validation time.
 
-Why the request wins over the contextvar: in stateful Streamable-HTTP the tool
-coroutine runs inside the session task created at ``initialize``, not the POST
-task the middleware ran in. A contextvar set by the middleware therefore never
-reaches the tool, and any token captured at connect time freezes there — once
-the client rotates a refreshed credential, the MCP hop keeps returning 200 while
-every forwarded GraphQL call carries the dead token and 401s. Reading the live
-request keeps the refreshed credential flowing. The contextvar remains the
+Why the request wins over the contextvar: the authorization boundary is every
+HTTP request, not MCP initialization. The primary server is deliberately
+stateless so calls may land after a restart or on another replica; reading the
+SDK's live request guarantees the credential just validated by middleware is the
+one forwarded to GraphQL, including after rotation. The contextvar remains the
 fallback for transports with no per-call HTTP request (e.g. stdio).
 
 The middleware still authenticates every POST before dispatch, so the header
@@ -59,8 +57,8 @@ def _current_request() -> Request | None:
 def current_token() -> str:
     """Return the bearer token to forward for the call being dispatched.
 
-    Prefers the live HTTP request's credential over the session-scoped
-    :data:`caller_token`, so a client that rotated its token mid-session keeps
+    Prefers the live HTTP request's credential over the transport fallback
+    :data:`caller_token`, so a client that rotated its token after initialization keeps
     authenticating downstream. Empty string means forward no ``Authorization``
     header (anonymous); a present-but-anonymous request never falls back to a
     stale session token.

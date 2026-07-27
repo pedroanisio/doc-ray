@@ -13,6 +13,7 @@ from uuid import uuid4
 import pytest
 
 from doc_ray.adapters import queue_postgres as queue
+from doc_ray.tests._asgi import asgi_client
 
 
 def _connect_or_skip():
@@ -44,7 +45,6 @@ def api_env():
 
 def _client(principal_id: str):
     import _itdb
-    from fastapi.testclient import TestClient
 
     from doc_ray.config import Config
     from doc_ray.entrypoints.api.app import create_app
@@ -55,11 +55,11 @@ def _client(principal_id: str):
         api_tokens={"test-token": (principal_id, frozenset({"read", "write"}))},
         api_allow_anonymous=False,
     )
-    return TestClient(create_app(cfg))
+    return asgi_client(create_app(cfg))
 
 
-def _gql(client, query, variables=None):
-    r = client.post(
+async def _gql(client, query, variables=None):
+    r = await client.post(
         "/graphql",
         json={"query": query, "variables": variables or {}},
         headers={"Authorization": "Bearer test-token"},
@@ -70,38 +70,47 @@ def _gql(client, query, variables=None):
     return body["data"]
 
 
-def test_mutations_enqueue_and_jobs_query_lists_them(api_env):
+@pytest.mark.asyncio
+async def test_mutations_enqueue_and_jobs_query_lists_them(api_env):
     conn, doc_id, principal_id = api_env
     job_ids = []
-    with _client(principal_id) as client:
-        ann = _gql(
-            client,
-            "mutation($d: ID!) { annotateDocument(documentId: $d) { id kind status } }",
-            {"d": doc_id},
+    async with _client(principal_id) as client:
+        ann = (
+            await _gql(
+                client,
+                "mutation($d: ID!) { annotateDocument(documentId: $d) { id kind status } }",
+                {"d": doc_id},
+            )
         )["annotateDocument"]
         assert ann["kind"] == "annotate" and ann["status"] == "queued"
         job_ids.append(ann["id"])
 
-        can = _gql(
-            client,
-            "mutation($d: ID!) { canonicalizeDocument(documentId: $d) { id kind } }",
-            {"d": doc_id},
+        can = (
+            await _gql(
+                client,
+                "mutation($d: ID!) { canonicalizeDocument(documentId: $d) { id kind } }",
+                {"d": doc_id},
+            )
         )["canonicalizeDocument"]
         assert can["kind"] == "canonicalize"
         job_ids.append(can["id"])
 
-        sem = _gql(
-            client,
-            "mutation($d: ID!) { semanticEnrichDocument(documentId: $d) { id kind } }",
-            {"d": doc_id},
+        sem = (
+            await _gql(
+                client,
+                "mutation($d: ID!) { semanticEnrichDocument(documentId: $d) { id kind } }",
+                {"d": doc_id},
+            )
         )["semanticEnrichDocument"]
         assert sem["kind"] == "semantic_enrich"
         job_ids.append(sem["id"])
 
-        listed = _gql(
-            client,
-            "query($d: ID!) { jobs(documentId: $d) { id kind status } }",
-            {"d": doc_id},
+        listed = (
+            await _gql(
+                client,
+                "query($d: ID!) { jobs(documentId: $d) { id kind status } }",
+                {"d": doc_id},
+            )
         )["jobs"]
         assert {j["id"] for j in listed} >= set(job_ids)
         assert all(j["status"] == "queued" for j in listed if j["id"] in job_ids)
@@ -109,15 +118,17 @@ def test_mutations_enqueue_and_jobs_query_lists_them(api_env):
         conn.execute("DELETE FROM jobs WHERE id = %s", (jid,))
 
 
-def test_jobs_query_without_document_id_returns_recent_jobs(api_env):
+@pytest.mark.asyncio
+async def test_jobs_query_without_document_id_returns_recent_jobs(api_env):
     # Branch coverage: document_id is optional (the unscoped "recent jobs" view).
     _conn, _doc_id, principal_id = api_env
-    with _client(principal_id) as client:
-        data = _gql(client, "{ jobs(limit: 1) { id kind } }")
+    async with _client(principal_id) as client:
+        data = await _gql(client, "{ jobs(limit: 1) { id kind } }")
         assert isinstance(data["jobs"], list)
 
 
-def test_job_queries_expose_queue_timing_and_attempts(api_env):
+@pytest.mark.asyncio
+async def test_job_queries_expose_queue_timing_and_attempts(api_env):
     conn, doc_id, principal_id = api_env
     queued_id = queue.enqueue(
         conn, "annotate", {"chain": []}, priority=-9_999, max_attempts=5, document_id=doc_id
@@ -135,17 +146,19 @@ def test_job_queries_expose_queue_timing_and_attempts(api_env):
         worker_id="api-pipeline-test",
     )
     try:
-        with _client(principal_id) as client:
-            finished = _gql(
-                client,
-                """
+        async with _client(principal_id) as client:
+            finished = (
+                await _gql(
+                    client,
+                    """
                 query($id: ID!) {
                   job(id: $id) {
                     id createdAt startedAt finishedAt attempts maxAttempts
                   }
                 }
                 """,
-                {"id": finished_id},
+                    {"id": finished_id},
+                )
             )["job"]
             assert finished["id"] == finished_id
             assert finished["createdAt"] is not None
@@ -154,16 +167,18 @@ def test_job_queries_expose_queue_timing_and_attempts(api_env):
             assert finished["attempts"] == 1
             assert finished["maxAttempts"] == 4
 
-            listed = _gql(
-                client,
-                """
+            listed = (
+                await _gql(
+                    client,
+                    """
                 query($documentId: ID!) {
                   jobs(documentId: $documentId) {
                     id createdAt startedAt finishedAt attempts maxAttempts
                   }
                 }
                 """,
-                {"documentId": doc_id},
+                    {"documentId": doc_id},
+                )
             )["jobs"]
             queued = next(job for job in listed if job["id"] == queued_id)
             assert queued["createdAt"] is not None
@@ -175,7 +190,8 @@ def test_job_queries_expose_queue_timing_and_attempts(api_env):
         conn.execute("DELETE FROM jobs WHERE id IN (%s, %s)", (queued_id, finished_id))
 
 
-def test_job_query_exposes_progress_fields(api_env):
+@pytest.mark.asyncio
+async def test_job_query_exposes_progress_fields(api_env):
     conn, doc_id, principal_id = api_env
     job_id = queue.enqueue(
         conn, "annotate", {"chain": []}, priority=-9_999, max_attempts=5, document_id=doc_id
@@ -191,17 +207,19 @@ def test_job_query_exposes_progress_fields(api_env):
         worker_id="api-progress-test",
     )
     try:
-        with _client(principal_id) as client:
-            data = _gql(
-                client,
-                """
+        async with _client(principal_id) as client:
+            data = (
+                await _gql(
+                    client,
+                    """
                 query($id: ID!) {
                   job(id: $id) {
                     id progressCurrent progressTotal progressStage
                   }
                 }
                 """,
-                {"id": job_id},
+                    {"id": job_id},
+                )
             )["job"]
         assert data == {
             "id": job_id,
@@ -213,14 +231,15 @@ def test_job_query_exposes_progress_fields(api_env):
         conn.execute("DELETE FROM jobs WHERE id = %s", (job_id,))
 
 
-def test_job_events_streams_visible_document_jobs(api_env):
+@pytest.mark.asyncio
+async def test_job_events_streams_visible_document_jobs(api_env):
     conn, doc_id, principal_id = api_env
     job_id = queue.enqueue(
         conn, "annotate", {"chain": []}, priority=-9_999, max_attempts=5, document_id=doc_id
     )
     try:
-        with _client(principal_id) as client:
-            response = client.get(
+        async with _client(principal_id) as client:
+            response = await client.get(
                 f"/jobs/events?document_id={doc_id}&once=true",
                 headers={"Authorization": "Bearer test-token"},
             )
@@ -236,14 +255,15 @@ def test_job_events_streams_visible_document_jobs(api_env):
         conn.execute("DELETE FROM jobs WHERE id = %s", (job_id,))
 
 
-def test_job_events_respect_document_rls(api_env):
+@pytest.mark.asyncio
+async def test_job_events_respect_document_rls(api_env):
     conn, doc_id, _principal_id = api_env
     job_id = queue.enqueue(
         conn, "annotate", {"chain": []}, priority=-9_999, max_attempts=5, document_id=doc_id
     )
     try:
-        with _client(str(uuid4())) as client:
-            response = client.get(
+        async with _client(str(uuid4())) as client:
+            response = await client.get(
                 f"/jobs/events?document_id={doc_id}&once=true",
                 headers={"Authorization": "Bearer test-token"},
             )
@@ -253,31 +273,49 @@ def test_job_events_respect_document_rls(api_env):
         conn.execute("DELETE FROM jobs WHERE id = %s", (job_id,))
 
 
-def test_job_events_requires_api_authentication(api_env):
+@pytest.mark.asyncio
+async def test_job_events_requires_api_authentication(api_env):
     _conn, doc_id, principal_id = api_env
-    with _client(principal_id) as client:
-        response = client.get(f"/jobs/events?document_id={doc_id}&once=true")
+    async with _client(principal_id) as client:
+        response = await client.get(f"/jobs/events?document_id={doc_id}&once=true")
     assert response.status_code == 401
 
 
-def test_jobs_query_with_invalid_document_id_returns_empty_not_an_error(api_env):
+@pytest.mark.asyncio
+async def test_jobs_query_with_invalid_document_id_returns_empty_not_an_error(api_env):
     # A non-UUID documentId must not hit the uuid-cast DB error path — it is a
     # clean, empty result (verified live incident: previously 500'd).
     _conn, _doc_id, principal_id = api_env
-    with _client(principal_id) as client:
-        data = _gql(client, '{ jobs(documentId: "not-a-uuid") { id } }')
+    async with _client(principal_id) as client:
+        data = await _gql(client, '{ jobs(documentId: "not-a-uuid") { id } }')
         assert data["jobs"] == []
 
 
-def test_full_text_search_query_finds_the_fixture_document(api_env):
+@pytest.mark.asyncio
+async def test_full_text_search_query_finds_the_fixture_document(api_env):
     # Uses an invented word — a real one could rank outside the default result
     # page as the shared corpus grows (the exact bug fixed in
     # test_persistence_read.py's ts-config regression test).
     conn, doc_id, principal_id = api_env
-    with _client(principal_id) as client:
-        data = _gql(
+    async with _client(principal_id) as client:
+        data = await _gql(
             client,
             "query($q: String!) { fullTextSearch(query: $q) { documentId title } }",
             {"q": "zqorvithex"},
         )
         assert any(h["documentId"] == doc_id for h in data["fullTextSearch"])
+
+
+@pytest.mark.asyncio
+async def test_full_text_phrase_mode_requires_terms_in_order(api_env):
+    _conn, doc_id, principal_id = api_env
+    query = (
+        "query($q: String!, $m: FullTextSearchMode!) { "
+        "fullTextSearch(query: $q, mode: $m) { documentId } }"
+    )
+    async with _client(principal_id) as client:
+        in_order = await _gql(client, query, {"q": "pipeline zqorvithex", "m": "PHRASE"})
+        reversed_order = await _gql(client, query, {"q": "zqorvithex pipeline", "m": "PHRASE"})
+
+    assert any(hit["documentId"] == doc_id for hit in in_order["fullTextSearch"])
+    assert all(hit["documentId"] != doc_id for hit in reversed_order["fullTextSearch"])

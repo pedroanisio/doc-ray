@@ -110,7 +110,7 @@ metadata:
   generated_by:     "Claude Sonnet 5 via Claude Code (merge of Claude Opus 4.8 backlog + OpenAI Codex improvement-proposal candidates)"
   generated_on:     "2026-07-05"
   system_of_record: "docs/backlog.yml"
-  total_items:      169
+  total_items:      177
 
 items:
 
@@ -5999,3 +5999,314 @@ items:
     owner:        "shared"
     source:       "Found 2026-07-27 (Claude Opus 5 via Claude Code) auditing whether the 1.48.2 failed-vs-duplicate change was operable from any UI; the 17 failed documents in production were all the same scanned-PDF cause, visible only through psql."
     tags:         ["webapp", "admin-console", "operability", "error-reporting"]
+
+  - id:          "BL-170"
+    title:       "MCP transport rebuilt its HTTP connection pool for every tool call"
+    summary:     "The sole MCP-to-GraphQL path constructed and destroyed an HTTPX client per call, paying connection setup throughout the sequential workflow the server recommends; large JSON responses were also uncompressed."
+    description: |
+      `corpus.gql()` now acquires a token-free, process-wide HTTPX client from
+      `entrypoints/mcp/http_client.py`. Construction is serialized, explicit
+      total/keep-alive bounds come from the env registry, and the FastMCP
+      lifespan is chained so its session manager exits before the pool closes.
+      Authorization remains a per-request header, preventing credentials from
+      leaking between principals on the shared pool. Starlette gzip covers
+      responses above 1 KiB while explicitly excluding `text/event-stream`.
+    category:     "api"
+    type:         "tech-debt"
+    status:       "done"
+    complexity:   "S"
+    priority:     "high"
+    rationale:    "Sequential retrieval is the designed MCP workflow, so rebuilding transport state on every hop multiplied latency without adding isolation; request-local auth provides the isolation boundary."
+    acceptance_criteria:
+      - "Concurrent first use creates exactly one outbound HTTP client and sequential GraphQL calls reuse it."
+      - "Caller bearer tokens are supplied per request and never configured as shared-client defaults."
+      - "FastMCP lifespan still runs and closes the client exactly once on shutdown."
+      - "Large JSON responses support gzip while event streams remain uncompressed and incremental."
+      - "Pool bounds are registered in generated environment samples and operator documentation."
+    dependencies: []
+    references:
+      - "src/doc_ray/entrypoints/mcp/http_client.py"
+      - "src/doc_ray/entrypoints/mcp/corpus.py"
+      - "src/doc_ray/entrypoints/mcp/server.py"
+      - "src/doc_ray/tests/test_mcp_http_client.py"
+      - "docs/mcp-service.md"
+    owner:        "shared"
+    source:       "GitHub issue #34, MCP Performance Group 1 (2026-07-27); implemented with measured framework behavior for SSE compression exclusion."
+    tags:         ["mcp", "performance", "httpx", "pooling", "gzip", "transport"]
+
+  - id:          "BL-171"
+    title:       "MCP tools exposed no titles or behavioral annotations to clients"
+    summary:     "All 64 live tools were registered with descriptions and schemas but no human title and no read-only, destructive, idempotent, or open-world hints, forcing clients to infer operational risk from prose."
+    description: |
+      `entrypoints/mcp/tool_meta.py` now owns one complete metadata record per
+      live tool. FastMCP receives the human title separately from
+      `ToolAnnotations`; all four hints are explicit, and bidirectional tests
+      prevent registry drift. Classifications follow actual effects, including
+      queued worker work: arXiv intake, opt-in frontier resolution, and
+      Wikipedia/Wikidata seed jobs are open-world even though their immediate
+      MCP call only enqueues GraphQL work.
+
+      The hints remain model-facing advice, never enforcement. GraphQL write
+      scope, billing entitlement, per-document ACLs, and Postgres RLS continue
+      to authorize every call. The measured compact `tools/list` payload grows
+      by 8,531 bytes (63,438 to 71,969) for the 64 complete records.
+    category:     "api"
+    type:         "tech-debt"
+    status:       "done"
+    complexity:   "S"
+    priority:     "high"
+    rationale:    "An agent should not have to reverse-engineer whether a tool reads, overwrites, repeats safely, or reaches an external source; explicit hints improve planning without weakening the real authorization boundary."
+    acceptance_criteria:
+      - "Every live read and opt-in write tool has a distinct non-empty title and all four ToolAnnotations hints."
+      - "The metadata catalog and live registries have bidirectional completeness tests, including unknown-name failure."
+      - "Destructive, idempotent, and open-world classifications are regression-tested against concrete tool sets."
+      - "tools/list projects the separate title and exact annotations without changing names, signatures, descriptions, or schemas."
+      - "The service contract records the hint policy, advisory enforcement boundary, and before/after payload measurement."
+    dependencies: []
+    references:
+      - "src/doc_ray/entrypoints/mcp/tool_meta.py"
+      - "src/doc_ray/entrypoints/mcp/server.py"
+      - "src/doc_ray/tests/test_mcp_tool_meta.py"
+      - "docs/mcp-service.md"
+    owner:        "shared"
+    source:       "GitHub issue #35, MCP Performance Group 2 (2026-07-27); updated against the live 64-tool registry and queued-worker behavior."
+    tags:         ["mcp", "tool-annotations", "agent-safety", "discovery", "contracts"]
+
+  - id:          "BL-172"
+    title:       "MCP evaluation ignored the advertised discovery surface every session pays"
+    summary:     "The evaluation harness measured task response cost but not the tools/list preamble, server instructions, resources, templates, or prompts, so advertised-surface growth was invisible to its regression gate."
+    description: |
+      Phase 1 of GitHub issue #36 measures the live FastMCP server with and
+      without opt-in write tools before running fixture tasks. The report and
+      committed baseline now carry a top-level `surface` block with tool count,
+      exact serialized tools/list characters, estimated tokens, instruction
+      characters, resources, templates, and prompts for both modes.
+
+      `_compare_baseline` retains the existing task/aggregate scorer and adds an
+      independent tools/list growth ceiling, configurable with
+      `--surface-tolerance` (5% by default). The post-#35 baseline measures 33
+      read tools at 44,545 characters and all 64 tools at 75,502 characters.
+      Phase 2 is intentionally not implemented: GitHub issue #36 requires an
+      operator comment selecting the endpoint-split/consolidate/namespacing/
+      govern option first.
+    category:     "tooling"
+    type:         "tech-debt"
+    status:       "done"
+    complexity:   "S"
+    priority:     "high"
+    rationale:    "Discovery context is paid before the first useful call and can degrade agent performance; a task-only harness cannot govern a cost it never records."
+    acceptance_criteria:
+      - "The evaluator reports all seven surface fields for read-only and write-enabled live servers."
+      - "The committed baseline carries the measured surface block without changing aggregate or task semantics."
+      - "tools/list growth beyond the configurable tolerance returns the existing baseline-regression exit code."
+      - "A guard test proves both over-tolerance failure and within-tolerance success."
+      - "Phase 2 remains untouched until the operator records the required decision in GitHub issue #36."
+    dependencies: []
+    references:
+      - "scripts/eval_mcp.py"
+      - "src/doc_ray/tests/test_mcp_eval_surface.py"
+      - "docs/eval/mcp-baseline.json"
+      - "docs/mcp-evaluation.md"
+    owner:        "shared"
+    source:       "GitHub issue #36, MCP Performance Group 5 Phase 1 (2026-07-27); baseline regenerated after issue #35 metadata landed."
+    tags:         ["mcp", "evaluation", "performance", "tools-list", "regression-guard"]
+
+  - id:          "BL-173"
+    title:       "NER corrections could fix one span but not a repeated exact surface/type error"
+    summary:     "Curators had to record the same deterministic NER mistake once per span because the durable correction log had no precise, previewable surface-scoped rule."
+    description: |
+      The Block-A correction log now carries `reclassify_surface` and
+      `reject_surface` alongside the four span actions. A surface rule has no
+      fabricated offsets: `char_start`/`char_end` are NULL, while exact,
+      case-sensitive `surface` + `surface_original_type` form its matcher.
+      Span and surface rules replay chronologically, so the later decision wins
+      and the rule continues to cover matching mentions from future annotation
+      runs.
+
+      `entitySurfaceOccurrences` previews bounded per-Document counts and
+      sentence-context samples with a visible cap. `correctEntitySurface`
+      accepts explicit `documentIds`, authorizes all of them before the first
+      write, appends one rule per Document, and reuses `apply_corrections`.
+      MCP's `correct_entity_surface` defaults to dry-run, accepts exactly one
+      Document or Collection scope, and refuses a Collection when the bounded
+      200-member read cannot prove complete membership.
+    category:     "api"
+    type:         "feature"
+    status:       "done"
+    complexity:   "M"
+    priority:     "high"
+    rationale:    "A systematic model error needs one durable, precisely scoped and previewable rule; repeated span edits are costly, drift-prone, and easy for an agent to over-apply."
+    acceptance_criteria:
+      - "The domain and schema represent both surface actions with NULL spans and an exact non-blank surface/current-type matcher."
+      - "Chronological reconcile semantics are deterministic, idempotent, case-sensitive, and cover mentions created by future annotation runs."
+      - "GraphQL exposes a bounded preview with visible count caps and an explicit-document mutation with ACL and audit enforcement."
+      - "MCP defaults to dry-run, requires one Document or bounded Collection scope, and refuses unprovably complete membership."
+      - "Tool metadata, public references, how-to guidance, release records, database documentation, and discovery measurements match the live 65-tool surface."
+    dependencies: []
+    references:
+      - "db/migrations/140_entity_surface_corrections.sql"
+      - "src/doc_ray/domain/ner_corrections.py"
+      - "src/doc_ray/adapters/persistence_entity_surface_read.py"
+      - "src/doc_ray/entrypoints/api/correction_query.py"
+      - "src/doc_ray/entrypoints/api/mutation_corrections.py"
+      - "src/doc_ray/entrypoints/mcp/mutations_surface.py"
+      - "docs/public/how-to/correct-an-entity.md"
+    owner:        "shared"
+    source:       "GitHub issue #41 (2026-07-27); implemented with strict red-green tests and live FastMCP discovery measurement."
+    tags:         ["ner", "corrections", "surface-rules", "mcp", "graphql", "pals"]
+
+  - id:          "BL-174"
+    title:       "Document full-text search could not request ordered phrase matching"
+    summary:     "The only fullTextSearch parser was plainto_tsquery, so every query meant stemmed term-AND even when the caller needed those terms in phrase order."
+    description: |
+      GraphQL `fullTextSearch` now accepts the typed `FullTextSearchMode` enum.
+      `TERMS` is the backward-compatible default and keeps `plainto_tsquery`;
+      `PHRASE` selects `phraseto_tsquery`. Both parsers use the same per-Document
+      `docray_ts_config` as the stored `tsvector`, and caller text remains a bound
+      parameter rather than raw tsquery syntax.
+
+      MCP exposes the same choice as `full_text_search(..., mode="terms" | "phrase")`
+      and returns a typed `bad_input` error before GraphQL for an unknown mode.
+      An integration regression proves phrase order against a real tsvector;
+      its execution remains environment-gated when the test database is absent.
+    category:     "api"
+    type:         "feature"
+    status:       "done"
+    complexity:   "S"
+    priority:     "high"
+    rationale:    "Agents choosing Documents need an explicit ordered-phrase mode without being given raw Postgres query syntax or silently changing the established all-term default."
+    acceptance_criteria:
+      - "GraphQL exposes a typed TERMS/PHRASE mode and defaults to TERMS for compatibility."
+      - "The read adapter selects only plainto_tsquery or phraseto_tsquery from a closed mapping and keeps query text parameterized."
+      - "MCP forwards the mode and rejects unknown values locally with a typed bad_input error."
+      - "Unit, schema, MCP, real-tsvector integration, public reference, architecture, changelog, and release records cover both modes."
+    dependencies: []
+    references:
+      - "src/doc_ray/adapters/persistence_fulltext_read.py"
+      - "src/doc_ray/entrypoints/api/fulltext_query.py"
+      - "src/doc_ray/entrypoints/mcp/fulltext.py"
+      - "src/doc_ray/tests/test_fulltext_search_mode.py"
+      - "src/doc_ray/tests/test_api_pipeline.py"
+    owner:        "shared"
+    source:       "GitHub issue #40 (2026-07-27); implemented with strict red-green coverage and a preserved TERMS default."
+    tags:         ["search", "full-text", "phrase", "graphql", "mcp"]
+
+  - id:          "BL-175"
+    title:       "Term-frequency pre-flight treated every multiword phrase as unmeasurable"
+    summary:     "A whitespace phrase such as 'design decision' was grouped with structurally unindexable compounds, so agents received unknown instead of useful bounded saturation evidence."
+    description: |
+      The lexeme rollup cannot provide an exact adjacency count without scanning
+      the occurrence fact table or maintaining a phrase rollup. It can still
+      provide a safe bound: a phrase cannot occur more often than its rarest
+      component. Whitespace-separated phrases now fetch every de-duplicated
+      component in the existing single statement and report the minimum count as
+      `uses`, with `measurement: component_upper_bound` and all evidence in
+      `parts`. Positive component counts leave `attested` null because they do
+      not prove adjacency; a zero component proves lexeme-layer absence.
+
+      Exact single lexemes report `measurement: exact`. Non-whitespace compounds
+      such as `shared_buffers` and alphanumerics remain `unavailable`, preserving
+      BL-164's no-fabricated-zero guarantee. Both GraphQL and MCP expose the
+      provenance and direct callers to `full_text_search(mode="phrase")` for
+      actual ordered matches.
+    category:     "api"
+    type:         "feature"
+    status:       "done"
+    complexity:   "S"
+    priority:     "high"
+    rationale:    "A conservative upper bound is actionable for search planning, but only if its non-exact provenance and inability to prove adjacency travel with the number."
+    acceptance_criteria:
+      - "Whitespace phrases are distinguished from non-whitespace compounds using the production tokenizer's offsets."
+      - "Phrase components ride the existing single rollup statement; no fact-table aggregate or N-query loop is added."
+      - "Phrase uses/share/floodRisk derive from the rarest component and measurement explicitly says component_upper_bound."
+      - "Positive phrase attestation stays unknown, zero-component absence is explicit, and notes direct callers to phrase-mode search."
+      - "GraphQL, MCP, public references, architecture, changelog, release notes, and discovery measurements match the live contract."
+    dependencies: ["BL-174"]
+    references:
+      - "src/doc_ray/domain/term_frequency.py"
+      - "src/doc_ray/adapters/persistence_read_terms.py"
+      - "src/doc_ray/entrypoints/api/structure_types.py"
+      - "src/doc_ray/entrypoints/mcp/structure.py"
+      - "src/doc_ray/tests/test_term_frequency.py"
+      - "src/doc_ray/tests/test_term_frequency_db.py"
+    owner:        "shared"
+    source:       "GitHub issue #39 (2026-07-27); implemented as a declared upper bound so phrase support does not fabricate an occurrence count."
+    tags:         ["term-frequency", "phrase", "upper-bound", "mcp", "graphql", "pals"]
+
+  - id:          "BL-176"
+    title:       "MCP clients were bound to an in-memory transport session lost on restart"
+    summary:     "FastMCP used its stateful default even though every doc-ray capability is unary and externally authorized, so a valid next request could 404 after a restart or on another replica."
+    description: |
+      `build_server` now sets `stateless_http=True`. The SDK creates a fresh
+      transport for every request, does not issue or look up process-local MCP
+      session ids, and treats each request as initialized. Initialization and
+      later calls can therefore land on different processes without sticky
+      routing or a shared session store.
+
+      This is safe for the live surface: tools, resources, and prompts retain no
+      conversation/task state and delegate durable work to independently
+      authorized GraphQL/Postgres operations. Bearer tokens are still resolved
+      from the live request, so credential rotation and per-request RLS identity
+      remain correct. Event replay/resumable server streams are not advertised
+      and no current capability depends on them.
+    category:     "api"
+    type:         "bug"
+    status:       "done"
+    complexity:   "S"
+    priority:     "high"
+    rationale:    "A process-local session is a failure domain, not useful state, when the application contract is entirely unary and durable state already lives behind GraphQL."
+    acceptance_criteria:
+      - "Every FastMCP server is constructed with stateless Streamable HTTP enabled."
+      - "The SDK request manager dispatches through the stateless path and retains no session map entries."
+      - "Live-request bearer resolution remains covered for rotation, anonymous calls, and stdio fallback."
+      - "Deployment and public docs state that restarts/replicas need neither sticky routing nor a durable MCP session store."
+      - "No claim of event replay or resumable server streams is introduced."
+    dependencies: ["BL-170"]
+    references:
+      - "src/doc_ray/entrypoints/mcp/server.py"
+      - "src/doc_ray/entrypoints/mcp/tokens.py"
+      - "src/doc_ray/tests/test_mcp_server.py"
+      - "src/doc_ray/tests/test_mcp_token_freshness.py"
+      - "docker-compose.mcp.yml"
+    owner:        "shared"
+    source:       "GitHub issue #37 (2026-07-27); implemented against the installed MCP SDK's explicit stateless transport path."
+    tags:         ["mcp", "streamable-http", "sessions", "restart", "replicas"]
+
+  - id:          "BL-177"
+    title:       "MCP namespacing could not be justified by the available evaluation mode"
+    summary:     "Issue #17 proposed family-prefixed tool names, but the shipped scripted harness binds callables and cannot measure model selection; a reproducible candidate adds discovery cost, so no breaking rename landed."
+    description: |
+      `scripts/eval_mcp.py --namespace-experiment PATH` builds a concrete
+      `<family>_<existing_name>` candidate from the live read-only and
+      write-enabled registries without changing either registry. The committed
+      report records every proposed rename and exact serialized discovery deltas:
+      the tool counts remain 33/65, while payload size grows by 244/436 characters.
+
+      This experiment cannot establish the hypothesis. Scripted evaluation calls
+      pre-bound Python functions, so names do not influence selection; agentic mode
+      is explicitly unsupported because no model client or credential contract is
+      provisioned. The machine-readable result is therefore `inconclusive` with a
+      `do_not_land` decision. Existing public names stay compatible until a
+      controlled model-selection evaluator can show improvement.
+    category:     "tooling"
+    type:         "tech-debt"
+    status:       "done"
+    complexity:   "XS"
+    priority:     "medium"
+    rationale:    "A public tool rename is breaking and adds discovery bytes; the conditional issue requires measured selection improvement, not an intuition that prefixes are clearer."
+    acceptance_criteria:
+      - "A database-free command generates a deterministic candidate from both live registries without mutating them."
+      - "The report includes every proposed rename, exact tool counts, serialized discovery sizes, and deltas."
+      - "The report distinguishes measurable discovery cost from currently unmeasurable model-selection behavior."
+      - "No live tool name changes unless an agentic or equivalent controlled evaluation demonstrates improvement."
+      - "Tests, the evaluation guide, proposal status, changelog, and rendered backlog agree with the decision."
+    dependencies: ["BL-148"]
+    references:
+      - "scripts/eval_mcp.py"
+      - "src/doc_ray/tests/test_mcp_eval_surface.py"
+      - "docs/eval/mcp-namespacing-experiment.json"
+      - "docs/mcp-evaluation.md"
+      - "docs/proposals/mcp-layer-improvements.md"
+    owner:        "shared"
+    source:       "GitHub issue #17 (2026-07-27); conditional namespace experiment completed, with no live rename because improvement is not measurable in scripted mode."
+    tags:         ["mcp", "namespacing", "evaluation", "compatibility", "pals"]

@@ -98,6 +98,105 @@ def test_adjust_span_moves_the_boundary_preserving_type():
     assert out[0].source == "human"
 
 
+# --- exact surface rules ---------------------------------------------------
+
+
+def test_reclassify_surface_changes_only_the_exact_surface_and_original_type():
+    ml = _ml(
+        (0, 5, "GPE", "Idaho"),
+        (10, 15, "PERSON", "Idaho"),
+        (20, 25, "GPE", "idaho"),
+        (30, 35, "GPE", "Idaho"),
+    )
+    # A prior human decision of a different type is deliberately not swallowed.
+    ml[1] = Mention(**{**vars(ml[1]), "source": "human"})
+    correction = Correction(
+        action=Action.RECLASSIFY_SURFACE,
+        char_start=None,
+        char_end=None,
+        surface="Idaho",
+        surface_original_type="GPE",
+        entity_type="PERSON",
+    )
+
+    out = reconcile(ml, [correction])
+
+    assert [(m.surface, m.entity_type, m.source) for m in out] == [
+        ("Idaho", "PERSON", "human"),
+        ("Idaho", "PERSON", "human"),
+        ("idaho", "GPE", "ml"),
+        ("Idaho", "PERSON", "human"),
+    ]
+
+
+def test_reject_surface_removes_only_the_exact_surface_and_original_type():
+    ml = _ml(
+        (0, 5, "GPE", "Idaho"),
+        (10, 15, "PERSON", "Idaho"),
+        (20, 25, "GPE", "idaho"),
+        (30, 35, "GPE", "Idaho"),
+    )
+    correction = Correction(
+        action=Action.REJECT_SURFACE,
+        char_start=None,
+        char_end=None,
+        surface="Idaho",
+        surface_original_type="GPE",
+    )
+
+    out = reconcile(ml, [correction])
+
+    assert [(m.surface, m.entity_type) for m in out] == [
+        ("Idaho", "PERSON"),
+        ("idaho", "GPE"),
+    ]
+
+
+def test_surface_rules_are_idempotent_and_reapply_to_future_mentions():
+    correction = Correction(
+        action=Action.RECLASSIFY_SURFACE,
+        char_start=None,
+        char_end=None,
+        surface="Idaho",
+        surface_original_type="GPE",
+        entity_type="PERSON",
+    )
+    first = reconcile(_ml((0, 5, "GPE", "Idaho")), [correction])
+    assert reconcile(first, [correction]) == first
+    future = reconcile(_ml((0, 5, "GPE", "Idaho"), (10, 15, "GPE", "Idaho")), [correction])
+    assert [m.entity_type for m in future] == ["PERSON", "PERSON"]
+
+
+def test_later_span_rule_overrides_an_earlier_surface_rule():
+    corrections = [
+        Correction(
+            action=Action.RECLASSIFY_SURFACE,
+            char_start=None,
+            char_end=None,
+            surface="Idaho",
+            surface_original_type="GPE",
+            entity_type="PERSON",
+        ),
+        Correction(action=Action.RECLASSIFY, char_start=0, char_end=5, entity_type="ORG"),
+    ]
+    assert reconcile(_ml((0, 5, "GPE", "Idaho")), corrections)[0].entity_type == "ORG"
+
+
+def test_later_surface_rule_overrides_an_earlier_span_rule():
+    corrections = [
+        Correction(action=Action.RECLASSIFY, char_start=0, char_end=5, entity_type="PERSON"),
+        Correction(
+            action=Action.RECLASSIFY_SURFACE,
+            char_start=None,
+            char_end=None,
+            surface="Idaho",
+            surface_original_type="PERSON",
+            entity_type="ORG",
+        ),
+    ]
+    assert reconcile(_ml((0, 5, "GPE", "Idaho")), corrections)[0].entity_type == "ORG"
+
+
 # --- the load-bearing invariant: survives re-annotation --------------------
 
 
@@ -186,3 +285,65 @@ def test_adjust_span_requires_a_new_span():
 def test_span_must_be_non_negative_and_ordered():
     with pytest.raises(ValueError, match="span"):
         Correction(action=Action.REJECT, char_start=20, char_end=10).validate()
+
+
+@pytest.mark.parametrize("action", [Action.RECLASSIFY_SURFACE, Action.REJECT_SURFACE])
+def test_surface_action_requires_surface_and_original_type(action):
+    with pytest.raises(ValueError, match="surface"):
+        Correction(
+            action=action, char_start=None, char_end=None, surface_original_type="GPE"
+        ).validate()
+    with pytest.raises(ValueError, match="original type"):
+        Correction(action=action, char_start=None, char_end=None, surface="Idaho").validate()
+
+
+@pytest.mark.parametrize("action", [Action.RECLASSIFY_SURFACE, Action.REJECT_SURFACE])
+def test_surface_action_rejects_span_coordinates(action):
+    with pytest.raises(ValueError, match="without a target span"):
+        Correction(
+            action=action,
+            char_start=0,
+            char_end=5,
+            surface="Idaho",
+            surface_original_type="GPE",
+            entity_type="PERSON" if action is Action.RECLASSIFY_SURFACE else None,
+        ).validate()
+
+
+def test_reclassify_surface_requires_a_distinct_entity_type():
+    with pytest.raises(ValueError, match="requires an entity_type"):
+        Correction(
+            action=Action.RECLASSIFY_SURFACE,
+            char_start=None,
+            char_end=None,
+            surface="Idaho",
+            surface_original_type="GPE",
+        ).validate()
+    with pytest.raises(ValueError, match="different entity_type"):
+        Correction(
+            action=Action.RECLASSIFY_SURFACE,
+            char_start=None,
+            char_end=None,
+            surface="Idaho",
+            surface_original_type="GPE",
+            entity_type="GPE",
+        ).validate()
+
+
+def test_span_actions_still_require_both_coordinates():
+    with pytest.raises(ValueError, match="target span"):
+        Correction(action=Action.REJECT, char_start=None, char_end=None).validate()
+    with pytest.raises(ValueError, match="target span"):
+        Correction(action=Action.REJECT, char_start=0, char_end=None).validate()
+
+
+@pytest.mark.parametrize("new_start,new_end", [(-1, 4), (5, 4)])
+def test_adjust_span_rejects_an_invalid_new_span(new_start, new_end):
+    with pytest.raises(ValueError, match="invalid new span"):
+        Correction(
+            action=Action.ADJUST_SPAN,
+            char_start=0,
+            char_end=5,
+            new_char_start=new_start,
+            new_char_end=new_end,
+        ).validate()

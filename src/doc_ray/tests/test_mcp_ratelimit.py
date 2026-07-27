@@ -11,13 +11,14 @@ from __future__ import annotations
 
 import logging
 
+import pytest
 from starlette.applications import Starlette
 from starlette.responses import PlainTextResponse
 from starlette.routing import Route
-from starlette.testclient import TestClient
 
 from doc_ray.domain.rate_limit import FixedWindowRateLimiter, RateLimitRule
 from doc_ray.entrypoints.mcp import ratelimit, tokens
+from doc_ray.tests._asgi import asgi_client
 
 
 async def _ok(request):
@@ -35,19 +36,21 @@ def _app(rule: RateLimitRule) -> Starlette:
 # --------------------------------------------------------------------------
 
 
-def test_requests_are_allowed_up_to_the_limit_then_rejected_with_retry_after():
-    with TestClient(_app(RateLimitRule(requests=2, window_seconds=60))) as client:
-        assert client.get("/x").status_code == 200
-        assert client.get("/x").status_code == 200
-        blocked = client.get("/x")
+@pytest.mark.asyncio
+async def test_requests_are_allowed_up_to_the_limit_then_rejected_with_retry_after():
+    async with asgi_client(_app(RateLimitRule(requests=2, window_seconds=60))) as client:
+        assert (await client.get("/x")).status_code == 200
+        assert (await client.get("/x")).status_code == 200
+        blocked = await client.get("/x")
         assert blocked.status_code == 429
         assert int(blocked.headers["Retry-After"]) >= 1
 
 
-def test_a_disabled_rule_never_throttles():
-    with TestClient(_app(RateLimitRule(requests=0, window_seconds=0))) as client:
+@pytest.mark.asyncio
+async def test_a_disabled_rule_never_throttles():
+    async with asgi_client(_app(RateLimitRule(requests=0, window_seconds=0))) as client:
         for _ in range(10):
-            assert client.get("/x").status_code == 200
+            assert (await client.get("/x")).status_code == 200
 
 
 # --------------------------------------------------------------------------
@@ -55,11 +58,12 @@ def test_a_disabled_rule_never_throttles():
 # --------------------------------------------------------------------------
 
 
-def test_health_and_readyz_are_never_rate_limited():
-    with TestClient(_app(RateLimitRule(requests=1, window_seconds=60))) as client:
+@pytest.mark.asyncio
+async def test_health_and_readyz_are_never_rate_limited():
+    async with asgi_client(_app(RateLimitRule(requests=1, window_seconds=60))) as client:
         for _ in range(20):
-            assert client.get("/health").status_code == 200
-            assert client.get("/readyz").status_code == 200
+            assert (await client.get("/health")).status_code == 200
+            assert (await client.get("/readyz")).status_code == 200
 
 
 # --------------------------------------------------------------------------
@@ -87,18 +91,17 @@ def test_client_key_falls_back_to_ip_when_anonymous():
     assert key == "ip:9.9.9.9"
 
 
-def test_rejection_logs_the_fingerprint_and_never_the_token(caplog):
+@pytest.mark.asyncio
+async def test_rejection_logs_the_fingerprint_and_never_the_token(caplog):
     token = "secret-token-do-not-log"
     reset = tokens.caller_token.set(token)
     try:
-        with (
-            caplog.at_level(logging.WARNING, logger="doc_ray.mcp.ratelimit"),
-            TestClient(_app(RateLimitRule(requests=1, window_seconds=60))) as client,
-        ):
-            # first request opens the window from this principal; the fingerprint is
-            # set per-request by the caller_token contextvar, so drive it twice.
-            client.get("/x")
-            client.get("/x")
+        with caplog.at_level(logging.WARNING, logger="doc_ray.mcp.ratelimit"):
+            async with asgi_client(_app(RateLimitRule(requests=1, window_seconds=60))) as client:
+                # first request opens the window from this principal; the fingerprint is
+                # set per-request by the caller_token contextvar, so drive it twice.
+                await client.get("/x")
+                await client.get("/x")
     finally:
         tokens.caller_token.reset(reset)
     rejections = [r.getMessage() for r in caplog.records if r.name == "doc_ray.mcp.ratelimit"]

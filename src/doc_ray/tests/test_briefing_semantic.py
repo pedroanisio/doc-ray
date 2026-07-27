@@ -19,7 +19,13 @@ from doc_ray.entrypoints.mcp import compose, corpus, semantic
 
 
 @pytest.fixture(autouse=True)
-def _reset_token():
+def _isolate_runtime_boundaries(monkeypatch):
+    async def _run_sync_inline(func, *args):
+        return func(*args)
+
+    monkeypatch.setattr(
+        "doc_ray.entrypoints.api.briefing_query.anyio.to_thread.run_sync", _run_sync_inline
+    )
     corpus.caller_token.set("")
     yield
 
@@ -127,6 +133,10 @@ _SEM_HIT_ROW = {  # persistence shape the GraphQL reader receives
 }
 
 
+async def _noop_async(*_args):
+    return None
+
+
 def _mcp_router(monkeypatch):
     def handler(query, variables):
         if "fullTextSearch" in query:
@@ -150,6 +160,8 @@ def _mcp_router(monkeypatch):
             return self._p
 
     class _Client:
+        aclose = _noop_async
+
         async def __aenter__(self):
             return self
 

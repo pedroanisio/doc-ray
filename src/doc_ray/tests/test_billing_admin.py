@@ -7,19 +7,20 @@ import time
 from dataclasses import replace
 from typing import Any
 
+import pytest
 from _billing_test_support import (
     FakeStripe,
     _apply_billing_migration,
     _cfg,
 )
 from _mutations_common import WRITE_PRINCIPAL, _aconn_as
-from fastapi.testclient import TestClient
 
 from doc_ray.application import billing
 from doc_ray.entrypoints.api.app import create_app
 from doc_ray.entrypoints.api.context import RequestContext
 from doc_ray.entrypoints.api.loaders import Loaders
 from doc_ray.entrypoints.api.schema import build_schema
+from doc_ray.tests._asgi import asgi_client
 
 
 def test_billing_admin_retries_pending_invoice_event_while_entitlement_blocked(pg):
@@ -162,7 +163,8 @@ def test_billing_admin_retries_pending_invoice_event_while_entitlement_blocked(p
         )
 
 
-def test_billing_hosted_payment_mutations_reject_read_scoped_admin(pg, monkeypatch):
+@pytest.mark.asyncio
+async def test_billing_hosted_payment_mutations_reject_read_scoped_admin(pg, monkeypatch):
     conn, _created = pg
     _apply_billing_migration(conn)
     stripe_calls: list[str] = []
@@ -186,8 +188,8 @@ def test_billing_hosted_payment_mutations_reject_read_scoped_admin(pg, monkeypat
     app = create_app(cfg)
 
     try:
-        with TestClient(app) as client:
-            checkout = client.post(
+        async with asgi_client(app) as client:
+            checkout = await client.post(
                 "/graphql",
                 json={
                     "query": """
@@ -200,7 +202,7 @@ def test_billing_hosted_payment_mutations_reject_read_scoped_admin(pg, monkeypat
                 },
                 headers={"authorization": "Bearer billing-read-token"},
             )
-            portal = client.post(
+            portal = await client.post(
                 "/graphql",
                 json={
                     "query": """

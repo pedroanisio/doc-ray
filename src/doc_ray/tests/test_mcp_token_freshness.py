@@ -1,16 +1,15 @@
-"""The forwarded bearer token tracks the current request, not the session that opened it.
+"""The forwarded bearer token tracks the current request, not initialization.
 
-Streamable-HTTP tool calls run inside the session task created at ``initialize``,
-whose context was copied at that moment. A token captured there freezes at connect
-time: once the client rotates a refreshed credential the MCP hop still authenticates
-(HTTP 200) while every forwarded GraphQL call carries the dead token (HTTP 401).
-These tests pin the token to the request the middleware just validated.
+Stateless Streamable HTTP lets initialization and later tool calls land on
+different processes. These tests pin authorization to the request middleware just
+validated, including credential rotation, while retaining the stdio fallback.
 """
 
 from __future__ import annotations
 
 import contextlib
 from collections.abc import Iterator
+from unittest.mock import AsyncMock
 
 import pytest
 from mcp.server.lowlevel.server import request_ctx
@@ -86,7 +85,7 @@ def _reset_token() -> Iterator[None]:
 @pytest.fixture
 def client(monkeypatch: pytest.MonkeyPatch) -> _FakeClient:
     fake = _FakeClient()
-    monkeypatch.setattr(corpus.httpx, "AsyncClient", lambda **kw: fake)
+    monkeypatch.setattr(corpus, "acquire_client", AsyncMock(return_value=fake))
     return fake
 
 
@@ -94,7 +93,7 @@ def client(monkeypatch: pytest.MonkeyPatch) -> _FakeClient:
 async def test_tool_forwards_the_current_requests_token_not_the_sessions(
     client: _FakeClient,
 ) -> None:
-    """A refreshed credential reaches GraphQL even when the session opened with an older one."""
+    """A refreshed credential reaches GraphQL even when initialization used an older one."""
     tokens.caller_token.set("stale-token-from-initialize")
     with _dispatching(_request((b"authorization", b"Bearer refreshed-token"))):
         await corpus.search_sentences("Berlin", limit=1)

@@ -21,12 +21,14 @@ nothing means "no more after this cursor", never "absent from the corpus".
 
 from __future__ import annotations
 
+import asyncio
+
 import pytest
 
 # Import the server eagerly so the `mcp` SDK loads (with the real httpx) before
 # any test patches httpx.AsyncClient — tokens._current_request() lazily imports
 # it, and the SDK evaluates `httpx.AsyncClient | None` at import time.
-from doc_ray.entrypoints.mcp import corpus, server  # noqa: F401
+from doc_ray.entrypoints.mcp import corpus, http_client, server  # noqa: F401
 
 _DOC = "11111111-1111-1111-1111-111111111111"
 
@@ -53,6 +55,9 @@ class _FakeClient:
     async def __aexit__(self, *exc):
         return False
 
+    async def aclose(self):
+        return None
+
     async def post(self, url, json, headers):
         self.calls.append((url, json, headers))
         return _FakeResp(self.payload)
@@ -60,8 +65,10 @@ class _FakeClient:
 
 @pytest.fixture(autouse=True)
 def _reset_token():
+    asyncio.run(http_client.close_client())
     corpus.caller_token.set("")
     yield
+    asyncio.run(http_client.close_client())
 
 
 def _patch(monkeypatch, payload):

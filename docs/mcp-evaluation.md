@@ -43,6 +43,17 @@ fixture corpus and reports, per task and in aggregate:
 - **within-budget** (a call/character ceiling grounded in the failure it guards),
 - **wall-clock** (recorded, but excluded from every deterministic metric).
 
+Before the fixture run, the harness also measures the live FastMCP discovery
+surface in both `read_only` and `write_enabled` modes: `tool_count`, exact
+`tools_list_chars`, `tools_list_est_tokens` (`chars // 4`),
+`instructions_chars`, `resources_count`, `resource_templates_count`, and
+`prompts_count`. This is the preamble cost every client pays before its first
+tool call; it is separate from the per-task response totals above. The current
+post-#39/#40/#41 baseline is 33 tools / 45,049 characters (~11,262 tokens) read-only
+and 65 / 77,967 (~19,491 tokens) with writes enabled. The extra write tool is
+the dry-run-first `correct_entity_surface` workflow; the read-only discovery
+cost is unchanged.
+
 It measures the **agent-facing surface**, not the GraphQL API or Postgres, and not
 model quality. It reports numbers; it does not conclude which model is better.
 
@@ -69,6 +80,23 @@ model quality. It reports numbers; it does not conclude which model is better.
 | `scripted` (default) | the **surface**: payload sizes, error shapes, whether the data an agent needs is reachable in N calls. The harness *is* the scripted agent, executing the intended-correct strategy, so a regression that breaks the surface shows up as a failed assertion. Deterministic, free, CI-safe. | **implemented** |
 | `agentic` | **behaviour**: a real model drives the tools. | **not implemented in this build** — no model credentials are provisioned here (Open decision #2). `--mode agentic` fails with a typed `EvalModeUnsupported` naming exactly what is missing; it is never a silent no-op. |
 
+### Namespacing experiment (GitHub issue #17)
+
+Issue #17 is conditional: rename the tools only if the shipped harness shows that
+explicit namespaces improve selection. `python scripts/eval_mcp.py
+--namespace-experiment docs/eval/mcp-namespacing-experiment.json` now evaluates a
+concrete `<family>_<existing_name>` candidate without changing the live registry.
+The candidate keeps 33/65 tools but grows serialized discovery by 244 characters
+read-only and 436 with writes enabled.
+
+That is a measured cost, not evidence of better selection. Scripted tasks bind
+Python callables directly, while the required agentic mode remains explicitly
+unsupported, so the current harness cannot observe whether a model chooses the
+right tool more often. The generated report therefore records `status:
+inconclusive` and `decision: do_not_land`; the public names remain
+backward-compatible. Reconsider only after an agentic or equivalent controlled
+tool-selection evaluation can compare the same prompts before and after.
+
 ### Two task tiers
 
 - **grounded** (6, FR-2) — each derived from a failure this programme actually
@@ -94,6 +122,9 @@ python scripts/eval_mcp.py --mode scripted --json docs/eval/mcp-baseline.json
 
 # compare against the committed baseline; exits non-zero on regression
 python scripts/eval_mcp.py --mode scripted --baseline docs/eval/mcp-baseline.json
+
+# allow no tools/list growth (default surface tolerance is 5%)
+python scripts/eval_mcp.py --mode scripted --baseline docs/eval/mcp-baseline.json --surface-tolerance 0
 
 # log every tool call (tool, args, bytes, duration)
 python scripts/eval_mcp.py --mode scripted --verbose
@@ -214,6 +245,12 @@ produced by an actual `scripted` run against the Docker test stack (PostgreSQL 1
 against it and exits non-zero on any of: a task that passed in the baseline now
 failing, a call-count increase beyond `--call-tolerance` (default 0), or a payload
 growth beyond `--char-tolerance` (default 10%).
+
+The top-level `surface` block is measured directly from `build_server()` for both
+write modes; it does not alter `aggregate` or `tasks`. `tools_list_chars` growth
+beyond `--surface-tolerance` (default 5%) is also a baseline regression.
+Regenerate after an intentional registry or metadata change with `--json`,
+review both surface deltas, and commit the new baseline only with that change.
 
 ## Open decisions (recorded per the issue)
 

@@ -107,6 +107,13 @@ async def term_frequency(terms: list[str], document_id: str | None = None) -> li
     term is absent from the lexicon, so a search will likely return nothing) and a
     steering ``note`` on the risky ones.
 
+    A whitespace-separated phrase is estimated without a fact-table scan:
+    ``measurement`` is ``component_upper_bound`` and ``uses`` is the rarest
+    component's count. That is a conservative saturation ceiling, NOT an exact
+    phrase count; positive component counts do not prove adjacency. Confirm the
+    phrase with ``full_text_search(mode="phrase")``. A zero component does prove
+    the phrase is unattested in the lexeme layer.
+
     **Not every term can be counted here.** The lexeme index tokenizes on
     underscores and digits, so it cannot hold ``shared_buffers``, ``pg_stat_activity``
     or ``COVID-19`` as single entries. Those come back ``indexable: false``,
@@ -122,7 +129,7 @@ async def term_frequency(terms: list[str], document_id: str | None = None) -> li
     return corpus numbers mislabelled as document-scoped.
 
     Returns a list of ``{term, normalizedTerm, uses, totalUses, share, floodRisk,
-    attested, indexable, parts, note}``, one per distinct term, in input order.
+    attested, indexable, measurement, parts, note}``, one per distinct term, in input order.
     """
     if document_id is not None:
         _require_uuid(document_id, "document_id")
@@ -143,7 +150,7 @@ async def term_frequency(terms: list[str], document_id: str | None = None) -> li
         )
     data = await gql(
         "query($t:[String!]!){termFrequency(terms:$t)"
-        "{term normalizedTerm uses totalUses share floodRisk attested indexable "
+        "{term normalizedTerm uses totalUses share floodRisk attested indexable measurement "
         "parts{part uses} note}}",
         {"t": terms},
     )

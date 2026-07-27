@@ -14,17 +14,18 @@ import json
 import _itdb
 import psycopg
 import pytest
-from fastapi.testclient import TestClient
 from psycopg.rows import dict_row
 from starlette.datastructures import Headers, UploadFile
 
 from doc_ray.adapters.object_store import ObjectStore
 from doc_ray.config import Config
+from doc_ray.domain.jobs import DEFAULT_PIPELINE_CHAIN
 from doc_ray.entrypoints.api.app import create_app
 from doc_ray.entrypoints.api.context import RequestContext
 from doc_ray.entrypoints.api.loaders import Loaders
 from doc_ray.entrypoints.api.schema import build_schema
 from doc_ray.entrypoints.api.security import Principal
+from doc_ray.tests._asgi import asgi_client
 
 WRITE_PRINCIPAL = Principal(
     subject="test-writer",
@@ -73,7 +74,8 @@ def test_graphql_router_enables_multipart_uploads():
     assert app.state.graphql_router.multipart_uploads_enabled is True
 
 
-def test_ingest_upload_transport_accepts_multipart():
+@pytest.mark.asyncio
+async def test_ingest_upload_transport_accepts_multipart(pg):
     """Regression: an HTTP ``multipart/form-data`` upload must reach execution.
 
     With uploads disabled the transport rejects the request with HTTP 400
@@ -84,8 +86,8 @@ def test_ingest_upload_transport_accepts_multipart():
     (needs the live DB the pool opens on startup).
     """
     app = create_app(_cfg())
-    with TestClient(app) as client:  # context manager runs the lifespan (pool open/close)
-        resp = client.post(
+    async with asgi_client(app) as client:  # context manager runs the lifespan (pool open/close)
+        resp = await client.post(
             "/graphql", files=_upload_form("mutation($f: Upload!){ noSuchField(file: $f) }")
         )
     assert resp.status_code == 200, (
@@ -133,12 +135,7 @@ def test_ingest_document_upload_mutation(pg):
             cur = await aconn.execute("SELECT payload FROM jobs")
             payload = (await cur.fetchone())["payload"]
             assert payload["original_filename"] == "upload-test.txt"
-            assert payload["chain"] == [
-                "annotate",
-                "semantic_enrich",
-                "canonicalize",
-                "visual_extract",
-            ]
+            assert payload["chain"] == list(DEFAULT_PIPELINE_CHAIN)
         finally:
             await aconn.close()
 
@@ -247,7 +244,7 @@ def test_ingest_document_accepts_a_remote_reference(pg):
     payload = rows[0]["payload"]
     assert payload["ref"] == "https://arxiv.org/abs/2401.00001"
     assert "storage_key" not in payload
-    assert payload["chain"] == ["annotate", "semantic_enrich", "canonicalize", "visual_extract"]
+    assert payload["chain"] == list(DEFAULT_PIPELINE_CHAIN)
     assert payload["owner_principal_id"] == WRITE_PRINCIPAL.principal_id
 
 

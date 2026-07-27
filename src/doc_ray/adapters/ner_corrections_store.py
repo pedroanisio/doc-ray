@@ -29,10 +29,19 @@ AsyncConnection = psycopg.AsyncConnection[dict[str, Any]]
 
 _LOAD_CORRECTIONS = """
     SELECT action, char_start, char_end, entity_type, surface,
-           new_char_start, new_char_end
+           new_char_start, new_char_end, surface_original_type
     FROM entity_mention_correction
     WHERE document_id = %s
     ORDER BY created_at, id
+"""
+
+_INSERT_CORRECTION = """
+    INSERT INTO entity_mention_correction
+        (document_id, action, char_start, char_end, entity_type, surface,
+         new_char_start, new_char_end, surface_original_type,
+         original_type, rationale, reviewer)
+    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+    RETURNING id
 """
 
 _CURRENT_MENTIONS = """
@@ -56,13 +65,7 @@ def record_correction(
     """Append a validated correction to the log; return its id."""
     correction.validate()
     row = conn.execute(
-        """
-        INSERT INTO entity_mention_correction
-            (document_id, action, char_start, char_end, entity_type, surface,
-             new_char_start, new_char_end, original_type, rationale, reviewer)
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-        RETURNING id
-        """,
+        _INSERT_CORRECTION,
         (
             document_id,
             correction.action.value,
@@ -72,6 +75,7 @@ def record_correction(
             correction.surface,
             correction.new_char_start,
             correction.new_char_end,
+            correction.surface_original_type,
             original_type,
             rationale,
             reviewer,
@@ -93,6 +97,7 @@ def load_corrections(conn: DictConnection, document_id: str) -> list[Correction]
             surface=r["surface"],
             new_char_start=r["new_char_start"],
             new_char_end=r["new_char_end"],
+            surface_original_type=r["surface_original_type"],
         )
         for r in rows
     ]
@@ -188,13 +193,7 @@ async def record_correction_async(
     """Async :func:`record_correction` for the GraphQL API."""
     correction.validate()
     cur = await conn.execute(
-        """
-        INSERT INTO entity_mention_correction
-            (document_id, action, char_start, char_end, entity_type, surface,
-             new_char_start, new_char_end, original_type, rationale, reviewer)
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-        RETURNING id
-        """,
+        _INSERT_CORRECTION,
         (
             document_id,
             correction.action.value,
@@ -204,6 +203,7 @@ async def record_correction_async(
             correction.surface,
             correction.new_char_start,
             correction.new_char_end,
+            correction.surface_original_type,
             original_type,
             rationale,
             reviewer,
@@ -216,7 +216,8 @@ async def record_correction_async(
 
 _LIST_CORRECTION_ROWS = """
     SELECT id, document_id, action, char_start, char_end, entity_type, surface,
-           new_char_start, new_char_end, original_type, rationale, reviewer, created_at
+           new_char_start, new_char_end, surface_original_type,
+           original_type, rationale, reviewer, created_at
     FROM entity_mention_correction
     WHERE document_id = %s
     ORDER BY created_at, id

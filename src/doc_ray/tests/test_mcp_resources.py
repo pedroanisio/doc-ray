@@ -9,6 +9,7 @@ the caller's context, exactly like a tool result).
 from __future__ import annotations
 
 import json
+from unittest.mock import AsyncMock
 
 import anyio
 import pytest
@@ -71,7 +72,7 @@ def _reset_token():
 
 def _patch(monkeypatch, pages):
     client = _FakeClient(pages)
-    monkeypatch.setattr(corpus.httpx, "AsyncClient", lambda **kw: client)
+    monkeypatch.setattr(corpus, "acquire_client", AsyncMock(return_value=client))
     return client
 
 

@@ -19,6 +19,8 @@ qualified), other retrieval path.
 
 from __future__ import annotations
 
+from unittest.mock import AsyncMock
+
 import pytest
 
 # Import the server eagerly so the `mcp` SDK loads (with the real httpx) before
@@ -60,7 +62,7 @@ def _reset_token():
 
 
 def _patch(monkeypatch, payload):
-    monkeypatch.setattr(corpus.httpx, "AsyncClient", lambda **kw: _FakeClient(payload))
+    monkeypatch.setattr(corpus, "acquire_client", AsyncMock(return_value=_FakeClient(payload)))
 
 
 def _empty(monkeypatch):

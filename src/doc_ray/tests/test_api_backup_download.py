@@ -22,9 +22,17 @@ import pytest
 from doc_ray.adapters.object_store import ObjectStore
 from doc_ray.config import Config
 from doc_ray.domain.ulid import new_ulid_str
+from doc_ray.tests._asgi import asgi_client
 
 ADMIN_TOKEN = "test-admin-token"
 NON_ADMIN_TOKEN = "test-non-admin-token"
+
+
+def _connect_or_skip():
+    try:
+        return _itdb.connect()
+    except Exception as exc:  # pragma: no cover - environment dependent
+        pytest.skip(f"DB unreachable: {exc}")
 
 
 def _cfg(**overrides) -> Config:
@@ -48,13 +56,12 @@ def _cfg(**overrides) -> Config:
     )
 
 
-def test_download_serves_available_archive_and_404s_for_admin() -> None:
-    from fastapi.testclient import TestClient
-
+@pytest.mark.asyncio
+async def test_download_serves_available_archive_and_404s_for_admin() -> None:
     from doc_ray.entrypoints.api.app import create_app
 
     admin_id = str(uuid4())
-    conn = _itdb.connect()
+    conn = _connect_or_skip()
     # display_name must vary with admin_id: it's independently UNIQUE, and a fixed
     # literal here would collide with a prior run's row on this persistent DB, silently
     # no-op the insert (ON CONFLICT DO NOTHING), and FK-violate on principal_roles below.
@@ -77,8 +84,8 @@ def test_download_serves_available_archive_and_404s_for_admin() -> None:
             "VALUES (%s, 'available', %s, '1.3.0')",
             (backup_id, key),
         )
-        with TestClient(create_app(cfg)) as client:
-            ok = client.get(f"/backups/{backup_id}/download", headers=headers)
+        async with asgi_client(create_app(cfg)) as client:
+            ok = await client.get(f"/backups/{backup_id}/download", headers=headers)
             assert ok.status_code == 200
             assert ok.content == payload
             assert ok.headers["content-type"] == "application/gzip"
@@ -86,13 +93,14 @@ def test_download_serves_available_archive_and_404s_for_admin() -> None:
 
             # Unknown id -> 404 (for an admin principal).
             assert (
-                client.get(f"/backups/{new_ulid_str()}/download", headers=headers).status_code
-                == 404
-            )
+                await client.get(f"/backups/{new_ulid_str()}/download", headers=headers)
+            ).status_code == 404
 
             # A non-available backup is not downloadable -> 404.
             conn.execute("UPDATE backups SET status='creating' WHERE id=%s", (backup_id,))
-            assert client.get(f"/backups/{backup_id}/download", headers=headers).status_code == 404
+            assert (
+                await client.get(f"/backups/{backup_id}/download", headers=headers)
+            ).status_code == 404
     finally:
         conn.execute("DELETE FROM backups WHERE id=%s", (backup_id,))
         conn.execute("DELETE FROM principal_roles WHERE principal_id = %s", (admin_id,))
@@ -102,33 +110,31 @@ def test_download_serves_available_archive_and_404s_for_admin() -> None:
             store._client.delete_object(Bucket=cfg.s3_bucket, Key=key)
 
 
-def test_download_rejects_anonymous_caller() -> None:
+@pytest.mark.asyncio
+async def test_download_rejects_anonymous_caller() -> None:
     """No credentials at all -> 401, never the archive bytes (BL-094)."""
-    from fastapi.testclient import TestClient
-
     from doc_ray.entrypoints.api.app import create_app
 
     cfg = _cfg()
-    with TestClient(create_app(cfg)) as client:
-        r = client.get(f"/backups/{new_ulid_str()}/download")
+    async with asgi_client(create_app(cfg), lifespan=False) as client:
+        r = await client.get(f"/backups/{new_ulid_str()}/download")
         assert r.status_code == 401
 
 
-def test_download_rejects_non_admin_write_scoped_caller() -> None:
+@pytest.mark.asyncio
+async def test_download_rejects_non_admin_write_scoped_caller() -> None:
     """Global write scope alone must not authorize a corpus-wide download (BL-094)."""
-    from fastapi.testclient import TestClient
-
     from doc_ray.entrypoints.api.app import create_app
 
-    conn = _itdb.connect()
+    conn = _connect_or_skip()
     principal_id = conn.execute(
         "INSERT INTO principals (kind, display_name) VALUES ('human', %s) RETURNING id",
         (f"test-non-admin-{new_ulid_str()}",),
     ).fetchone()["id"]
     cfg = _cfg(api_tokens={NON_ADMIN_TOKEN: (str(principal_id), frozenset({"read", "write"}))})
     try:
-        with TestClient(create_app(cfg)) as client:
-            r = client.get(
+        async with asgi_client(create_app(cfg)) as client:
+            r = await client.get(
                 f"/backups/{new_ulid_str()}/download",
                 headers={"authorization": f"Bearer {NON_ADMIN_TOKEN}"},
             )

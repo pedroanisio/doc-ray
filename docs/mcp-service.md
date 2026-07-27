@@ -4,8 +4,8 @@ disclaimer:
     No information within this document should be taken for granted.
     Any statement or premise not backed by a real logical definition
     or verifiable reference may be invalid, erroneous, or a hallucination.
-  generated_by: "Claude Opus 4.8 (1M context) via Claude Code"
-  date: "2026-07-15"
+  generated_by: "OpenAI Codex"
+  date: "2026-07-26"
 ---
 
 # MCP Service — Implementation Status & Plan
@@ -19,7 +19,7 @@ Exposes the doc-ray corpus to agentic AI over the **Model Context Protocol
 (MCP)**, authenticating each caller to a doc-ray principal so Postgres RLS scopes
 what they can read.
 
-**Status: live in production and verified end-to-end.** The server ships **32
+**Status: live in production and verified end-to-end.** The server ships **33
 read tools** (19 from `entrypoints/mcp/corpus.py` — incl. `read_document_sentences`,
 `corpus_manifest`, `corpus_shard`, `get_job`, `list_collections`, `get_collection`,
 `entity_mention_corrections`, and the 5 Prism visual tools — + 9 structure tools from
@@ -28,7 +28,8 @@ read tools** (19 from `entrypoints/mcp/corpus.py` — incl. `read_document_sente
 Block F hyper-context readers `lens_entities` / `entity_relations` / `related_entities`,
 and the Block E `allusions` reader) + 3
 composition-grounding tools from `entrypoints/mcp/compose.py`
-+ 1 semantic-search tool… see §3) always registered, plus **31 opt-in write tools**
++ 1 semantic-search tool + 1 mention-confidence review tool… see §3) always registered,
+plus **32 opt-in write tools**
 (reprocessing + curation + full collection lifecycle + projection review
 `confirm_projection` / `reject_projection` + allusion curation `propose_allusion` /
 `confirm_allusion` / `reject_allusion`) registered only when
@@ -70,6 +71,11 @@ managed stack; the `mcp` service front-ends `api:8000/graphql`, loopback-bound o
   the requested "MCP via gRPC" cannot be a raw gRPC endpoint (no MCP client could
   reach it). gRPC, if needed, is a *separate* non-MCP gateway (Phase 4), not the
   MCP surface.
+- **Stateless Streamable HTTP.** Every tool/resource/prompt is a unary,
+  externally authorized GraphQL-backed operation, so FastMCP runs with
+  `stateless_http=True`. Initialization and later calls may land on different
+  processes; the server issues no process-local session id that becomes a 404
+  after restart. Per-request bearer validation remains the security boundary.
 - **Auth = reuse, not reinvent.** doc-ray already resolves a bearer token / JWT to
   a `Principal` and binds Postgres RLS:
   [`HeaderTokenAuthenticator`](../src/doc_ray/entrypoints/api/security.py),
@@ -99,20 +105,62 @@ every other read rule.
 | Module | Depends on | Purpose |
 |---|---|---|
 | `src/doc_ray/entrypoints/mcp/tokens.py` | starlette + `mcp` | Per-call bearer-token resolution: live request wins, `caller_token` contextvar is the stdio fallback |
-| `src/doc_ray/entrypoints/mcp/corpus.py` | httpx only | GraphQL-passthrough client + read-tool functions (SDK-independent) |
+| `src/doc_ray/entrypoints/mcp/corpus.py` | httpx only | GraphQL-passthrough read tools using the shared outbound client (SDK-independent) |
+| `src/doc_ray/entrypoints/mcp/http_client.py` | httpx only | Process-wide, token-free GraphQL connection pool; explicit bounds and lifespan shutdown |
 | `src/doc_ray/entrypoints/mcp/auth.py` | starlette only | Bearer/JWT validation + `BearerAuthMiddleware` (reuses `tokens`) |
 | `src/doc_ray/entrypoints/mcp/structure.py` | httpx only | The 9 structure/SLP read tools: outline, `entity_profiles`, `term_frequency`, `document_classification`, and the lens-scoped `entity_projection` / `lens_entities` / `entity_relations` / `related_entities` / `allusions` (split from `corpus.py` for D-015) |
 | `src/doc_ray/entrypoints/mcp/compose.py` | httpx only | The 3 composition-grounding read tools (`briefing_pack`, `entity_dossier`, `document_evidence`) |
 | `src/doc_ray/entrypoints/mcp/semantic.py` | httpx only | The semantic-search read tool (`semantic_search_sentences`) |
-| `src/doc_ray/entrypoints/mcp/mutations.py` | httpx only | The 30 write tools (reprocessing + curation mutations); registered only when writes are enabled |
+| `src/doc_ray/entrypoints/mcp/mutations.py` | httpx only | The 31 write tools (reprocessing + curation mutations); registered only when writes are enabled |
+| `src/doc_ray/entrypoints/mcp/mutations_surface.py` | httpx only | Dry-run-first exact-surface NER correction tool; resolves one explicit document or a provably complete collection below 200 members |
 | `src/doc_ray/entrypoints/mcp/prompts.py` | `mcp` | The 4 user-selectable workflow prompts (§3.7) |
 | `src/doc_ray/entrypoints/mcp/resources.py` | httpx only | `docray://` resources + RFC 6570 templates over the read tools (addressing layer) |
-| `src/doc_ray/entrypoints/mcp/server.py` | `mcp` (new dep) | Thin FastMCP glue: register tools, mount middleware, expose ASGI `app` |
+| `src/doc_ray/entrypoints/mcp/tool_meta.py` | `mcp` + tool registries | Authoritative human titles and all four behavioral hints for every live tool |
+| `src/doc_ray/entrypoints/mcp/server.py` | `mcp` (new dep) | Thin FastMCP glue: register tools, enforce stateless Streamable HTTP, mount middleware, expose ASGI `app` |
 | `docker-compose.mcp.yml` | — | `mcp` service; dev forwards to `http://api:8000/graphql` (in-network), prod to `https://doc-ray.com/graphql` |
 
 Splitting the substance (`corpus.py` + `auth.py`) away from the SDK glue
 (`server.py`) means the tools and auth are testable and committable **without** the
 new dependency; only `server.py` needs `mcp`.
+
+### Tool metadata contract
+
+The enabled registry contains **65 tools**: 33 reads and 32 opt-in writes.
+`entrypoints/mcp/tool_meta.py` owns a distinct, non-empty human `title` and
+explicit `readOnlyHint`, `destructiveHint`, `idempotentHint`, and
+`openWorldHint` values for every one. `server.py` passes the title separately to
+`FastMCP.tool(title=...)`; `annotations.title` stays unset, so the model-facing
+label is not confused with the annotations object or the callable's description.
+Bidirectional tests fail for either an unclassified live tool or a stale policy
+name.
+
+Read tools are read-only, non-destructive, idempotent, and closed-world. Write
+tools are classified from their actual behavior: calls that can remove or
+replace curated state are destructive, and calls that enqueue fresh work or
+create a new durable row are non-idempotent. Four queued operations are
+open-world because their worker can cross the corpus boundary:
+`ingest_document` (arXiv), `canonicalize_document(resolve=True)` (configured
+frontier resolver), `suggest_seeds` (Wikipedia/Wikidata), and `seed_approved`
+(Wikidata). Every other tool is closed-world.
+
+`correct_entity_surface` is the deliberate mixed-contract exception: its
+default path is a read-only preview, while an explicit commit appends audit/job
+rows but converges the derived mention set on the same exact rule. Its advertised
+hints are therefore `readOnlyHint=false`, `destructiveHint=false`,
+`idempotentHint=true`, and `openWorldHint=false`, as required by #41. These are
+still model-facing planning hints, not permission or transactional guarantees.
+
+These hints are **advisory**, not enforcement. GraphQL write scope, billing
+entitlement, per-document ACL checks, and Postgres RLS remain authoritative. A
+client must still confirm destructive actions rather than treating the hint as
+permission.
+
+At the #35 checkpoint, compact `tools/list` JSON for 64 tools grew from
+**63,438 bytes** without metadata to **71,969 bytes** with all titles and hints:
+**8,531 bytes** of one-time discovery overhead. After #41 adds
+`correct_entity_surface`, the measured write-enabled surface is **65 tools / 77,967
+bytes** (~19,491 estimated tokens); read-only is **33 / 45,049** (~11,262). The
+evaluator baseline owns these current discovery totals.
 
 ## 3. Tool inventory
 
@@ -166,11 +214,12 @@ but had no passage cited on this page. Example:
 | `search_sentences(term, document_id?, limit, after?, response_format?)` | `searchSentences` | KWIC pre/hit/post; term-filtered. Returns `{hits, coverage, note}` — see §3.1 |
 | `read_document_sentences(document_id, limit, after?, from_ordinal?, to_ordinal?, page?, response_format?)` | `document { sentences }` | in-order read: **sequential** walk *or* **random-access** ordinal/page slice; verbatim text + citation offsets |
 | `read_document_outline(document_id, max_entries)` | `documentOutline` | the map that aims the ranged reader: addressable ordinal ranges + `source` provenance — see §3.2 |
-| `full_text_search(query, limit)` | `fullTextSearch` | ranked docs |
+| `full_text_search(query, limit, mode)` | `fullTextSearch` | ranked docs; `mode="terms"` requires all stemmed terms in any positions, while `mode="phrase"` requires them in order |
 | `list_documents(limit, doc_type?, status?, after?)` | `documents` | keyset `cursor` |
 | `get_document(document_id)` | `document` | metadata + counts |
 | `get_job(job_id)` | `job` | poll a job enqueued by a write tool |
 | `entity_mention_corrections(document_id)` | `entityMentionCorrections` | the human NER-correction audit log for a document |
+| `uncertain_mentions(document_id, limit, entity_type?, after?)` | `uncertainMentions` | uncorrected mentions ranked least-trustworthy first; heuristic triage with reasons, not a calibrated probability |
 | `document_classification(document_id)` | `documentClassification` | the document's genre axis; `status` tells you if it is a `pending` guess or a `confirmed` human decision |
 | `entity_projection(document_id, lens_id?, limit, after?)` | `entityProjection` | `project(mention, lens)` — each mention's identity within a lens; `scope` local/global, `canonicalId` null = unresolved, `status` proposed/confirmed/rejected (Block D) |
 | `lens_entities(lens_id, limit, after?, min_mentions?)` | `lensEntities` | a lens's significant entities, most-mentioned first (Block F) — type profile + consistency + `refreshedAt`; keyset `cursor` |
@@ -184,7 +233,7 @@ but had no passage cited on this page. Example:
 | `corpus_shard(shard_index, shard_count, limit, after?)` | `corpusShard` | one deterministic, disjoint slice of the corpus; keyset `cursor` |
 | `entity_frequency(document_id?, entity_type?, limit)` | `entityFrequency` | **raw** NER rows, one per (surface, type) — prefer `entity_profiles` |
 | `entity_profiles(document_id?, entity_type?, limit)` | `entityProfiles` | one row per entity: merged spellings, measured type spread, `typeConsistency` — see §3.3 |
-| `term_frequency(terms, document_id?)` | `termFrequency` | flood-risk pre-flight: `floodRisk` verdict per candidate term BEFORE searching; corpus-wide only (`document_id` → typed `unsupported`) — see §3.6 |
+| `term_frequency(terms, document_id?)` | `termFrequency` | flood-risk pre-flight: exact single-lexeme counts or declared phrase component upper bounds; corpus-wide only (`document_id` → typed `unsupported`) — see §3.6 |
 | `lexeme_kwic(uid, document_id?, limit)` | `lexeme { occurrences }` | KWIC is a **nested** resolver, not a root field |
 | `semantic_search_sentences(query, document_id?, limit)` | `semanticSearchSentences` | meaning-based (learned-embedding) sentence retrieval; the antidote to lexical `search_sentences` flooding. Typed `unsupported` where the sentence stack is absent |
 | `document_images(document_id, limit, after?)` | `documentImages` | Prism visual layer: extracted/rendered page images |
@@ -622,8 +671,18 @@ whole batch.
 
 **Batch by default** (`terms: [String!]!`): triage every candidate in one call, do
 not spend one round-trip per term. Each row carries the numbers behind the verdict
-(`uses`, `totalUses`, `share`) so a caller can disagree; `attested: false`
-distinguishes an unknown term (a search will return nothing) from a lookup failure.
+(`uses`, `totalUses`, `share`) so a caller can disagree; `measurement` says whether
+that number is `exact`, a `component_upper_bound`, or `unavailable`.
+`attested: false` distinguishes an absent lexeme from a lookup failure.
+
+**Whitespace phrases are conservative estimates, not fabricated counts.** For
+`"design decision"`, the same one-statement rollup read fetches `design` and
+`decision`; `uses` is the smaller component count, because the phrase cannot occur
+more often than its rarest component. The row reports
+`measurement: "component_upper_bound"`, includes both component counts in `parts`,
+and leaves positive `attested` null because separate counts do not prove adjacency.
+If either component is absent, `attested: false` is justified. Confirm actual
+ordered matches with `full_text_search(mode="phrase")`.
 
 **What this tool cannot count, and why it now says so (BL-164).** The lexeme
 tokenizer (`lexemes._WORD_RE`) excludes `_` and digits from word characters, so the
@@ -676,13 +735,14 @@ a bug:
 
 | Surface | Matches on | Example |
 |---|---|---|
-| `term_frequency` | lexeme lemma (`norm_lemma`) | `running` → lemma `run` |
+| `term_frequency` | lexeme lemma (`norm_lemma`); rarest-component upper bound for whitespace phrases | `running` → lemma `run`; `design decision` → `min(design, decision)` |
 | `search_sentences` | **case-insensitive literal substring** (`ILIKE '%term%'`) | `run` matches `run`, `overrun`, `Brunny` |
 | `full_text_search` | **Snowball stem** (`plainto_tsquery`, per-doc config) | `running` → stem `run` |
 
 So `term_frequency` is a **corpus-saturation signal**, a strong proxy for — not an
 exact predictor of — any one tool's hit count. It is most precise for base-form
-content words (surface ≈ lemma), and diverges for inflected or substring queries;
+content words (surface ≈ lemma); phrase results are upper bounds and it diverges
+for inflected or substring queries;
 when in doubt, trust the exposed numbers over the bucket. **Corpus-wide only for
 now** (Open decision 1(a)): passing `documentId`/`document_id` returns a typed
 `unsupported` error rather than corpus numbers mislabelled as document-scoped — a
@@ -766,7 +826,24 @@ which in practice only reach the exempt probes). On breach it returns `429` with
 `DOCRAY_MCP_RATE_LIMIT_WINDOW_SECONDS` (default `60`); set requests to `0` to disable.
 The default is generous — it only catches runaway loops.
 
-> **State is per-process** (Open decision 2). The MCP service runs as **one**
+**Transport reuse and compression.** All tool calls share one process-wide
+HTTPX connection pool instead of reopening TCP/TLS on each GraphQL hop. The pool
+never stores a caller token; authorization remains a per-request header.
+`DOCRAY_MCP_POOL_MAX_CONNECTIONS` (default `100`) and
+`DOCRAY_MCP_POOL_MAX_KEEPALIVE` (default `20`) bound it, and ASGI lifespan
+shutdown closes it after FastMCP's own session manager exits. Responses of at
+least 1 KiB are gzip-compressed when requested, while `text/event-stream` is
+explicitly excluded so MCP streams keep flushing incrementally.
+
+**Restart and replica behavior.** MCP transport sessions are stateless. A client
+may initialize against one process and send the next request to another, or
+continue after a container restart, without presenting a stale process-local
+session id. This is safe because the server stores no conversation, task, or
+authorization state between calls: each request is authenticated, and durable
+application state lives behind GraphQL/Postgres. Stream resumability/event replay
+is not advertised; no server operation currently depends on it.
+
+> **Rate-limit state is per-process** (Open decision 2). The MCP service runs as **one**
 > container, so this is correct as deployed; if it is ever scaled to *N* replicas the
 > effective limit is *N×* the configured value (each process counts independently).
 > A shared store (Redis/Postgres) would be needed for a hard cluster-wide cap — not
@@ -791,8 +868,9 @@ grant on) the target documents. Every tool here
 enqueues a **reversible** background job or a curation decision — no destructive
 or admin verb (`delete`/`archive`/`backup`/`restore`/`cancel_job`) is exposed.
 Job-returning tools return the `Job` shape (`id`, `status`, …); poll it with
-`get_job`. See [`mutations.py`](../src/doc_ray/entrypoints/mcp/mutations.py) and
-engineering decision **D-030**.
+`get_job`. See [`mutations.py`](../src/doc_ray/entrypoints/mcp/mutations.py),
+[`mutations_surface.py`](../src/doc_ray/entrypoints/mcp/mutations_surface.py),
+and engineering decision **D-030**.
 
 | MCP tool | GraphQL mutation | Returns |
 |---|---|---|
@@ -808,6 +886,7 @@ engineering decision **D-030**.
 | `update_document_metadata(document_id, title?, description?, tags?, authors?)` | `updateDocumentMetadata` | `Job` |
 | `bulk_tag_documents(document_ids, tags)` | `bulkTagDocuments` | `[Job]` |
 | `correct_entity_mention(document_id, action, char_start, char_end, entity_type?, surface?, new_char_start?, new_char_end?, original_type?, rationale?)` | `correctEntityMention` | `Job` (`apply_corrections`) |
+| `correct_entity_surface(surface, original_type, action, document_id?, collection_id?, entity_type?, rationale?, dry_run=True)` | preview: `entitySurfaceOccurrences`; commit: `correctEntitySurface` | impact preview; `[Job]` only when `dry_run=False` |
 | `classify_document(document_id)` | `classifyDocument` | `Job` (`classify_genre`) |
 | `confirm_document_classification(document_id, genre, subtype?, rationale?)` | `confirmDocumentClassification` | the confirmed `DocumentClassification` |
 | `confirm_projection(mention_id, lens_id)` | `confirmProjection` | `Job` (`refresh_projection`) — promotes a projection to `confirmed` |
@@ -871,7 +950,17 @@ first to avoid re-recording a fix that already exists.
 
 Use `reject` for a span that is not an entity, `add` for one the model missed
 (pass `entity_type`), and `adjust_span` with `new_char_start` / `new_char_end`
-when the entity is real but its boundaries are wrong.
+when the entity is real but its boundaries are wrong. `adjust_span` also accepts
+`entity_type` to retype the mention in the same correction.
+
+For a repeated error, use `correct_entity_surface` with exactly one
+`document_id` or `collection_id`. It first calls the bounded
+`entitySurfaceOccurrences` preview and defaults to `dry_run=True`; set
+`dry_run=False` explicitly to record `reclassify_surface` or `reject_surface`
+and enqueue one `apply_corrections` Job per Document. Matching is exact and
+case-sensitive on `surface` plus the current `original_type`. Collection scope
+is rejected when membership reaches the unpageable 200-member bound or when
+`documentCount` does not prove the returned member list is complete.
 
 `classify_document` / `confirm_document_classification` are the genre half of the
 verification layer (SLP Block C). A document's genre decides whether its entities
@@ -1087,7 +1176,7 @@ unaffected.
       Registration → `/authorize` (browser login + consent, PKCE S256) → `/token`
       (authorization_code + PKCE), reusing the existing RLS-bound access JWTs.
       See `application/oauth_server.py`, `webapp/oauth_web.py`, migration `082`.
-- [x] **Write tools — DONE.** `mutations.TOOLS` registers 30 write tools (reprocessing
+- [x] **Write tools — DONE.** `mutations.TOOLS` registers 31 write tools (reprocessing
       + curation + full collection lifecycle + SLP projection/allusion review), advertised only when
       `DOCRAY_MCP_ENABLE_WRITE=true`; each remains gated by the API's `write` scope and
       per-document ACLs (`test_mcp_server.py::_WRITE_TOOL_NAMES`).

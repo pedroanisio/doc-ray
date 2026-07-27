@@ -8,7 +8,7 @@ which a different store could be substituted.
 
 from __future__ import annotations
 
-from typing import Any, Protocol
+from typing import Any, Literal, Protocol
 
 import psycopg
 
@@ -325,7 +325,12 @@ class ReadRepository(Protocol):
         ...
 
     async def fulltext_search(
-        self, conn: psycopg.AsyncConnection[Row], query: str, *, limit: int = 25
+        self,
+        conn: psycopg.AsyncConnection[Row],
+        query: str,
+        *,
+        limit: int = 25,
+        mode: Literal["terms", "phrase"] = "terms",
     ) -> list[Row]:
-        """Return documents ranked by full-text match against ``document_content.fts``."""
+        """Return documents ranked by all-term or ordered-phrase full-text match."""
         ...

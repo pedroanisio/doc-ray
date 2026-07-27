@@ -8,7 +8,6 @@ routes claimed jobs here through :data:`HANDLERS`.
 
 from __future__ import annotations
 
-import logging
 from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
@@ -21,6 +20,7 @@ from doc_ray.application.document_stats import refresh_document_stats as _refres
 from doc_ray.application.genre_classification import handle_classify_genre
 from doc_ray.application.job_handlers_ingest import ingest_reference as _ingest_reference
 from doc_ray.application.lens_rollups import handle_refresh_lens_rollup
+from doc_ray.application.mention_confidence import handle_score_mentions
 from doc_ray.application.projection import (
     handle_refresh_projection,
 )
@@ -45,6 +45,7 @@ from doc_ray.domain.jobs import (
     KIND_REFRESH_PROJECTION,
     KIND_RESTORE,
     KIND_RESTORE_DOCUMENT,
+    KIND_SCORE_MENTIONS,
     KIND_SEED_APPROVED,
     KIND_SEED_CANONICAL,
     KIND_SEED_SUGGEST,
@@ -64,8 +65,6 @@ if TYPE_CHECKING:
     # Concrete adapter type for the (path-based) pipeline, imported for typing only
     # so this module stays importable without boto3.
     from doc_ray.adapters.object_store import ObjectStore as S3ObjectStore
-
-_logger = logging.getLogger("doc_ray.jobs")
 
 #: A handler runs one job and returns a JSON-able result recorded on the job row.
 Handler = Callable[[psycopg.Connection[Any], ObjectStore | None, Job], dict[str, Any]]
@@ -530,6 +529,7 @@ def handle_canonicalize(
 
 HANDLERS: dict[str, Handler] = {
     KIND_ANNOTATE: handle_annotate,
+    KIND_SCORE_MENTIONS: handle_score_mentions,
     KIND_APPLY_CORRECTIONS: handle_apply_corrections,
     KIND_CLASSIFY_GENRE: handle_classify_genre,
     KIND_SEMANTIC_ENRICH: handle_semantic_enrich,

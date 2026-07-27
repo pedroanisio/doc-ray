@@ -8,6 +8,7 @@ import json
 import time
 from dataclasses import replace
 
+import pytest
 from _billing_test_support import (
     _apply_billing_migration,
     _architecture_stripe_section,
@@ -16,12 +17,12 @@ from _billing_test_support import (
     _production_setup_webhook_events,
     _signed_header,
 )
-from fastapi.testclient import TestClient
 
 from doc_ray.application import billing, billing_stripe
 from doc_ray.entrypoints.api.app import create_app
 from doc_ray.entrypoints.api.mutation_guards import _BILLING_ENTITLEMENT_EXEMPT_ACTIONS
 from doc_ray.entrypoints.api.schema import build_schema
+from doc_ray.tests._asgi import asgi_client
 
 
 def test_paid_saas_mutations_cannot_drift_outside_billing_entitlement_guard() -> None:
@@ -50,6 +51,7 @@ def test_paid_saas_mutations_cannot_drift_outside_billing_entitlement_guard() ->
         "confirm_document_classification": "mutation.confirm_document_classification",
         "confirm_projection": "mutation.confirm_projection",
         "correct_entity_mention": "mutation.correct_entity_mention",
+        "correct_entity_surface": "mutation.correct_entity_surface",
         "create_backup": "mutation.backup",
         "create_collection": "mutation.create_collection",
         "decide_document_metadata_suggestions": ("mutation.decide_document_metadata_suggestions"),
@@ -83,21 +85,17 @@ def test_paid_saas_mutations_cannot_drift_outside_billing_entitlement_guard() ->
     }
     assert set(mutation_fields) == set(guarded_mutations) | set(exempt_mutations)
     assert set(exempt_mutations.values()) == _BILLING_ENTITLEMENT_EXEMPT_ACTIONS
+    guards = (
+        "_require_admin",
+        "_require_backup_admin",
+        "_require_document_write",
+        "_require_document_share",
+        "_require_write_audited",
+    )
     for mutation_name, action in guarded_mutations.items():
         source = inspect.getsource(mutation_fields[mutation_name])
         assert action in source
-        assert any(
-            guard in source
-            for guard in (
-                "_require_admin",
-                # Composes _require_write_audited + the backup feature gate +
-                # the admin predicate, in that order (D-033).
-                "_require_backup_admin",
-                "_require_document_write",
-                "_require_document_share",
-                "_require_write_audited",
-            )
-        ), mutation_name
+        assert any(guard in source for guard in guards), mutation_name
 
 
 def test_prod_env_example_webhook_events_match_runtime_requirements():
@@ -241,7 +239,8 @@ def test_verify_stripe_signature_rejects_malformed_timestamp():
         raise AssertionError("malformed Stripe signature timestamp was accepted")
 
 
-def test_stripe_webhook_route_verifies_signature_and_persists_event(pg):
+@pytest.mark.asyncio
+async def test_stripe_webhook_route_verifies_signature_and_persists_event(pg):
     conn, _created = pg
     tenant_id = _apply_billing_migration(conn)
     event = {
@@ -265,21 +264,21 @@ def test_stripe_webhook_route_verifies_signature_and_persists_event(pg):
     app = create_app(_cfg())
 
     try:
-        with TestClient(app) as client:
-            rejected = client.post(
+        async with asgi_client(app) as client:
+            rejected = await client.post(
                 "/stripe/webhook",
                 content=payload,
                 headers={"stripe-signature": bad_header},
             )
             assert rejected.status_code == 400
-            accepted = client.post(
+            accepted = await client.post(
                 "/stripe/webhook",
                 content=payload,
                 headers={"stripe-signature": header},
             )
             assert accepted.status_code == 200
             assert accepted.json() == {"received": True, "processed": True}
-            duplicate = client.post(
+            duplicate = await client.post(
                 "/stripe/webhook",
                 content=payload,
                 headers={"stripe-signature": header},
@@ -318,7 +317,8 @@ def test_stripe_webhook_route_verifies_signature_and_persists_event(pg):
         )
 
 
-def test_stripe_webhook_route_retries_unmatched_invoice_after_subscription_mapping(pg):
+@pytest.mark.asyncio
+async def test_stripe_webhook_route_retries_unmatched_invoice_after_subscription_mapping(pg):
     conn, _created = pg
     tenant_id = _apply_billing_migration(conn)
     invoice_event = {
@@ -360,8 +360,8 @@ def test_stripe_webhook_route_retries_unmatched_invoice_after_subscription_mappi
     app = create_app(_cfg())
 
     try:
-        with TestClient(app) as client:
-            pending = client.post(
+        async with asgi_client(app) as client:
+            pending = await client.post(
                 "/stripe/webhook",
                 content=invoice_payload,
                 headers={"stripe-signature": invoice_header},
@@ -369,7 +369,7 @@ def test_stripe_webhook_route_retries_unmatched_invoice_after_subscription_mappi
             assert pending.status_code == 503
             assert "retry" in pending.json()["detail"].lower()
 
-            subscription = client.post(
+            subscription = await client.post(
                 "/stripe/webhook",
                 content=subscription_payload,
                 headers={"stripe-signature": subscription_header},
@@ -377,7 +377,7 @@ def test_stripe_webhook_route_retries_unmatched_invoice_after_subscription_mappi
             assert subscription.status_code == 200
             assert subscription.json() == {"received": True, "processed": True}
 
-            retried_invoice = client.post(
+            retried_invoice = await client.post(
                 "/stripe/webhook",
                 content=invoice_payload,
                 headers={"stripe-signature": invoice_header},
@@ -385,7 +385,7 @@ def test_stripe_webhook_route_retries_unmatched_invoice_after_subscription_mappi
             assert retried_invoice.status_code == 200
             assert retried_invoice.json() == {"received": True, "processed": True}
 
-            duplicate_invoice = client.post(
+            duplicate_invoice = await client.post(
                 "/stripe/webhook",
                 content=invoice_payload,
                 headers={"stripe-signature": invoice_header},
@@ -413,7 +413,8 @@ def test_stripe_webhook_route_retries_unmatched_invoice_after_subscription_mappi
         )
 
 
-def test_stripe_webhook_route_rejects_livemode_mismatch_before_processing(pg):
+@pytest.mark.asyncio
+async def test_stripe_webhook_route_rejects_livemode_mismatch_before_processing(pg):
     conn, _created = pg
     tenant_id = _apply_billing_migration(conn)
     event = {
@@ -435,8 +436,8 @@ def test_stripe_webhook_route_rejects_livemode_mismatch_before_processing(pg):
     app = create_app(replace(_cfg(), stripe_secret_key="sk_live_x"))
 
     try:
-        with TestClient(app) as client:
-            response = client.post(
+        async with asgi_client(app) as client:
+            response = await client.post(
                 "/stripe/webhook",
                 content=payload,
                 headers={"stripe-signature": header},

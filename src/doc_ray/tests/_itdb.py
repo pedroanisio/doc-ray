@@ -12,6 +12,7 @@ import urllib.parse
 from collections.abc import Mapping
 
 import psycopg
+import pytest
 from psycopg.rows import dict_row
 
 from doc_ray.adapters import persistence as db
@@ -97,7 +98,10 @@ def require_safe_test_database(conn, *, db_url: str = DB_URL) -> None:
 
 
 def connect() -> psycopg.Connection:
-    conn = psycopg.connect(DB_URL, row_factory=dict_row, autocommit=True)
+    try:
+        conn = psycopg.connect(DB_URL, row_factory=dict_row, autocommit=True)
+    except psycopg.OperationalError as exc:  # pragma: no cover - environment dependent
+        pytest.skip(f"DB unreachable: {exc}")
     try:
         require_safe_test_database(conn)
     except Exception:

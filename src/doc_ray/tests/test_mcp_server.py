@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import logging
+from unittest.mock import AsyncMock
 
 import anyio
+import pytest
 from starlette.applications import Starlette
 
 from doc_ray.entrypoints.mcp import corpus, server
@@ -31,6 +33,8 @@ _READ_TOOL_NAMES = {
     # structure tools (BL-146): the map, and reconciled entities
     "read_document_outline",
     "entity_profiles",
+    # materialized mention-confidence review queue (Block G)
+    "uncertain_mentions",
     # term-frequency pre-flight (Item 10): flood-risk before searching
     "term_frequency",
     # Prism visual tools
@@ -78,6 +82,7 @@ _WRITE_TOOL_NAMES = {
     "update_document_metadata",
     "bulk_tag_documents",
     "correct_entity_mention",
+    "correct_entity_surface",
     "classify_document",
     "confirm_document_classification",
     "decide_seeds",
@@ -115,6 +120,38 @@ def test_build_server_adds_write_tools_when_enabled():
     mcp = server.build_server(enable_write=True)
     names = {tool.name for tool in anyio.run(mcp.list_tools)}
     assert names == _READ_TOOL_NAMES | _WRITE_TOOL_NAMES
+
+
+def test_build_server_uses_restart_safe_stateless_streamable_http():
+    """Unary tools must not bind clients to one process-local session id."""
+    mcp = server.build_server()
+
+    assert mcp.settings.stateless_http is True
+    mcp.streamable_http_app()
+    manager = mcp.session_manager
+    assert manager.stateless is True
+    assert manager.event_store is None
+    assert manager._server_instances == {}
+
+
+@pytest.mark.asyncio
+async def test_streamable_http_dispatches_every_request_without_session_lookup(monkeypatch):
+    """The SDK manager takes its stateless path, never the process-local session map."""
+    mcp = server.build_server()
+    mcp.streamable_http_app()
+    manager = mcp.session_manager
+    manager._task_group = object()
+    stateless = AsyncMock()
+    stateful = AsyncMock()
+    monkeypatch.setattr(manager, "_handle_stateless_request", stateless)
+    monkeypatch.setattr(manager, "_handle_stateful_request", stateful)
+
+    receive = AsyncMock()
+    send = AsyncMock()
+    await manager.handle_request({"type": "http"}, receive, send)
+
+    stateless.assert_awaited_once_with({"type": "http"}, receive, send)
+    stateful.assert_not_awaited()
 
 
 def test_build_server_registers_exactly_the_four_prompts_each_described():
@@ -194,7 +231,7 @@ def test_tool_calls_emit_an_audit_log_line(monkeypatch, caplog):
         async def post(self, url, json, headers):
             return _Resp()
 
-    monkeypatch.setattr(corpus.httpx, "AsyncClient", lambda **kw: _Client())
+    monkeypatch.setattr(corpus, "acquire_client", AsyncMock(return_value=_Client()))
     mcp = server.build_server()
     with caplog.at_level(logging.INFO, logger="doc_ray.mcp.audit"):
         anyio.run(mcp.call_tool, "full_text_search", {"query": "x"})

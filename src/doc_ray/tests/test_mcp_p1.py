@@ -19,10 +19,18 @@ from __future__ import annotations
 import inspect
 import re
 from pathlib import Path
+from unittest.mock import AsyncMock
 
 import pytest
 
-from doc_ray.entrypoints.mcp import compose, corpus, mutations, prompts, structure
+from doc_ray.entrypoints.mcp import (
+    compose,
+    corpus,
+    mutations,
+    mutations_surface,
+    prompts,
+    structure,
+)
 
 _DOC = "11111111-1111-1111-1111-111111111111"
 _TESTS = Path(__file__).resolve().parent
@@ -64,7 +72,7 @@ def _reset_token():
 
 def _patch(monkeypatch, payload):
     client = _FakeClient(payload)
-    monkeypatch.setattr(corpus.httpx, "AsyncClient", lambda **kw: client)
+    monkeypatch.setattr(corpus, "acquire_client", AsyncMock(return_value=client))
     return client
 
 
@@ -307,7 +315,13 @@ async def test_entity_profiles_validate_the_document_id_before_the_network(monke
 # --------------------------------------------------------------------------
 
 
-_ALL_TOOLS = (*corpus.TOOLS, *structure.TOOLS, *compose.TOOLS, *mutations.TOOLS)
+_ALL_TOOLS = (
+    *corpus.TOOLS,
+    *structure.TOOLS,
+    *compose.TOOLS,
+    *mutations.TOOLS,
+    *mutations_surface.TOOLS,
+)
 
 
 def test_every_tool_is_exercised_by_the_graphql_schema_contract_guard():
@@ -316,7 +330,9 @@ def test_every_tool_is_exercised_by_the_graphql_schema_contract_guard():
     # silently uncovered. This closes that hole: adding a tool without adding it
     # there fails the build.
     source = (_TESTS / "test_mcp_schema_contract.py").read_text()
-    exercised = set(re.findall(r"(?:corpus|structure|compose|mutations)\.(\w+)\(", source))
+    exercised = set(
+        re.findall(r"(?:corpus|structure|compose|mutations|mutations_surface)\.(\w+)\(", source)
+    )
     # Only tools that embed a GraphQL document need validating. The composition
     # tools delegate to the read tools and hold no query string of their own, so
     # their documents are already covered by the tool they call.

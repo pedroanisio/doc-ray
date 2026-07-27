@@ -11,12 +11,14 @@ from __future__ import annotations
 
 import dataclasses
 
+import httpx
 import pytest
-from starlette.testclient import TestClient
 
 from doc_ray import __version__
 from doc_ray.config import Config
 from doc_ray.entrypoints.mcp import health, server
+
+_ASGIClient = httpx.AsyncClient
 
 
 class _FakeResp:
@@ -158,33 +160,37 @@ def _fail_closed_cfg() -> Config:
     )
 
 
-def test_health_is_reachable_unauthenticated_even_though_the_mcp_path_is_not(monkeypatch):
+async def _get(app, path: str) -> httpx.Response:
+    """Issue an in-process request without Starlette's incompatible sync portal."""
+    transport = httpx.ASGITransport(app=app)
+    async with _ASGIClient(transport=transport, base_url="http://testserver") as client:
+        return await client.get(path)
+
+
+@pytest.mark.asyncio
+async def test_health_is_reachable_unauthenticated_even_though_the_mcp_path_is_not(monkeypatch):
     # FR-1/FR-3: /health returns 200 with no Authorization header AND makes no
     # network call — patch httpx so any use would raise, proving liveness is
     # dependency-free even while the upstream is unreachable.
-    import httpx
-
     def _explode(**_):
         raise AssertionError("liveness must not touch the network")
 
     monkeypatch.setattr(httpx, "AsyncClient", _explode)
-    with TestClient(server.create_app(_fail_closed_cfg())) as client:
-        resp = client.get("/health")
-        assert resp.status_code == 200
-        assert resp.json()["status"] == "ok"
-        # the protected MCP path still demands auth — the middleware IS active
-        assert client.get("/mcp").status_code == 401
+    app = server.create_app(_fail_closed_cfg())
+    resp = await _get(app, "/health")
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "ok"
+    # the protected MCP path still demands auth — the middleware IS active
+    assert (await _get(app, "/mcp")).status_code == 401
 
 
-def test_readyz_is_reachable_unauthenticated_and_503s_when_upstream_is_down(monkeypatch):
-    import httpx
-
+@pytest.mark.asyncio
+async def test_readyz_is_reachable_unauthenticated_and_503s_when_upstream_is_down(monkeypatch):
     monkeypatch.setattr(httpx, "AsyncClient", _down())
-    with TestClient(server.create_app(_fail_closed_cfg())) as client:
-        resp = client.get("/readyz")
-        assert resp.status_code == 503
-        assert resp.json()["ready"] is False
-        assert resp.json()["checks"]["api_upstream"].startswith("error")
+    resp = await _get(server.create_app(_fail_closed_cfg()), "/readyz")
+    assert resp.status_code == 503
+    assert resp.json()["ready"] is False
+    assert resp.json()["checks"]["api_upstream"].startswith("error")
 
 
 def test_public_paths_names_both_probes():

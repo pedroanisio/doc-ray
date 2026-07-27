@@ -537,6 +537,14 @@ against.
 | BL-167 | Corpus-wide semantic_search_sentences exhausts the API statement timeout | persistence | bug | ready | M | medium | shared |
 | BL-168 | The arXiv source adapter shipped reachable only from a shell (no API `ref` argument, no webapp field, no MCP tool) | api | bug | done | M | high | shared |
 | BL-169 | A failed document told operators to act without telling them what was wrong; admin-console status filter offered values no document carries | webapp | bug | done | S | high | shared |
+| BL-170 | MCP transport rebuilt its HTTP connection pool for every tool call | api | tech-debt | done | S | high | shared |
+| BL-171 | MCP tools exposed no titles or behavioral annotations to clients | api | tech-debt | done | S | high | shared |
+| BL-172 | MCP evaluation ignored the advertised discovery surface every session pays | tooling | tech-debt | done | S | high | shared |
+| BL-173 | NER corrections could fix one span but not a repeated exact surface/type error | api | feature | done | M | high | shared |
+| BL-174 | Document full-text search could not request ordered phrase matching | api | feature | done | S | high | shared |
+| BL-175 | Term-frequency pre-flight treated every multiword phrase as unmeasurable | api | feature | done | S | high | shared |
+| BL-176 | MCP clients were bound to an in-memory transport session lost on restart | api | bug | done | S | high | shared |
+| BL-177 | MCP namespacing could not be justified by the available evaluation mode | tooling | tech-debt | done | XS | medium | shared |
 
 See [`backlog.yml`](backlog.yml) for each item's full description, rationale,
 acceptance criteria, dependencies, related decisions (`D-###`), and references.

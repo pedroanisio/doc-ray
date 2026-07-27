@@ -16,6 +16,9 @@ import strawberry
 from strawberry.scalars import JSON
 
 from doc_ray.adapters import persistence_read as read
+from doc_ray.entrypoints.api.correction_types import (
+    EntityMentionCorrection as EntityMentionCorrection,
+)
 from doc_ray.entrypoints.api.document_types import (
     Document as Document,
 )
@@ -283,48 +286,6 @@ class SeedSuggestion:
             description=row.get("description"),
             entity_type=row.get("entity_type"),
             status=row["status"],
-        )
-
-
-@strawberry.type
-class EntityMentionCorrection:
-    """One durable human correction to an ML-produced NER mention (Block A).
-
-    The audit surface for entity fixes: ``originalType`` records what the model
-    said at correction time and ``rationale`` why the reviewer overrode it, so
-    every fix is attributable and reversible (PALS's Law). Keyed by a stable span
-    (``charStart``/``charEnd``) so it re-applies across every re-annotation.
-    """
-
-    id: strawberry.ID
-    document_id: strawberry.ID
-    action: str
-    char_start: int
-    char_end: int
-    entity_type: str | None
-    surface: str | None
-    new_char_start: int | None
-    new_char_end: int | None
-    original_type: str | None
-    rationale: str | None
-    created_at: datetime
-
-    @classmethod
-    def from_row(cls, row: Row) -> EntityMentionCorrection:
-        """Build an ``EntityMentionCorrection`` from an ``entity_mention_correction`` row."""
-        return cls(
-            id=strawberry.ID(str(row["id"])),
-            document_id=strawberry.ID(str(row["document_id"])),
-            action=row["action"],
-            char_start=row["char_start"],
-            char_end=row["char_end"],
-            entity_type=row.get("entity_type"),
-            surface=row.get("surface"),
-            new_char_start=row.get("new_char_start"),
-            new_char_end=row.get("new_char_end"),
-            original_type=row.get("original_type"),
-            rationale=row.get("rationale"),
-            created_at=cast(datetime, row["created_at"]),
         )
 
 

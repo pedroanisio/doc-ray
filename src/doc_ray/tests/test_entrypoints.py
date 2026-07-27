@@ -62,7 +62,7 @@ def test_cli_no_supported_files(tmp_path, capsys):
     assert "No supported documents" in capsys.readouterr().out
 
 
-def test_migrate_dry_run_lists_pending(capsys):
+def test_migrate_dry_run_lists_pending(pg, capsys):
     assert migrate_ep.main(["--dry-run"]) == 0
     out = capsys.readouterr().out
     assert "pending" in out  # "<n> pending" — all applied on the live DB
@@ -115,14 +115,14 @@ def test_reextract_refuses_wrong_bytes(pg, tmp_path, monkeypatch, capsys):
     assert "sha256 does not match" in capsys.readouterr().err
 
 
-def test_reextract_unknown_title(tmp_path, capsys):
+def test_reextract_unknown_title(pg, tmp_path, capsys):
     f = tmp_path / "x.txt"
     f.write_text("x", encoding="utf-8")
     assert reextract_ep.main(["--title", "no-such-doc-zzz", "--file", str(f)]) == 1
     assert "No document titled" in capsys.readouterr().err
 
 
-def test_migrate_apply_path_with_nothing_pending(capsys):
+def test_migrate_apply_path_with_nothing_pending(pg, capsys):
     # All migrations are applied on the live DB, so the apply path is a safe no-op.
     assert migrate_ep.main([]) == 0
     assert "0 applied" in capsys.readouterr().out
@@ -145,7 +145,7 @@ def test_rule_annotation_cli_single_document(pg, capsys):
     assert n > 0
 
 
-def test_rule_annotation_cli_no_match(monkeypatch, capsys):
+def test_rule_annotation_cli_no_match(pg, monkeypatch, capsys):
     from doc_ray.adapters import annotation as annotation_mod
 
     assert annotation_mod.main(["--filename", "never-ingested-zzz.pdf"]) == 1

@@ -478,6 +478,7 @@ def test_default_pipeline_chain_is_the_documented_post_ingest_order():
 
     assert DEFAULT_PIPELINE_CHAIN == (
         "annotate",
+        "score_mentions",
         "semantic_enrich",
         "canonicalize",
         "visual_extract",

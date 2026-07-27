@@ -15,11 +15,14 @@ Run it with any ASGI server, e.g.::
 from __future__ import annotations
 
 import os
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from urllib.parse import urlparse
 
 from mcp.server.fastmcp import FastMCP
 from mcp.server.transport_security import TransportSecuritySettings
 from starlette.applications import Starlette
+from starlette.middleware.gzip import GZipMiddleware
 
 from doc_ray.config import Config
 from doc_ray.domain.rate_limit import FixedWindowRateLimiter, rate_limit_rule_from_env
@@ -28,14 +31,18 @@ from doc_ray.entrypoints.mcp import (
     compose,
     corpus,
     health,
+    mention_confidence,
     mutations,
+    mutations_surface,
     prompts,
     ratelimit,
     resources,
     semantic,
     structure,
+    tool_meta,
 )
 from doc_ray.entrypoints.mcp.auth import BearerAuthMiddleware
+from doc_ray.entrypoints.mcp.http_client import close_client
 
 #: Loopback patterns the SDK trusts by default — kept so local dev still works.
 _LOCAL_HOSTS = ["127.0.0.1:*", "localhost:*", "[::1]:*"]
@@ -125,7 +132,12 @@ def build_server(enable_write: bool = False) -> FastMCP:
             in via ``DOCRAY_MCP_ENABLE_WRITE``; even when on, every write is still
             gated by the API's ``write`` scope and per-document ACL guards.
     """
-    mcp = FastMCP("doc-ray", instructions=SERVER_INSTRUCTIONS)
+    # Every capability is a unary, externally authorized GraphQL operation. No
+    # tool, resource, or prompt needs transport-local state, so binding clients
+    # to the in-memory session map only makes a restart/replica return 404 for a
+    # valid next request. Stateless HTTP creates one transport per request and
+    # lets initialization and later calls land on any process.
+    mcp = FastMCP("doc-ray", instructions=SERVER_INSTRUCTIONS, stateless_http=True)
     if (security := _transport_security()) is not None:
         # Accept the public Host behind the tunnel — the localhost-only default 421s.
         mcp.settings.transport_security = security
@@ -133,11 +145,13 @@ def build_server(enable_write: bool = False) -> FastMCP:
         *corpus.TOOLS,
         *semantic.TOOLS,
         *structure.TOOLS,
+        *mention_confidence.TOOLS,
         *compose.TOOLS,
-        *(mutations.TOOLS if enable_write else ()),
+        *((*mutations.TOOLS, *mutations_surface.TOOLS) if enable_write else ()),
     )
     for tool in tools:
-        mcp.tool()(audit.audited(tool))
+        meta = tool_meta.meta_for(tool.__name__)
+        mcp.tool(title=meta.title, annotations=meta.annotations)(audit.audited(tool))
     # `docray://` resources/templates — the addressing layer over the read tools.
     # Always registered: they are reads, RLS-scoped by the same forwarded token,
     # and grant nothing the tools don't (see resources.py).
@@ -164,6 +178,18 @@ def create_app(cfg: Config | None = None) -> Starlette:
     """
     cfg = cfg or Config.from_env()
     app = build_server(enable_write=cfg.mcp_enable_write).streamable_http_app()
+    original_lifespan = app.router.lifespan_context
+
+    @asynccontextmanager
+    async def lifespan(chained_app: Starlette) -> AsyncIterator[None]:
+        """Preserve FastMCP transport management, then close the shared HTTP pool."""
+        try:
+            async with original_lifespan(chained_app):
+                yield
+        finally:
+            await close_client()
+
+    app.router.lifespan_context = lifespan
 
     # Ops Phase 3 (#18): liveness/readiness probes, mounted as plain routes so the
     # container runtime and a deploy gate can reach them. They bypass auth and the
@@ -178,6 +204,9 @@ def create_app(cfg: Config | None = None) -> Starlette:
     rule = rate_limit_rule_from_env(
         os.environ, "DOCRAY_MCP_RATE_LIMIT", default_requests=120, default_window_seconds=60
     )
+    # Starlette explicitly excludes text/event-stream from GZip, preserving MCP
+    # stream flushing while compressing large JSON responses for direct clients.
+    app.add_middleware(GZipMiddleware, minimum_size=1024)
     app.add_middleware(ratelimit.RateLimitMiddleware, limiter=FixedWindowRateLimiter(), rule=rule)
     app.add_middleware(BearerAuthMiddleware, cfg=cfg)
     return app

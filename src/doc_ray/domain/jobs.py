@@ -82,6 +82,9 @@ KIND_PROPOSE_ALLUSIONS = "propose_allusions"
 # aggregated from projections. Deterministic, no model; chained after the projection
 # refresh and invocable by an operator. Not long-running per lens.
 KIND_REFRESH_LENS_ROLLUP = "refresh_lens_rollup"
+# Block G (#7): derive an explainable confidence from existing corpus facts and
+# materialize it on current NER mentions. Deterministic, no model, fast-lane.
+KIND_SCORE_MENTIONS = "score_mentions"
 
 # The default post-ingest pipeline: Stage-1 annotation, deterministic semantic
 # enrichment, then deterministic canonicalization, then Prism Tier-1 visual
@@ -95,6 +98,7 @@ KIND_REFRESH_LENS_ROLLUP = "refresh_lens_rollup"
 # loaders must enqueue the same work, and a second definition is how they drift.
 DEFAULT_PIPELINE_CHAIN: tuple[str, ...] = (
     KIND_ANNOTATE,
+    KIND_SCORE_MENTIONS,
     KIND_SEMANTIC_ENRICH,
     KIND_CANONICALIZE,
     KIND_VISUAL_EXTRACT,

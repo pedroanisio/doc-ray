@@ -41,6 +41,7 @@ _READ_PATHS: tuple[str, ...] = (
     "src/doc_ray/entrypoints/api",
     "src/doc_ray/entrypoints/mcp",
     "src/doc_ray/adapters/persistence_read.py",
+    "src/doc_ray/adapters/persistence_fulltext_read.py",
     "src/doc_ray/adapters/persistence_read_collections.py",
     "src/doc_ray/adapters/persistence_layers_read.py",
     "src/doc_ray/adapters/persistence_allusion_read.py",
@@ -49,6 +50,7 @@ _READ_PATHS: tuple[str, ...] = (
     "src/doc_ray/adapters/persistence_read_structure.py",
     "src/doc_ray/adapters/persistence_read_terms.py",
     "src/doc_ray/adapters/persistence_visual_read.py",
+    "src/doc_ray/adapters/persistence_entity_surface_read.py",
 )
 
 #: Large append-mostly fact tables that must not be aggregated on a read path.

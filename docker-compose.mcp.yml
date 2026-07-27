@@ -19,7 +19,8 @@
 # loopback :8080. Verify afterwards with `make prod-check` (the `mcp` and
 # `mcp_public` probes expect an HTTP 401 auth challenge, never a 200).
 #
-# Point an MCP client at  https://<host>/mcp  (dev: http://localhost:${MCP_PORT:-8080}/mcp)
+# Point an MCP client at  https://<host>/mcp  (dev: http://localhost:${MCP_PORT:-8080}/mcp).
+# Streamable HTTP is stateless: no sticky routing or durable MCP session store is required.
 # with an Authorization: Bearer <token> header (a DOCRAY_API_TOKENS entry or an
 # access JWT). Terminate TLS at a reverse proxy before exposing beyond localhost.
 

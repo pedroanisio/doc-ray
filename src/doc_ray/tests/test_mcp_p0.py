@@ -11,6 +11,8 @@ Runs without a network: ``httpx.AsyncClient`` is stubbed, like test_mcp_corpus.p
 
 from __future__ import annotations
 
+from unittest.mock import AsyncMock
+
 import pytest
 
 from doc_ray.entrypoints.mcp import corpus, server
@@ -51,7 +53,7 @@ def _reset_token():
 
 def _patch(monkeypatch, payload):
     client = _FakeClient(payload)
-    monkeypatch.setattr(corpus.httpx, "AsyncClient", lambda **kw: client)
+    monkeypatch.setattr(corpus, "acquire_client", AsyncMock(return_value=client))
     return client
 
 

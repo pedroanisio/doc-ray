@@ -18,10 +18,12 @@ from __future__ import annotations
 import strawberry
 
 from doc_ray.adapters import ner_corrections_store
+from doc_ray.adapters.persistence_entity_surface_read import MAX_DOCUMENTS
 from doc_ray.domain.jobs import KIND_APPLY_CORRECTIONS
 from doc_ray.domain.ner_corrections import Action, Correction
 from doc_ray.entrypoints.api.mutation_guards import (
     _audit_mutation_event,
+    _clean_bulk_ids,
     _enqueue_job,
     _job_status,
     _require_document_write,
@@ -51,6 +53,8 @@ class CorrectionMutations:
         """Record a durable human NER correction and enqueue its application (Block A).
 
         ``action`` is one of ``reclassify``, ``reject``, ``add``, ``adjust_span``.
+        For ``adjust_span``, pass ``entity_type`` to retype the mention in the
+        same correction; omit it to preserve the current type.
         The correction is written to the append-only log keyed by the stable span
         ``(charStart, charEnd)`` so it survives every re-annotation; a cheap
         ``apply_corrections`` job then re-applies it onto the document's current ML
@@ -106,3 +110,88 @@ class CorrectionMutations:
             details={"correction_action": action, "job_id": job_id},
         )
         return await _job_status(ctx, job_id)
+
+    @strawberry.mutation
+    async def correct_entity_surface(
+        self,
+        info: Info,
+        document_ids: list[strawberry.ID],
+        surface: str,
+        original_type: str,
+        action: str,
+        entity_type: str | None = None,
+        rationale: str | None = None,
+    ) -> list[Job]:
+        """Record one exact surface/current-type rule in explicit documents.
+
+        ``action`` must be ``reclassify_surface`` or ``reject_surface``. Matching
+        is exact and case-sensitive; there is no fuzzy, regex, or implicit
+        corpus-global scope. Call ``entitySurfaceOccurrences`` first to preview
+        the bounded impact. Every named document is authorized before the first
+        rule is stored, then one ``apply_corrections`` job is queued per document.
+
+        For ``reclassify_surface``, ``entity_type`` is the replacement type and
+        must differ from ``original_type``. ``entity_type`` is not used by
+        ``reject_surface``.
+        """
+        ctx = info.context
+        audit_action = "mutation.correct_entity_surface"
+        ids = _clean_bulk_ids(document_ids)
+        if not ids:
+            raise ValueError("documentIds must contain at least one document")
+        if len(ids) > MAX_DOCUMENTS:
+            raise ValueError(f"documentIds accepts at most {MAX_DOCUMENTS} documents")
+        try:
+            parsed_action = Action(action)
+            if parsed_action not in (Action.RECLASSIFY_SURFACE, Action.REJECT_SURFACE):
+                raise ValueError("action must be a surface action")
+            correction = Correction(
+                action=parsed_action,
+                char_start=None,
+                char_end=None,
+                entity_type=entity_type,
+                surface=surface,
+                surface_original_type=original_type,
+            )
+            correction.validate()
+        except ValueError:
+            await _audit_mutation_event(
+                ctx,
+                action=audit_action,
+                target_type="entity_mention_correction",
+                target_id=None,
+                outcome="denied",
+                details={"reason": "invalid_surface_correction", "action": action},
+            )
+            raise
+
+        for document_id in ids:
+            await _require_document_write(ctx, document_id, action=audit_action)
+
+        jobs: list[Job] = []
+        for document_id in ids:
+            correction_id = await ner_corrections_store.record_correction_async(
+                ctx.conn,
+                document_id,
+                correction,
+                reviewer=ctx.principal.principal_id,
+                rationale=rationale,
+                original_type=original_type,
+            )
+            job_id = await _enqueue_job(ctx, KIND_APPLY_CORRECTIONS, {}, document_id=document_id)
+            await _audit_mutation_event(
+                ctx,
+                action=audit_action,
+                target_type="entity_mention_correction",
+                target_id=correction_id,
+                outcome="success",
+                details={
+                    "correction_action": action,
+                    "surface": surface,
+                    "original_type": original_type,
+                    "entity_type": entity_type,
+                    "job_id": job_id,
+                },
+            )
+            jobs.append(await _job_status(ctx, job_id))
+        return jobs

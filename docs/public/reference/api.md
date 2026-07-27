@@ -11,9 +11,9 @@ doc_type: "reference"
 audience: ["developer", "integrator"]
 surfaces: ["api"]
 classification: "public"
-applies_to: "1.43.0"
+applies_to: "1.51.0"
 owner: "documentation-maintainer"
-last_reviewed: "2026-07-25"
+last_reviewed: "2026-07-26"
 status: "current"
 ---
 
@@ -25,7 +25,7 @@ This page is the field-level contract for the Doc-Ray GraphQL API: the endpoint,
 
 The GraphQL API is served at `/graphql`. All operations are sent as HTTP `POST` requests with a JSON body carrying `query` and optional `variables`.
 
-Doc-Ray publishes no client SDK in 1.43.0. Use a standard GraphQL client against
+Doc-Ray publishes no client SDK in 1.51.0. Use a standard GraphQL client against
 this contract or connect through the MCP server; do not treat internal Python
 modules as a stable external SDK.
 
@@ -84,9 +84,9 @@ Listings are **keyset-paginated**. A list field returns objects each carrying a 
 
 | Field | Purpose | Key arguments |
 |---|---|---|
-| `fullTextSearch` | Rank whole Documents by full-text relevance. | `query`, `limit` |
+| `fullTextSearch` | Rank whole Documents by language-aware full-text relevance; `TERMS` requires all stemmed terms in any position, while `PHRASE` requires them in order. | `query`, `limit`, `mode` |
 | `searchSentences` | Keyword-in-context Sentence search across the readable Corpus. | `term`, `documentId`, `limit`, `after` |
-| `termFrequency` | Check how common candidate terms are before searching (flood-risk verdict per term). | `terms`, `documentId` |
+| `termFrequency` | Check candidate frequency before searching; single lexemes are exact, while whitespace phrases declare a rarest-component upper bound in `measurement`. | `terms`, `documentId` |
 | `semanticSearchSentences` | Rank Sentences by learned semantic similarity. | `query`, `documentId`, `limit` |
 | `crossModalImageSearch` | Find images by meaning from a text query. | `query`, `limit` |
 | `lexeme` | Fetch one Lexeme by uid, with its occurrences. | `uid` |
@@ -119,6 +119,8 @@ narrative as corpus fact.
 | `entityFrequency` | Return raw named-entity frequencies. | `documentId`, `entityType`, `limit`, `after` |
 | `entityProfiles` | Return frequencies reconciled to one row per entity, with `typeConsistency`. | `documentId`, `entityType`, `limit` |
 | `entityMentionCorrections` | Return a Document's durable human NER corrections. | `documentId` |
+| `entitySurfaceOccurrences` | Preview exact case-sensitive surface/current-type matches in explicitly selected Documents; count caps and sentence samples are visible. | `documentIds`, `surface`, `originalType`, `sampleLimit`, `countCap` |
+| `uncertainMentions` | Return uncorrected mentions least-confidence-first with persisted heuristic reasons; the score is triage, not a calibrated probability. | `documentId`, `limit`, `entityType`, `after` |
 | `canonical` | Fetch one Canonical Entity by numeric id. | `id` |
 | `canonicalSearch` | Search the canonical registry by name. | `q`, `limit`, `after` |
 | `seedSuggestions` | List pending seed candidates for a Document. | `documentId`, `status` |
@@ -215,11 +217,12 @@ Every content mutation returns a Job unless noted. Poll the returned Job with th
 | Field | Purpose | Key arguments |
 |---|---|---|
 | `correctEntityMention` | Record a durable human fix to an NER mention. | `documentId`, `action`, `charStart`, `charEnd`, `entityType`, `surface`, `newCharStart`, `newCharEnd`, `originalType`, `rationale` |
+| `correctEntitySurface` | Record one exact surface/current-type rule in each explicitly selected and authorized Document; returns one `apply_corrections` Job per Document. | `documentIds`, `surface`, `originalType`, `action`, `entityType`, `rationale` |
 | `suggestSeeds` | Mine seed candidates for a Document. | `documentId`, `limit` |
 | `decideSeeds` | Approve or reject seed suggestions. Returns the count updated. | `approveIds`, `rejectIds` |
 | `seedApproved` | Seed a Document's approved suggestions into the registry. | `documentId` |
 
-Canonicalization links mentions only to entities already in the registry; seed first (`suggestSeeds` → `decideSeeds` → `seedApproved`). The `action` argument of `correctEntityMention` is one of `reclassify`, `reject`, `add`, or `adjust_span`. See [Correct an entity](../how-to/correct-an-entity.md).
+Canonicalization links mentions only to entities already in the registry; seed first (`suggestSeeds` → `decideSeeds` → `seedApproved`). The `action` argument of `correctEntityMention` is one of `reclassify`, `reject`, `add`, or `adjust_span`; `adjust_span` may also receive `entityType` to retype in the same correction. `correctEntitySurface` accepts only `reclassify_surface` or `reject_surface`, matches exact case-sensitive `surface` + current `originalType`, and never implies corpus-global scope. See [Correct an entity](../how-to/correct-an-entity.md).
 
 ### Genre, projections, and allusions
 

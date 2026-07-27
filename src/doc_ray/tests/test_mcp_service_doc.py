@@ -17,7 +17,9 @@ from pathlib import Path
 from doc_ray.entrypoints.mcp import (
     compose,
     corpus,
+    mention_confidence,
     mutations,
+    mutations_surface,
     prompts,
     resources,
     semantic,
@@ -33,6 +35,7 @@ _READ_GROUPS = {
     "semantic": semantic.TOOLS,
     "structure": structure.TOOLS,
     "compose": compose.TOOLS,
+    "mention_confidence": mention_confidence.TOOLS,
 }
 
 
@@ -42,7 +45,7 @@ def _names(tools: object) -> list[str]:
 
 def _all_tool_names() -> set[str]:
     read = {name for group in _READ_GROUPS.values() for name in _names(group)}
-    return read | set(_names(mutations.TOOLS))
+    return read | set(_names((*mutations.TOOLS, *mutations_surface.TOOLS)))
 
 
 def _doc() -> str:
@@ -68,7 +71,8 @@ def test_mcp_service_doc_counts_match_the_registry():
         r"(\d+) structure tools from": len(structure.TOOLS),
         r"(\d+) composition-grounding tools from": len(compose.TOOLS),
         r"(\d+) semantic-search tool": len(semantic.TOOLS),
-        r"\*\*(\d+) opt-in write tools\*\*": len(mutations.TOOLS),
+        r"(\d+) mention-confidence review tool": len(mention_confidence.TOOLS),
+        r"\*\*(\d+) opt-in write tools\*\*": len((*mutations.TOOLS, *mutations_surface.TOOLS)),
         r"(\d+) user-selectable workflows": len(prompts.PROMPTS),
     }
     wrong: dict[str, tuple[int | None, int]] = {}
@@ -95,3 +99,19 @@ def test_tool_registry_enumeration_is_nonvacuous():
     # Concrete floor spanning read + write; `decide_visual_captions` is the exact
     # tool the audit found undocumented, so it earns a permanent place here.
     assert {"search_sentences", "reannotate", "decide_visual_captions"} <= names
+
+
+def test_mcp_service_documents_tool_annotation_policy_and_measurement():
+    """Model-facing safety hints need an operator-visible, measured contract."""
+    doc = _doc()
+    for term in (
+        "tool_meta.py",
+        "readOnlyHint",
+        "destructiveHint",
+        "idempotentHint",
+        "openWorldHint",
+        "advisory",
+        "63,438",
+        "71,969",
+    ):
+        assert term in doc

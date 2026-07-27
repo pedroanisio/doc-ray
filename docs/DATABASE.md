@@ -1,6 +1,6 @@
 # doc-ray — Database ERD & Data Dictionary
 
-**Schema version `1.49.0`** (SemVer) · 137 migrations applied
+**Schema version `1.51.0`** (SemVer) · 141 migrations applied
 
 > Generated from the live schema by `scripts/gen_data_dictionary.py`. Do not edit by hand — re-run the generator.
 
@@ -663,7 +663,10 @@ has exactly one head → a function).
 
 Named-entity mentions, entity linking to a KB, and coreference chains. `entity_mention` is rebuilt
 from scratch by every annotate run, so human fixes live in `entity_mention_correction` — keyed by a
-stable span, re-applied by the pipeline on each pass (Block A).
+stable span or an exact surface/current-type matcher, re-applied by the pipeline on each pass
+(Block A). Explainable confidence and its
+reasons are worker-materialized on the ephemeral mention for least-confident-first review (Block G);
+the value is a triage rank, not a calibrated probability.
 
 #### `entity_mention`
 
@@ -674,11 +677,16 @@ stable span, re-applied by the pipeline on each pass (Block A).
 | `span_id` | uuid |  | FK→spans |  |  |
 | `entity_type` | text |  |  |  |  |
 | `surface` | text |  |  |  |  |
+| `confidence` | real | yes |  |  |  |
+| `confidence_method` | text | yes |  |  |  |
+| `confidence_reasons` | text[] |  |  | `'{}'::text[]` |  |
 
 - **Primary key:** (id)
 - **FK:** FOREIGN KEY (annotation_id) REFERENCES annotations(id) ON DELETE CASCADE
 - **FK:** FOREIGN KEY (span_id) REFERENCES spans(id) ON DELETE CASCADE
+- **Check:** CHECK (((confidence >= (0)::double precision) AND (confidence <= (1)::double precision)))
 - **Index** `idx_entity_mention_annotation`: public.entity_mention USING btree (annotation_id)
+- **Index** `idx_entity_mention_annotation_confidence`: public.entity_mention USING btree (annotation_id, confidence, id) WHERE (confidence IS NOT NULL)
 - **Index** `idx_entity_mention_span`: public.entity_mention USING btree (span_id)
 - **Index** `idx_entity_mention_type_surface`: public.entity_mention USING btree (entity_type, surface)
 - **RLS:** enabled — read/write policies via *annotation_id → annotations* (FORCED)
@@ -690,8 +698,8 @@ stable span, re-applied by the pipeline on each pass (Block A).
 | `id` | uuid |  | PK | `gen_random_uuid()` |  |
 | `document_id` | uuid |  | FK→documents |  |  |
 | `action` | text |  |  |  |  |
-| `char_start` | integer |  |  |  |  |
-| `char_end` | integer |  |  |  |  |
+| `char_start` | integer | yes |  |  |  |
+| `char_end` | integer | yes |  |  |  |
 | `entity_type` | text | yes |  |  |  |
 | `surface` | text | yes |  |  |  |
 | `new_char_start` | integer | yes |  |  |  |
@@ -700,6 +708,7 @@ stable span, re-applied by the pipeline on each pass (Block A).
 | `rationale` | text | yes |  |  |  |
 | `reviewer` | uuid | yes | FK→principals |  |  |
 | `created_at` | timestamp with time zone |  |  | `now()` |  |
+| `surface_original_type` | text | yes |  |  | Exact current-type matcher for surface actions; `NULL` for span actions. |
 
 - **Primary key:** (id)
 - **FK:** FOREIGN KEY (document_id) REFERENCES documents(id) ON DELETE CASCADE
@@ -707,9 +716,12 @@ stable span, re-applied by the pipeline on each pass (Block A).
 - **Check:** CHECK (((action <> 'add'::text) OR (entity_type IS NOT NULL)))
 - **Check:** CHECK (((action <> 'adjust_span'::text) OR ((new_char_start IS NOT NULL) AND (new_char_end IS NOT NULL) AND (new_char_end >= new_char_start))))
 - **Check:** CHECK (((action <> 'reclassify'::text) OR (entity_type IS NOT NULL)))
-- **Check:** CHECK ((action = ANY (ARRAY['reclassify'::text, 'reject'::text, 'add'::text, 'adjust_span'::text])))
+- **Check:** CHECK ((action = ANY (ARRAY['reclassify'::text, 'reject'::text, 'add'::text, 'adjust_span'::text, 'reclassify_surface'::text, 'reject_surface'::text])))
 - **Check:** CHECK ((char_end >= char_start))
+- **Check:** span actions require non-null coordinates; surface actions require null coordinates plus non-blank `surface` and `surface_original_type`.
+- **Check:** `reclassify_surface` requires a non-null `entity_type` distinct from `surface_original_type`.
 - **Index** `idx_em_correction_doc_span`: public.entity_mention_correction USING btree (document_id, char_start, char_end, created_at DESC)
+- **Index** `idx_em_correction_doc_surface`: public.entity_mention_correction USING btree (document_id, surface, surface_original_type, created_at, id) WHERE action is surface-scoped
 - **RLS:** enabled — read/write policies via *document_id* (FORCED)
 
 #### `entity_link`
@@ -2477,3 +2489,7 @@ owner's bypass.
 | 135 | `135_schema_version_1_48_1.sql` | advance the schema SemVer to 1.48.1 (marker, no DDL) |
 | 136 | `136_schema_version_1_48_2.sql` | advance the schema SemVer to 1.48.2 for the arXiv source adapter and ingest fixes (marker, no DDL) |
 | 137 | `137_schema_version_1_49_0.sql` | advance the schema SemVer to 1.49.0 for reference intake across every surface (marker, no DDL) |
+| 138 | `138_mention_confidence.sql` | nullable explainable confidence materialization on entity_mention (Block G) |
+| 139 | `139_schema_version_1_50_0.sql` | advance the schema SemVer to 1.50.0 for mention-confidence review |
+| 140 | `140_entity_surface_corrections.sql` | durable exact-surface/current-type NER correction rules without fake spans |
+| 141 | `141_schema_version_1_51_0.sql` | advance the schema SemVer to 1.51.0 for exact-surface NER corrections |

@@ -90,7 +90,8 @@ class StructureQueries:
         hold (``shared_buffers``, ``COVID-19``) comes back ``indexable: false`` with null
         counts rather than a fabricated zero (BL-164). Corpus-wide only for now: passing
         ``documentId`` fails with a typed error rather than returning corpus counts
-        mislabelled as document-scoped.
+        mislabelled as document-scoped. A whitespace phrase returns a declared
+        ``component_upper_bound`` from its rarest lexeme, not a fabricated exact count.
         """
         if document_id is not None:
             raise ValueError(

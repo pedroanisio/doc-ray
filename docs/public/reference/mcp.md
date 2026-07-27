@@ -11,9 +11,9 @@ doc_type: "reference"
 audience: ["integrator", "developer"]
 surfaces: ["mcp"]
 classification: "public"
-applies_to: "1.41.0"
+applies_to: "1.51.0"
 owner: "documentation-maintainer"
-last_reviewed: "2026-07-25"
+last_reviewed: "2026-07-26"
 status: "current"
 ---
 
@@ -23,7 +23,7 @@ This page is the tool-level contract for the Doc-Ray MCP server: the endpoint, o
 
 ## Endpoint
 
-The MCP server is served at `/mcp` and speaks the Model Context Protocol for AI agents.
+The MCP server is served at `/mcp` and speaks the Model Context Protocol for AI agents. Streamable HTTP is stateless: initialization and later requests may reach different processes, and a restart does not invalidate a process-local MCP session id because none is issued.
 
 ## Authentication and scope
 
@@ -49,7 +49,7 @@ The default MCP surface is **read-only**. Write tools are registered only when `
 | `list_collections` | List Collections the caller can see. | `limit`, `kind`, `after` |
 | `get_collection` | Fetch one Collection with its member Documents. | `collection_id`, `document_limit` |
 | `semantic_search_sentences` | Rank Sentences by learned semantic similarity (meaning, not keywords). | `query`, `document_id`, `limit` |
-| `term_frequency` | Check how common candidate terms are BEFORE searching (flood-risk verdict per term). | `terms`, `document_id` |
+| `term_frequency` | Check candidate frequency before searching; phrase results explicitly report a component upper bound, not an exact phrase count. | `terms`, `document_id` |
 | `document_classification` | Read a Document's genre classification and review status. | `document_id` |
 | `entity_projection` | Read how a Document's mentions resolve under a Lens (local, global, or unresolved). | `document_id`, `lens_id`, `limit`, `after` |
 | `lens_entities` | Significant entities for a Lens with volumes, type profile, and staleness stamp. | `lens_id`, `limit`, `after`, `min_mentions` |
@@ -64,6 +64,7 @@ The default MCP surface is **read-only**. Write tools are registered only when `
 | `entity_profiles` | Return frequencies reconciled to one row per entity, with `typeConsistency`. | `document_id`, `entity_type`, `limit` |
 | `lexeme_kwic` | Keyword-in-context concordance for a Lexeme. | `uid`, `document_id`, `limit` |
 | `entity_mention_corrections` | Return a Document's durable human NER corrections. | `document_id` |
+| `uncertain_mentions` | Return uncorrected mentions least-confidence-first with heuristic reasons; scores are triage ranks, not probabilities. | `document_id`, `limit`, `entity_type`, `after` |
 | `document_images` | List detected images and their visual features in a Document. | `document_id`, `limit`, `after` |
 | `image_class_summary` | Return the `(imageClass, count)` distribution for a Document's images. | `document_id` |
 | `cross_modal_image_search` | Find images by meaning from a text query. | `query`, `limit` |
@@ -98,6 +99,7 @@ Each of these enqueues a background Job or applies a curation decision; poll ret
 | `update_document_metadata` | Edit a Document's title, description, tags, or authors. | `document_id`, `title`, `description`, `tags`, `authors` |
 | `bulk_tag_documents` | Merge tags into several Documents. | `document_ids`, `tags` |
 | `correct_entity_mention` | Record a durable human fix to an NER mention. | `document_id`, `action`, `char_start`, `char_end`, `entity_type`, `surface`, `new_char_start`, `new_char_end`, `original_type`, `rationale` |
+| `correct_entity_surface` | Preview or apply an exact surface/current-type correction in one Document or a provably complete Collection below 200 members; defaults to preview-only. | `surface`, `original_type`, `action`, `document_id`, `collection_id`, `entity_type`, `rationale`, `dry_run` |
 | `decide_seeds` | Approve or reject seed suggestions. | `approve_ids`, `reject_ids` |
 | `decide_document_metadata_suggestions` | Approve or reject metadata suggestions. | `approve_ids`, `reject_ids` |
 | `seed_approved` | Seed a Document's approved suggestions into the registry. | `document_id` |
@@ -129,6 +131,14 @@ Canonicalization links mentions only to entities already in the registry; seed f
 - `reject` — the span is not an entity.
 - `add` — a missed entity; record it.
 - `adjust_span` — the boundaries are wrong; give the corrected span.
+
+`adjust_span` may also receive `entity_type` to retype in the same correction.
+For a repeated error, `correct_entity_surface` accepts `reclassify_surface` or
+`reject_surface`, matches exact case-sensitive `surface` + `original_type`, and
+defaults to `dry_run=True`. Pass exactly one `document_id` or `collection_id`;
+set `dry_run=False` explicitly to record the rule and enqueue Jobs. The tool
+refuses a collection scope when its bounded 200-member read cannot prove
+complete membership.
 
 See [Correct an entity](../how-to/correct-an-entity.md).
 

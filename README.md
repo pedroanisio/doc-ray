@@ -145,7 +145,7 @@ has a dedicated `/jobs/events` location with response buffering disabled; add
 
 Other query/mutation surface: `documents(docType:, status:, tags:)` /
 `document` / `documentShares` / `documentMetadataHistory` / `searchSentences` /
-`semanticSearchSentences` / `fullTextSearch` /
+`semanticSearchSentences` / `fullTextSearch(mode: TERMS | PHRASE)` /
 `corpusManifest(shardCount:)` / `corpusShard(shardIndex:, shardCount:)`
 (deterministic corpus partitioning for parallel/map-reduce reads) /
 `documentOutline(documentId:, maxEntries:)` (a document's addressable ordinal
@@ -154,8 +154,8 @@ ranges — detected headings, or an even grid where a document has none, with
 `lexeme(s)` / `entities` / `entityFrequency` (raw NER rows) /
 `entityProfiles(documentId:, entityType:)` (the same mentions reconciled to one
 row per entity, with the measured type spread and `typeConsistency`) /
-`termFrequency(terms:)` (a flood-risk pre-flight: how common each candidate
-search term is, so an agent picks a rarer one before searching) /
+`termFrequency(terms:)` (a flood-risk pre-flight: exact for one lexeme, explicitly
+an upper bound for a whitespace phrase, so an agent picks a rarer candidate) /
 `job` / `jobs` /
 `documentMetadataSuggestions` / `collections` / `collection` /
 `lenses` (the collections marked as entity-resolution scopes — Block B) /
@@ -185,10 +185,18 @@ canonicalization curation: `seedSuggestions` / `canonical` /
 `suggestSeeds` / `decideSeeds` / `seedApproved` (writes). NER correction —
 the human verification layer over the model's entity output:
 `entityMentionCorrections(documentId:)` (read the audit log) and
+`entitySurfaceOccurrences(documentIds:, surface:, originalType:)` (bounded,
+per-document preview with sentence samples and an explicit count cap) and
+`uncertainMentions(documentId:, entityType:, limit:, after:)` (review
+uncorrected mentions least-trustworthy first, with persisted heuristic reasons)
+and
 `correctEntityMention(documentId:, action:, charStart:, charEnd:, …)` (write;
-`action` is `reclassify` / `reject` / `add` / `adjust_span`). Corrections are
-stored against a stable span identity, so they are re-applied on every
-re-annotation instead of being overwritten by it — see
+`action` is `reclassify` / `reject` / `add` / `adjust_span`) and
+`correctEntitySurface(documentIds:, surface:, originalType:, action:, …)`
+(explicit-document systematic write; `action` is `reclassify_surface` or
+`reject_surface`). Corrections are stored against a stable span identity or an
+exact case-sensitive surface/current-type matcher, so they are re-applied on
+every re-annotation instead of being overwritten by it — see
 [Correcting the model's entities](#correcting-the-models-entities) below.
 Genre classification (SLP Block C — the input to per-entity-type identity
 resolution): `documentClassification(documentId:)` (read the genre axis —
@@ -244,6 +252,10 @@ and [1.43.0 release notes](docs/public/release-notes/1.43.0.md).
 doc-ray does not publish a client SDK. Integrators use the versioned GraphQL API
 or MCP server; the internal Python repository Protocol is an application boundary,
 not a supported external SDK.
+
+The remote MCP endpoint uses stateless Streamable HTTP. Initialization and later
+calls may reach different processes, so restarts and replicas need no sticky
+routing or shared MCP session store; every request is authenticated independently.
 
 API authentication is token-to-principal based. Set
 `DOCRAY_API_TOKENS='token=principal_uuid[:read+write]'` to map bearer tokens (or
@@ -316,19 +328,28 @@ first-class, durable data rather than a manual edit to a derived table.
 
 This matters because `entity_mention` rows are *rebuilt from scratch* by every
 annotation run. A fix written directly into them would be silently discarded the
-next time the document is re-annotated. Corrections are instead recorded against
-a **stable span identity** — the document plus the character offsets — and
-re-applied by the pipeline on every pass. Fixing something once fixes it
-permanently.
+next time the document is re-annotated. One-off corrections are instead recorded
+against a **stable span identity** — the document plus the character offsets —
+while systematic rules use an exact surface/current-type matcher without fake
+coordinates. Both replay on every pass. Fixing something once fixes it
+permanently within the explicitly selected Documents.
 
-Four actions cover the ways the model gets an entity wrong:
+Four actions correct one stable span:
 
 | Action | Use when | Required |
 |---|---|---|
 | `reclassify` | The span is an entity, but of the wrong type | `entityType` |
 | `reject` | The span is not an entity at all | — |
 | `add` | A real entity the model missed | `entityType` |
-| `adjust_span` | Right entity, wrong boundaries | `newCharStart`, `newCharEnd` |
+| `adjust_span` | Right entity, wrong boundaries | `newCharStart`, `newCharEnd`; optional `entityType` retypes in the same correction |
+
+Two systematic actions correct every exact, case-sensitive `surface` plus
+current-type match in each explicitly selected document:
+
+| Action | Use when | Required |
+|---|---|---|
+| `reclassify_surface` | The same surface/current-type pair is repeatedly mistyped | `surface`, `originalType`, distinct `entityType` |
+| `reject_surface` | The same surface/current-type pair is repeatedly not an entity | `surface`, `originalType` |
 
 Record one through the API — `originalType` and `rationale` are stored so every
 override is attributable and reversible:
@@ -346,9 +367,12 @@ mutation {
 The mutation returns a queued `apply_corrections` job (poll `job(id)`); the
 worker re-applies the whole correction log onto the document's current mentions.
 Read the log back with `entityMentionCorrections(documentId:)`. AI agents reach
-the same capability through the MCP tools `correct_entity_mention` and
-`entity_mention_corrections` (see [`docs/mcp-service.md`](docs/mcp-service.md));
-the write tool is registered only when `DOCRAY_MCP_ENABLE_WRITE` is set.
+the same capability through `correct_entity_mention`,
+`correct_entity_surface`, and `entity_mention_corrections` (see
+[`docs/mcp-service.md`](docs/mcp-service.md)). The systematic tool defaults to a
+bounded preview (`dry_run=True`) and requires exactly one document or one
+provably complete collection below the 200-member bound. Write tools are
+registered only when `DOCRAY_MCP_ENABLE_WRITE` is set.
 
 ## Lenses: naming entity-resolution scopes
 

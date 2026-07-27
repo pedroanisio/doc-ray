@@ -16,6 +16,7 @@ from typing import Any
 
 import httpx
 
+from doc_ray.entrypoints.mcp.http_client import acquire_client
 from doc_ray.entrypoints.mcp.shaping import (
     MAX_KWIC_WINDOW_CHARS,
     MAX_PAGE_SIZE,
@@ -37,10 +38,12 @@ _TIMEOUT = float(os.environ.get("DOCRAY_MCP_TIMEOUT_SECONDS", "30"))
 __all__ = [
     "MAX_KWIC_WINDOW_CHARS",
     "MAX_PAGE_SIZE",
+    "acquire_client",
     "caller_token",
     "clip_text",
     "current_token",
     "effective_limit",
+    "full_text_search",
     "visual_review",
 ]
 
@@ -199,10 +202,10 @@ async def gql(query: str, variables: dict[str, Any]) -> dict[str, Any]:
     if token:
         headers["Authorization"] = f"Bearer {token}"
     try:
-        async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
-            response = await client.post(
-                API_URL, json={"query": query, "variables": variables}, headers=headers
-            )
+        client = await acquire_client()
+        response = await client.post(
+            API_URL, json={"query": query, "variables": variables}, headers=headers
+        )
     except httpx.TimeoutException as exc:
         raise ToolCallError(
             "upstream_unavailable",
@@ -393,24 +396,6 @@ async def read_document_sentences(
     if concise:
         return _project_concise(sentences, ("ordinal", "text", "charStart", "charEnd"))
     return sentences
-
-
-async def full_text_search(query: str, limit: int = 25) -> list[dict[str, Any]]:
-    """Rank whole DOCUMENTS by full-text relevance — the "which document?" tool.
-
-    Use this to pick a document out of the corpus, not to find passages inside one:
-    it returns one ranked row per document (``documentId``, ``title``, ``rank``),
-    with no sentence text or citation handles. Once you have the document id, use
-    ``search_sentences`` to locate specific passages, or ``read_document_sentences``
-    with ``from_ordinal``/``to_ordinal`` to read a range verbatim.
-    """
-    _require_nonempty(query, "query")
-    data = await gql(
-        "query($q:String!,$l:Int!){fullTextSearch(query:$q,limit:$l){documentId title rank}}",
-        {"q": query, "l": effective_limit(limit)},
-    )
-    hits: list[dict[str, Any]] = data["fullTextSearch"]
-    return hits
 
 
 async def list_documents(
@@ -726,6 +711,7 @@ async def entity_mention_corrections(document_id: str) -> list[dict[str, Any]]:
     return rows
 
 
+from doc_ray.entrypoints.mcp.fulltext import full_text_search  # noqa: E402
 from doc_ray.entrypoints.mcp.visual_review import visual_review  # noqa: E402
 
 #: The read tools registered on the MCP server (see server.py).

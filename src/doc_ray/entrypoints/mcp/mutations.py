@@ -244,7 +244,9 @@ async def correct_entity_mention(
     * ``reject`` — the span is not an entity; it is dropped.
     * ``add`` — a missed entity; pass its ``entity_type`` (and ``surface``).
     * ``adjust_span`` — the entity is real but its boundaries are wrong; pass the
-      corrected ``new_char_start`` / ``new_char_end``.
+      corrected ``new_char_start`` / ``new_char_end``. Pass ``entity_type`` to
+      retype it in the same correction, or omit that argument to preserve its
+      current type.
 
     ``char_start`` / ``char_end`` identify the target span by document character
     offsets — the stable key the correction is stored under, so the fix survives

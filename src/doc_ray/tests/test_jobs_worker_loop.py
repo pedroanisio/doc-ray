@@ -13,8 +13,22 @@ import time
 from typing import Any
 
 import psycopg
+import pytest
 
 from doc_ray.entrypoints import worker as worker_mod
+
+
+class _ConnectionContext:
+    def __enter__(self):
+        return object()
+
+    def __exit__(self, exc_type, exc, tb) -> bool:
+        return False
+
+
+@pytest.fixture(autouse=True)
+def _isolate_database(monkeypatch):
+    monkeypatch.setattr(worker_mod.db, "connect", lambda settings: _ConnectionContext())
 
 
 def test_worker_loop_drains_on_sigint(monkeypatch):

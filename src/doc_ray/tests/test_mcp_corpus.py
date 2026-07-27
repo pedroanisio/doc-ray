@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from unittest.mock import AsyncMock
+
 import pytest
 
 # Import the server eagerly so the `mcp` SDK loads (with the real httpx) before
@@ -45,7 +47,7 @@ def _reset_token():
 
 def _patch(monkeypatch, payload):
     client = _FakeClient(payload)
-    monkeypatch.setattr(corpus.httpx, "AsyncClient", lambda **kw: client)
+    monkeypatch.setattr(corpus, "acquire_client", AsyncMock(return_value=client))
     return client
 
 
@@ -258,7 +260,7 @@ class _StatusResp:
 
 
 def _patch_failing(monkeypatch, exc):
-    monkeypatch.setattr(corpus.httpx, "AsyncClient", lambda **kw: _FailingClient(exc))
+    monkeypatch.setattr(corpus, "acquire_client", AsyncMock(return_value=_FailingClient(exc)))
 
 
 def _patch_status(monkeypatch, status):
@@ -272,7 +274,7 @@ def _patch_status(monkeypatch, status):
         async def post(self, url, json, headers):
             return _StatusResp(status)
 
-    monkeypatch.setattr(corpus.httpx, "AsyncClient", lambda **kw: _Client())
+    monkeypatch.setattr(corpus, "acquire_client", AsyncMock(return_value=_Client()))
 
 
 @pytest.mark.asyncio

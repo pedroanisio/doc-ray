@@ -4000,6 +4000,7 @@ def _failed_doc_client(monkeypatch, error: str | None):
             return dict(_DOC, status="failed", error=error)
         return fake_q1(sql, params)
 
+    monkeypatch.setattr(webapp, "q", fake_q)
     monkeypatch.setattr(webapp, "q1", failed_q1)
     webapp.app.config.update(TESTING=True)
     return webapp.app.test_client()

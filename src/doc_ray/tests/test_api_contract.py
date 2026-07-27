@@ -111,15 +111,19 @@ def test_graphql_job_type_exposes_queue_timing_and_attempts():
 
 def test_graphql_query_resolvers_delegate_to_read_adapter_without_sql():
     from doc_ray.entrypoints.api import collection_query as collection_query_mod
+    from doc_ray.entrypoints.api import fulltext_query as fulltext_query_mod
 
     # Collection/lens reads live in the CollectionQueries mixin (D-015 split, like
     # StructureQueries/VisualQueries); the no-SQL contract holds across both.
     query_source = Path(query_mod.__file__).read_text()
     collection_source = Path(collection_query_mod.__file__).read_text()
-    combined = query_source + collection_source
+    fulltext_source = Path(fulltext_query_mod.__file__).read_text()
+    combined = query_source + collection_source + fulltext_source
 
     for module_source in (query_source, collection_source):
         assert "from doc_ray.adapters import persistence_read as read" in module_source
+    assert "persistence_fulltext_read as fulltext_read" in fulltext_source
+    for module_source in (query_source, collection_source, fulltext_source):
         for fragment in ("SELECT ", "INSERT ", "UPDATE ", "DELETE ", ".execute("):
             assert fragment not in module_source
     for delegate in (
@@ -129,12 +133,12 @@ def test_graphql_query_resolvers_delegate_to_read_adapter_without_sql():
         "read.get_collection",
         "read.list_lenses",
         "read.search_sentences",
-        "read.fulltext_search",
         "read.list_lexemes",
         "read.list_entities",
         "read.entity_frequency",
     ):
         assert delegate in combined
+    assert "fulltext_read.fulltext_search" in fulltext_source
 
 
 def test_entity_and_chunk_reads_never_rejoin_document_content():

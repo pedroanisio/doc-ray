@@ -11,6 +11,7 @@ import pytest
 from doc_ray.application import pipeline
 from doc_ray.config import Config
 from doc_ray.domain import progress as domain_progress
+from doc_ray.domain.jobs import DEFAULT_PIPELINE_CHAIN
 
 
 class FakeStore:
@@ -341,11 +342,7 @@ def test_ingest_paths_enqueues_the_default_chain_and_refreshes_stats(pg, tmp_pat
             (doc_id,),
         ).fetchone()
         assert job is not None and job["kind"] == "annotate"
-        assert list(job["payload"]["chain"]) == [
-            "semantic_enrich",
-            "canonicalize",
-            "visual_extract",
-        ]
+        assert list(job["payload"]["chain"]) == list(DEFAULT_PIPELINE_CHAIN[1:])
         stats = conn.execute(
             "SELECT n_sentences FROM document_stats WHERE document_id=%s", (doc_id,)
         ).fetchone()

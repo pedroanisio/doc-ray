@@ -58,6 +58,9 @@ _API_ONLY_ALLOWLIST: dict[str, str] = {
     # Lens-scoped identity review (SLP Block D) is an agent/API + MCP verification action;
     # the read webapp does not yet surface projections.
     "confirmProjection": "Projection confirmation is an agent/API + MCP review action (Block D).",
+    "correctEntitySurface": (
+        "Systematic exact-surface correction is an agent/API + MCP curation action (#41)."
+    ),
     "confirmAllusion": "Allusion confirmation is an agent/API + MCP review action (Block E).",
     # Shards are orchestration primitives rather than an end-user corpus interaction.
     "corpusManifest": "Deterministic fan-out metadata is an agent/operations primitive.",
@@ -86,6 +89,9 @@ _API_ONLY_ALLOWLIST: dict[str, str] = {
     # Correction history is an API audit surface; the browser exposes the actionable inbox.
     "entityMentionCorrections": (
         "The Review inbox exposes pending corrections; history is API-only."
+    ),
+    "entitySurfaceOccurrences": (
+        "Exact-surface impact preview is an agent/API + MCP curation primitive (#41)."
     ),
     # Structured profiles are optimized for agent traversal, while the reader shows entities.
     "entityProfiles": "Entity profiles are an agent/MCP structural-retrieval primitive.",
@@ -119,6 +125,11 @@ _API_ONLY_ALLOWLIST: dict[str, str] = {
     "setLensProjects": "Designating a projecting lens is an agent/API curation action (Block D).",
     # The reader's word-frequency panel uses bounded direct SQL over the same document.
     "termFrequency": "The document reader renders per-document word frequency through SQL.",
+    # Block G deliberately ships agent/API review access first; its issue excludes
+    # a dedicated browser queue while retaining correctEntityMention as the action.
+    "uncertainMentions": (
+        "Mention-confidence triage is an agent/API + MCP review primitive (Block G)."
+    ),
     # Collection editing remains within the existing direct-SQL web flow.
     "updateCollection": "The Collections page edits collection state through its SQL route.",
 }

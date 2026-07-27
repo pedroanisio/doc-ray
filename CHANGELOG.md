@@ -19,6 +19,77 @@ doc-ray carries **one global version** covering both the application package
 (`docray_schema_version()`). They are kept in lockstep by
 `scripts/check_version_consistency.py`, which fails the build on any drift.
 
+## [1.51.0]
+
+### Added
+
+- **Durable exact-surface NER correction rules.** The Block-A append-only log
+  now represents `reclassify_surface` and `reject_surface` rules without fake
+  span coordinates. Rules require an exact case-sensitive surface and current
+  type, replay chronologically with span corrections, and apply to matching
+  mentions created by future annotation runs.
+- **Bounded preview and explicit-scope correction interfaces.** GraphQL adds
+  `entitySurfaceOccurrences(documentIds:, surface:, originalType:)` and
+  `correctEntitySurface(documentIds:, …)`. MCP adds
+  `correct_entity_surface`, which defaults to `dry_run=True`, accepts exactly
+  one document or one collection, and refuses a collection page whose complete
+  membership cannot be proved below the 200-document bound.
+- **Updated MCP discovery baseline.** The read-only surface remains 33 tools and
+  now serializes to 45,049 characters; the write-enabled surface remains 65
+  tools and serializes to 77,967 characters (about 19,491 estimated tokens)
+  after the correction tool, search mode, and phrase-frequency guidance. Tool
+  annotations classify the correction as write-capable, non-destructive,
+  idempotent, and closed-world;
+  API authorization remains authoritative.
+- **Explicit document full-text matching modes.** GraphQL `fullTextSearch` and
+  MCP `full_text_search` now accept a safe mode: the backward-compatible
+  `TERMS`/`terms` default requires all stemmed terms in any positions, while
+  `PHRASE`/`phrase` requires them in order. Both use each Document's language
+  configuration and neither exposes raw Postgres `tsquery` syntax.
+- **Phrase-aware frequency pre-flight.** `termFrequency` and MCP
+  `term_frequency` now accept whitespace-separated phrase candidates. They use
+  the rarest component count as a declared `component_upper_bound`, include all
+  component counts, and leave positive adjacency unproven; single lexemes remain
+  `exact`, and non-whitespace compounds remain `unavailable`.
+- **Restart-safe MCP transport.** FastMCP now runs Streamable HTTP statelessly.
+  Initialization and later calls can reach different processes, and a container
+  restart no longer invalidates an in-memory MCP session id. Each request still
+  validates and forwards its current bearer token independently.
+- **Reproducible MCP namespacing experiment.** The evaluation CLI can generate a
+  database-free family-prefix candidate and exact discovery deltas. The committed
+  issue-#17 result is explicitly inconclusive: it adds 244/436 serialized
+  characters, while scripted evaluation cannot measure model tool selection, so
+  no breaking public rename was landed.
+
+## [1.50.0]
+
+### Added
+
+- **Explainable NER mention-confidence materialization (Block G).** The worker can
+  persist a nullable heuristic confidence, its method, and deterministic reasons
+  on each `entity_mention`. This is a review-ordering signal, never a calibrated
+  probability: consumers sort least-confident first and show the reasons beside
+  every score. Existing rows remain valid and existing API/client grants are
+  unchanged; only the batch worker writes the derived values.
+- **A pooled MCP transport hot path.** All MCP tools now reuse one bounded,
+  process-wide HTTPX connection pool for GraphQL calls, while bearer tokens stay
+  request-local and are never stored on the client. ASGI shutdown closes the pool
+  after FastMCP's session manager exits. Large JSON responses support gzip;
+  `text/event-stream` remains uncompressed so Streamable HTTP keeps flushing.
+  Operators can tune total and idle connections with
+  `DOCRAY_MCP_POOL_MAX_CONNECTIONS` (default `100`) and
+  `DOCRAY_MCP_POOL_MAX_KEEPALIVE` (default `20`).
+- **Complete MCP tool titles and behavior hints.** All 64 live tools now expose a
+  distinct human title plus explicit read-only, destructive, idempotent, and
+  open-world annotations in `tools/list`. The hints reflect queued worker
+  behavior as well as the immediate GraphQL call, but remain advisory: write
+  scope, billing, document ACLs, and RLS are still authoritative.
+- **Advertised MCP surface measurement.** The evaluation harness now records
+  `tools/list`, instructions, resources, templates, and prompts for both the
+  read-only and write-enabled registries. A separate 5% surface tolerance turns
+  unreviewed discovery-payload growth into a baseline regression while leaving
+  existing task and aggregate comparisons unchanged.
+
 ## [1.49.0]
 
 ### Added

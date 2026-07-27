@@ -58,6 +58,42 @@ def test_record_and_load_roundtrip(conn):
     assert loaded[0].action is Action.RECLASSIFY
     assert (loaded[0].char_start, loaded[0].char_end) == (16, 22)
     assert loaded[0].entity_type == "GPE"
+    assert loaded[0].surface_original_type is None
+
+
+def test_surface_rule_roundtrip_and_reapplies_to_future_mentions(conn):
+    doc = _itdb.make_doc(conn, "Idaho and Idaho.")
+    ann1 = _itdb.make_annotation(conn, doc, "entity", "spacy/test")
+    _ml_mention(conn, doc, ann1, 0, 5, "GPE", "Idaho")
+    store.record_correction(
+        conn,
+        doc,
+        Correction(
+            action=Action.RECLASSIFY_SURFACE,
+            char_start=None,
+            char_end=None,
+            entity_type="PERSON",
+            surface="Idaho",
+            surface_original_type="GPE",
+        ),
+    )
+    (loaded,) = store.load_corrections(conn, doc)
+    assert loaded == Correction(
+        action=Action.RECLASSIFY_SURFACE,
+        char_start=None,
+        char_end=None,
+        entity_type="PERSON",
+        surface="Idaho",
+        surface_original_type="GPE",
+    )
+    store.apply_corrections(conn, doc, ann1)
+    assert _types_by_span(conn, ann1) == {(0, 5): "PERSON"}
+
+    ann2 = _itdb.make_annotation(conn, doc, "entity", "spacy/test-run2")
+    _ml_mention(conn, doc, ann2, 0, 5, "GPE", "Idaho")
+    _ml_mention(conn, doc, ann2, 10, 15, "GPE", "Idaho")
+    store.apply_corrections(conn, doc, ann2)
+    assert _types_by_span(conn, ann2) == {(0, 5): "PERSON", (10, 15): "PERSON"}
 
 
 def test_apply_reclassifies_the_matching_mention(conn):

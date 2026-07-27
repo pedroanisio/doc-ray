@@ -10,10 +10,10 @@ from __future__ import annotations
 import strawberry
 
 from doc_ray.adapters import document_metadata_suggestion_store as metadata_suggestions
-from doc_ray.adapters import ner_corrections_store, security_audit_read
 from doc_ray.adapters import persistence_canonical_read as canonical_read
 from doc_ray.adapters import persistence_read as read
 from doc_ray.adapters import queue_postgres as queue
+from doc_ray.adapters import security_audit_read
 from doc_ray.adapters import seed_suggestion_store as seeds
 from doc_ray.application import billing
 from doc_ray.entrypoints.api.allusion_query import AllusionQueries
@@ -27,8 +27,11 @@ from doc_ray.entrypoints.api.canonical_types import (
 )
 from doc_ray.entrypoints.api.classification_query import ClassificationQueries
 from doc_ray.entrypoints.api.collection_query import CollectionQueries
+from doc_ray.entrypoints.api.correction_query import CorrectionQueries
+from doc_ray.entrypoints.api.fulltext_query import FullTextQueries
 from doc_ray.entrypoints.api.ids import clean_uuid as _clean_uuid
 from doc_ray.entrypoints.api.lens_rollup_query import LensRollupQueries
+from doc_ray.entrypoints.api.mention_confidence_query import MentionConfidenceQueries
 from doc_ray.entrypoints.api.meta_query import MetaQueries
 from doc_ray.entrypoints.api.mutation_guards import _require_admin_read
 from doc_ray.entrypoints.api.projection_query import ProjectionQueries
@@ -39,11 +42,9 @@ from doc_ray.entrypoints.api.structure_query import StructureQueries
 from doc_ray.entrypoints.api.types import (
     CorpusManifest,
     Document,
-    DocumentHit,
     DocumentShare,
     EntityFrequency,
     EntityMention,
-    EntityMentionCorrection,
     Info,
     Job,
     Lexeme,
@@ -56,6 +57,7 @@ from doc_ray.entrypoints.api.visual_query import VisualQueries
 @strawberry.type
 class Query(
     BriefingQueries,
+    FullTextQueries,
     VisualQueries,
     SemanticQueries,
     StructureQueries,
@@ -64,6 +66,8 @@ class Query(
     ProjectionQueries,
     AllusionQueries,
     LensRollupQueries,
+    MentionConfidenceQueries,
+    CorrectionQueries,
     MetaQueries,
 ):
     """The GraphQL query root."""
@@ -249,21 +253,6 @@ class Query(
         return [DocumentMetadataSuggestion.from_row(r) for r in rows]
 
     @strawberry.field
-    async def entity_mention_corrections(
-        self, info: Info, document_id: strawberry.ID
-    ) -> list[EntityMentionCorrection]:
-        """Return a document's durable human NER corrections, oldest first (Block A).
-
-        The audit log behind ``correctEntityMention``: RLS scopes it to documents
-        the caller may read (migration 115). Empty for a malformed id.
-        """
-        doc_id = _clean_uuid(str(document_id))
-        if doc_id is None:
-            return []
-        rows = await ner_corrections_store.list_correction_rows_async(info.context.conn, doc_id)
-        return [EntityMentionCorrection.from_row(r) for r in rows]
-
-    @strawberry.field
     async def search_sentences(
         self,
         info: Info,
@@ -291,13 +280,6 @@ class Query(
             after=after,
         )
         return [SentenceHit.from_row(r) for r in rows]
-
-    @strawberry.field
-    async def full_text_search(self, info: Info, query: str, limit: int = 25) -> list[DocumentHit]:
-        """Return full-text document hits for *query* (bounded page)."""
-        ctx = info.context
-        rows = await read.fulltext_search(ctx.conn, query, limit=ctx.page_size(limit))
-        return [DocumentHit.from_row(r) for r in rows]
 
     @strawberry.field
     async def lexeme(self, info: Info, uid: strawberry.ID) -> Lexeme | None:

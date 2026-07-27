@@ -6,6 +6,7 @@ ingest.db/storage/pipeline, so psycopg/boto3 are not required to run this suite.
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import sys
 from pathlib import Path
@@ -26,6 +27,29 @@ with contextlib.suppress(Exception):  # optional dep: the MCP extra may be absen
     import mcp.client.streamable_http  # noqa: F401
 
 
+@pytest.fixture(autouse=True)
+def _isolate_mcp_http_client():
+    """Keep the process-wide MCP pool from leaking test doubles across tests.
+
+    Tests replace the shared ``httpx.AsyncClient`` factory at the HTTP boundary.
+    A cached double outlives pytest's monkeypatch rollback unless the singleton
+    is cleared, making later tests order-dependent and sometimes leaving a
+    stand-in with no ``aclose`` method. Production lifespan owns normal pool
+    shutdown; this fixture owns test-process isolation.
+    """
+    from doc_ray.entrypoints.mcp import http_client
+
+    def reset() -> None:
+        client, http_client._client = http_client._client, None
+        close = getattr(client, "aclose", None)
+        if close is not None:
+            asyncio.run(close())
+
+    reset()
+    yield
+    reset()
+
+
 def pytest_sessionstart(session):
     """Refuse DB integration tests when DATABASE_URL points at live corpus data."""
     import _itdb
@@ -34,6 +58,8 @@ def pytest_sessionstart(session):
         conn = _itdb.connect()
     except _itdb.UnsafeTestDatabaseError as exc:
         raise pytest.UsageError(str(exc)) from exc
+    except pytest.skip.Exception:
+        return
     except Exception:  # pragma: no cover - env dependent
         return
     conn.close()

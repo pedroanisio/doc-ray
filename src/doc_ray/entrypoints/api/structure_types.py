@@ -92,13 +92,17 @@ class TermFrequency:
     which is a different thing from a lookup failure. The count is the lexeme-lemma
     frequency, a corpus-saturation signal rather than an exact per-search-tool hit count.
 
-    ``indexable`` is ``false`` for a term the lexeme index structurally cannot hold —
+    ``measurement`` is ``exact`` for a single lexeme and
+    ``component_upper_bound`` for a whitespace-separated phrase: then ``uses`` is
+    the rarest component's count, a saturation ceiling rather than an exact phrase
+    occurrence count, and ``attested`` stays null unless a zero component proves
+    absence. ``indexable`` is ``false`` for a term the lexeme index structurally cannot hold —
     an underscore compound (``shared_buffers``) or an alphanumeric (``COVID-19``),
     because the tokenizer splits on underscores and digits. Then ``uses``, ``share``
     and ``attested`` are all ``null`` — the index cannot answer, and a ``0`` would read
     as measured absence — while ``parts`` reports the words it does hold, and the
     ``note`` redirects to ``searchSentences``, whose literal-substring match covers
-    the term (BL-164).
+    the term (BL-164); its ``measurement`` is ``unavailable``.
     """
 
     term: str
@@ -109,6 +113,7 @@ class TermFrequency:
     flood_risk: str
     attested: bool | None
     indexable: bool
+    measurement: str
     parts: list[TermPartCount]
     note: str | None
 
@@ -124,6 +129,7 @@ class TermFrequency:
             flood_risk=verdict.flood_risk,
             attested=verdict.attested,
             indexable=verdict.indexable,
+            measurement=verdict.measurement,
             parts=[TermPartCount(part=p.part, uses=p.uses) for p in verdict.parts],
             note=verdict.note,
         )

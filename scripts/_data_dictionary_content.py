@@ -343,6 +343,22 @@ MIGRATIONS = [
         "advance the schema SemVer to 1.49.0 for reference intake across every "
         "surface (marker, no DDL)",
     ),
+    (
+        "138_mention_confidence",
+        "nullable explainable confidence materialization on entity_mention (Block G)",
+    ),
+    (
+        "139_schema_version_1_50_0",
+        "advance the schema SemVer to 1.50.0 for mention-confidence review",
+    ),
+    (
+        "140_entity_surface_corrections",
+        "durable exact-surface/current-type NER correction rules without fake spans",
+    ),
+    (
+        "141_schema_version_1_51_0",
+        "advance the schema SemVer to 1.51.0 for exact-surface NER corrections",
+    ),
 ]
 
 # ---------------------------------------------------------------------------

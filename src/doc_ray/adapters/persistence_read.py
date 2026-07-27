@@ -18,6 +18,10 @@ from typing import Any
 
 import psycopg
 
+from doc_ray.adapters.persistence_fulltext_read import (
+    FullTextSearchMode as FullTextSearchMode,
+)
+from doc_ray.adapters.persistence_fulltext_read import fulltext_search as fulltext_search
 from doc_ray.adapters.persistence_read_collections import (
     CollectionRuleInput as CollectionRuleInput,
 )
@@ -800,31 +804,6 @@ async def entity_frequency(
             entity_type=row["entity_type"],
         )
     return rows
-
-
-async def fulltext_search(conn: _AConn, query: str, *, limit: int = 25) -> list[Row]:
-    """Return documents ranked by full-text match against ``document_content.fts``.
-
-    Args:
-        conn: Async database connection.
-        query: A ``plainto_tsquery`` search string, parsed per document with the
-            same ``docray_ts_config`` the migration-016 triggers used to build
-            that document's ``fts`` (unannotated docs fall back to ``simple``).
-        limit: Maximum documents to return.
-
-    Returns:
-        Rows of ``{doc_id, title, rank}`` ordered by descending rank.
-    """
-    # The per-document (lateral) tsquery keeps reader and writer configs
-    # symmetric at the cost of the GIN bitmap scan; acceptable at corpus scale.
-    return await _rows(
-        conn,
-        "SELECT d.id AS doc_id, d.title, ts_rank(c.fts, q) AS rank "
-        "FROM document_content c JOIN documents d ON d.id = c.document_id, "
-        "     plainto_tsquery(docray_ts_config(d.language), %s) q "
-        "WHERE c.fts @@ q ORDER BY rank DESC, d.title LIMIT %s",
-        (query, limit),
-    )
 
 
 async def list_document_shares(conn: _AConn, document_id: str) -> list[Row]:

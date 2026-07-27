@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from unittest.mock import AsyncMock
+
 import pytest
 
 from doc_ray.entrypoints.mcp import compose, corpus
@@ -61,7 +63,7 @@ def _install(monkeypatch, handler):
         return handler(query, variables)
 
     router = _Router(routed)
-    monkeypatch.setattr(corpus.httpx, "AsyncClient", lambda **kw: router)
+    monkeypatch.setattr(corpus, "acquire_client", AsyncMock(return_value=router))
     return router
 
 

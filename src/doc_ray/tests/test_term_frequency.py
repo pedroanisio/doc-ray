@@ -11,11 +11,14 @@ single-statement / RLS properties are proven in test_term_frequency_db.py.
 
 from __future__ import annotations
 
+from unittest.mock import AsyncMock
+
 import pytest
 
 from doc_ray.adapters import persistence_read_terms as terms_read
 from doc_ray.domain import term_frequency as tf
 from doc_ray.domain.lexemes import iter_words, norm_lemma
+from doc_ray.entrypoints.api.structure_types import TermFrequency
 from doc_ray.entrypoints.mcp import corpus, structure
 
 # --------------------------------------------------------------------------
@@ -87,6 +90,16 @@ def test_prepare_terms_deduplicates_by_normalized_key_preserving_first_order():
     assert prepared[0].term == "Spice"  # first spelling wins
 
 
+def test_prepare_terms_recognizes_a_whitespace_joined_phrase_as_measurable():
+    (prepared,) = tf.prepare_terms(["  Design Decision  "])
+
+    assert prepared.key == "design decision"
+    assert prepared.indexable is True
+    assert prepared.parts == ("design", "decision")
+    assert prepared.measurement == tf.COMPONENT_UPPER_BOUND
+    assert tf.lookup_keys([prepared]) == ["design", "decision"]
+
+
 def test_prepare_terms_drops_only_whitespace_blanks_never_silently_drops_a_token():
     # Whitespace-only inputs normalize to "" and are dropped — they are not terms.
     # A non-empty non-word token (an em dash) is KEPT rather than silently
@@ -152,6 +165,48 @@ def test_build_verdicts_preserves_input_order_and_length():
     prepared = tf.prepare_terms(["alpha", "beta", "gamma"])
     verdicts = tf.build_verdicts(prepared, {"beta": 10}, 1000)
     assert [v.normalized_term for v in verdicts] == ["alpha", "beta", "gamma"]
+
+
+def test_phrase_frequency_is_an_explicit_rarest_component_upper_bound():
+    prepared = tf.prepare_terms(["design decision"])
+
+    (verdict,) = tf.build_verdicts(prepared, {"design": 120, "decision": 3}, 100_000)
+
+    assert verdict.measurement == tf.COMPONENT_UPPER_BOUND
+    assert verdict.indexable is True
+    assert verdict.uses == 3
+    assert verdict.share == pytest.approx(0.00003)
+    assert verdict.flood_risk == "low"
+    assert verdict.attested is None
+    assert [(part.part, part.uses) for part in verdict.parts] == [
+        ("design", 120),
+        ("decision", 3),
+    ]
+    note = (verdict.note or "").lower()
+    assert "upper bound" in note
+    assert "phrase" in note
+    assert TermFrequency.from_verdict(verdict).measurement == tf.COMPONENT_UPPER_BOUND
+
+
+def test_an_absent_phrase_component_proves_the_phrase_is_unattested():
+    prepared = tf.prepare_terms(["design zephyrquux"])
+
+    (verdict,) = tf.build_verdicts(prepared, {"design": 120, "zephyrquux": 0}, 100_000)
+
+    assert verdict.measurement == tf.COMPONENT_UPPER_BOUND
+    assert verdict.uses == 0
+    assert verdict.attested is False
+    assert "unattested" in (verdict.note or "").lower()
+
+
+def test_non_whitespace_compounds_remain_unavailable_not_phrase_estimates():
+    (verdict,) = tf.build_verdicts(
+        tf.prepare_terms(["shared_buffers"]), {"shared": 12, "buffers": 70}, 1000
+    )
+
+    assert verdict.measurement == tf.UNAVAILABLE
+    assert verdict.indexable is False
+    assert verdict.uses is None
 
 
 # --------------------------------------------------------------------------
@@ -328,11 +383,21 @@ def _reset_token():
 
 def _patch(monkeypatch, payload):
     client = _FakeClient(payload)
-    monkeypatch.setattr(corpus.httpx, "AsyncClient", lambda **kw: client)
+    monkeypatch.setattr(corpus, "acquire_client", AsyncMock(return_value=client))
     return client
 
 
-def _row(term, uses, total, risk, attested, note=None, indexable=True, parts=()):
+def _row(
+    term,
+    uses,
+    total,
+    risk,
+    attested,
+    note=None,
+    indexable=True,
+    parts=(),
+    measurement="exact",
+):
     return {
         "term": term,
         "normalizedTerm": term.lower(),
@@ -342,6 +407,7 @@ def _row(term, uses, total, risk, attested, note=None, indexable=True, parts=())
         "floodRisk": risk,
         "attested": attested,
         "indexable": indexable,
+        "measurement": measurement,
         "parts": [{"part": p, "uses": u} for p, u in parts],
         "note": note,
     }
@@ -355,7 +421,7 @@ async def test_term_frequency_selects_the_indexability_fields_over_graphql(monke
     client = _patch(monkeypatch, {"data": {"termFrequency": []}})
     await structure.term_frequency(["shared_buffers"])
     query = client.calls[0][1]["query"]
-    for field in ("indexable", "parts", "part"):
+    for field in ("measurement", "indexable", "parts", "part"):
         assert field in query, f"term_frequency must select {field}"
 
 

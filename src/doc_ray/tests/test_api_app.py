@@ -14,7 +14,6 @@ import _itdb
 import psycopg
 import pytest
 from fastapi import HTTPException
-from fastapi.testclient import TestClient
 from psycopg.rows import dict_row
 
 import doc_ray.entrypoints.api.app as api_app
@@ -31,6 +30,7 @@ from doc_ray.entrypoints.api.security import (
     apply_principal,
     reset_principal,
 )
+from doc_ray.tests._asgi import asgi_client
 
 WRITE_PRINCIPAL = Principal(
     subject="test-writer",
@@ -51,17 +51,18 @@ def _cfg() -> Config:
     )
 
 
-def test_app_serves_health_and_graphql(monkeypatch):
+@pytest.mark.asyncio
+async def test_app_serves_health_and_graphql(monkeypatch, pg):
     logging_calls = []  # BL-115: create_app must configure logging once at startup.
     monkeypatch.setattr(api_app, "configure_logging", lambda: logging_calls.append(1))
     app = create_app(_cfg())
     assert logging_calls == [1]
-    with TestClient(app) as client:  # context manager runs the lifespan (pool open/close)
-        health = client.get("/health").json()
+    async with asgi_client(app) as client:  # context manager runs the lifespan (pool open/close)
+        health = (await client.get("/health")).json()
         assert health["status"] == "ok"
         # optional version report (semantic-version string when present)
         assert isinstance(health.get("version", ""), str)
-        r = client.post("/graphql", json={"query": "{ documents(limit: 1) { id } }"})
+        r = await client.post("/graphql", json={"query": "{ documents(limit: 1) { id } }"})
         assert r.status_code == 200
         body = r.json()
         assert body.get("errors") is None
@@ -69,12 +70,13 @@ def test_app_serves_health_and_graphql(monkeypatch):
 
 
 @pytest.mark.parametrize(("debug", "expected_status"), [(False, 404), (True, 200)])
-def test_graphiql_gated_by_debug_flag(pg, debug, expected_status):
+@pytest.mark.asyncio
+async def test_graphiql_gated_by_debug_flag(pg, debug, expected_status):
     # BL-108: an anonymous caller (the default, debug=False) must not get an
     # interactive schema explorer for free reconnaissance.
     app = create_app(replace(_cfg(), api_debug=debug))
-    with TestClient(app) as client:
-        r = client.get("/graphql", headers={"accept": "text/html"})
+    async with asgi_client(app) as client:
+        r = await client.get("/graphql", headers={"accept": "text/html"})
         assert r.status_code == expected_status
 
 

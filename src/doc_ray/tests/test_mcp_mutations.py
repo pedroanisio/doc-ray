@@ -12,6 +12,7 @@ NOT re-implemented here — the API's ``_require_write_audited`` /
 from __future__ import annotations
 
 from typing import Any
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -52,7 +53,7 @@ def _reset_token() -> None:
 
 def _patch(monkeypatch: pytest.MonkeyPatch, payload: dict[str, Any]) -> _FakeClient:
     client = _FakeClient(payload)
-    monkeypatch.setattr(corpus.httpx, "AsyncClient", lambda **kw: client)
+    monkeypatch.setattr(corpus, "acquire_client", AsyncMock(return_value=client))
     return client
 
 

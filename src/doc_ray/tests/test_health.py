@@ -10,10 +10,12 @@ from __future__ import annotations
 import asyncio
 
 import _itdb
+import pytest
 
 from doc_ray.config import Config
 from doc_ray.entrypoints.api import health
 from doc_ray.entrypoints.api.app import create_app
+from doc_ray.tests._asgi import asgi_client
 
 
 class _OkStore:
@@ -104,24 +106,22 @@ def _cfg() -> Config:
     )
 
 
-def test_health_liveness_is_unconditional():
-    from fastapi.testclient import TestClient
-
+@pytest.mark.asyncio
+async def test_health_liveness_is_unconditional():
     app = create_app(_cfg())
     app.state.object_store = _DownStore()  # liveness must not depend on it
-    with TestClient(app) as client:
-        body = client.get("/health").json()
+    async with asgi_client(app, lifespan=False) as client:
+        body = (await client.get("/health")).json()
     assert body["status"] == "ok"
     assert body["version"]
 
 
-def test_readyz_200_when_dependencies_reachable():
-    from fastapi.testclient import TestClient
-
+@pytest.mark.asyncio
+async def test_readyz_200_when_dependencies_reachable(pg):
     app = create_app(_cfg())
     app.state.object_store = _OkStore()
-    with TestClient(app) as client:
-        resp = client.get("/readyz")
+    async with asgi_client(app) as client:
+        resp = await client.get("/readyz")
     assert resp.status_code == 200
     body = resp.json()
     assert body["ready"] is True
@@ -129,14 +129,13 @@ def test_readyz_200_when_dependencies_reachable():
     assert body["version"]
 
 
-def test_readyz_503_when_object_store_unreachable():
+@pytest.mark.asyncio
+async def test_readyz_503_when_object_store_unreachable(pg):
     """The exact regression: API up, store unreachable -> 503, not a silent upload failure."""
-    from fastapi.testclient import TestClient
-
     app = create_app(_cfg())
     app.state.object_store = _DownStore()
-    with TestClient(app) as client:
-        resp = client.get("/readyz")
+    async with asgi_client(app) as client:
+        resp = await client.get("/readyz")
     assert resp.status_code == 503
     body = resp.json()
     assert body["ready"] is False
