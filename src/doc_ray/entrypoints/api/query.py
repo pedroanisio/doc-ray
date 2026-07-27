@@ -39,6 +39,7 @@ from doc_ray.entrypoints.api.projection_query import ProjectionQueries
 from doc_ray.entrypoints.api.security_audit import record_audit_event
 from doc_ray.entrypoints.api.security_audit_types import SecurityAuditEvent
 from doc_ray.entrypoints.api.semantic_query import SemanticQueries
+from doc_ray.entrypoints.api.sentence_search_query import SentenceSearchQueries
 from doc_ray.entrypoints.api.structure_query import StructureQueries
 from doc_ray.entrypoints.api.types import (
     CorpusManifest,
@@ -50,7 +51,6 @@ from doc_ray.entrypoints.api.types import (
     Job,
     Lexeme,
     SeedSuggestion,
-    SentenceHit,
 )
 from doc_ray.entrypoints.api.visual_query import VisualQueries
 
@@ -71,6 +71,7 @@ class Query(
     CorrectionQueries,
     MetaQueries,
     OperationQueries,
+    SentenceSearchQueries,
 ):
     """The GraphQL query root."""
 
@@ -253,35 +254,6 @@ class Query(
             info.context.conn, doc_id, status=status
         )
         return [DocumentMetadataSuggestion.from_row(r) for r in rows]
-
-    @strawberry.field
-    async def search_sentences(
-        self,
-        info: Info,
-        term: str,
-        document_id: strawberry.ID | None = None,
-        limit: int = 100,
-        after: str | None = None,
-    ) -> list[SentenceHit]:
-        """Return sentence hits for *term* (bounded page).
-
-        Pass ``documentId`` to search within one document, and ``after`` to
-        enumerate all matches for a common term page by page.
-        """
-        ctx = info.context
-        doc_id: str | None = None
-        if document_id is not None:
-            doc_id = _clean_uuid(str(document_id))
-            if doc_id is None:  # malformed -> no matches, not a DB error
-                return []
-        rows = await read.search_sentences(
-            ctx.conn,
-            term,
-            document_id=doc_id,
-            limit=ctx.page_size(limit),
-            after=after,
-        )
-        return [SentenceHit.from_row(r) for r in rows]
 
     @strawberry.field
     async def lexeme(self, info: Info, uid: strawberry.ID) -> Lexeme | None:

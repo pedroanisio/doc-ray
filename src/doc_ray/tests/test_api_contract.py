@@ -28,6 +28,21 @@ def test_graphql_query_root_exposes_committed_read_surface():
         assert field in sdl
 
 
+def test_graphql_sentence_search_exposes_opt_in_phrase_mode_and_occurrence_citations():
+    sdl = build_schema().as_str()
+
+    assert "enum SentenceMatchMode" in sdl
+    assert "SUBSTRING" in sdl and "PHRASE" in sdl
+    signature = sdl[sdl.index("searchSentences(") : sdl.index("):", sdl.index("searchSentences("))]
+    assert "match: SentenceMatchMode! = SUBSTRING" in signature
+    assert "occurrences: [SentenceOccurrence!]!" in sdl
+    assert "occurrenceCount: Int!" in sdl
+    assert "charStart: Int!" in sdl and "charEnd: Int!" in sdl
+    assert "searchSentencePage(" in sdl
+    assert "matchProfile: String" in sdl
+    assert "candidateLimitReached: Boolean!" in sdl
+
+
 def test_graphql_exposes_reextract_backfill_surface():
     sdl = build_schema().as_str()
 
@@ -112,18 +127,25 @@ def test_graphql_job_type_exposes_queue_timing_and_attempts():
 def test_graphql_query_resolvers_delegate_to_read_adapter_without_sql():
     from doc_ray.entrypoints.api import collection_query as collection_query_mod
     from doc_ray.entrypoints.api import fulltext_query as fulltext_query_mod
+    from doc_ray.entrypoints.api import sentence_search_query as sentence_search_query_mod
 
     # Collection/lens reads live in the CollectionQueries mixin (D-015 split, like
     # StructureQueries/VisualQueries); the no-SQL contract holds across both.
     query_source = Path(query_mod.__file__).read_text()
     collection_source = Path(collection_query_mod.__file__).read_text()
     fulltext_source = Path(fulltext_query_mod.__file__).read_text()
-    combined = query_source + collection_source + fulltext_source
+    sentence_search_source = Path(sentence_search_query_mod.__file__).read_text()
+    combined = query_source + collection_source + fulltext_source + sentence_search_source
 
-    for module_source in (query_source, collection_source):
+    for module_source in (query_source, collection_source, sentence_search_source):
         assert "from doc_ray.adapters import persistence_read as read" in module_source
     assert "persistence_fulltext_read as fulltext_read" in fulltext_source
-    for module_source in (query_source, collection_source, fulltext_source):
+    for module_source in (
+        query_source,
+        collection_source,
+        fulltext_source,
+        sentence_search_source,
+    ):
         for fragment in ("SELECT ", "INSERT ", "UPDATE ", "DELETE ", ".execute("):
             assert fragment not in module_source
     for delegate in (

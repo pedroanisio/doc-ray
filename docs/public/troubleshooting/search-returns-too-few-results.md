@@ -11,7 +11,7 @@ doc_type: "troubleshooting"
 audience: ["end-user", "integrator"]
 surfaces: ["webapp", "api", "mcp"]
 classification: "public"
-applies_to: "1.41.0"
+applies_to: "1.53.1"
 owner: "documentation-maintainer"
 last_reviewed: "2026-07-25"
 status: "current"
@@ -28,13 +28,16 @@ A search response is a set of cited passages, not the whole document. When a que
 term is common, it appears many times in one region and crowds out passages from
 the rest of the document, so the result looks sparse even though the content is
 present. Every result reports this: a `coverage` field and a `note` say when a
-common term flooded one region. A sparse result is usually a query problem, not
-missing content.
+common term flooded one region. In `match="phrase"`, the same fields also say
+when boundary verification scanned its maximum 2,001 candidates before filling
+the hit page. A sparse result is usually a query problem, not missing content.
 
 ## Resolution
 
 1. Read the result's `coverage` and `note`. When they report that a term flooded
    one region, the missing sections were crowded out, not absent.
+   For phrase mode, inspect `candidate_limit_reached`; if true, the verified
+   result is bounded rather than exhaustive even when it contains no hits.
 2. Search again with rarer, more specific terms. Prefer a distinctive name, phrase,
    figure, or quotation over a frequent, general word.
 3. Add a second specific term to narrow the query to the passage you want.

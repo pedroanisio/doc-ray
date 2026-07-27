@@ -12,7 +12,11 @@ from types import ModuleType
 
 from flask import current_app, request
 
-from doc_ray.adapters.sentence_search_sql import match_clause
+from doc_ray.adapters.persistence_sentence_search import (
+    PHRASE_CANDIDATE_SCAN_CAP,
+    verify_candidate,
+)
+from doc_ray.adapters.sentence_search_sql import match_clause, phrase_candidate_clause
 from doc_ray.domain.search_terms import kwic
 
 try:
@@ -21,6 +25,9 @@ except ModuleNotFoundError:  # pragma: no cover - direct ``python webapp/app.py`
     from visual_web import image_search
 
 _core: ModuleType
+
+# D-034: this direct-SQL page is the human binding for GraphQL searchSentencePage.
+_GRAPHQL_PARITY_FIELD = "searchSentencePage"
 
 KEYWORD_PAGE_SIZE = 100
 SEMANTIC_PAGE_SIZE = 25
@@ -37,7 +44,9 @@ query SemanticSearch($query: String!, $limit: Int!) {
 """
 
 
-def _keyword_results(term: str, page: int) -> tuple[list[dict], bool]:
+def _keyword_results(
+    term: str, page: int, match: str = "substring"
+) -> tuple[list[dict], bool, bool]:
     """Return the literal-substring results and pager state.
 
     Matches through the shared rule (:mod:`doc_ray.domain.search_terms`) that the
@@ -45,6 +54,29 @@ def _keyword_results(term: str, page: int) -> tuple[list[dict], bool]:
     get the same rows: ``%``/``_`` stay literal, and a typed ``'`` finds the
     typographic ``’`` the extractor stored.
     """
+    if match == "phrase":
+        match_sql, match_params = phrase_candidate_clause("s.text", term)
+        candidates = _core.q(
+            f"""
+            SELECT s.id, d.id AS doc_id, d.title, s.ordinal, s.text, sp.char_start,
+                   substring(c.full_text FROM sp.char_start + 1
+                             FOR sp.char_end - sp.char_start) AS citation_text
+            FROM sentences s JOIN documents d ON d.id = s.document_id
+            JOIN spans sp ON sp.id = s.span_id
+            JOIN document_content c ON c.document_id = s.document_id
+            WHERE {match_sql}
+            ORDER BY d.title, s.ordinal, s.id LIMIT %(candidate_limit)s
+            """,
+            {**match_params, "candidate_limit": PHRASE_CANDIDATE_SCAN_CAP},
+        )
+        verified = [hit for row in candidates if (hit := verify_candidate(row, term))]
+        offset = (page - 1) * KEYWORD_PAGE_SIZE
+        rows = verified[offset : offset + KEYWORD_PAGE_SIZE]
+        return (
+            rows,
+            len(verified) > offset + KEYWORD_PAGE_SIZE,
+            len(candidates) >= PHRASE_CANDIDATE_SCAN_CAP,
+        )
     match_sql, match_params = match_clause("s.text", term)
     rows = _core.q(
         f"""
@@ -61,7 +93,7 @@ def _keyword_results(term: str, page: int) -> tuple[list[dict], bool]:
     )
     for row in rows:
         row["pre"], row["hit"], row["post"] = kwic(row["text"], term)
-    return rows, len(rows) == KEYWORD_PAGE_SIZE
+    return rows, len(rows) == KEYWORD_PAGE_SIZE, False
 
 
 def _semantic_results(term: str, page: int) -> tuple[list[dict], bool]:
@@ -105,6 +137,7 @@ def search():
     """Render keyword or learned semantic sentence search with honest fallback."""
     term = request.args.get("q", "", type=str).strip()
     mode = request.args.get("mode", "keyword", type=str)
+    match = "phrase" if request.args.get("match") == "phrase" else "substring"
     if mode not in {"keyword", "semantic", "image"}:
         mode = "keyword"
     page = max(1, request.args.get("page", 1, type=int))
@@ -124,18 +157,24 @@ def search():
             if not rows and page == 1:
                 notice = "No semantic vectors matched — showing keyword matches."
                 result_mode = "keyword"
-                rows, has_next = _keyword_results(term, page)
+                rows, has_next, _capped = _keyword_results(term, page, match)
         except Exception as exc:  # noqa: BLE001 - API failure is a user-visible fallback boundary
             current_app.logger.warning("semantic search unavailable: %s", exc)
             notice = "Semantic search unavailable — showing keyword matches."
             result_mode = "keyword"
-            rows, has_next = _keyword_results(term, page)
+            rows, has_next, _capped = _keyword_results(term, page, match)
     elif term:
-        rows, has_next = _keyword_results(term, page)
+        rows, has_next, capped = _keyword_results(term, page, match)
+        if capped:
+            notice = (
+                f"Whole-phrase verification reached its {PHRASE_CANDIDATE_SCAN_CAP}-candidate "
+                "cap. Results may be incomplete; narrow the phrase."
+            )
     return _core.render_template(
         "search.html",
         term=term,
         mode=mode,
+        match=match,
         result_mode=result_mode,
         rows=rows,
         page=page,

@@ -296,8 +296,9 @@ class ReadRepository(Protocol):
         document_id: str | None = None,
         limit: int = 100,
         after: str | None = None,
+        match: Literal["substring", "phrase"] = "substring",
     ) -> list[Row]:
-        """Return sentences containing *term* (case-insensitive substring)."""
+        """Return substring or verified surface-word phrase sentence hits."""
         ...
 
     async def list_entities(

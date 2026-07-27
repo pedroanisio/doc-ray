@@ -39,7 +39,7 @@ The default MCP surface is **read-only**. Write tools are registered only when `
 
 | Tool | Purpose | Key arguments |
 |---|---|---|
-| `search_sentences` | Keyword-in-context Sentence search across the readable Corpus. | `term`, `document_id`, `limit`, `after`, `response_format` |
+| `search_sentences` | Cited Sentence search: unchanged literal substring or opt-in `surface_word_v1` phrase verification with occurrences and candidate coverage. | `term`, `document_id`, `limit`, `after`, `match`, `response_format` |
 | `read_document_sentences` | Read a Document's Sentences in order or as a random-access slice. | `document_id`, `limit`, `after`, `from_ordinal`, `to_ordinal`, `page`, `response_format` |
 | `read_document_outline` | Map a Document into addressable ordinal ranges; call before reading. | `document_id`, `max_entries` |
 | `full_text_search` | Rank whole Documents by full-text relevance. | `query`, `limit` |

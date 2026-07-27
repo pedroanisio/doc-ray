@@ -413,7 +413,7 @@ them is the most common source of "why didn't this match?".
 | Path | Implementation | Semantics |
 |---|---|---|
 | `fullTextSearch` (document-level) | `persistence_fulltext_read.py::fulltext_search` | Postgres `tsvector`, ranked by `ts_rank`; `TERMS` uses `plainto_tsquery`, `PHRASE` uses `phraseto_tsquery`, and both are **stemmed per document language** |
-| `searchSentences` (sentence-level) | `persistence_read.py::search_sentences` | `ILIKE '%term%'` — literal, case-insensitive substring; **no stemming, no ranking** |
+| `searchSentences` (sentence-level) | `persistence_sentence_search.py::search_sentences` | `SUBSTRING` (default) is unchanged literal, case-insensitive containment; `PHRASE` verifies whole-word adjacency under `surface_word_v1`; **neither stems or ranks** |
 | `lexemeKwic` | `persistence_read.py::lexeme_kwic` | exact lexeme-id lookup over `lexeme_occurrences`, with a ±45-character window |
 | `termFrequency` (pre-flight) | `persistence_read_terms.py` + `domain/term_frequency.py` | exact lexeme-rollup measurement for one lexeme; whitespace phrases retain a rarest-component saturation ceiling; multi-word/unindexable terms use a cap-bounded sentence scan under `searchSentences`' literal rule |
 
@@ -444,15 +444,31 @@ language — French documents fall to `simple`, so their full-text search is
 unstemmed and stopword-free-by-omission. That is a real, current asymmetry
 between the two registries, not a documentation gap.
 
-**Why sentence search is `ILIKE`.** Sentence hits are the citation unit for
-agents, and the MCP tool contract promises exact character offsets for
-highlighting. Substring matching gives a hit position directly; a `tsquery` match
-does not tell you *where* in the sentence the match occurred. The cost is that
-`running` does not find `run` at the sentence level — for that, the lexeme/KWIC
-path is the stemmed equivalent, since it addresses the lemma directly. The MCP
-server's own instructions push callers toward rare, specific query terms for this
-reason, and `search_sentences` returns a `coverage` field that reports when hits
-have clustered in one region of a document.
+**Sentence substring and phrase modes.** The default remains the historical
+`match="substring"`: one parameterized `match_clause`, the same keyset order and
+KWIC, and no stemming or word boundaries. This is intentionally different from
+full-text phrase mode. A short query can match inside a longer word, and changing
+that default would invalidate existing retrieval and coverage behavior.
+
+Opt-in `match="phrase"` is stage 1 of the phrase architecture. Adapter SQL builds
+a correct candidate superset by AND-ing each `surface_word_v1` query word's
+existing `match_clause`; words of at least three characters lead, longest first,
+so the trigram index gets the best stable selectivity proxy available without a
+new corpus statistic. All-short queries are still measurable. The adapter scans
+keyset batches, verifies in `domain/phrase_profile.py`, and stops after 2,001
+candidates or a full output page. Its debug log records candidates scanned,
+verified rows, emitted rows, and whether the cap was reached.
+
+Stored `sentences.text` collapses whitespace, so it cannot be the citation-offset
+authority. Candidate generation uses that indexed normalized value, but phrase
+verification uses the raw `document_content.full_text` slice addressed by the
+Sentence's Span. Absolute half-open occurrence offsets are therefore exact even
+for `algorithm␠␠design`; KWIC quotes the first raw verified occurrence. GraphQL
+exposes `occurrences`/`occurrenceCount` and a metadata-bearing
+`searchSentencePage`; MCP returns `matchProfile: "surface_word_v1"` and candidate
+cap evidence in `coverage`; the webapp's Whole phrase toggle uses the same SQL
+builder and verifier. No schema, index, token-table, model, or configuration
+change is involved.
 
 **How the `termFrequency` verdict tiers compose.** A single indexed lexeme uses
 the maintained lexeme rollup and reports `measurement: "exact"`. For a
@@ -460,12 +476,14 @@ whitespace phrase, `measurement: "component_upper_bound"` is the rarest
 component's saturation ceiling: useful pre-flight evidence, but not proof that
 the components occur adjacently. The measured half reports `method:
 "sentence_scan"` and counts sentences with the same `match_clause` rule used by
-`searchSentences`. That scan stops at `SENTENCE_HIGH_HITS = 2001`; when `capped`
-is true, the reported hit count is a floor rather than an exact total.
+`searchSentences` **substring mode**. That scan stops at
+`SENTENCE_HIGH_HITS = 2001`; when `capped` is true, the reported hit count is a
+floor rather than an exact total. For phrase mode it is a candidate upper bound
+because boundary verification can reject those rows.
 
 **Versioned phrase profile.** `domain/phrase_profile.py` defines
-`surface_word_v1`, the shared word-boundary contract for upcoming phrase search
-and occurrence counts. Unicode letters, digits, and underscore form words;
+`surface_word_v1`, the shared word-boundary contract used by phrase search and
+future verified occurrence counts. Unicode letters, digits, and underscore form words;
 whitespace plus folded apostrophe/hyphen variants preserve adjacency, while
 other punctuation breaks it. Matching reuses `search_terms.fold`, reports exact
 offsets into the original text, and counts overlapping starts. Every result must

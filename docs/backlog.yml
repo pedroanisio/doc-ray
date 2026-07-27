@@ -107,10 +107,10 @@ disclaimer: |
 
 metadata:
   schema_version:   "1.0.0"
-  generated_by:     "Claude Sonnet 5 via Claude Code (merge of Claude Opus 4.8 backlog + OpenAI Codex improvement-proposal candidates); BL-181 by OpenAI GPT-5 via Codex"
+  generated_by:     "Claude Sonnet 5 via Claude Code (merge of Claude Opus 4.8 backlog + OpenAI Codex improvement-proposal candidates); BL-181/BL-182 by OpenAI GPT-5 via Codex"
   generated_on:     "2026-07-27"
   system_of_record: "docs/backlog.yml"
-  total_items:      181
+  total_items:      182
 
 items:
 
@@ -6541,3 +6541,52 @@ items:
     owner:        "shared"
     source:       "GitHub issue #44 (2026-07-27); strict TDD implementation by OpenAI Codex after operator approval."
     tags:         ["phrase-retrieval", "normalization", "word-boundaries", "citations", "tdd"]
+
+  - id:          "BL-182"
+    title:        "Sentence search opt-in phrase mode with verified occurrence citations"
+    summary:      "Expose surface_word_v1 phrase verification across GraphQL, MCP, and the webapp without changing default substring behavior."
+    description: |
+      Implemented by GitHub issue #45 as stage 1 candidate-and-verify retrieval.
+      `match=substring` remains the frozen default, including its SQL, result,
+      KWIC, keyset, and coverage behavior. `match=phrase` builds a parameterized
+      AND of unique surface words, leading with the longest >=3-character word,
+      then verifies candidates under `surface_word_v1`.
+
+      OD-1 keeps one row per Sentence and attaches every occurrence. OD-2 serves
+      all-short queries with degraded but honestly capped candidates rather than
+      refusing a measurable question. OD-3 defines an independent 2,001-row
+      phrase-candidate cap next to the phrase reader; it intentionally equals but
+      does not share term-frequency's counting cap.
+
+      Verification uses the raw document span because stored sentence text
+      collapses whitespace. GraphQL exposes the additive match enum, occurrence
+      fields, and `searchSentencePage` metadata envelope; MCP adds `matchProfile`
+      and candidate evidence to coverage; the webapp adds an off-by-default Whole
+      phrase toggle. No schema/index/token/model/configuration change is required.
+    category:     "api"
+    type:         "feature"
+    status:       "done"
+    complexity:   "M"
+    priority:     "high"
+    rationale:    "Agents and people need a citation-bearing exact surface phrase question; candidate-and-verify provides it now without silently redefining the load-bearing substring contract or prematurely shipping a positional token engine."
+    acceptance_criteria:
+      - "Default substring SQL, row shape, KWIC, pagination, and coverage remain unchanged across all surfaces."
+      - "Phrase candidates are a parameterized AND-of-words superset with a selective >=3-character lead when available."
+      - "Phrase verification emits one row per Sentence with every exact absolute occurrence and first-occurrence KWIC under surface_word_v1."
+      - "The 2,001-candidate cap bounds request work and is visible for hit, zero-hit, and all-short queries."
+      - "GraphQL, MCP, and the webapp expose the same opt-in mode; MCP instructions and public/internal docs teach the distinction."
+      - "Focused DB/API/MCP/webapp tests, the complete suite, D-015, D-024, D-034, Ruff, mypy, version, environment, and public-doc gates pass."
+    dependencies: ["BL-181"]
+    references:
+      - "src/doc_ray/adapters/persistence_sentence_search.py"
+      - "src/doc_ray/adapters/sentence_search_sql.py"
+      - "src/doc_ray/domain/phrase_profile.py"
+      - "src/doc_ray/entrypoints/api/sentence_search_query.py"
+      - "src/doc_ray/entrypoints/mcp/corpus.py"
+      - "webapp/search_web.py"
+      - "src/doc_ray/tests/test_api_sentence_phrase_search.py"
+      - "src/doc_ray/tests/test_mcp_phrase_search.py"
+      - "docs/public/release-notes/1.53.1.md"
+    owner:        "shared"
+    source:       "GitHub issue #45 (2026-07-27); strict TDD implementation by OpenAI Codex after operator approval."
+    tags:         ["phrase-retrieval", "graphql", "mcp", "webapp", "citations", "tdd"]

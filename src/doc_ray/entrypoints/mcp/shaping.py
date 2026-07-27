@@ -49,7 +49,11 @@ def _clip_windows(row: dict[str, Any], fields: tuple[str, ...]) -> dict[str, Any
 
 
 def _unflooded_note(
-    hits: list[dict[str, Any]], term: str, paged: bool, document_scoped: bool
+    hits: list[dict[str, Any]],
+    term: str,
+    paged: bool,
+    document_scoped: bool,
+    match_profile: str | None,
 ) -> str | None:
     """The note for a result that did not hit its cap — absence, or page-end, or silence.
 
@@ -62,12 +66,20 @@ def _unflooded_note(
         # Zero hits after a cursor means the previous page was the last one. The
         # earlier pages had hits, so this is a page boundary and saying anything
         # about absence here would be a fresh false negative.
+        profile_note = f" under {match_profile} phrase verification" if match_profile else ""
         return (
             "No further hits after this cursor — the previous page was the last. "
-            "This is a page boundary, not an absence claim: earlier pages were not "
+            f"This is a page boundary{profile_note}, not an absence claim: earlier pages were not "
             "re-scanned. Restart without `after` to scan from the beginning."
         )
     where = "this document" if document_scoped else "the corpus visible to you"
+    if match_profile:
+        return (
+            f"0 hits. This was an exhaustive whole-word phrase verification of {where} "
+            f"under {match_profile}: {term!r} has no boundary-valid occurrence. This is "
+            "not substring or stemmed matching; try substring mode to inspect near misses, "
+            "or a different spelling before concluding the idea is absent."
+        )
     return (
         f"0 hits. This was an exhaustive case-insensitive substring scan of {where}, "
         f"not a sample — {term!r} does not occur in it as a literal string. Typographic "
@@ -86,6 +98,10 @@ def _search_coverage(
     term: str = "",
     paged: bool = False,
     document_scoped: bool = False,
+    match_profile: str | None = None,
+    candidate_scanned: int | None = None,
+    candidate_limit: int | None = None,
+    candidate_limit_reached: bool = False,
 ) -> tuple[dict[str, Any], str | None]:
     """Summarise where *hits* fall in the text, and steer when the cap was reached.
 
@@ -112,12 +128,17 @@ def _search_coverage(
         paged: True when an ``after`` cursor was supplied (a continuation page).
         document_scoped: True when the search was confined to one document, which
             bounds how far an absence claim reaches.
+        match_profile: Phrase profile identifier, or ``None`` for substring mode.
+        candidate_scanned: Candidate rows verified in phrase mode.
+        candidate_limit: Phrase candidate hard cap.
+        candidate_limit_reached: Whether that cap truncated verification.
 
     Returns:
         The ``coverage`` mapping and the steering ``note`` (or ``None``).
     """
     ordinals = [h["ordinal"] for h in hits if isinstance(h.get("ordinal"), int)]
-    limit_reached = len(hits) >= limit
+    page_limit_reached = len(hits) >= limit
+    limit_reached = page_limit_reached or candidate_limit_reached
     # Exhaustive means: nothing was cut off (the page did not fill) AND this page
     # is the whole result set (no earlier page preceded it). Both halves matter —
     # the second is what stops a continuation page from claiming absence.
@@ -130,8 +151,27 @@ def _search_coverage(
         "limit_reached": limit_reached,
         "exhaustive": exhaustive,
     }
-    if not limit_reached:
-        return coverage, _unflooded_note(hits, term, paged, document_scoped)
+    if match_profile:
+        coverage.update(
+            candidate_scanned=int(candidate_scanned or 0),
+            candidate_limit=candidate_limit,
+            candidate_limit_reached=candidate_limit_reached,
+        )
+    if candidate_limit_reached:
+        note = (
+            f"Phrase mode verified {len(hits)} {match_profile} hit(s) after scanning the "
+            f"maximum {candidate_limit} candidates. Candidate coverage is truncated; "
+            "narrow with a longer or rarer phrase, or use substring mode to inspect near misses."
+        )
+        return coverage, note
+    if not page_limit_reached:
+        return coverage, _unflooded_note(hits, term, paged, document_scoped, match_profile)
+    if match_profile:
+        note = (
+            f"Returned the maximum {limit} verified {match_profile} phrase hits. Follow the "
+            "last row's cursor for the next keyset page; this page is not exhaustive."
+        )
+        return coverage, note
     if ordinals:
         note = (
             f"Returned the maximum {limit} hits, spanning ordinals "

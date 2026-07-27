@@ -10,13 +10,18 @@ The MCP layer holds no database pool and grants nothing the GraphQL API wouldn't
 from __future__ import annotations
 
 import os
-import uuid
 from collections.abc import Callable
 from typing import Any
 
 import httpx
 
+from doc_ray.entrypoints.mcp.errors import RESPONSE_FORMATS as RESPONSE_FORMATS
+from doc_ray.entrypoints.mcp.errors import ToolCallError as ToolCallError
+from doc_ray.entrypoints.mcp.errors import require_nonempty as _require_nonempty
+from doc_ray.entrypoints.mcp.errors import require_response_format as _require_response_format
+from doc_ray.entrypoints.mcp.errors import require_uuid as _require_uuid
 from doc_ray.entrypoints.mcp.http_client import acquire_client
+from doc_ray.entrypoints.mcp.sentence_search import phrase_page
 from doc_ray.entrypoints.mcp.shaping import (
     MAX_KWIC_WINDOW_CHARS,
     MAX_PAGE_SIZE,
@@ -38,6 +43,9 @@ _TIMEOUT = float(os.environ.get("DOCRAY_MCP_TIMEOUT_SECONDS", "30"))
 __all__ = [
     "MAX_KWIC_WINDOW_CHARS",
     "MAX_PAGE_SIZE",
+    "_require_nonempty",
+    "_require_response_format",
+    "_require_uuid",
     "acquire_client",
     "caller_token",
     "clip_text",
@@ -46,34 +54,6 @@ __all__ = [
     "full_text_search",
     "visual_review",
 ]
-
-
-class ToolCallError(RuntimeError):
-    """Typed MCP tool failure: a stable ``kind``, retriability, and agent hint.
-
-    Kinds: ``bad_input`` (fix the arguments), ``permission_denied`` (fix the
-    token/scopes), ``not_found``, ``unsupported`` (this deployment cannot serve
-    the capability — never retriable), ``timeout`` (the query exceeded the API's
-    statement budget; narrow the scope, do not repeat it unchanged),
-    ``upstream_unavailable`` (retriable), and
-    ``upstream_error`` (unclassified upstream failure). Subclasses
-    ``RuntimeError`` so existing callers that caught the old raw errors keep
-    working.
-    """
-
-    def __init__(
-        self, kind: str, message: str, *, retriable: bool = False, hint: str | None = None
-    ) -> None:
-        """Render ``[kind] message (retriable) — hint`` as the exception text."""
-        self.kind = kind
-        self.retriable = retriable
-        self.hint = hint
-        rendered = f"[{kind}] {message}"
-        if retriable:
-            rendered += " (retriable)"
-        if hint:
-            rendered += f" — {hint}"
-        super().__init__(rendered)
 
 
 #: Agent-facing hints attached to classified GraphQL errors, by kind.
@@ -125,48 +105,6 @@ def _classify_graphql_error(message: str) -> str:
     if any(marker in lowered for marker in ("invalid", "expected", "must be", "cannot represent")):
         return "bad_input"
     return "upstream_error"
-
-
-def _require_uuid(value: str | None, param: str) -> str | None:
-    """Reject a malformed document id before it costs a GraphQL round-trip."""
-    if value is None:
-        return None
-    try:
-        uuid.UUID(str(value))
-    except ValueError:
-        raise ToolCallError(
-            "bad_input",
-            f"{param} must be a document UUID, got {value!r}",
-            hint="take ids from list_documents or full_text_search",
-        ) from None
-    return value
-
-
-def _require_nonempty(value: str, param: str) -> str:
-    """Reject blank required strings before any network call."""
-    if not value or not value.strip():
-        raise ToolCallError("bad_input", f"{param} must be a non-empty string")
-    return value
-
-
-#: Verbosity levels for the bulk readers. ``detailed`` is the historical shape and
-#: stays the default, so nothing that exists today changes behaviour.
-RESPONSE_FORMATS = ("detailed", "concise")
-
-
-def _require_response_format(value: str) -> str:
-    """Reject an unknown response_format locally, naming the valid values.
-
-    A silently-ignored format argument is worse than no argument at all: the
-    agent believes it bought a saving it never got, and keeps budgeting for it.
-    """
-    if value not in RESPONSE_FORMATS:
-        raise ToolCallError(
-            "bad_input",
-            f"response_format must be one of {', '.join(RESPONSE_FORMATS)}, got {value!r}",
-            hint="use 'concise' to drop per-row metadata, 'detailed' for the full shape",
-        )
-    return value
 
 
 def _project_concise(rows: list[dict[str, Any]], keep: tuple[str, ...]) -> list[dict[str, Any]]:
@@ -256,47 +194,39 @@ async def search_sentences(
     document_id: str | None = None,
     limit: int = 20,
     after: str | None = None,
+    match: str = "substring",
     response_format: str = "detailed",
 ) -> dict[str, Any]:
-    """Keyword-in-context search across the corpus you can read (pre/hit/post windows).
+    """Cited sentence search with explicit substring or whole-phrase semantics.
 
-    **What it matches: a case-insensitive LITERAL SUBSTRING.** No stemming, no
-    lemmatization, no word boundaries — and the rule is identical whether you pass
-    ``document_id`` or search corpus-wide. Three consequences worth knowing before
-    you read a result:
+    ``match="substring"`` is the unchanged default: a case-insensitive literal
+    substring, with no stemming, lemmatization, or word boundaries. It is identical
+    whether scoped to ``document_id`` or corpus-wide: ``Hick`` can match ``thick``;
+    ``%``/``_`` are data; typographic apostrophes, quotes, and dashes are folded.
 
-    - A short term matches *inside* longer words: ``Hick`` also returns ``thick``,
-      ``thickness``. That is substring matching, not lemma normalization — narrow
-      the term (``Hick's law``) rather than concluding the index mangled it.
-    - ``%`` and ``_`` are literal characters here, not wildcards.
-    - Typographic punctuation is folded, so a term typed with ``'`` also matches
-      the ``’`` that PDF/EPUB extraction stores (likewise ``-``/``—`` and
-      ``"``/``“”``). Spelling, hyphenation and spacing still have to match.
+    ``match="phrase"`` verifies whole surface words under ``surface_word_v1``.
+    Use it when boundaries and adjacency matter: ``ngram`` no longer matches
+    ``Tangram``, and ``algorithm design`` does not match ``algorithm designed``.
+    Every hit includes all absolute-document ``occurrences`` and
+    ``occurrenceCount``; KWIC quotes the first verified occurrence's source spelling.
 
-    Run ``term_frequency`` on your candidate terms FIRST (one batched call): it
-    tells you which will flood before you spend a search on one.
+    Run ``term_frequency`` first and prefer rare terms. ``coverage``/``note`` say
+    when a common query or the 2001-candidate phrase cap truncated retrieval;
+    narrow it or read untouched ordinal ranges with ``read_document_sentences``.
 
-    Use RARE, scene-specific terms. A common, high-frequency word floods one region
-    of a document and starves coverage of the rest — the returned ``coverage`` and
-    ``note`` tell you when that happened, so a sparse result reads as a *query*
-    problem, not missing content. To reach untouched text, read the ordinal ranges
-    beyond ``coverage.ordinal_max`` with ``read_document_sentences``.
-
-    Returns ``{hits, coverage, note}``: ``hits`` is the keyword-in-context rows
-    (pass the last row's ``cursor`` as ``after`` for the next page; oversized
-    windows are clipped with an explicit ``… [+N chars]`` marker); ``coverage``
-    reports the hit count and ordinal span; ``note`` is a steer (or ``null``)
-    when the result may be flooded. ``limit`` is served up to the platform
-    page-size maximum of 200 — a larger request is clamped, and the clamp is
-    reported via ``coverage.requested_limit`` and the ``note``.
+    Returns ``{hits, coverage, note}`` (plus ``matchProfile`` in phrase mode).
+    ``hits`` carries KWIC rows; pass the last row's ``cursor`` as ``after``.
+    Oversized windows are visibly clipped. ``limit`` is clamped to 200 and a
+    larger request is disclosed in ``coverage.requested_limit`` and ``note``.
 
     ``response_format="concise"`` drops the row id, title, and per-row cursor
-    (the last row keeps one, which is the only cursor paging uses), leaving the
-    ordinal and the KWIC windows. ``coverage`` and ``note`` are unaffected.
+    (the last row keeps one) while retaining citations, coverage, and notes.
     """
     _require_nonempty(term, "term")
     _require_uuid(document_id, "document_id")
     _require_response_format(response_format)
+    if match not in {"substring", "phrase"}:
+        raise ToolCallError("bad_input", f"match must be 'substring' or 'phrase', got {match!r}")
     concise = response_format == "concise"
     fields = (
         "documentId ordinal pre hit post cursor"
@@ -304,18 +234,28 @@ async def search_sentences(
         else ("id documentId title ordinal pre hit post cursor")
     )
     served = effective_limit(limit)
-    data = await gql(
-        "query($t:String!,$d:ID,$l:Int!,$a:String)"
-        f"{{searchSentences(term:$t,documentId:$d,limit:$l,after:$a){{{fields}}}}}",
-        {"t": term, "d": document_id, "l": served, "a": after},
-    )
-    hits = [_clip_windows(hit, ("pre", "hit", "post")) for hit in data["searchSentences"]]
+    profile: str | None = None
+    candidate: dict[str, Any] = {}
+    if match == "phrase":
+        hits, profile, candidate = await phrase_page(
+            gql, fields, term=term, document_id=document_id, limit=served, after=after
+        )
+    else:
+        data = await gql(
+            "query($t:String!,$d:ID,$l:Int!,$a:String)"
+            f"{{searchSentences(term:$t,documentId:$d,limit:$l,after:$a){{{fields}}}}}",
+            {"t": term, "d": document_id, "l": served, "a": after},
+        )
+        hits = data["searchSentences"]
+    hits = [_clip_windows(hit, ("pre", "hit", "post")) for hit in hits]
     coverage, note = _search_coverage(
         hits,
         served,
         term=term,
         paged=after is not None,
         document_scoped=document_id is not None,
+        match_profile=profile,
+        **candidate,
     )
     if served != limit:
         coverage["requested_limit"] = limit
@@ -327,9 +267,14 @@ async def search_sentences(
     if concise:
         # A corpus-wide hit is unattributable without its document, so documentId
         # is only dropped when the caller already scoped the search to one.
-        keep = ("ordinal", "pre", "hit", "post")
+        keep: tuple[str, ...] = ("ordinal", "pre", "hit", "post")
+        if profile:
+            keep += ("occurrences", "occurrenceCount")
         hits = _project_concise(hits, keep if document_id else ("documentId", *keep))
-    return {"hits": hits, "coverage": coverage, "note": note}
+    result = {"hits": hits, "coverage": coverage, "note": note}
+    if profile:
+        result["matchProfile"] = profile
+    return result
 
 
 async def read_document_sentences(

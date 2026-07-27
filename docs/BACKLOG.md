@@ -558,6 +558,7 @@ this corrects the record for shipped BL-175/BL-164 behavior without changing it.
 | BL-179 | MCP curation tools widened the read endpoint every session paid for (split to /mcp + /mcp/curate) | api | bug | done | M | high | shared |
 | BL-180 | term_frequency paired positive sentence hits with a zero corpus denominator | api | bug | in-progress | M | high | shared |
 | BL-181 | surface_word_v1 shared word-boundary phrase profile | nlp | feature | done | S | high | shared |
+| BL-182 | Sentence search opt-in phrase mode with verified occurrence citations | api | feature | done | M | high | shared |
 
 See [`backlog.yml`](backlog.yml) for each item's full description, rationale,
 acceptance criteria, dependencies, related decisions (`D-###`), and references.

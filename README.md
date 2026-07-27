@@ -144,7 +144,8 @@ has a dedicated `/jobs/events` location with response buffering disabled; add
 `once=true` for a finite initial snapshot in diagnostics or smoke tests.
 
 Other query/mutation surface: `documents(docType:, status:, tags:)` /
-`document` / `documentShares` / `documentMetadataHistory` / `searchSentences` /
+`document` / `documentShares` / `documentMetadataHistory` /
+`searchSentences(match: SUBSTRING | PHRASE)` / `searchSentencePage` /
 `semanticSearchSentences` / `fullTextSearch(mode: TERMS | PHRASE)` /
 `corpusManifest(shardCount:)` / `corpusShard(shardIndex:, shardCount:)`
 (deterministic corpus partitioning for parallel/map-reduce reads) /
@@ -537,7 +538,10 @@ possible, CPU otherwise — while heavy `semantic_embed` jobs are routed off the
 `DOCRAY_SEMANTIC_DEVICE=cpu|cuda|cuda:N` (default `auto`). Retrieval is then available by
 *meaning* — GraphQL `semanticSearchSentences` and the `semantic_search_sentences`
 MCP tool rank sentences by learned cosine similarity, complementing keyword
-`searchSentences`.
+`searchSentences`. Sentence search defaults to backward-compatible literal
+substring matching; opt-in `PHRASE`/`phrase` verifies `surface_word_v1` whole-word
+adjacency and returns absolute per-occurrence citations on GraphQL, MCP, and the
+webapp's Whole phrase toggle.
 
 For a corpus-wide encoder cutover, follow the ordered backup, enqueue,
 verification, visual-coverage, and rollback procedure in the

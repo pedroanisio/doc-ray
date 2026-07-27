@@ -49,11 +49,11 @@ def _seed(pg) -> str:
     return doc_id
 
 
-def _run(doc_id: str, term: str) -> list[dict]:
+def _run(doc_id: str, term: str, *, match: str = "substring") -> list[dict]:
     async def go() -> list[dict]:
         aconn = await _aconn()
         try:
-            return await read.search_sentences(aconn, term, document_id=doc_id)
+            return await read.search_sentences(aconn, term, document_id=doc_id, match=match)
         finally:
             await aconn.close()
 
@@ -127,3 +127,33 @@ def test_a_term_too_confusable_to_enumerate_still_matches_via_the_folded_column(
 
     assert [h["ordinal"] for h in hits] == [3]
     assert hits[0]["hit"] == "— see the “scale” note —"
+
+
+def test_phrase_mode_filters_substring_false_positives_and_reports_absolute_offsets(pg):
+    import _itdb
+
+    conn, created = pg
+    text = (
+        "Tangram ngram ungrammatical. "
+        "The algorithm designed a system. "
+        "Algorithm Design succeeds. "
+        "Later algorithm  design recurs. "
+        "Hick’s law applies."
+    )
+    doc_id = _itdb.make_doc(conn, text)
+    created.append(doc_id)
+
+    substring = _run(doc_id, "ngram")
+    phrase = _run(doc_id, "ngram", match="phrase")
+
+    assert [row["ordinal"] for row in substring] == [0]
+    assert substring[0]["hit"] == "ngram"  # inside Tangram: historical behavior
+    assert phrase[0]["occurrences"] == [
+        {"char_start": text.index("ngram", len("Tangram")), "char_end": 13}
+    ]
+    exact = _run(doc_id, "algorithm design", match="phrase")
+    assert [row["ordinal"] for row in exact] == [2, 3]
+    for row in exact:
+        occurrence = row["occurrences"][0]
+        assert text[occurrence["char_start"] : occurrence["char_end"]] == row["hit"]
+    assert _run(doc_id, "Hick's law", match="phrase")[0]["hit"] == "Hick’s law"

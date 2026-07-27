@@ -46,6 +46,7 @@ from doc_ray.entrypoints.api.document_types import (
 from doc_ray.entrypoints.api.document_types import (
     Sentence as Sentence,
 )
+from doc_ray.entrypoints.api.sentence_search_types import SentenceHit as SentenceHit
 
 
 @strawberry.type
@@ -123,40 +124,6 @@ class Lexeme:
             after=after,
         )
         return [LexemeOccurrence.from_row(r) for r in rows]
-
-
-@strawberry.type
-class SentenceHit:
-    """A sentence search hit with a highlightable pre/hit/post split.
-
-    ``id`` is the sentence's stable ULID, so a hit can be cited or re-fetched
-    without an ordinal round-trip through ``document.sentences``.
-    """
-
-    id: strawberry.ID
-    document_id: strawberry.ID
-    title: str
-    ordinal: int
-    text: str
-    pre: str
-    hit: str
-    post: str
-    cursor: str
-
-    @classmethod
-    def from_row(cls, row: Row) -> SentenceHit:
-        """Build a ``SentenceHit`` from a read-adapter row."""
-        return cls(
-            id=strawberry.ID(str(row["id"])),
-            document_id=strawberry.ID(str(row["doc_id"])),
-            title=row["title"],
-            ordinal=row["ordinal"],
-            text=row["text"],
-            pre=row.get("pre") or "",
-            hit=row.get("hit") or "",
-            post=row.get("post") or "",
-            cursor=row.get("cursor") or "",
-        )
 
 
 @strawberry.type

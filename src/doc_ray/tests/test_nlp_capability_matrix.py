@@ -17,7 +17,10 @@ _QUERY = _ROOT / "src" / "doc_ray" / "entrypoints" / "api" / "query.py"
 #: `Query` resolvers also live in mixins inherited by the root (D-015 split):
 #: e.g. semantic retrieval in semantic_query.py. Query field refs resolve against
 #: the root plus its mixins.
-_QUERY_MIXINS = (_ROOT / "src" / "doc_ray" / "entrypoints" / "api" / "semantic_query.py",)
+_QUERY_MIXINS = (
+    _ROOT / "src" / "doc_ray" / "entrypoints" / "api" / "semantic_query.py",
+    _ROOT / "src" / "doc_ray" / "entrypoints" / "api" / "sentence_search_query.py",
+)
 _TYPES = _ROOT / "src" / "doc_ray" / "entrypoints" / "api" / "types.py"
 #: The document cluster's types moved to document_types.py (D-015 split);
 #: field refs on `Document` resolve against both files.

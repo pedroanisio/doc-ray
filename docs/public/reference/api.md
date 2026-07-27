@@ -11,9 +11,9 @@ doc_type: "reference"
 audience: ["developer", "integrator"]
 surfaces: ["api"]
 classification: "public"
-applies_to: "1.51.0"
+applies_to: "1.53.1"
 owner: "documentation-maintainer"
-last_reviewed: "2026-07-26"
+last_reviewed: "2026-07-27"
 status: "current"
 ---
 
@@ -56,7 +56,7 @@ Every mutation that changes corpus content enqueues a background **Job** and ret
 - `ingestDocument` with `pipeline: true` (the default) chains annotation, semantic enrichment, and canonicalization automatically.
 - `ingestDocument` takes **exactly one** of `file` (a multipart upload) or `ref` (a reference a registered source claims — today arXiv `abs`/`pdf` URLs, `arxiv:<id>`, and bare ids). A reference is fetched by the worker, so the mutation returns as soon as the Job is queued; a reference no source claims is rejected immediately rather than becoming a Job that could only fail.
 - Bulk mutations return one Job per affected Document.
-- The billing, collection, sharing, seed-decision, and lens mutations return their result object directly rather than a Job, because they do not run the ingestion pipeline.
+- The billing, collection, sharing, operations, seed-decision, and lens mutations return their result object directly rather than a Job, because they do not run the ingestion pipeline.
 
 ## Pagination
 
@@ -85,7 +85,8 @@ Listings are **keyset-paginated**. A list field returns objects each carrying a 
 | Field | Purpose | Key arguments |
 |---|---|---|
 | `fullTextSearch` | Rank whole Documents by language-aware full-text relevance; `TERMS` requires all stemmed terms in any position, while `PHRASE` requires them in order. | `query`, `limit`, `mode` |
-| `searchSentences` | Keyword-in-context Sentence search across the readable Corpus. | `term`, `documentId`, `limit`, `after` |
+| `searchSentences` | Keyword-in-context Sentence search; `SUBSTRING` is unchanged, while `PHRASE` adds verified absolute occurrences. | `term`, `documentId`, `limit`, `after`, `match` |
+| `searchSentencePage` | Metadata-bearing Sentence search envelope for phrase profile and candidate-cap completeness. | `term`, `documentId`, `limit`, `after`, `match` |
 | `termFrequency` | Check candidate frequency before searching; single lexemes are exact, while whitespace phrases declare a rarest-component upper bound in `measurement`. | `terms`, `documentId` |
 | `semanticSearchSentences` | Rank Sentences by learned semantic similarity. | `query`, `documentId`, `limit` |
 | `crossModalImageSearch` | Find images by meaning from a text query. | `query`, `limit` |
@@ -178,6 +179,16 @@ Backups are read through Job status; there is no standalone backup-listing query
 | Field | Purpose | Key arguments |
 |---|---|---|
 | `auditEvents` | List security audit events, filterable by actor, action, target, time, or source. | `actor`, `action`, `targetType`, `targetId`, `occurredAfter`, `occurredBefore`, `sourceIp`, `limit`, `after` |
+
+### Operations
+
+These fields are administrator-only and describe corpus-wide maintenance, not
+Document ingestion jobs.
+
+| Field | Purpose | Key arguments |
+|---|---|---|
+| `operations` | List maintenance operations with pending work and their last outcome. | `onlyMissing` |
+| `operationSchedules` | List recurring maintenance schedules, soonest due first. | — |
 
 ### Service
 
@@ -295,6 +306,17 @@ Sharing exposes a Document to another principal. Confirm the recipient before gr
 | Field | Purpose | Key arguments |
 |---|---|---|
 | `cancelJob` | Request cancellation of a Job. | `jobId`, `reason` |
+
+### Operations
+
+All operations mutations are administrator-only and audited.
+
+| Field | Purpose | Key arguments |
+|---|---|---|
+| `runOperation` | Enqueue a corpus-wide maintenance sweep immediately or for a deferred window. Returns the operation run summary. | `key`, `onlyMissing`, `priority`, `runAfter` |
+| `createOperationSchedule` | Create a recurring maintenance schedule. Returns the schedule. | `key`, `cadence`, `onlyMissing`, `priority`, `note` |
+| `updateOperationSchedule` | Edit, enable, or disable a recurring schedule. Returns the updated schedule. | `scheduleId`, `cadence`, `onlyMissing`, `priority`, `enabled`, `note` |
+| `deleteOperationSchedule` | Delete a recurring schedule. Returns whether it existed. | `scheduleId` |
 
 ### Backups
 

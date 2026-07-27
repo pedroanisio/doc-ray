@@ -248,7 +248,7 @@ but had no passage cited on this page. Example:
 
 | MCP tool | GraphQL field | Notes |
 |---|---|---|
-| `search_sentences(term, document_id?, limit, after?, response_format?)` | `searchSentences` | KWIC pre/hit/post; term-filtered. Returns `{hits, coverage, note}` — see §3.1 |
+| `search_sentences(term, document_id?, limit, after?, match?, response_format?)` | `searchSentences` + `searchSentencePage` | `match="substring"` is unchanged containment; `match="phrase"` verifies `surface_word_v1` and adds occurrences/profile/candidate coverage. Returns `{hits, coverage, note}` — see §3.1 |
 | `read_document_sentences(document_id, limit, after?, from_ordinal?, to_ordinal?, page?, response_format?)` | `document { sentences }` | in-order read: **sequential** walk *or* **random-access** ordinal/page slice; verbatim text + citation offsets |
 | `read_document_outline(document_id, max_entries)` | `documentOutline` | the map that aims the ranged reader: addressable ordinal ranges + `source` provenance — see §3.2 |
 | `full_text_search(query, limit, mode)` | `fullTextSearch` | ranked docs; `mode="terms"` requires all stemmed terms in any positions, while `mode="phrase"` requires them in order |
@@ -387,6 +387,24 @@ cursor means "no more after this cursor", never "absent from the corpus" — the
 earlier pages had hits and were not re-scanned. Treating that as absence would
 just be a new false negative, so the note says page-boundary instead.
 
+Phrase mode adds candidate-scan evidence because post-filtering can exhaust its
+independent 2,001-row work budget before the requested hit page fills:
+
+```jsonc
+{"name":"search_sentences","arguments":{"term":"Algorithm Design","match":"phrase","limit":20}}
+// → {"matchProfile":"surface_word_v1",
+//    "hits":[{"ordinal":42,"hit":"Algorithm  Design","occurrenceCount":2,
+//             "occurrences":[{"charStart":140,"charEnd":157},{"charStart":201,"charEnd":217}]}],
+//    "coverage":{"hit_count":1,"limit_reached":false,"exhaustive":true,
+//                "candidate_scanned":9,"candidate_limit":2001,
+//                "candidate_limit_reached":false},"note":null}
+```
+
+If `candidate_limit_reached` is true, `limit_reached` and `exhaustive` also say
+the answer is truncated even when `hits` is empty. The note names phrase mode and
+the profile; a verified zero below the cap likewise says it was a
+`surface_word_v1` whole-word phrase verification, not a substring or stem scan.
+
 **3. Cursors are per-tool.** A `search_sentences` cursor is not valid for
 `read_document_sentences`, and vice versa; they encode different keysets. Any
 GraphQL error mentioning a cursor is now translated into a typed `bad_input`
@@ -399,16 +417,18 @@ if a tool taking a `document_id` does not validate it locally (`_require_uuid`)
 before spending a round-trip. Adding a tool means writing a description that
 teaches its use — the gate is mechanical, not a review convention.
 
-### 3.1.1 What `search_sentences` matches, said where it is read (BL-166)
+### 3.1.1 What `search_sentences` matches: substring or verified phrase
 
 A reviewer searched `Hick` corpus-wide, got back `thick`, `thicker`, `thickness`,
 and concluded the tool had lemma-normalized a proper noun — then, because the
 zero-hit note on a *scoped* search mentioned a substring scan, concluded that
-`search_sentences` had **two matching semantics under one name**: lemma-based
-corpus-wide, substring when scoped. Both readings are wrong. There is one
-predicate ([`persistence_read.search_sentences`](../src/doc_ray/adapters/persistence_read.py)),
+`search_sentences` had **two implicit matching semantics under one name**:
+lemma-based corpus-wide, substring when scoped. Both readings were wrong. Its
+default has one predicate
+([`persistence_sentence_search.search_sentences`](../src/doc_ray/adapters/persistence_sentence_search.py)),
 one `ILIKE`, and `document_id` only adds a `WHERE`. `thick` matched because it
-*contains* `hick`.
+*contains* `hick`. Issue #45 adds a second semantic only as the explicit,
+opt-in `match="phrase"`; omitting `match` is byte-compatible substring mode.
 
 The inference was wrong; the complaint underneath it was not. The matching rule
 was documented in [`domain/term_frequency.py`](../src/doc_ray/domain/term_frequency.py)
@@ -435,6 +455,15 @@ with no confusables expands to exactly one pattern, so the `gin_trgm_ops` index
 (migration 002) is used exactly as before. A term with three or more confusables
 would exceed the 16-pattern ceiling and falls back to folding the column with
 `translate()` — correct, index-degraded, and rare.
+
+Phrase mode composes rather than replaces that rule. The shared
+`phrase_candidate_clause` ANDs parameterized per-word `match_clause` predicates
+(longest ≥3-character word first), then `surface_word_v1` verifies boundaries,
+joiners, order, and adjacency on the raw Sentence span. One result row remains one
+Sentence; `occurrences` lists every absolute half-open span and
+`occurrenceCount` gives its size. The first occurrence supplies KWIC. Candidate
+work stops at 2,001 and that bound is visible in the result envelope. This stage
+adds no table, token dependency, stemmer, model, or environment setting.
 
 Folding widens; it never narrows. `hick` still matches `thick`, because that is
 the documented substring rule — the description now says so up front instead of
@@ -733,9 +762,10 @@ whose literal-substring match finds them without difficulty.
 
 **Since 1.52.0 (#39) such a term is measured rather than declined.** The lexeme
 index still cannot hold it, so instead of reporting the gap the server *counts the
-sentences that contain it* — through the same `match_clause` rule `search_sentences`
-matches on. For these terms the pre-flight therefore predicts the search tool
-exactly, rather than approximating it with a proxy:
+sentences that contain it* — through the same `match_clause` rule
+`search_sentences(match="substring")` uses. For these terms the pre-flight
+therefore predicts substring mode exactly and phrase mode's candidate ceiling,
+rather than pretending boundary verification already happened:
 
 ```jsonc
 {"name": "term_frequency", "arguments": {"terms": ["Model Context Protocol", "shared_buffers"]}}
@@ -821,13 +851,14 @@ a bug:
 | Surface | Matches on | Example |
 |---|---|---|
 | `term_frequency` | lexeme lemma (`norm_lemma`) for a single word; **the literal substring rule itself** for phrases/compounds (`sentence_scan`) | `running` → lemma `run`; `design decision` → sentences containing that exact string |
-| `search_sentences` | **case-insensitive literal substring** (`ILIKE '%term%'`) | `run` matches `run`, `overrun`, `Brunny` |
+| `search_sentences` | default: **case-insensitive literal substring**; opt-in `phrase`: `surface_word_v1` whole-word adjacency | substring `run` matches `overrun`; phrase `ngram` rejects `Tangram` |
 | `full_text_search` | **Snowball stem** (`plainto_tsquery`, per-doc config) | `running` → stem `run` |
 
 So `term_frequency` is a **corpus-saturation signal**, a strong proxy for — not an
 exact predictor of — any one tool's hit count. It is most precise for base-form
-content words (surface ≈ lemma); phrase/compound scan results directly predict
-`search_sentences`, while their `uses` component evidence remains an upper bound;
+content words (surface ≈ lemma); phrase/compound scans directly predict
+`search_sentences` substring mode and upper-bound phrase candidates, while their
+`uses` component evidence remains an upper bound;
 single lexemes diverge for inflected or substring queries;
 when in doubt, trust the exposed numbers over the bucket. **Corpus-wide only for
 now** (Open decision 1(a)): passing `documentId`/`document_id` returns a typed

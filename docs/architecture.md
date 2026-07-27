@@ -103,6 +103,15 @@ GraphQL and MCP expose `totalSentences: null`, preserve the bounded absolute-hit
 tenant rollups with their maintained document-level inputs so this integrity
 failure is caught without violating D-025's no-fact-table-aggregate rule.
 
+Sentence search also shares one explicit match contract across the human, API,
+and agent surfaces. `SUBSTRING`/`substring` remains the compatibility default.
+Opt-in `PHRASE`/`phrase` uses an indexed AND-of-words candidate set followed by
+the pure `surface_word_v1` verifier, returns every absolute document occurrence,
+and reports the 2,001-candidate bound. GraphQL's legacy `searchSentences` list
+stays source-compatible; `searchSentencePage` adds scan metadata for consumers
+such as MCP that must distinguish an exhaustive zero from a capped zero. The
+webapp exposes the same choice as an off-by-default Whole phrase checkbox.
+
 ## API, worker, and the job queue
 
 `entrypoints.api` is a Strawberry GraphQL app: reads resolve directly against

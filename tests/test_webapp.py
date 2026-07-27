@@ -2567,11 +2567,60 @@ def test_search_last_page_has_no_next_link(client):
 def test_search_discloses_literal_substring_semantics(client):
     html = client.get("/search").get_data(as_text=True)
     normalized = _norm(html)
-    # Discloses exact-character (substring) matching, that inflected forms won't
-    # match, and the stemmed full-text alternative.
+    # Discloses containment (including word-internal hits), the phrase toggle,
+    # and the stemmed full-text alternative.
     assert "matches the characters you type" in normalized
-    assert "won't match" in normalized
+    assert "can match inside" in normalized
+    assert "whole phrase" in normalized.lower()
     assert "stemmed full-text search" in normalized
+
+
+def test_keyword_search_whole_phrase_toggle_is_opt_in_and_preserved_by_paging(
+    client, monkeypatch
+):
+    captured = {}
+
+    def phrase_q(sql, params=()):
+        if "FROM sentences s" in _norm(sql):
+            captured["sql"] = sql
+            captured["params"] = params
+            return [
+                {
+                    "id": "01ARZ3NDEKTSV4RRFFQ69G5FAD",
+                    "doc_id": DOC_ID,
+                    "title": "orwell1984",
+                    "ordinal": 3,
+                    "text": "Algorithm Design",
+                    "char_start": 40,
+                }
+            ]
+        return fake_q(sql, params)
+
+    monkeypatch.setattr(webapp, "q", phrase_q)
+
+    html = client.get("/search?q=algorithm+design&match=phrase").get_data(as_text=True)
+
+    assert 'name="match" value="phrase" checked' in html
+    assert " AND " in captured["sql"]
+    assert "Algorithm Design" in html
+    assert "whole-word phrase" in _norm(html).lower()
+
+
+def test_keyword_search_default_remains_substring_mode(client, monkeypatch):
+    captured = {}
+
+    def substring_q(sql, params=()):
+        if "FROM sentences s" in _norm(sql):
+            captured["sql"] = sql
+            return []
+        return fake_q(sql, params)
+
+    monkeypatch.setattr(webapp, "q", substring_q)
+
+    html = client.get("/search?q=ngram").get_data(as_text=True)
+
+    assert 'name="match" value="phrase" checked' not in html
+    assert " AND " not in captured["sql"].split("WHERE", maxsplit=1)[1].split("ORDER BY")[0]
 
 
 def test_search_empty_state_explains_literal_match_and_alternative(client, monkeypatch):

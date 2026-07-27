@@ -81,7 +81,11 @@ gallery in the webapp to inspect the actual image bytes and committed caption.
 
 ## Sentence search through MCP
 
-`search_sentences` returns `{hits, coverage, note}`. Read `coverage` and `note`: when `limit_reached` is true, a common term may have flooded one region, and `note` steers you to a rarer term or to reading the untouched ordinal ranges directly.
+`search_sentences` returns `{hits, coverage, note}`. Its default
+`match="substring"` is unchanged literal containment. Choose `match="phrase"`
+when words, order, and boundaries must all agree. Read `coverage` and `note`:
+`limit_reached` can mean either a full hit page or that phrase verification hit
+its independent candidate cap.
 
 1. Search a rare term, optionally scoped to one Document:
 
@@ -115,7 +119,30 @@ gallery in the webapp to inspect the actual image bytes and committed caption.
 
    A sparse-looking result with a `note` is a query problem, not missing content.
 
-3. Page more hits by passing the last row's `cursor` as `after`. Stop when `hits` is empty.
+3. Ask the exact whole-word phrase question when substring false positives matter:
+
+   ```
+   search_sentences  term="Algorithm Design"  match="phrase"  limit=20
+   ```
+
+   ```json
+   {
+     "matchProfile":"surface_word_v1",
+     "hits":[{"ordinal":752,"hit":"Algorithm  Design","occurrenceCount":1,
+       "occurrences":[{"charStart":18420,"charEnd":18437}]}],
+     "coverage":{"hit_count":1,"limit_reached":false,"exhaustive":true,
+       "candidate_scanned":4,"candidate_limit":2001,
+       "candidate_limit_reached":false},
+     "note":null
+   }
+   ```
+
+   Offsets are absolute half-open positions in the original Document, including
+   its original whitespace and typographic punctuation. `ngram` will not match
+   `Tangram`; `algorithm design` will not match `algorithm designed`. If
+   `candidate_limit_reached` is true, narrow to a longer or rarer phrase.
+
+4. Page more hits by passing the last row's `cursor` as `after`. Stop when `hits` is empty.
 
 ## Picking a Document first, over MCP
 
@@ -136,7 +163,7 @@ Take a `documentId` from this list into `search_sentences` (scoped with `documen
 
 ## Verification
 
-- A Sentence search returns `hits` whose `pre`/`hit`/`post` windows contain the term, and each `ordinal` addresses the same Sentence when read back with the reader.
+- A substring Sentence search returns `hits` whose `pre`/`hit`/`post` windows contain the term. A phrase search additionally returns every exact absolute occurrence and names `surface_word_v1`. Each `ordinal` addresses the same Sentence when read back with the reader.
 - A full-text search returns Documents in descending `rank`.
 - A semantic or image hit resolves back to an RLS-visible Document and an exact
   Sentence ordinal or page image.

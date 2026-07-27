@@ -11,6 +11,7 @@
     <label><input type="radio" name="mode" value="semantic"{% if mode == 'semantic' %} checked{% endif %}> Semantic</label>
     <label><input type="radio" name="mode" value="image"{% if mode == 'image' %} checked{% endif %}> Images</label>
   </fieldset>
+  <label><input type="checkbox" name="match" value="phrase"{% if match == 'phrase' %} checked{% endif %}> Whole phrase</label>
   <button type="submit">Search</button>
 </form>
 
@@ -24,12 +25,19 @@
   Semantic mode ranks passages by meaning using the active sentence-embedding model.
   Results are bounded to the top {{ semantic_cap }} passages and show their similarity.
 </p>
+{% elif match == 'phrase' %}
+<p class="lede" style="max-width:42rem">
+  Whole-word phrase search verifies boundaries and adjacency under
+  <span class="mono">surface_word_v1</span>. It reports every exact occurrence,
+  so <span class="mono">ngram</span> does not match <span class="mono">Tangram</span>.
+</p>
 {% else %}
 <p class="lede" style="max-width:42rem">
-  Exact-phrase search across every sentence in the corpus, shown in
+  Literal substring search across every sentence in the corpus, shown in
   keyword-in-context. It matches the characters you type, so
-  <span class="mono">run</span> won't match <span class="mono">running</span> or
-  <span class="mono">ran</span> &mdash; for stemmed full-text search, use the
+  <span class="mono">run</span> can match inside <span class="mono">running</span>
+  or <span class="mono">overrun</span>. Choose Whole phrase for word boundaries;
+  for stemmed full-text search, use the
   <span class="mono">fullTextSearch</span> field in the GraphQL API.
 </p>
 {% endif %}
@@ -57,10 +65,15 @@
               No images match this visual query in the currently embedded visual corpus.
             {% elif result_mode == 'semantic' %}
               No semantically related sentences were found in the embedded corpus.
+            {% elif match == 'phrase' %}
+              No sentences contain this whole-word phrase under
+              <span class="mono">surface_word_v1</span>. Try substring mode to inspect near misses.
             {% else %}
-              No sentences match &ldquo;{{ term }}&rdquo;. This is an exact-phrase search,
-              so inflected forms such as <span class="mono">running</span> or
-              <span class="mono">ran</span> only match when you type those exact characters.
+              No sentences match &ldquo;{{ term }}&rdquo; as a literal substring.
+              Whole phrase provides exact-phrase search with word boundaries.
+              Neither mode stems words; inspect variants such as
+              <span class="mono">running</span> and <span class="mono">ran</span>
+              when they are not literal substring matches.
               For stemmed full-text search, use the GraphQL
               <span class="mono">fullTextSearch</span> field.
             {% endif %}
@@ -71,9 +84,9 @@
     </table>
     {% if rows %}
     <div class="pager">
-      {% if page > 1 %}<a href="{{ url_for('search', q=term, mode=mode, page=page-1) }}">← prev</a>{% endif %}
+      {% if page > 1 %}<a href="{{ url_for('search', q=term, mode=mode, match='phrase' if match == 'phrase' else none, page=page-1) }}">← prev</a>{% endif %}
       <span>page {{ page }}</span>
-      {% if has_next %}<a href="{{ url_for('search', q=term, mode=mode, page=page+1) }}">next →</a>{% endif %}
+      {% if has_next %}<a href="{{ url_for('search', q=term, mode=mode, match='phrase' if match == 'phrase' else none, page=page+1) }}">next →</a>{% endif %}
     </div>
     {% endif %}
   </div>

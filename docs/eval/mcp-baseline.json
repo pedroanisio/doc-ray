@@ -10,22 +10,22 @@
   "mode": "scripted",
   "surface": {
     "read_only": {
-      "instructions_chars": 2555,
+      "instructions_chars": 2763,
       "prompts_count": 4,
       "resource_templates_count": 5,
       "resources_count": 3,
       "tool_count": 33,
-      "tools_list_chars": 45855,
-      "tools_list_est_tokens": 11463
+      "tools_list_chars": 45170,
+      "tools_list_est_tokens": 11292
     },
     "write_enabled": {
-      "instructions_chars": 2555,
+      "instructions_chars": 2763,
       "prompts_count": 4,
       "resource_templates_count": 5,
       "resources_count": 3,
       "tool_count": 65,
-      "tools_list_chars": 78773,
-      "tools_list_est_tokens": 19693
+      "tools_list_chars": 78088,
+      "tools_list_est_tokens": 19522
     }
   },
   "tasks": [

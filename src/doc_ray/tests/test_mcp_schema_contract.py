@@ -41,6 +41,14 @@ class _AutoData(dict):
     """A ``data`` payload that yields a benign value for whatever field a tool reads."""
 
     def __getitem__(self, key: str) -> Any:
+        if key == "searchSentencePage":
+            return {
+                "hits": [],
+                "matchProfile": "surface_word_v1",
+                "candidateScanned": 0,
+                "candidateLimit": 2001,
+                "candidateLimitReached": False,
+            }
         return []
 
 
@@ -83,6 +91,7 @@ async def _capture(monkeypatch: pytest.MonkeyPatch, call) -> str:
 # (tool callable) pairs covering every read tool that hits GraphQL and every write tool.
 _READ_CALLS = [
     lambda: corpus.search_sentences("x"),
+    lambda: corpus.search_sentences("algorithm design", match="phrase"),
     lambda: corpus.full_text_search("x"),
     lambda: corpus.list_documents(),
     lambda: corpus.get_document(_DOC),

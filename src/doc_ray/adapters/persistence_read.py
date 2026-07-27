@@ -43,8 +43,9 @@ from doc_ray.adapters.persistence_read_collections import (
 from doc_ray.adapters.persistence_read_collections import (
     list_lenses as list_lenses,
 )
+from doc_ray.adapters.persistence_sentence_search import SentenceMatch as SentenceMatch
+from doc_ray.adapters.persistence_sentence_search import search_sentences as search_sentences
 from doc_ray.adapters.read_cursors import decode_cursor, encode_cursor
-from doc_ray.adapters.sentence_search_sql import match_clause
 from doc_ray.domain.search_terms import kwic as _split_kwic
 
 Row = dict[str, Any]
@@ -611,67 +612,6 @@ async def lexeme_kwic(
 
 
 # --------------------------------------------------------------------------
-# Search
-# --------------------------------------------------------------------------
-
-
-async def search_sentences(
-    conn: _AConn,
-    term: str,
-    *,
-    document_id: str | None = None,
-    limit: int = 100,
-    after: str | None = None,
-) -> list[Row]:
-    """Return sentences containing *term* (case-insensitive literal substring).
-
-    "Literal" is enforced, not assumed: ``%`` and ``_`` are data rather than
-    wildcards, and the term is matched across typographic confusables (``'`` also
-    finds ``’``, ``-`` also finds ``—``), because a corpus extracted from PDF/EPUB
-    stores the typographic forms while callers type the ASCII ones. The rule and
-    its bounds live in :mod:`doc_ray.domain.search_terms`.
-
-    Args:
-        conn: Async database connection.
-        term: Substring to match against sentence text.
-        document_id: When set, only sentences of this document.
-        limit: Maximum sentences to return.
-        after: Optional keyset cursor returned by the previous page.
-
-    Returns:
-        Rows of ``{id, doc_id, title, ordinal, text, pre, hit, post}`` — ``id`` is
-        the sentence ULID, so hits are citable without a second round-trip.
-    """
-    cursor = decode_cursor(after, "sentence-search")
-    match_sql, match_params = match_clause("s.text", term)
-    rows = await _rows(
-        conn,
-        "SELECT s.id, d.id AS doc_id, d.title, s.ordinal, s.text "
-        "FROM sentences s JOIN documents d ON d.id = s.document_id "
-        f"WHERE {match_sql} "
-        "  AND (%(doc)s::uuid IS NULL OR s.document_id = %(doc)s::uuid) "
-        "  AND (%(after_title)s::text IS NULL OR d.title > %(after_title)s "
-        "       OR (d.title = %(after_title)s AND s.ordinal > %(after_ord)s::int) "
-        "       OR (d.title = %(after_title)s AND s.ordinal = %(after_ord)s::int "
-        "           AND s.id > %(after_id)s::ulid)) "
-        "ORDER BY d.title, s.ordinal, s.id LIMIT %(limit)s",
-        {
-            **match_params,
-            "doc": document_id,
-            "limit": limit,
-            "after_title": cursor["title"] if cursor else None,
-            "after_ord": cursor["ordinal"] if cursor else None,
-            "after_id": cursor["id"] if cursor else None,
-        },
-    )
-    for r in rows:
-        r["pre"], r["hit"], r["post"] = _split_kwic(r["text"], term)
-        r["cursor"] = encode_cursor(
-            "sentence-search", title=r["title"], ordinal=r["ordinal"], id=r["id"]
-        )
-    return rows
-
-
 # --------------------------------------------------------------------------
 # Named entities (NER layer)
 # --------------------------------------------------------------------------

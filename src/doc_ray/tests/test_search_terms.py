@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import pytest
 
+from doc_ray.adapters import sentence_search_sql
 from doc_ray.domain import search_terms as st
 
 
@@ -134,3 +135,29 @@ def test_kwic_is_offset_exact_for_a_folded_hit():
     text = "a “quoted” span"
     pre, hit, post = st.kwic(text, '"quoted"')
     assert pre + hit + post == text
+
+
+# --------------------------------------------------------------------------
+# phrase-mode candidate SQL (#45)
+# --------------------------------------------------------------------------
+
+
+def test_phrase_candidates_are_an_and_of_parameterized_words_with_a_selective_lead():
+    """Every true phrase is a candidate; longer indexable words lead the AND."""
+    builder = sentence_search_sql.phrase_candidate_clause
+
+    sql, params = builder("s.text", "of Algorithm Design")
+
+    assert sql.count("ILIKE") == 3
+    assert " AND " in sql
+    assert "algorithm" in next(iter(params.values()))
+    assert all(word not in sql.lower() for word in ("algorithm", "design", "of"))
+
+
+def test_phrase_candidate_sql_keeps_like_metacharacters_as_data():
+    builder = sentence_search_sql.phrase_candidate_clause
+
+    sql, params = builder("s.text", "shared_buffers algorithm")
+
+    assert "%shared\\_buffers%" in params.values()
+    assert "shared_buffers" not in sql

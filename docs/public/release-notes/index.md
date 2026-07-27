@@ -22,7 +22,7 @@ status: "current"
 What changed in each version, newest first. Each entry states who a change affects
 and any action required.
 
-- **[1.53.1](1.53.1.md)** — repair phrase-frequency sentence denominators and
+- **[1.53.1](1.53.1.md)** — add citation-bearing whole-phrase sentence search, repair phrase-frequency sentence denominators, and
   return an explicit null when that maintained rollup is unavailable
   (**migration required**, no configuration change).
 - **[1.53.0](1.53.0.md)** — curation tools moved to their own address so

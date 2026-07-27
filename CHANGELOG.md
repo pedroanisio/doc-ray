@@ -21,6 +21,35 @@ doc-ray carries **one global version** covering both the application package
 
 ## [1.53.1]
 
+### Added
+
+- **Sentence search now has an opt-in, citation-bearing phrase mode (#45).**
+  GraphQL `searchSentences(match: PHRASE)`, MCP
+  `search_sentences(match="phrase")`, and the webapp's off-by-default **Whole
+  phrase** checkbox all use `surface_word_v1`: whole words in order, separated
+  by whitespace or the profile's apostrophe/hyphen joiners. The default remains
+  the byte-compatible literal substring path.
+
+- **Phrase hits report every exact occurrence.** Each hit stays one row per
+  Sentence and adds `occurrences: [{charStart, charEnd}]` plus
+  `occurrenceCount`; KWIC quotes the first verified occurrence in the Document's
+  original spelling and whitespace. GraphQL also exposes `searchSentencePage`,
+  whose `matchProfile`, candidate counts, and cap flag let MCP distinguish an
+  exhaustive verified zero from a bounded zero.
+
+- **Candidate-and-verify work is bounded and observable.** Parameterized
+  AND-of-word trigram candidates are ordered with the longest ≥3-character word
+  first, verified against the raw Sentence span, and capped at 2,001 rows.
+  Coverage and notes disclose the cap; debug logs report candidates scanned,
+  verified rows, and emitted rows.
+
+  **Migration:** additive API only. Existing calls need no change because
+  substring is still the default. Clients opting into phrase mode may read the
+  new occurrence fields; MCP consumers should treat either a full hit page or
+  `candidate_limit_reached: true` as non-exhaustive. There is no database
+  migration, reindex, token backfill, environment variable, or SDK release
+  (Doc-Ray publishes GraphQL and MCP contracts, not a client SDK).
+
 ### Fixed
 
 - **`termFrequency` no longer reports positive phrase hits out of zero sentences
