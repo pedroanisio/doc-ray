@@ -4,7 +4,7 @@ disclaimer:
     No information within this document should be taken for granted.
     Any statement or premise not backed by a real logical definition
     or verifiable reference may be invalid, erroneous, or a hallucination.
-  generated_by: "Claude Sonnet 5 via Claude Code (merge of Claude Opus 4.8 backlog + OpenAI Codex improvement-proposal candidates); retrieval-contract correction by OpenAI GPT-5 via Codex"
+  generated_by: "Claude Sonnet 5 via Claude Code (merge of Claude Opus 4.8 backlog + OpenAI Codex improvement-proposal candidates); retrieval-wave updates by OpenAI GPT-5 via Codex"
   date: "2026-07-27"
 ---
 
@@ -557,6 +557,7 @@ this corrects the record for shipped BL-175/BL-164 behavior without changing it.
 | BL-178 | term_frequency declined multi-word terms instead of measuring them (bounded sentence scan under search_sentences' own rule) | api | bug | done | M | high | shared |
 | BL-179 | MCP curation tools widened the read endpoint every session paid for (split to /mcp + /mcp/curate) | api | bug | done | M | high | shared |
 | BL-180 | term_frequency paired positive sentence hits with a zero corpus denominator | api | bug | in-progress | M | high | shared |
+| BL-181 | surface_word_v1 shared word-boundary phrase profile | nlp | feature | done | S | high | shared |
 
 See [`backlog.yml`](backlog.yml) for each item's full description, rationale,
 acceptance criteria, dependencies, related decisions (`D-###`), and references.

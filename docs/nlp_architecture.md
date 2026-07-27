@@ -4,7 +4,7 @@ disclaimer:
     No information within this document should be taken for granted.
     Any statement or premise not backed by a real logical definition
     or verifiable reference may be invalid, erroneous, or a hallucination.
-  generated_by: "Claude Opus 5 (1M context) via Claude Code; retrieval-contract correction by OpenAI GPT-5 via Codex"
+  generated_by: "Claude Opus 5 (1M context) via Claude Code; retrieval-wave contract/profile corrections by OpenAI GPT-5 via Codex"
   date: "2026-07-27"
 ---
 
@@ -462,6 +462,15 @@ the components occur adjacently. The measured half reports `method:
 "sentence_scan"` and counts sentences with the same `match_clause` rule used by
 `searchSentences`. That scan stops at `SENTENCE_HIGH_HITS = 2001`; when `capped`
 is true, the reported hit count is a floor rather than an exact total.
+
+**Versioned phrase profile.** `domain/phrase_profile.py` defines
+`surface_word_v1`, the shared word-boundary contract for upcoming phrase search
+and occurrence counts. Unicode letters, digits, and underscore form words;
+whitespace plus folded apostrophe/hyphen variants preserve adjacency, while
+other punctuation breaks it. Matching reuses `search_terms.fold`, reports exact
+offsets into the original text, and counts overlapping starts. Every result must
+carry the profile identifier; changing any policy creates a new profile rather
+than changing `surface_word_v1` in place.
 
 **KWIC.** `lexeme_kwic` slices a ±45-character window out of `full_text` in SQL
 and splits it into `pre`/`hit`/`post` in Python for highlighting, with keyset

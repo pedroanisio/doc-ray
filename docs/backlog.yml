@@ -107,10 +107,10 @@ disclaimer: |
 
 metadata:
   schema_version:   "1.0.0"
-  generated_by:     "Claude Sonnet 5 via Claude Code (merge of Claude Opus 4.8 backlog + OpenAI Codex improvement-proposal candidates)"
-  generated_on:     "2026-07-05"
+  generated_by:     "Claude Sonnet 5 via Claude Code (merge of Claude Opus 4.8 backlog + OpenAI Codex improvement-proposal candidates); BL-181 by OpenAI GPT-5 via Codex"
+  generated_on:     "2026-07-27"
   system_of_record: "docs/backlog.yml"
-  total_items:      180
+  total_items:      181
 
 items:
 
@@ -6498,3 +6498,46 @@ items:
     owner:        "shared"
     source:       "GitHub issue #42 (2026-07-27); production read-only diagnosis and strict TDD implementation by OpenAI Codex. Deployment intentionally not performed without separate production-write authorization."
     tags:         ["term-frequency", "rollup", "graphql", "mcp", "production-check", "tdd"]
+
+  - id:          "BL-181"
+    title:       "surface_word_v1 shared word-boundary phrase profile"
+    summary:     "Phrase search and occurrence counts need one versioned, offset-exact definition of words, adjacency, normalization, and overlap semantics."
+    description: |
+      Implemented by GitHub issue #44 as a pure standard-library domain module.
+      `surface_word_v1` segments Unicode letters, digits, and underscore into
+      source-addressable words, imports the existing length-preserving confusable
+      fold, and returns exact half-open spans into the original text. A
+      length-changing case fold falls back to exact-case comparison instead of
+      risking a shifted citation.
+
+      OD-1 keeps digits and underscore as word characters so BL-164 terms such as
+      `shared_buffers` and `2024` remain addressable. OD-2 treats apostrophe and
+      hyphen confusable variants as adjacency-preserving joiners while all other
+      punctuation breaks a phrase. OD-3 counts every overlapping start position,
+      matching the behavior of the future positional engine. KMP keeps matching
+      linear in source words plus pattern words and emitted matches.
+
+      This block defines domain semantics only. GraphQL, MCP, and webapp exposure
+      belong to the dependent phrase-search and verified-count blocks (#45/#46).
+    category:     "nlp"
+    type:         "feature"
+    status:       "done"
+    complexity:   "S"
+    priority:     "high"
+    rationale:    "A shared versioned profile prevents phrase search, verified counts, and a future positional engine from silently disagreeing about what constitutes an occurrence or returning shifted citation offsets."
+    acceptance_criteria:
+      - "A frozen surface_word_v1 profile defines Unicode word characters, joiners, and overlap policy under a durable identifier."
+      - "word_spans, phrase_words, and find_occurrences are pure, typed, offset-exact, and require no database or NLP-model dependency."
+      - "Confusable folding is imported from search_terms rather than duplicated, and length-changing case folds fall back to exact case."
+      - "Canonical boundary, confusable, adjacency, overlap, degenerate-input, and fixed-seed offset-property tests pass."
+      - "Phrase matching is linear in source words plus pattern words and emitted matches."
+      - "The NLP architecture documents the profile-versioning and policy decisions without claiming API exposure."
+    dependencies: []
+    references:
+      - "src/doc_ray/domain/phrase_profile.py"
+      - "src/doc_ray/domain/search_terms.py"
+      - "src/doc_ray/tests/test_phrase_profile.py"
+      - "docs/nlp_architecture.md"
+    owner:        "shared"
+    source:       "GitHub issue #44 (2026-07-27); strict TDD implementation by OpenAI Codex after operator approval."
+    tags:         ["phrase-retrieval", "normalization", "word-boundaries", "citations", "tdd"]
