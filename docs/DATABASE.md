@@ -1,6 +1,6 @@
 # doc-ray — Database ERD & Data Dictionary
 
-**Schema version `1.51.0`** (SemVer) · 142 migrations applied
+**Schema version `1.52.0`** (SemVer) · 144 migrations applied
 
 > Generated from the live schema by `scripts/gen_data_dictionary.py`. Do not edit by hand — re-run the generator.
 
@@ -663,10 +663,7 @@ has exactly one head → a function).
 
 Named-entity mentions, entity linking to a KB, and coreference chains. `entity_mention` is rebuilt
 from scratch by every annotate run, so human fixes live in `entity_mention_correction` — keyed by a
-stable span or an exact surface/current-type matcher, re-applied by the pipeline on each pass
-(Block A). Explainable confidence and its
-reasons are worker-materialized on the ephemeral mention for least-confident-first review (Block G);
-the value is a triage rank, not a calibrated probability.
+stable span, re-applied by the pipeline on each pass (Block A).
 
 #### `entity_mention`
 
@@ -677,9 +674,9 @@ the value is a triage rank, not a calibrated probability.
 | `span_id` | uuid |  | FK→spans |  |  |
 | `entity_type` | text |  |  |  |  |
 | `surface` | text |  |  |  |  |
-| `confidence` | real | yes |  |  |  |
-| `confidence_method` | text | yes |  |  |  |
-| `confidence_reasons` | text[] |  |  | `'{}'::text[]` |  |
+| `confidence` | real | yes |  |  | Explainable review triage rank, not a calibrated probability; lower is reviewed first. |
+| `confidence_method` | text | yes |  |  | Producer of confidence, currently heuristic:v1; reserved for future model:<name> scores. |
+| `confidence_reasons` | text[] |  |  | `'{}'::text[]` | Deterministic human-readable reasons that must accompany the confidence value. |
 
 - **Primary key:** (id)
 - **FK:** FOREIGN KEY (annotation_id) REFERENCES annotations(id) ON DELETE CASCADE
@@ -708,20 +705,20 @@ the value is a triage rank, not a calibrated probability.
 | `rationale` | text | yes |  |  |  |
 | `reviewer` | uuid | yes | FK→principals |  |  |
 | `created_at` | timestamp with time zone |  |  | `now()` |  |
-| `surface_original_type` | text | yes |  |  | Exact current-type matcher for surface actions; `NULL` for span actions. |
+| `surface_original_type` | text | yes |  |  | Mandatory current-type matcher for exact surface rules; NULL for span actions. |
 
 - **Primary key:** (id)
 - **FK:** FOREIGN KEY (document_id) REFERENCES documents(id) ON DELETE CASCADE
 - **FK:** FOREIGN KEY (reviewer) REFERENCES principals(id) ON DELETE SET NULL
 - **Check:** CHECK (((action <> 'add'::text) OR (entity_type IS NOT NULL)))
 - **Check:** CHECK (((action <> 'adjust_span'::text) OR ((new_char_start IS NOT NULL) AND (new_char_end IS NOT NULL) AND (new_char_end >= new_char_start))))
+- **Check:** CHECK (((action <> 'reclassify_surface'::text) OR ((entity_type IS NOT NULL) AND (entity_type <> surface_original_type))))
 - **Check:** CHECK (((action <> 'reclassify'::text) OR (entity_type IS NOT NULL)))
+- **Check:** CHECK ((((action = ANY (ARRAY['reclassify'::text, 'reject'::text, 'add'::text, 'adjust_span'::text])) AND (char_start IS NOT NULL) AND (char_end IS NOT NULL)) OR ((action = ANY (ARRAY['reclassify_surface'::text, 'reject_surface'::text])) AND (char_start IS NULL) AND (char_end IS NULL) AND (surface IS NOT NULL) AND (btrim(surface) <> ''::text) AND (surface_original_type IS NOT NULL) AND (btrim(surface_original_type) <> ''::text))))
 - **Check:** CHECK ((action = ANY (ARRAY['reclassify'::text, 'reject'::text, 'add'::text, 'adjust_span'::text, 'reclassify_surface'::text, 'reject_surface'::text])))
 - **Check:** CHECK ((char_end >= char_start))
-- **Check:** span actions require non-null coordinates; surface actions require null coordinates plus non-blank `surface` and `surface_original_type`.
-- **Check:** `reclassify_surface` requires a non-null `entity_type` distinct from `surface_original_type`.
 - **Index** `idx_em_correction_doc_span`: public.entity_mention_correction USING btree (document_id, char_start, char_end, created_at DESC)
-- **Index** `idx_em_correction_doc_surface`: public.entity_mention_correction USING btree (document_id, surface, surface_original_type, created_at, id) WHERE action is surface-scoped
+- **Index** `idx_em_correction_doc_surface`: public.entity_mention_correction USING btree (document_id, surface, surface_original_type, created_at, id) WHERE (action = ANY (ARRAY['reclassify_surface'::text, 'reject_surface'::text]))
 - **RLS:** enabled — read/write policies via *document_id* (FORCED)
 
 #### `entity_link`
@@ -2493,4 +2490,6 @@ owner's bypass.
 | 139 | `139_schema_version_1_50_0.sql` | advance the schema SemVer to 1.50.0 for mention-confidence review |
 | 140 | `140_entity_surface_corrections.sql` | durable exact-surface/current-type NER correction rules without fake spans |
 | 141 | `141_schema_version_1_51_0.sql` | advance the schema SemVer to 1.51.0 for exact-surface NER corrections |
+| 142 | `142_corpus_stats_sentences.sql` | corpus_stats.n_sentences — the tenant sentence total the term-frequency sentence scan divides by, rolled up from document_stats (never counted live) |
+| 143 | `143_schema_version_1_52_0.sql` | advance the schema SemVer to 1.52.0 for the measured phrase pre-flight |
 | 144 | `144_operation_schedule.sql` | operation_schedule — recurring corpus-maintenance operations (visual tiers, semantic embed, geometry re-extract) with a materialized next_run_at the scheduler claims with FOR UPDATE SKIP LOCKED; admin-only, no user write policy |

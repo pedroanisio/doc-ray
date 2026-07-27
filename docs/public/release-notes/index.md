@@ -11,7 +11,7 @@ doc_type: "release-note"
 audience: ["end-user", "administrator", "developer", "integrator"]
 surfaces: ["webapp", "api", "mcp"]
 classification: "public"
-applies_to: "1.51.0"
+applies_to: "1.52.0"
 owner: "documentation-maintainer"
 last_reviewed: "2026-07-27"
 status: "current"
@@ -22,6 +22,8 @@ status: "current"
 What changed in each version, newest first. Each entry states who a change affects
 and any action required.
 
+- **[1.52.0](1.52.0.md)** — asking how common a phrase is now returns a measured
+  count instead of an estimate that could not prove the words appear together.
 - **[1.51.0](1.51.0.md)** — fix a repeated NER surface/type error once, choose
   all-term or ordered-phrase Document search, pre-flight phrase frequency, and
   keep MCP calls restart-safe without sticky sessions.

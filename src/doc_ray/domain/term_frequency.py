@@ -71,6 +71,24 @@ EXACT = "exact"
 COMPONENT_UPPER_BOUND = "component_upper_bound"
 UNAVAILABLE = "unavailable"
 
+#: Provenance of the *verdict* (distinct from ``measurement``, which describes the
+#: lexeme-side numbers). ``lexeme_lemma`` is the historical proxy; ``sentence_scan``
+#: is a bounded count of sentences matching the same literal-substring rule
+#: ``search_sentences`` uses, so for the terms it serves the proxy gap is zero by
+#: construction (#39).
+METHOD_LEXEME = "lexeme_lemma"
+METHOD_SENTENCE_SCAN = "sentence_scan"
+
+#: Sentence-scan bands, keyed to the page a search actually serves. A mirror of
+#: ``entrypoints.api.context.MAX_PAGE_SIZE`` — the domain must not import an
+#: entrypoint, so a contract test keeps the two equal (the ``shaping.py`` pattern).
+#: Parameters, not law: ``docs/mcp-service.md`` records how to re-tune them, exactly
+#: as it does for ``HIGH_SHARE``/``MODERATE_SHARE``.
+SENTENCE_PAGE_SIZE = 200  # one full page of results
+#: >10 full pages saturates any single read, so counting further buys nothing —
+#: this doubles as the scan's cap, which is what makes the count bounded.
+SENTENCE_HIGH_HITS = 2001
+
 
 class InvalidTerms(ValueError):
     """Raised when a batch of terms cannot be served (empty, all-blank, or oversized)."""
@@ -139,6 +157,15 @@ class TermVerdict:
     #: counts. Empty for indexable terms, where ``uses`` is already the answer.
     parts: tuple[PartCount, ...]
     note: str | None
+    #: Which measurement produced ``flood_risk``: the lexeme-lemma proxy, or a
+    #: bounded sentence scan under the literal-substring rule (#39).
+    method: str = METHOD_LEXEME
+    #: Sentence-scan results — ``None`` exactly when the method is not a scan.
+    #: Never 0: an unmeasured field that reads as a measurement is the BL-164
+    #: defect this whole module exists to prevent.
+    sentence_hits: int | None = None
+    total_sentences: int | None = None
+    capped: bool | None = None
 
 
 def _is_whitespace_phrase(term: str, parts: Sequence[str]) -> bool:
@@ -225,6 +252,28 @@ def lookup_keys(prepared: Sequence[PreparedTerm]) -> list[str]:
     return keys
 
 
+def scan_text(item: PreparedTerm) -> str:
+    """Return the raw spelling a sentence scan should match on.
+
+    The scan matches a literal substring of ``sentences.text``, so it wants what
+    the caller typed — not ``key``, which is casefolded and NFC-normalized for the
+    lexeme index.
+    """
+    return item.term
+
+
+def scan_keys(prepared: Sequence[PreparedTerm]) -> list[str]:
+    """Return the keys of the terms a sentence scan should serve, in input order.
+
+    Every term the lexeme index cannot measure exactly — whitespace phrases and
+    the compounds/alphanumerics of BL-164 alike. The mechanism is identical for
+    both, so distinguishing them would be arbitrary (#39 OD-2). Exact single
+    lexemes are excluded: they are already measured, and scanning them would
+    silently answer a different question (substring, not lemma).
+    """
+    return [item.key for item in prepared if item.measurement != EXACT]
+
+
 def flood_risk(uses: int, total_uses: int) -> str:
     """Return the categorical verdict from a term's share of the scope's total uses.
 
@@ -237,6 +286,33 @@ def flood_risk(uses: int, total_uses: int) -> str:
     if share >= HIGH_SHARE:
         return HIGH
     if share >= MODERATE_SHARE:
+        return MODERATE
+    return LOW
+
+
+@dataclass(frozen=True)
+class SentenceScan:
+    """A bounded count of sentences containing a term as a literal substring.
+
+    ``capped`` marks a count that stopped at the cap: the true total is unknown
+    and *at least* ``hits``. It must ride every surface — a bound nobody can see
+    is the invisible-clamp defect BL-162 exists to prevent.
+    """
+
+    hits: int
+    capped: bool
+
+
+def sentence_flood_risk(hits: int, capped: bool) -> str:
+    """Return the categorical verdict from a bounded sentence-hit count.
+
+    ``low`` when the hits fit in one page (the caller reads them all), ``moderate``
+    up to ten pages, ``high`` beyond that — or whenever the count was capped, since
+    a floor at the cap is already past the high boundary.
+    """
+    if capped or hits >= SENTENCE_HIGH_HITS:
+        return HIGH
+    if hits >= SENTENCE_PAGE_SIZE:
         return MODERATE
     return LOW
 
@@ -281,6 +357,38 @@ def _phrase_note(term: str, parts: Sequence[PartCount], upper_bound: int) -> str
     )
 
 
+def _scan_note(term: str, scan: SentenceScan, total_sentences: int, risk: str) -> str | None:
+    """The BL-145-voice steering line for a measured sentence scan.
+
+    States the bound before the number whenever the count is a floor, and stays
+    silent in the low band where the numbers already answer the question.
+    """
+    scope = f" of {total_sentences}" if total_sentences > 0 else ""
+    if scan.hits <= 0:
+        return (
+            f"{term!r} does not occur as a literal substring in any of the "
+            f"{total_sentences} sentences searchable here. That is a measured "
+            "absence of the exact string, NOT absence of the idea — check the "
+            "spelling, or try a synonym or a shorter fragment of the phrase."
+        )
+    if risk == HIGH:
+        floor = "at least " if scan.capped else ""
+        return (
+            f"{term!r} saturates the corpus: it matches {floor}{scan.hits}"
+            f"{scope} sentences, so a search returns a wall of hits clustered in "
+            "one region and starves coverage of the rest. Prefer a rarer or longer "
+            "phrase, or read a section evenly with read_document_outline + "
+            "read_document_sentences."
+        )
+    if risk == MODERATE:
+        return (
+            f"{term!r} matches {scan.hits}{scope} sentences — more than one page, so "
+            "a search will hit its per-call limit. Scope the read to one document, "
+            "or pair it with a rarer term, to keep coverage even."
+        )
+    return None
+
+
 def _note(term: str, uses: int, risk: str) -> str | None:
     """The BL-145-voice steering line for a verdict, or ``None`` when nothing to steer."""
     if uses <= 0:
@@ -307,20 +415,69 @@ def build_verdicts(
     prepared: Sequence[PreparedTerm],
     counts: Mapping[str, int],
     total_uses: int,
+    *,
+    scans: Mapping[str, SentenceScan] | None = None,
+    total_sentences: int = 0,
 ) -> list[TermVerdict]:
     """Assemble one :class:`TermVerdict` per prepared term from the adapter's counts.
+
+    A term the lexeme index cannot measure exactly is answered by its scan when
+    one is supplied, and declines exactly as before when one is not (#39 FR-6):
+    an honest decline beats a wrong measurement.
 
     Args:
         prepared: The terms from :func:`prepare_terms`, order preserved.
         counts: Mapping of normalized key -> corpus-wide use count (missing = 0).
         total_uses: The scope's total lexeme uses (the share denominator).
+        scans: Bounded sentence-hit counts keyed by :attr:`PreparedTerm.key`, for
+            the terms named by :func:`scan_keys`. Omitted keys fall back.
+        total_sentences: The scope's total sentences, reported alongside a scan.
 
     Returns:
         One verdict per input term, in the same order.
     """
     total = int(total_uses)
+    scanned = dict(scans or {})
     verdicts: list[TermVerdict] = []
     for item in prepared:
+        scan = scanned.get(item.key) if item.measurement != EXACT else None
+        if scan is not None:
+            # Measured under the same rule search_sentences applies, so this
+            # verdict predicts that tool exactly. The lexeme-side component
+            # counts ride along as secondary evidence, not as the answer.
+            parts = tuple(PartCount(part, int(counts.get(part, 0))) for part in item.parts)
+            component_bound = (
+                min((part.uses for part in parts), default=0)
+                if item.measurement == COMPONENT_UPPER_BOUND
+                else None
+            )
+            risk = sentence_flood_risk(scan.hits, scan.capped)
+            verdicts.append(
+                TermVerdict(
+                    term=item.term,
+                    normalized_term=item.key,
+                    uses=component_bound,
+                    total_uses=total,
+                    share=(
+                        (component_bound / total)
+                        if (component_bound and total > 0)
+                        else (0.0 if component_bound is not None else None)
+                    ),
+                    flood_risk=risk,
+                    # The literal-substring match proves occurrence outright —
+                    # the exact claim a component upper bound could never make.
+                    attested=scan.hits > 0,
+                    indexable=item.indexable,
+                    measurement=item.measurement,
+                    parts=parts,
+                    note=_scan_note(item.term, scan, int(total_sentences), risk),
+                    method=METHOD_SENTENCE_SCAN,
+                    sentence_hits=scan.hits,
+                    total_sentences=int(total_sentences),
+                    capped=scan.capped,
+                )
+            )
+            continue
         if not item.indexable:
             # No count exists to report, so report none — not a 0 that would read
             # as a measured absence (BL-164). The parts are the evidence offered

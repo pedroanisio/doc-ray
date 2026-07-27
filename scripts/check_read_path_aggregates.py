@@ -171,6 +171,46 @@ def _string_literals(path: Path) -> list[tuple[int, str]]:
     return out
 
 
+def _bounded_groups(norm: str) -> list[tuple[int, int]]:
+    """Return the ``(start, end)`` spans of parenthesised sub-selects carrying a LIMIT.
+
+    A derived table whose own select is ``LIMIT``-ed does bounded work no matter
+    how large the underlying table is: the planner stops at the limit. Spans are
+    found by matching parentheses rather than by regex so a predicate containing
+    its own parentheses — ``WHERE (a ILIKE %(p)s OR b ILIKE %(q)s) LIMIT 10`` —
+    is measured correctly instead of truncating the group at the first ``)``.
+    """
+    spans: list[tuple[int, int]] = []
+    for match in re.finditer(r"\(\s*select\b", norm):
+        depth = 0
+        for pos in range(match.start(), len(norm)):
+            if norm[pos] == "(":
+                depth += 1
+            elif norm[pos] == ")":
+                depth -= 1
+                if depth == 0:
+                    inner = norm[match.start() : pos + 1]
+                    if re.search(r"\blimit\b", inner):
+                        spans.append((match.start(), pos + 1))
+                    break
+    return spans
+
+
+def _is_bounded_scan(norm: str, table: str) -> bool:
+    """Return whether EVERY reference to *table* sits inside a LIMIT-bounded group.
+
+    D-024 forbids *unbounded* live aggregation, not counting as such. One
+    unbounded reference alongside a bounded one is still a violation, so this
+    demands all of them be bounded — a statement is only as bounded as its
+    loosest scan.
+    """
+    references = [m.start() for m in re.finditer(rf"(from|join)\s+{table}\b", norm)]
+    if not references:
+        return False
+    spans = _bounded_groups(norm)
+    return all(any(start < ref < end for start, end in spans) for ref in references)
+
+
 def _is_allowlisted(relpath: str, normalized: str) -> bool:
     return any(entry["file"] == relpath and entry["contains"] in normalized for entry in _ALLOWLIST)
 
@@ -203,6 +243,8 @@ def find_violations(roots: tuple[str, ...] = _READ_PATHS) -> list[tuple[str, int
             # table name next to an English word like "count".
             hit = next((t for t in _FACT_TABLES if re.search(rf"(from|join)\s+{t}\b", norm)), None)
             if hit is None:
+                continue
+            if _is_bounded_scan(norm, hit):
                 continue
             if _is_allowlisted(relpath, norm):
                 continue

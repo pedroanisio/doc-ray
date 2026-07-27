@@ -370,6 +370,36 @@ def _is_nonempty(response: object) -> bool:
     return response is not None
 
 
+def check_phrase_measured(calls: Calls, present: str, absent: str) -> AssertionResult:
+    """A multi-word pre-flight returns a MEASURED verdict, not a declined one.
+
+    Grounds the phrase half of the flood-risk pre-flight: the whole point of
+    asking before searching is to get an answer. ``unknown`` for a phrase sends the
+    agent to spend the very search call the pre-flight exists to save.
+    """
+    rows = [row for call in calls if call.tool == "term_frequency" for row in call.response or []]
+    if not rows:
+        return AssertionResult("phrase_measured", False, "term_frequency returned no rows")
+    by_term = {str(row.get("term", "")).casefold(): row for row in rows}
+    hit = by_term.get(present.casefold())
+    miss = by_term.get(absent.casefold())
+    if hit is None or miss is None:
+        return AssertionResult("phrase_measured", False, "phrase rows missing from the response")
+    if hit.get("method") != "sentence_scan" or hit.get("floodRisk") == "unknown":
+        return AssertionResult(
+            "phrase_measured", False, f"present phrase declined: {hit.get('method')!r}"
+        )
+    if not (hit.get("sentenceHits") or 0) > 0:
+        return AssertionResult("phrase_measured", False, "present phrase measured zero hits")
+    if miss.get("sentenceHits") != 0 or miss.get("attested") is not False:
+        return AssertionResult(
+            "phrase_measured", False, f"absent phrase not a measured zero: {miss.get('attested')!r}"
+        )
+    return AssertionResult(
+        "phrase_measured", True, f"{hit.get('sentenceHits')} hits measured, absent phrase = 0"
+    )
+
+
 def check_tool_ok(calls: Calls, tool: str) -> AssertionResult:
     """The named tool was called and returned without a ``ToolCallError``.
 

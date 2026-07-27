@@ -19,6 +19,49 @@ doc-ray carries **one global version** covering both the application package
 (`docray_schema_version()`). They are kept in lockstep by
 `scripts/check_version_consistency.py`, which fails the build on any drift.
 
+## [1.52.0]
+
+### Changed
+
+- **Multi-word terms are measured, not declined (#39).** `termFrequency` / MCP
+  `term_frequency` answered a phrase with the rarest component's lexeme count — a
+  `component_upper_bound` that, as 1.51.0 recorded, "leave[s] positive adjacency
+  unproven". An agent asking whether `"Model Context Protocol"` floods the corpus
+  still had to spend the search call the pre-flight exists to save. Such a term now
+  comes back **measured**: the server counts the sentences containing it as a
+  literal substring — through the *same* `match_clause` rule `search_sentences`
+  applies — and returns `method: "sentence_scan"` with `sentenceHits`,
+  `totalSentences` and `capped`. For these terms the pre-flight predicts the search
+  tool exactly, because it is measured with that tool's own rule, so `attested` is
+  now a real answer rather than `null`. The rarest-component bound rides along as
+  secondary evidence.
+
+  The count is **bounded**: it stops at 2001 hits (>10 pages, already the `high`
+  band), so a corpus-flooding phrase costs the same as a rare one. `capped: true`
+  makes `sentenceHits` a **floor** — at least that many, total unknown — and rides
+  every surface, because a bound nobody can see is the BL-162 defect class.
+  Bands: `low` under one page (200), `moderate` to ten pages, `high` beyond or when
+  capped; all three are tunable parameters documented in `docs/mcp-service.md`.
+
+  Single-word terms are **unchanged** — same lexeme-lemma numbers, same bands, now
+  labelled `method: "lexeme_lemma"`. `unknown` survives only where even the scan
+  cannot serve a term. Underscore compounds and alphanumerics (`shared_buffers`,
+  `COVID-19`) are scanned too: the mechanism is identical, so excluding them would
+  have been arbitrary.
+
+- **The D-024 gate now recognises a bounded scan.** Counting rows of a fact table
+  through a `LIMIT`-ed derived table is O(cap), not O(corpus), so it is not the
+  unbounded live aggregation D-024 forbids. The guard matches parentheses to verify
+  *every* reference to the table sits inside a limited group — one unbounded
+  reference alongside a bounded one is still a violation. This keeps the rule an
+  invariant rather than growing an allowlist entry.
+
+### Added
+
+- `corpus_stats.n_sentences` (migration 142): the tenant sentence total the scan
+  divides by, rolled up from `document_stats` per the 095/098 doctrine and read as
+  one scalar — never counted live on the read path.
+
 ## [1.51.0]
 
 ### Added

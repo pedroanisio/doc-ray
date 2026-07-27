@@ -360,6 +360,15 @@ MIGRATIONS = [
         "advance the schema SemVer to 1.51.0 for exact-surface NER corrections",
     ),
     (
+        "142_corpus_stats_sentences",
+        "corpus_stats.n_sentences — the tenant sentence total the term-frequency "
+        "sentence scan divides by, rolled up from document_stats (never counted live)",
+    ),
+    (
+        "143_schema_version_1_52_0",
+        "advance the schema SemVer to 1.52.0 for the measured phrase pre-flight",
+    ),
+    (
         "144_operation_schedule",
         "operation_schedule — recurring corpus-maintenance operations (visual tiers, "
         "semantic embed, geometry re-extract) with a materialized next_run_at the "

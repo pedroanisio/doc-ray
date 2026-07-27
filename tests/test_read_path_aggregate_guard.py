@@ -38,3 +38,47 @@ def test_guard_ignores_prose_docstrings_mentioning_a_table(tmp_path):
         encoding="utf-8",
     )
     assert guard.find_violations((str(tmp_path),)) == []
+
+
+def test_guard_accepts_a_count_over_a_limit_bounded_derived_table(tmp_path):
+    """D-024 forbids *unbounded* live aggregation; a LIMIT makes the work bounded.
+
+    The term-frequency sentence scan (#39) counts matching sentences to decide a
+    flood-risk band. It can stop at the cap, because past the cap the band is
+    already decided — so the inner scan carries a LIMIT and the count is O(cap),
+    not O(corpus). That is the shape D-024 exists to permit, and recognising it
+    is what keeps the rule an invariant instead of a list of exceptions.
+    """
+    (tmp_path / "bounded_read.py").write_text(
+        'def r(q):\n    return q("SELECT count(*) AS hits '
+        'FROM (SELECT 1 FROM sentences s WHERE s.text ILIKE %(p)s LIMIT %(cap)s) b")\n',
+        encoding="utf-8",
+    )
+    assert guard.find_violations((str(tmp_path),)) == []
+
+
+def test_guard_still_catches_an_unbounded_count_over_the_same_table(tmp_path):
+    """The LIMIT is load-bearing: drop it and the same query is a violation."""
+    (tmp_path / "unbounded_read.py").write_text(
+        'def r(q):\n    return q("SELECT count(*) AS hits '
+        'FROM (SELECT 1 FROM sentences s WHERE s.text ILIKE %(p)s) b")\n',
+        encoding="utf-8",
+    )
+    tables = {t for _, _, t in guard.find_violations((str(tmp_path),))}
+    assert "sentences" in tables
+
+
+def test_guard_catches_an_aggregate_outside_the_bounded_subquery(tmp_path):
+    """A LIMIT somewhere in the statement does not license an unbounded aggregate.
+
+    Here the bounded derived table is real, but a second, unbounded reference to
+    the fact table is aggregated alongside it — exactly the regression a naive
+    "contains LIMIT" check would wave through.
+    """
+    (tmp_path / "mixed_read.py").write_text(
+        'def r(q):\n    return q("SELECT (SELECT count(*) FROM sentences) AS total, count(*) '
+        'FROM (SELECT 1 FROM sentences s WHERE s.text ILIKE %(p)s LIMIT %(cap)s) b")\n',
+        encoding="utf-8",
+    )
+    tables = {t for _, _, t in guard.find_violations((str(tmp_path),))}
+    assert "sentences" in tables

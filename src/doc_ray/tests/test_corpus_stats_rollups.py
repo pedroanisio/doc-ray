@@ -35,8 +35,31 @@ _TOTALS = (
 
 
 def _ensure_migration_095(conn) -> None:
-    """(Re-)apply migration 095 so each test is self-contained and backfilled."""
-    conn.execute((_ROOT / "db" / "migrations" / "095_corpus_stats.sql").read_text())
+    """(Re-)apply migration 095 so each test is self-contained and backfilled.
+
+    Replaying 095 alone would leave the database *behind* the schema: it
+    ``CREATE OR REPLACE``s ``docray_refresh_corpus_stats``, so any later migration
+    that extends that function is silently reverted — for the rest of the pytest
+    session, not just this test. Every later migration that redefines it is
+    replayed in order afterwards, so this helper restores the current definition
+    rather than an old one. Found when 142 added ``corpus_stats.n_sentences``:
+    replaying 095 reverted the function, and the rollup then undercounted with no
+    error anywhere.
+    """
+    migrations = _ROOT / "db" / "migrations"
+    conn.execute((migrations / "095_corpus_stats.sql").read_text())
+    for path in sorted(migrations.glob("*.sql")):
+        if path.name <= "095_corpus_stats.sql":
+            continue
+        sql = path.read_text()
+        if "FUNCTION docray_refresh_corpus_stats" in sql:
+            conn.execute(sql)
+    # Migration 114's invariant: this SECURITY DEFINER helper reads tables under
+    # FORCE ROW LEVEL SECURITY, so it must run under a BYPASSRLS owner or it rolls
+    # up only the rows its own execution context can see. Restated unguarded — if
+    # the replay cannot restore it, that must fail loudly here rather than surface
+    # as a silent undercount in whichever suite happens to read the rollup next.
+    conn.execute("ALTER FUNCTION docray_refresh_corpus_stats(uuid) OWNER TO docray_batch")
 
 
 def _totals_as(conn, principal_id: str) -> dict:
@@ -160,3 +183,42 @@ def test_rollups_equal_live_counts_and_gate_opens_for_admin(pg) -> None:
         assert row["lexemes"] > 0, "the lexeme gate must open for a principal with a visible corpus"
     finally:
         conn.execute("DELETE FROM principals WHERE id = %s", (admin,))
+
+
+def test_corpus_stats_n_sentences_is_the_sum_over_that_tenants_documents(pg):
+    """Migration 142's rollup-from-rollup identity for the sentence total.
+
+    The denominator the term-frequency sentence scan divides by (#39). Lives here
+    because this suite re-applies the rollup migrations per test, so the schema is
+    in a known state — the identity is otherwise sensitive to whichever suite last
+    replayed 095.
+    """
+    import _itdb
+
+    conn, created = pg
+    _ensure_migration_095(conn)
+
+    tenant = conn.execute(
+        "INSERT INTO tenants (slug, display_name) VALUES (%s, %s) RETURNING id",
+        (f"rollup-{_itdb.unique_sha()[:12]}", "sentence rollup"),
+    ).fetchone()["id"]
+    doc_id = _itdb.make_doc(conn, "Alpha one. Beta two. Gamma three.")
+    created.append(doc_id)
+    conn.execute("UPDATE documents SET tenant_id = %s WHERE id = %s", (tenant, doc_id))
+
+    conn.execute("SELECT docray_refresh_corpus_stats(%s)", (tenant,))
+
+    row = conn.execute(
+        """
+        SELECT (SELECT COALESCE(n_sentences, 0) FROM corpus_stats WHERE tenant_id = %(t)s)
+                   AS rolled_up,
+               (SELECT COALESCE(SUM(ds.n_sentences), 0)
+                  FROM documents d
+                  JOIN document_stats ds ON ds.document_id = d.id
+                 WHERE d.tenant_id = %(t)s) AS summed
+        """,
+        {"t": tenant},
+    ).fetchone()
+
+    assert int(row["summed"]) == 3, "fixture should contribute exactly three sentences"
+    assert int(row["rolled_up"]) == int(row["summed"])

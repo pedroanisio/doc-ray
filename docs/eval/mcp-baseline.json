@@ -1,31 +1,31 @@
 {
   "aggregate": {
     "failed": 0,
-    "passed": 15,
-    "tasks": 15,
-    "total_calls": 33,
-    "total_chars": 50481,
-    "total_est_tokens": 12620
+    "passed": 17,
+    "tasks": 17,
+    "total_calls": 41,
+    "total_chars": 52409,
+    "total_est_tokens": 13102
   },
   "mode": "scripted",
   "surface": {
     "read_only": {
-      "instructions_chars": 2118,
+      "instructions_chars": 2409,
       "prompts_count": 4,
       "resource_templates_count": 5,
       "resources_count": 3,
       "tool_count": 33,
-      "tools_list_chars": 45049,
-      "tools_list_est_tokens": 11262
+      "tools_list_chars": 45576,
+      "tools_list_est_tokens": 11394
     },
     "write_enabled": {
-      "instructions_chars": 2118,
+      "instructions_chars": 2409,
       "prompts_count": 4,
       "resource_templates_count": 5,
       "resources_count": 3,
       "tool_count": 65,
-      "tools_list_chars": 77967,
-      "tools_list_est_tokens": 19491
+      "tools_list_chars": 78494,
+      "tools_list_est_tokens": 19623
     }
   },
   "tasks": [
@@ -62,7 +62,7 @@
           "passed": true
         },
         {
-          "detail": "1/2 calls, 821/6000 chars",
+          "detail": "1/2 calls, 841/6000 chars",
           "name": "within_budget",
           "passed": true
         }
@@ -72,8 +72,8 @@
         "max_chars": 6000
       },
       "calls": 1,
-      "chars": 821,
-      "est_tokens": 205,
+      "chars": 841,
+      "est_tokens": 210,
       "grounded_in": "the search_sentences rare-term guidance (Item 1)",
       "passed": true,
       "task_id": "find-rare-scene",
@@ -92,7 +92,7 @@
           "passed": true
         },
         {
-          "detail": "2/3 calls, 9600/15000 chars",
+          "detail": "2/3 calls, 9697/15000 chars",
           "name": "within_budget",
           "passed": true
         }
@@ -102,8 +102,8 @@
         "max_chars": 15000
       },
       "calls": 2,
-      "chars": 9600,
-      "est_tokens": 2400,
+      "chars": 9697,
+      "est_tokens": 2424,
       "grounded_in": "the BL-145 keyword-flood failure: a flooded region read as missing content",
       "passed": true,
       "task_id": "survive-keyword-flood",
@@ -172,7 +172,7 @@
           "passed": true
         },
         {
-          "detail": "3/4 calls, 3261/12000 chars",
+          "detail": "3/4 calls, 3358/12000 chars",
           "name": "within_budget",
           "passed": true
         }
@@ -182,8 +182,8 @@
         "max_chars": 12000
       },
       "calls": 3,
-      "chars": 3261,
-      "est_tokens": 815,
+      "chars": 3358,
+      "est_tokens": 840,
       "grounded_in": "the cursor dead-end in BL-145: a search cursor handed to the reader",
       "passed": true,
       "task_id": "cursor-not-interchangeable",
@@ -307,21 +307,71 @@
           "passed": true
         },
         {
-          "detail": "3/4 calls, 224/20000 chars",
+          "detail": "1 call(s), all ok",
+          "name": "document_classification_ok",
+          "passed": true
+        },
+        {
+          "detail": "4/5 calls, 228/20000 chars",
           "name": "within_budget",
           "passed": true
         }
       ],
       "budget": {
-        "max_calls": 4,
+        "max_calls": 5,
         "max_chars": 20000
       },
-      "calls": 3,
-      "chars": 224,
-      "est_tokens": 56,
-      "grounded_in": "reachability: entity_frequency / lexeme_kwic / entity_mention_corrections",
+      "calls": 4,
+      "chars": 228,
+      "est_tokens": 57,
+      "grounded_in": "reachability: entity_frequency / lexeme_kwic / entity_mention_corrections / document_classification",
       "passed": true,
       "task_id": "coverage-entities-and-lexemes",
+      "within_budget": true
+    },
+    {
+      "assertions": [
+        {
+          "detail": "1 call(s), all ok",
+          "name": "entity_projection_ok",
+          "passed": true
+        },
+        {
+          "detail": "1 call(s), all ok",
+          "name": "lens_entities_ok",
+          "passed": true
+        },
+        {
+          "detail": "1 call(s), all ok",
+          "name": "entity_relations_ok",
+          "passed": true
+        },
+        {
+          "detail": "1 call(s), all ok",
+          "name": "related_entities_ok",
+          "passed": true
+        },
+        {
+          "detail": "1 call(s), all ok",
+          "name": "allusions_ok",
+          "passed": true
+        },
+        {
+          "detail": "5/6 calls, 134/24000 chars",
+          "name": "within_budget",
+          "passed": true
+        }
+      ],
+      "budget": {
+        "max_calls": 6,
+        "max_chars": 24000
+      },
+      "calls": 5,
+      "chars": 134,
+      "est_tokens": 34,
+      "grounded_in": "reachability: entity_projection / lens_entities / allusions (SLP Blocks D, E)",
+      "passed": true,
+      "task_id": "coverage-projection",
       "within_budget": true
     },
     {
@@ -352,24 +402,24 @@
     {
       "assertions": [
         {
-          "detail": "all 4 call(s) ok",
+          "detail": "all 5 call(s) ok",
           "name": "all_ok",
           "passed": true
         },
         {
-          "detail": "4/5 calls, 8/20000 chars",
+          "detail": "5/6 calls, 10/20000 chars",
           "name": "within_budget",
           "passed": true
         }
       ],
       "budget": {
-        "max_calls": 5,
+        "max_calls": 6,
         "max_chars": 20000
       },
-      "calls": 4,
-      "chars": 8,
+      "calls": 5,
+      "chars": 10,
       "est_tokens": 2,
-      "grounded_in": "reachability: the four Prism visual read tools",
+      "grounded_in": "reachability: the five Prism visual read tools",
       "passed": true,
       "task_id": "coverage-visual-surface",
       "within_budget": true
@@ -392,7 +442,7 @@
           "passed": true
         },
         {
-          "detail": "3/4 calls, 5798/40000 chars",
+          "detail": "3/4 calls, 5937/40000 chars",
           "name": "within_budget",
           "passed": true
         }
@@ -402,8 +452,8 @@
         "max_chars": 40000
       },
       "calls": 3,
-      "chars": 5798,
-      "est_tokens": 1450,
+      "chars": 5937,
+      "est_tokens": 1484,
       "grounded_in": "reachability: briefing_pack / entity_dossier / document_evidence",
       "passed": true,
       "task_id": "coverage-composition-grounding",
@@ -412,12 +462,12 @@
     {
       "assertions": [
         {
-          "detail": "ok",
+          "detail": "documented not_found",
           "name": "semantic_search_sentences_reachable",
           "passed": true
         },
         {
-          "detail": "1/2 calls, 2/15000 chars",
+          "detail": "1/2 calls, 0/15000 chars",
           "name": "within_budget",
           "passed": true
         }
@@ -427,7 +477,7 @@
         "max_chars": 15000
       },
       "calls": 1,
-      "chars": 2,
+      "chars": 0,
       "est_tokens": 0,
       "grounded_in": "reachability: semantic_search_sentences (Layer 20, deployment-optional)",
       "passed": true,
@@ -442,7 +492,7 @@
           "passed": true
         },
         {
-          "detail": "1/2 calls, 840/15000 chars",
+          "detail": "1/2 calls, 1272/15000 chars",
           "name": "within_budget",
           "passed": true
         }
@@ -452,12 +502,43 @@
         "max_chars": 15000
       },
       "calls": 1,
-      "chars": 840,
-      "est_tokens": 210,
+      "chars": 1272,
+      "est_tokens": 318,
       "grounded_in": "reachability: term_frequency (Item 10 flood-risk pre-flight)",
       "passed": true,
       "task_id": "coverage-term-frequency",
       "within_budget": true
+    },
+    {
+      "assertions": [
+        {
+          "detail": "1 call(s), all ok",
+          "name": "term_frequency_ok",
+          "passed": true
+        },
+        {
+          "detail": "18 hits measured, absent phrase = 0",
+          "name": "phrase_measured",
+          "passed": true
+        },
+        {
+          "detail": "1/2 calls, 1005/15000 chars",
+          "name": "within_budget",
+          "passed": true
+        }
+      ],
+      "budget": {
+        "max_calls": 2,
+        "max_chars": 15000
+      },
+      "calls": 1,
+      "chars": 1005,
+      "est_tokens": 251,
+      "grounded_in": "pre-flight: multi-word terms are measured, not declined (#39)",
+      "passed": true,
+      "task_id": "coverage-phrase-frequency",
+      "within_budget": true
     }
-  ]
+  ],
+  "wall_clock_seconds": 13.144
 }

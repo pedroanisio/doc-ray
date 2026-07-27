@@ -110,7 +110,7 @@ metadata:
   generated_by:     "Claude Sonnet 5 via Claude Code (merge of Claude Opus 4.8 backlog + OpenAI Codex improvement-proposal candidates)"
   generated_on:     "2026-07-05"
   system_of_record: "docs/backlog.yml"
-  total_items:      177
+  total_items:      178
 
 items:
 
@@ -6310,3 +6310,70 @@ items:
     owner:        "shared"
     source:       "GitHub issue #17 (2026-07-27); conditional namespace experiment completed, with no live rename because improvement is not measurable in scripted mode."
     tags:         ["mcp", "namespacing", "evaluation", "compatibility", "pals"]
+
+  - id:          "BL-178"
+    title:       "term_frequency declined multi-word terms instead of measuring them"
+    summary:     "The flood-risk pre-flight exists so an agent can decide a search term without spending a search call. For a multi-word phrase it answered with the rarest component's lexeme count — a `component_upper_bound` that, as the 1.51.0 changelog recorded, leaves positive adjacency unproven — so the agent still had to run the search the pre-flight was built to save."
+    description: |
+      Root cause. The lexeme index tokenizes on underscores and digits, so it
+      structurally cannot hold a phrase. BL-164 stopped the pre-flight from
+      *lying* about such terms (no more fabricated `attested: false`), and 1.51.0
+      added component evidence, but neither made the tool answer the question.
+      `term_frequency(["Model Context Protocol"])` could say what its rarest word
+      cost and nothing about whether the words ever appear together.
+
+      Meanwhile every building block already existed: `sentences.text` under a
+      `gin_trgm_ops` index (migration 002), and the shared `match_clause` rule
+      that `search_sentences` and the webapp both match on. Nothing read them at
+      pre-flight time.
+
+      Fix. A term the lexeme index cannot measure exactly is now answered by a
+      BOUNDED count of the sentences containing it, through that same
+      `match_clause` — so for those terms the pre-flight predicts
+      `search_sentences` exactly rather than approximating it, and `attested`
+      becomes a real answer. The count stops at `SENTENCE_HIGH_HITS` (2001, >10
+      pages), so a corpus-flooding phrase costs the same as a rare one; a stopped
+      count reports `capped: true` and is a floor, never a total. Bands are keyed
+      to the page a search serves. Single words keep the lexeme-lemma path
+      unchanged. Underscore compounds and alphanumerics are scanned too — the
+      mechanism is identical, so excluding them would have been arbitrary.
+
+      Two defects were found and fixed while landing it, both of which would have
+      shipped silent undercounts rather than errors:
+
+      (1) `docray_refresh_corpus_stats` is SECURITY DEFINER over tables under
+      FORCE ROW LEVEL SECURITY (106). Migration 114 established that such helpers
+      must run under a BYPASSRLS owner; a later `CREATE OR REPLACE` has to restate
+      it, which migration 142 now does.
+
+      (2) `test_corpus_stats_rollups._ensure_migration_095` re-applied migration
+      095 mid-session, silently reverting any later migration that extends the
+      same function — for the rest of the pytest run, not just that test. It now
+      replays the later redefinitions too.
+    category:     "api"
+    type:         "bug"
+    status:       "done"
+    complexity:   "M"
+    priority:     "high"
+    rationale:    "A pre-flight that answers 'cannot say' for the query shape it was built to triage is not a pre-flight; it is a round trip with extra steps. Measuring with the consuming tool's own rule closes the proxy gap to zero by construction."
+    acceptance_criteria:
+      - "A multi-word term returns method='sentence_scan' with sentenceHits/totalSentences/capped and a flood_risk band, never 'unknown'."
+      - "Single-lexeme terms are byte-identical to before, labelled method='lexeme_lemma' with all sentence_* fields null."
+      - "A term with no scan supplied keeps its prior verdict exactly (the honest-decline path)."
+      - "The count is bounded by a cap; reaching it sets capped=true and every surface carries it (domain, GraphQL, MCP)."
+      - "The predicate is match_clause, proven by a typed apostrophe matching the typographic one and by wildcards staying data."
+      - "The whole batch is ONE statement; the denominator is a corpus_stats rollup scalar, never a live count over sentences."
+      - "D-024 stays green without an allowlist entry: the gate recognises a LIMIT-bounded derived table as bounded work, and still catches an unbounded reference alongside it."
+    dependencies: []
+    references:
+      - "src/doc_ray/domain/term_frequency.py"
+      - "src/doc_ray/adapters/persistence_read_terms.py"
+      - "db/migrations/142_corpus_stats_sentences.sql"
+      - "src/doc_ray/entrypoints/api/structure_query.py"
+      - "src/doc_ray/entrypoints/mcp/structure.py"
+      - "src/doc_ray/tests/test_term_frequency_scan.py"
+      - "src/doc_ray/tests/test_term_frequency_scan_db.py"
+      - "scripts/check_read_path_aggregates.py"
+    owner:        "shared"
+    source:       "GitHub issue #39 (Retrieval P1), implemented 2026-07-27 (Claude Opus 5 via Claude Code). EXPLAIN on the production corpus confirms Bitmap Index Scan on idx_sentences_text_trgm; 'Model Context Protocol' measures 212 sentences there — the phrase the issue reported as a fabricated zero."
+    tags:         ["mcp", "retrieval", "term-frequency", "phrases", "d-024"]

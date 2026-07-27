@@ -233,7 +233,7 @@ but had no passage cited on this page. Example:
 | `corpus_shard(shard_index, shard_count, limit, after?)` | `corpusShard` | one deterministic, disjoint slice of the corpus; keyset `cursor` |
 | `entity_frequency(document_id?, entity_type?, limit)` | `entityFrequency` | **raw** NER rows, one per (surface, type) — prefer `entity_profiles` |
 | `entity_profiles(document_id?, entity_type?, limit)` | `entityProfiles` | one row per entity: merged spellings, measured type spread, `typeConsistency` — see §3.3 |
-| `term_frequency(terms, document_id?)` | `termFrequency` | flood-risk pre-flight: exact single-lexeme counts or declared phrase component upper bounds; corpus-wide only (`document_id` → typed `unsupported`) — see §3.6 |
+| `term_frequency(terms, document_id?)` | `termFrequency` | flood-risk pre-flight: exact single-lexeme counts (`method: lexeme_lemma`), or a bounded measured sentence-hit verdict for phrases/compounds (`method: sentence_scan`); corpus-wide only (`document_id` → typed `unsupported`) — see §3.6 |
 | `lexeme_kwic(uid, document_id?, limit)` | `lexeme { occurrences }` | KWIC is a **nested** resolver, not a root field |
 | `semantic_search_sentences(query, document_id?, limit)` | `semanticSearchSentences` | meaning-based (learned-embedding) sentence retrieval; the antidote to lexical `search_sentences` flooding. Typed `unsupported` where the sentence stack is absent |
 | `document_images(document_id, limit, after?)` | `documentImages` | Prism visual layer: extracted/rendered page images |
@@ -695,19 +695,47 @@ nothing". That was a false negative on exactly the rare, specific technical term
 this tool exists to steer callers *toward* — and it contradicted `search_sentences`,
 whose literal-substring match finds them without difficulty.
 
-Such terms now return `indexable: false` and `floodRisk: "unknown"`, with
-`uses`/`share`/`attested` all `null` — the index cannot answer, and a `0` would read
-as measured absence — plus `parts`, the words it does hold, as evidence:
+**Since 1.52.0 (#39) such a term is measured rather than declined.** The lexeme
+index still cannot hold it, so instead of reporting the gap the server *counts the
+sentences that contain it* — through the same `match_clause` rule `search_sentences`
+matches on. For these terms the pre-flight therefore predicts the search tool
+exactly, rather than approximating it with a proxy:
 
 ```jsonc
-{"name": "term_frequency", "arguments": {"terms": ["shared_buffers"]}}
-// → [{"term": "shared_buffers", "uses": null, "share": null, "attested": null,
-//     "floodRisk": "unknown", "indexable": false,
-//     "parts": [{"part": "shared", "uses": 12}, {"part": "buffers", "uses": 70}],
-//     "note": "'shared_buffers' cannot be counted by the lexeme index … Its frequency is
-//              therefore unknown — this is NOT an absence … search_sentences … handles
-//              this term directly; use it to find out."}]
+{"name": "term_frequency", "arguments": {"terms": ["Model Context Protocol", "shared_buffers"]}}
+// → [{"term": "Model Context Protocol", "method": "sentence_scan",
+//     "floodRisk": "moderate", "sentenceHits": 412, "totalSentences": 1500000,
+//     "capped": false, "attested": true,
+//     "uses": 500, "measurement": "component_upper_bound",   // secondary evidence
+//     "parts": [{"part": "model", "uses": 900}, …],
+//     "note": "'Model Context Protocol' matches 412 of 1500000 sentences — more than
+//              one page, so a search will hit its per-call limit. …"},
+//    {"term": "shared_buffers", "method": "sentence_scan", "floodRisk": "low",
+//     "sentenceHits": 37, "attested": true,
+//     "uses": null, "share": null,        // no lexeme count exists, so none is invented
+//     "parts": [{"part": "shared", "uses": 12}, {"part": "buffers", "uses": 70}]}]
 ```
+
+**`capped` is a floor, not a total.** The scan stops at `SENTENCE_HIGH_HITS`, so a
+phrase that floods the corpus costs the same as a rare one. When it stops there,
+`capped: true` and `sentenceHits` means *at least* that many — never present it as
+an exact count.
+
+**Sentence-scan bands.** Keyed to the page a search actually serves: **`low`** below
+`SENTENCE_PAGE_SIZE` (200 — the result fits one page), **`moderate`** up to
+`SENTENCE_HIGH_HITS` (2001 — ten pages), **`high`** at or beyond it, or whenever the
+count was capped. Like the share thresholds these are parameters, not law: they live
+in `doc_ray.domain.term_frequency` and the payload exposes `sentenceHits` /
+`totalSentences` so a caller can recompute. `SENTENCE_PAGE_SIZE` mirrors the
+platform's `MAX_PAGE_SIZE` and a contract test keeps the two equal — re-tune it only
+by changing the page cap, or the "fits in one page" meaning is lost. **To re-tune
+`SENTENCE_HIGH_HITS`**, measure how many pages a caller will realistically read
+before switching to ranged reading, and keep the cap equal to the `high` threshold
+so counting never continues past a decided band.
+
+A term that even the scan cannot serve keeps `indexable: false`,
+`floodRisk: "unknown"`, `uses`/`share`/`attested` all `null`, and the BL-164 note
+redirecting to `search_sentences` — an honest decline, unchanged.
 
 A well-formed word the index *can* hold, with zero uses, still reports
 `attested: false` with the "unattested" note — the real absence signal is unchanged.
@@ -735,7 +763,7 @@ a bug:
 
 | Surface | Matches on | Example |
 |---|---|---|
-| `term_frequency` | lexeme lemma (`norm_lemma`); rarest-component upper bound for whitespace phrases | `running` → lemma `run`; `design decision` → `min(design, decision)` |
+| `term_frequency` | lexeme lemma (`norm_lemma`) for a single word; **the literal substring rule itself** for phrases/compounds (`sentence_scan`) | `running` → lemma `run`; `design decision` → sentences containing that exact string |
 | `search_sentences` | **case-insensitive literal substring** (`ILIKE '%term%'`) | `run` matches `run`, `overrun`, `Brunny` |
 | `full_text_search` | **Snowball stem** (`plainto_tsquery`, per-doc config) | `running` → stem `run` |
 

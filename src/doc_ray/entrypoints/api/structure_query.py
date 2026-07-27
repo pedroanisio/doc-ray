@@ -90,8 +90,14 @@ class StructureQueries:
         hold (``shared_buffers``, ``COVID-19``) comes back ``indexable: false`` with null
         counts rather than a fabricated zero (BL-164). Corpus-wide only for now: passing
         ``documentId`` fails with a typed error rather than returning corpus counts
-        mislabelled as document-scoped. A whitespace phrase returns a declared
-        ``component_upper_bound`` from its rarest lexeme, not a fabricated exact count.
+        mislabelled as document-scoped.
+
+        A term the lexeme index cannot count exactly — a whitespace phrase, an
+        underscore compound, an alphanumeric — is **measured** instead of declined:
+        the server counts the sentences matching the same literal-substring rule
+        ``searchSentences`` applies, bounded by a cap, and returns
+        ``method: "sentence_scan"`` with ``sentenceHits``/``totalSentences``/``capped``.
+        The rarest-component upper bound rides along as secondary evidence.
         """
         if document_id is not None:
             raise ValueError(
@@ -105,5 +111,17 @@ class StructureQueries:
         counts, total_uses = await terms_read.term_frequencies(
             info.context.conn, tf.lookup_keys(prepared)
         )
-        verdicts = tf.build_verdicts(prepared, counts, total_uses)
+        # Only the terms the lexeme index cannot answer exactly are scanned, so a
+        # batch of ordinary single words still costs exactly one statement.
+        scan_targets = {
+            item.key: tf.scan_text(item)
+            for item in prepared
+            if item.key in set(tf.scan_keys(prepared))
+        }
+        scans, total_sentences = await terms_read.sentence_hit_counts(
+            info.context.conn, scan_targets, cap=tf.SENTENCE_HIGH_HITS
+        )
+        verdicts = tf.build_verdicts(
+            prepared, counts, total_uses, scans=scans, total_sentences=total_sentences
+        )
         return [TermFrequency.from_verdict(verdict) for verdict in verdicts]

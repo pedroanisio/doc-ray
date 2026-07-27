@@ -114,13 +114,21 @@ async def term_frequency(terms: list[str], document_id: str | None = None) -> li
     phrase with ``full_text_search(mode="phrase")``. A zero component does prove
     the phrase is unattested in the lexeme layer.
 
-    **Not every term can be counted here.** The lexeme index tokenizes on
-    underscores and digits, so it cannot hold ``shared_buffers``, ``pg_stat_activity``
-    or ``COVID-19`` as single entries. Those come back ``indexable: false``,
-    ``floodRisk: "unknown"``, with ``uses``/``share``/``attested`` all ``null`` — the
-    index cannot answer, which is NOT the same as the term being absent. ``parts``
-    shows the words it does hold (``shared``, ``buffers``) as evidence. Do not abandon
-    such a term: ``search_sentences`` matches a literal substring and finds it.
+    **Multi-word phrases and compounds are measured, not declined.** The lexeme
+    index tokenizes on underscores and digits, so it cannot hold ``Model Context
+    Protocol``, ``shared_buffers`` or ``COVID-19`` as single entries. Rather than
+    answering ``unknown``, the server counts the sentences that actually contain the
+    term as a literal substring — the same rule ``search_sentences`` matches on — and
+    returns ``method: "sentence_scan"`` with ``sentenceHits``, ``totalSentences`` and
+    ``floodRisk``. For those terms the verdict predicts ``search_sentences`` exactly,
+    because it is measured with that tool's own rule. Batch your multi-word
+    candidates: they cost one statement together.
+
+    ``capped: true`` means the count stopped at the server's cap, so ``sentenceHits``
+    is a FLOOR — at least that many, total unknown. Treat it as "floods", never as an
+    exact number. ``parts`` still carries the rarest-component upper bound as
+    secondary evidence. A single word keeps ``method: "lexeme_lemma"`` and its exact
+    lexeme numbers, unchanged.
 
     The count is the lexeme-lemma frequency (matched with the lexeme layer's
     normalization). It is a corpus-saturation signal, a strong proxy for — not an
@@ -151,7 +159,7 @@ async def term_frequency(terms: list[str], document_id: str | None = None) -> li
     data = await gql(
         "query($t:[String!]!){termFrequency(terms:$t)"
         "{term normalizedTerm uses totalUses share floodRisk attested indexable measurement "
-        "parts{part uses} note}}",
+        "parts{part uses} note method sentenceHits totalSentences capped}}",
         {"t": terms},
     )
     return list(data["termFrequency"])

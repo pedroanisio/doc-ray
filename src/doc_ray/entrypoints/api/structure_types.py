@@ -100,9 +100,19 @@ class TermFrequency:
     an underscore compound (``shared_buffers``) or an alphanumeric (``COVID-19``),
     because the tokenizer splits on underscores and digits. Then ``uses``, ``share``
     and ``attested`` are all ``null`` — the index cannot answer, and a ``0`` would read
-    as measured absence — while ``parts`` reports the words it does hold, and the
-    ``note`` redirects to ``searchSentences``, whose literal-substring match covers
-    the term (BL-164); its ``measurement`` is ``unavailable``.
+    as measured absence — while ``parts`` reports the words it does hold (BL-164);
+    its ``measurement`` is ``unavailable``.
+
+    ``method`` says which measurement produced ``floodRisk``. ``lexeme_lemma`` is the
+    proxy described above. ``sentence_scan`` is a **direct measurement**: for a term
+    the lexeme index cannot count exactly, the server counts the sentences matching
+    the same literal-substring rule ``searchSentences`` applies, so the verdict
+    predicts that tool rather than approximating it. Then ``sentenceHits`` and
+    ``totalSentences`` are populated, ``attested`` reflects whether the string
+    actually occurs, and ``floodRisk`` is banded on hits (one page / ten pages).
+    ``capped`` is ``true`` when the count stopped at the server's cap: the true total
+    is unknown and *at least* ``sentenceHits`` — a floor, never a total. All four are
+    ``null`` when the method is not a scan.
     """
 
     term: str
@@ -116,6 +126,10 @@ class TermFrequency:
     measurement: str
     parts: list[TermPartCount]
     note: str | None
+    method: str
+    sentence_hits: int | None
+    total_sentences: int | None
+    capped: bool | None
 
     @classmethod
     def from_verdict(cls, verdict: TermVerdict) -> TermFrequency:
@@ -132,6 +146,10 @@ class TermFrequency:
             measurement=verdict.measurement,
             parts=[TermPartCount(part=p.part, uses=p.uses) for p in verdict.parts],
             note=verdict.note,
+            method=verdict.method,
+            sentence_hits=verdict.sentence_hits,
+            total_sentences=verdict.total_sentences,
+            capped=verdict.capped,
         )
 
 

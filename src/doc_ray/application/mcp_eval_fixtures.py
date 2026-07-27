@@ -41,6 +41,11 @@ RARE_ORDINALS = (20, 21)  # the rare, scene-specific term
 MAIN_SENTENCE_COUNT = 40
 RARE_TERM = "zephyrquux"
 FLOOD_TERM = "spice"
+#: A multi-word phrase the filler sentences carry verbatim, and one that occurs
+#: nowhere — the measured/absent pair the phrase pre-flight asserts on. Neither
+#: can exist in the lexeme index, so both are answered by the sentence scan.
+PHRASE_TERM = "guild ship"
+ABSENT_PHRASE = "zephyrquux cathedral"
 ENTITY_SURFACE = "Arrakis"
 #: (occurrence index -> NER type) for the type-split entity: LOC dominates (3/7),
 #: so typeConsistency ≈ 0.43 — contested, exactly like ``Arrakis`` in the corpus.

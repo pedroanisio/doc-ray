@@ -26,6 +26,7 @@ from doc_ray.application.mcp_eval_fixtures import (
     RARE_ORDINALS,
     RARE_TERM,
 )
+from doc_ray.application.mcp_eval_tasks_frequency import _PHRASEFREQ, _TERMFREQ
 from doc_ray.domain import mcp_eval_scoring as scoring
 from doc_ray.domain.mcp_eval_scoring import TaskBudget
 from doc_ray.entrypoints.mcp import compose, corpus, semantic, structure
@@ -420,33 +421,6 @@ _SEMANTIC = EvalTask(
     budget=TaskBudget(max_calls=2, max_chars=15_000),
 )
 
-_TERMFREQ = EvalTask(
-    id="coverage-term-frequency",
-    kind="coverage",
-    # The flood-risk pre-flight (Item 10). The fixture seeds sentences directly
-    # rather than running the lexeme pipeline, so lexeme_stats is empty and every
-    # term reads back unattested — which exercises the real GraphQL -> lexeme_stats
-    # read path and the FR-6 unattested branch, and is deterministic (independent
-    # of any ambient rollup state). The verdict discrimination itself (a flood term
-    # scoring "high" from real counts) is proven in test_term_frequency_db.py.
-    prompt="Before searching, check how common these candidate terms are.",
-    grounded_in="reachability: term_frequency (Item 10 flood-risk pre-flight)",
-    steps=(
-        Step(
-            structure.term_frequency,
-            lambda ctx: {"terms": [FLOOD_TERM, RARE_TERM, "zzunattested"]},
-        ),
-    ),
-    assertions=(
-        Assertion(
-            "term_frequency_ok",
-            lambda calls: scoring.check_tool_ok(calls, "term_frequency"),
-        ),
-        _within(TaskBudget(max_calls=2, max_chars=15_000)),
-    ),
-    budget=TaskBudget(max_calls=2, max_chars=15_000),
-)
-
 #: The full task set. Grounded tasks first, then coverage.
 TASKS: tuple[EvalTask, ...] = (
     _COVER,
@@ -465,6 +439,7 @@ TASKS: tuple[EvalTask, ...] = (
     _COMPOSE,
     _SEMANTIC,
     _TERMFREQ,
+    _PHRASEFREQ,
 )
 
 for _task in TASKS:
