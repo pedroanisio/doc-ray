@@ -107,12 +107,10 @@ async def term_frequency(terms: list[str], document_id: str | None = None) -> li
     term is absent from the lexicon, so a search will likely return nothing) and a
     steering ``note`` on the risky ones.
 
-    A whitespace-separated phrase is estimated without a fact-table scan:
-    ``measurement`` is ``component_upper_bound`` and ``uses`` is the rarest
-    component's count. That is a conservative saturation ceiling, NOT an exact
-    phrase count; positive component counts do not prove adjacency. Confirm the
-    phrase with ``full_text_search(mode="phrase")``. A zero component does prove
-    the phrase is unattested in the lexeme layer.
+    For a whitespace-separated phrase, ``measurement`` and ``uses`` retain the
+    rarest-component ``component_upper_bound`` as secondary lexeme evidence. The
+    primary verdict comes from the direct sentence scan below; separate component
+    counts alone still do not prove adjacency.
 
     **Multi-word phrases and compounds are measured, not declined.** The lexeme
     index tokenizes on underscores and digits, so it cannot hold ``Model Context
@@ -130,6 +128,12 @@ async def term_frequency(terms: list[str], document_id: str | None = None) -> li
     secondary evidence. A single word keeps ``method: "lexeme_lemma"`` and its exact
     lexeme numbers, unchanged.
 
+    If ``sentenceHits`` is positive but the maintained corpus denominator is stale
+    or missing, ``totalSentences`` is ``null`` and ``note`` says the denominator is
+    unavailable. The absolute hit-band ``floodRisk`` remains usable; never rewrite
+    the result as "N of 0 sentences". A real empty visible corpus can still return
+    zero hits and ``totalSentences: 0``.
+
     The count is the lexeme-lemma frequency (matched with the lexeme layer's
     normalization). It is a corpus-saturation signal, a strong proxy for — not an
     exact predictor of — any one search tool's hit count. Corpus-wide only for now:
@@ -137,7 +141,8 @@ async def term_frequency(terms: list[str], document_id: str | None = None) -> li
     return corpus numbers mislabelled as document-scoped.
 
     Returns a list of ``{term, normalizedTerm, uses, totalUses, share, floodRisk,
-    attested, indexable, measurement, parts, note}``, one per distinct term, in input order.
+    attested, indexable, measurement, parts, note, method, sentenceHits,
+    totalSentences, capped}``, one per distinct term, in input order.
     """
     if document_id is not None:
         _require_uuid(document_id, "document_id")

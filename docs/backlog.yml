@@ -110,7 +110,7 @@ metadata:
   generated_by:     "Claude Sonnet 5 via Claude Code (merge of Claude Opus 4.8 backlog + OpenAI Codex improvement-proposal candidates)"
   generated_on:     "2026-07-05"
   system_of_record: "docs/backlog.yml"
-  total_items:      179
+  total_items:      180
 
 items:
 
@@ -6438,3 +6438,63 @@ items:
     owner:        "shared"
     source:       "GitHub issue #36 Phase 2; operator selected OD-1 Option A on 2026-07-27. Implemented same day (Claude Opus 5 via Claude Code). Measured surfaces: read 33 tools / 45,576 chars; curation 65 tools / 78,494 chars."
     tags:         ["mcp", "discovery", "tokens", "breaking", "endpoints"]
+
+  - id:          "BL-180"
+    title:       "term_frequency paired positive sentence hits with a zero corpus denominator"
+    summary:     "The phrase pre-flight measured real sentence hits but exposed totalSentences=0 because migration 142's deploy-time full refresh never wrote its new n_sentences rollup."
+    description: |
+      Confirmed root cause (#42). Migration 142 correctly extended the targeted
+      `docray_refresh_corpus_stats(uuid)` helper, but its backfill invoked
+      `docray_refresh_all_corpus_stats()`. That older full-refresh definition
+      updated distinct lexemes and every other read-model family but never wrote
+      `corpus_stats.n_sentences`, so pre-existing tenant rows retained the column's
+      default zero until a later per-document refresh happened to self-repair them.
+
+      The issue's proposed ownership hypothesis was tested against production and
+      disproved: both helpers are already SECURITY DEFINER, owned by the BYPASSRLS
+      `docray_batch` role, and the live 482-document rollup currently agrees with
+      document_stats. The defect was deploy-path drift, not a current RLS failure.
+
+      Local fix. Migration 146 replaces the full refresh with a definition that
+      aggregates the maintained document_stats rollup once, writes n_sentences for
+      every tenant (including zero for genuinely empty tenants), backfills existing
+      rows, and loudly asserts the trusted-owner invariant for both refresh helpers.
+      The domain contract converts a contradictory positive-hits/zero-denominator
+      pair to totalSentences=null with a repair-oriented note while preserving the
+      absolute bounded-hit floodRisk. GraphQL and MCP expose that same contract.
+      prod-check now compares maintained tenant and document rollups without a live
+      aggregate over the sentences or lexeme_occurrences fact tables.
+
+      Deployment remains outstanding. Keep this record in progress and GitHub #42
+      open until migrations 146-147 and application 1.53.1 are deployed and the live
+      corpus_rollups check passes; only then may the system-of-record status become
+      done and the issue close.
+    category:     "api"
+    type:         "bug"
+    status:       "in-progress"
+    complexity:   "M"
+    priority:     "high"
+    rationale:    "A measured numerator paired with a false zero denominator is a user-visible contradiction. Repairing the producer and making the consumer degrade explicitly closes both the present root cause and the future integrity-failure class."
+    acceptance_criteria:
+      - "A fresh migration run and a deliberately corrupted rollup are repaired by docray_refresh_all_corpus_stats()."
+      - "Both corpus refresh helpers are SECURITY DEFINER, owned by a BYPASSRLS docray_batch role, and migration verification fails loudly if that invariant is false."
+      - "Positive sentence hits with an unavailable denominator return totalSentences=null plus an explicit note on GraphQL and MCP, never a positive value out of zero."
+      - "Zero hits in a genuinely empty visible corpus retain totalSentences=0."
+      - "prod-check detects rollup disagreement from maintained inputs without aggregating large fact tables."
+      - "Architecture, usage, operations, configuration, migration, changelog, and public release documentation describe the same contract and include GraphQL and MCP examples."
+      - "Migrations 146-147 and application 1.53.1 are deployed; live schema lockstep and corpus_rollups verification pass before GitHub #42 and this record are closed."
+    dependencies: []
+    references:
+      - "db/migrations/146_corpus_stats_sentence_denominator.sql"
+      - "db/migrations/147_schema_version_1_53_1.sql"
+      - "src/doc_ray/domain/term_frequency.py"
+      - "src/doc_ray/entrypoints/api/structure_query.py"
+      - "src/doc_ray/entrypoints/mcp/structure.py"
+      - "scripts/prod_check.py"
+      - "src/doc_ray/tests/test_corpus_stats_rollups.py"
+      - "src/doc_ray/tests/test_term_frequency_scan_db.py"
+      - "tests/test_prod_check.py"
+      - "docs/public/release-notes/1.53.1.md"
+    owner:        "shared"
+    source:       "GitHub issue #42 (2026-07-27); production read-only diagnosis and strict TDD implementation by OpenAI Codex. Deployment intentionally not performed without separate production-write authorization."
+    tags:         ["term-frequency", "rollup", "graphql", "mcp", "production-check", "tdd"]

@@ -378,6 +378,15 @@ MIGRATIONS = [
         "145_schema_version_1_53_0",
         "advance the schema SemVer to 1.53.0 for the read/curation MCP endpoint split",
     ),
+    (
+        "146_corpus_stats_sentence_denominator",
+        "repair the full corpus-stats refresh, backfill sentence denominators, and "
+        "assert the trusted batch-owner invariant",
+    ),
+    (
+        "147_schema_version_1_53_1",
+        "advance the schema SemVer to 1.53.1 for the honest sentence denominator",
+    ),
 ]
 
 # ---------------------------------------------------------------------------

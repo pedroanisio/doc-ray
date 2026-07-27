@@ -24,7 +24,13 @@ def _prepared(term: str) -> tf.PreparedTerm:
     return tf.prepare_terms([term])[0]
 
 
-def _verdict(term: str, scan: tf.SentenceScan | None, counts: dict[str, int] | None = None):
+def _verdict(
+    term: str,
+    scan: tf.SentenceScan | None,
+    counts: dict[str, int] | None = None,
+    *,
+    total_sentences: int = _TOTAL_SENTENCES,
+):
     prepared = tf.prepare_terms([term])
     scans = {} if scan is None else {prepared[0].key: scan}
     return tf.build_verdicts(
@@ -32,7 +38,7 @@ def _verdict(term: str, scan: tf.SentenceScan | None, counts: dict[str, int] | N
         counts or {},
         _TOTAL_USES,
         scans=scans,
-        total_sentences=_TOTAL_SENTENCES,
+        total_sentences=total_sentences,
     )[0]
 
 
@@ -89,6 +95,49 @@ def test_a_scanned_phrase_is_measured_not_declined() -> None:
     # Adjacency is now PROVEN by the literal-substring match — the exact claim
     # the component upper bound could not make.
     assert verdict.attested is True
+
+
+def test_positive_hits_never_present_zero_as_the_corpus_denominator() -> None:
+    """Issue #42: an impossible 43-of-0 result must become explicitly unavailable."""
+    verdict = _verdict(
+        "Algorithm Design",
+        tf.SentenceScan(hits=43, capped=False),
+        total_sentences=0,
+    )
+
+    assert verdict.sentence_hits == 43
+    assert verdict.total_sentences is None
+    assert verdict.flood_risk == tf.LOW
+    assert verdict.note is not None
+    assert "unavailable" in verdict.note.lower()
+    assert "denominator" in verdict.note.lower()
+
+
+def test_a_capped_scan_with_a_missing_denominator_keeps_both_warnings() -> None:
+    """The missing denominator must not erase that a capped hit count is a floor."""
+    verdict = _verdict(
+        "of the",
+        tf.SentenceScan(hits=tf.SENTENCE_HIGH_HITS, capped=True),
+        total_sentences=0,
+    )
+
+    assert verdict.total_sentences is None
+    assert verdict.capped is True
+    assert verdict.note is not None
+    assert "at least" in verdict.note.lower()
+    assert "unavailable" in verdict.note.lower()
+
+
+def test_zero_hits_in_an_empty_visible_corpus_keeps_a_real_zero_denominator() -> None:
+    """Zero-of-zero is coherent; only positive hits make a zero rollup impossible."""
+    verdict = _verdict(
+        "Algorithm Design",
+        tf.SentenceScan(hits=0, capped=False),
+        total_sentences=0,
+    )
+
+    assert verdict.sentence_hits == 0
+    assert verdict.total_sentences == 0
 
 
 def test_a_scanned_phrase_keeps_its_component_evidence() -> None:

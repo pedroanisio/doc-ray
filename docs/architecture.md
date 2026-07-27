@@ -94,6 +94,15 @@ Doc-Ray publishes no client SDK. The supported integration contracts are
 GraphQL and MCP; the internal repository Protocol documents application
 boundaries but is not presented as a separately versioned client package.
 
+Both client contracts share the same term-frequency domain verdict. Sentence-scan
+results use `corpus_stats.n_sentences`, a tenant read-model rollup refreshed from
+`document_stats` by the trusted `docray_batch` boundary. A positive hit count can
+never be paired with a reported denominator of zero: if the rollup is unavailable,
+GraphQL and MCP expose `totalSentences: null`, preserve the bounded absolute-hit
+`floodRisk`, and attach a repair-oriented note. `scripts/prod_check.py` compares
+tenant rollups with their maintained document-level inputs so this integrity
+failure is caught without violating D-025's no-fact-table-aggregate rule.
+
 ## API, worker, and the job queue
 
 `entrypoints.api` is a Strawberry GraphQL app: reads resolve directly against

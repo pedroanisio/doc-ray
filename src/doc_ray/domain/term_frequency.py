@@ -357,13 +357,20 @@ def _phrase_note(term: str, parts: Sequence[PartCount], upper_bound: int) -> str
     )
 
 
-def _scan_note(term: str, scan: SentenceScan, total_sentences: int, risk: str) -> str | None:
+def _scan_note(term: str, scan: SentenceScan, total_sentences: int | None, risk: str) -> str | None:
     """The BL-145-voice steering line for a measured sentence scan.
 
     States the bound before the number whenever the count is a floor, and stays
     silent in the low band where the numbers already answer the question.
     """
-    scope = f" of {total_sentences}" if total_sentences > 0 else ""
+    scope = f" of {total_sentences}" if total_sentences is not None and total_sentences > 0 else ""
+    denominator_warning = (
+        " The total-sentence denominator is unavailable because its corpus_stats "
+        "rollup is empty; sentenceHits remains measured, and floodRisk uses the "
+        "absolute bounded-hit bands."
+        if total_sentences is None
+        else ""
+    )
     if scan.hits <= 0:
         return (
             f"{term!r} does not occur as a literal substring in any of the "
@@ -378,15 +385,15 @@ def _scan_note(term: str, scan: SentenceScan, total_sentences: int, risk: str) -
             f"{scope} sentences, so a search returns a wall of hits clustered in "
             "one region and starves coverage of the rest. Prefer a rarer or longer "
             "phrase, or read a section evenly with read_document_outline + "
-            "read_document_sentences."
+            f"read_document_sentences.{denominator_warning}"
         )
     if risk == MODERATE:
         return (
             f"{term!r} matches {scan.hits}{scope} sentences — more than one page, so "
             "a search will hit its per-call limit. Scope the read to one document, "
-            "or pair it with a rarer term, to keep coverage even."
+            f"or pair it with a rarer term, to keep coverage even.{denominator_warning}"
         )
-    return None
+    return denominator_warning.strip() or None
 
 
 def _note(term: str, uses: int, risk: str) -> str | None:
@@ -452,6 +459,12 @@ def build_verdicts(
                 else None
             )
             risk = sentence_flood_risk(scan.hits, scan.capped)
+            # A positive numerator with a zero denominator is an impossible
+            # statistic, not an empty corpus. Keep the hit measurement and band,
+            # but expose the broken rollup as null + an actionable note (#42).
+            reported_total_sentences = (
+                None if scan.hits > 0 and int(total_sentences) <= 0 else int(total_sentences)
+            )
             verdicts.append(
                 TermVerdict(
                     term=item.term,
@@ -470,10 +483,10 @@ def build_verdicts(
                     indexable=item.indexable,
                     measurement=item.measurement,
                     parts=parts,
-                    note=_scan_note(item.term, scan, int(total_sentences), risk),
+                    note=_scan_note(item.term, scan, reported_total_sentences, risk),
                     method=METHOD_SENTENCE_SCAN,
                     sentence_hits=scan.hits,
-                    total_sentences=int(total_sentences),
+                    total_sentences=reported_total_sentences,
                     capped=scan.capped,
                 )
             )

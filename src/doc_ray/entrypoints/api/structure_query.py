@@ -97,7 +97,10 @@ class StructureQueries:
         the server counts the sentences matching the same literal-substring rule
         ``searchSentences`` applies, bounded by a cap, and returns
         ``method: "sentence_scan"`` with ``sentenceHits``/``totalSentences``/``capped``.
-        The rarest-component upper bound rides along as secondary evidence.
+        The rarest-component upper bound rides along as secondary evidence. If a
+        positive scan exposes a missing sentence-total rollup, ``totalSentences`` is
+        null and ``note`` says the denominator is unavailable; the API never emits
+        an impossible positive-hit ``of 0 sentences`` claim.
         """
         if document_id is not None:
             raise ValueError(

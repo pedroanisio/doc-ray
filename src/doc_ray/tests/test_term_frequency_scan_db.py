@@ -175,6 +175,52 @@ def test_total_sentences_comes_from_the_corpus_stats_rollup(pg):
     assert total_sentences > 0
 
 
+def test_graphql_never_returns_positive_sentence_hits_out_of_zero_total_sentences(pg):
+    """The original production failure, through the public GraphQL contract."""
+    from doc_ray.entrypoints.api.context import Loaders, RequestContext
+    from doc_ray.entrypoints.api.schema import build_schema
+    from doc_ray.entrypoints.api.security import Principal
+
+    conn, _created = pg
+    doc_id = _seed_sentences(pg, [f"A public API {_PHRASE} sentence."])
+    tenant = conn.execute("SELECT tenant_id FROM documents WHERE id = %s", (doc_id,)).fetchone()[
+        "tenant_id"
+    ]
+    conn.execute("UPDATE corpus_stats SET n_sentences = 0 WHERE tenant_id = %s", (tenant,))
+
+    async def check():
+        aconn = await _aconn_as(ADMIN_PID)
+        try:
+            principal = Principal(
+                subject="issue-42-integration",
+                principal_id=ADMIN_PID,
+                scopes=frozenset({"admin"}),
+            )
+            ctx = RequestContext(conn=aconn, principal=principal, loaders=Loaders(aconn))
+            return await build_schema().execute(
+                """
+                query {
+                  termFrequency(terms: ["quxscan phrase"]) {
+                    method sentenceHits totalSentences floodRisk note
+                  }
+                }
+                """,
+                context_value=ctx,
+            )
+        finally:
+            await aconn.close()
+
+    try:
+        result = asyncio.run(check())
+        assert result.errors is None
+        row = result.data["termFrequency"][0]
+        assert row["sentenceHits"] == 1
+        assert row["totalSentences"] is None
+        assert "unavailable" in row["note"].lower()
+    finally:
+        conn.execute("SELECT docray_refresh_corpus_stats(%s)", (tenant,))
+
+
 def test_a_caller_in_another_tenant_counts_none_of_our_sentences(pg):
     """RLS scopes the scan; the adapter adds no tenant filter of its own."""
     _seed_sentences(pg, [f"Private {_PHRASE} sentence."])

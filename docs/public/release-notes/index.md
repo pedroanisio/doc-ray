@@ -11,7 +11,7 @@ doc_type: "release-note"
 audience: ["end-user", "administrator", "developer", "integrator"]
 surfaces: ["webapp", "api", "mcp"]
 classification: "public"
-applies_to: "1.53.0"
+applies_to: "1.53.1"
 owner: "documentation-maintainer"
 last_reviewed: "2026-07-27"
 status: "current"
@@ -22,6 +22,9 @@ status: "current"
 What changed in each version, newest first. Each entry states who a change affects
 and any action required.
 
+- **[1.53.1](1.53.1.md)** — repair phrase-frequency sentence denominators and
+  return an explicit null when that maintained rollup is unavailable
+  (**migration required**, no configuration change).
 - **[1.53.0](1.53.0.md)** — curation tools moved to their own address so
   read-only assistants stop loading them (**action required** for editing clients).
 - **[1.52.0](1.52.0.md)** — asking how common a phrase is now returns a measured

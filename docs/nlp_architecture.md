@@ -415,7 +415,16 @@ them is the most common source of "why didn't this match?".
 | `fullTextSearch` (document-level) | `persistence_fulltext_read.py::fulltext_search` | Postgres `tsvector`, ranked by `ts_rank`; `TERMS` uses `plainto_tsquery`, `PHRASE` uses `phraseto_tsquery`, and both are **stemmed per document language** |
 | `searchSentences` (sentence-level) | `persistence_read.py::search_sentences` | `ILIKE '%term%'` — literal, case-insensitive substring; **no stemming, no ranking** |
 | `lexemeKwic` | `persistence_read.py::lexeme_kwic` | exact lexeme-id lookup over `lexeme_occurrences`, with a ±45-character window |
-| `termFrequency` (pre-flight) | `persistence_read_terms.py` + `domain/term_frequency.py` | exact rollup count for one lexeme; a whitespace phrase returns the rarest-component upper bound with explicit measurement provenance |
+| `termFrequency` (pre-flight) | `persistence_read_terms.py` + `domain/term_frequency.py` | exact rollup count for one lexeme; phrases/compounds use a cap-bounded sentence scan under `searchSentences`' literal rule, with the rarest-component upper bound retained only as secondary evidence |
+
+The sentence scan reads its denominator from `corpus_stats.n_sentences`, which is
+maintained from `document_stats` at the batch boundary rather than counted from the
+`sentences` fact table on the request path (D-025). A positive scan paired with a
+zero rollup is evidence that the denominator is unavailable, not evidence of a
+zero-sentence corpus: GraphQL and MCP return `totalSentences: null` plus an explicit
+note while preserving the absolute, bounded-hit `floodRisk` band. Migration 146
+repairs the full-refresh path and backfills existing tenants; `prod-check` verifies
+the rollup against its maintained document-level inputs without scanning fact tables.
 
 **Language-aware full-text search.** Migration `016_fts_language_aware.sql`
 replaced the original generated `fts` column (hardcoded to the `english` config)

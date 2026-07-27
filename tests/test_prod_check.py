@@ -158,6 +158,84 @@ def test_check_database_fails_when_the_cluster_is_unreachable() -> None:
     assert "connection refused" in result.detail
 
 
+class _RollupConn:
+    def __init__(self, failing_tenants: int) -> None:
+        self._failing_tenants = failing_tenants
+        self.executed: list[str] = []
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        return None
+
+    def execute(self, sql: str, *args: object):
+        self.executed.append(sql)
+        return self
+
+    def fetchone(self) -> tuple[int]:
+        return (self._failing_tenants,)
+
+
+def test_check_corpus_rollups_fails_without_leaking_tenant_ids() -> None:
+    result = pc.check_corpus_rollups(FULL_ENV, connect=lambda url, **kw: _RollupConn(2))
+
+    assert result.status == pc.FAIL
+    assert result.name == "corpus_rollups"
+    assert "2" in result.detail
+    assert "tenant" in result.detail
+
+
+def test_check_corpus_rollups_passes_when_rollups_match() -> None:
+    conn = _RollupConn(0)
+    result = pc.check_corpus_rollups(FULL_ENV, connect=lambda url, **kw: conn)
+
+    assert result.status == pc.OK
+    assert conn.executed[0] == "SET ROLE docray_batch"
+
+
+def test_corpus_rollup_probe_never_aggregates_fact_tables_live() -> None:
+    sql = pc._CORPUS_ROLLUP_HEALTH_SQL.lower()
+
+    assert "document_stats" in sql
+    assert "corpus_stats" in sql
+    assert "lexeme_stats" in sql
+    assert "from sentences" not in sql
+    assert "lexeme_occurrences" not in sql
+
+
+def test_run_checks_includes_the_corpus_rollup_probe(monkeypatch) -> None:
+    """The probe is only protective if the production command actually runs it."""
+
+    def result(name: str):
+        return pc.CheckResult(name, pc.OK, "ok")
+
+    for name in (
+        "check_env",
+        "check_posture",
+        "check_database",
+        "check_object_store",
+        "check_api",
+        "check_webapp",
+        "check_mcp",
+        "check_tunnel",
+        "check_public",
+        "check_mcp_public",
+        "check_smtp",
+    ):
+        monkeypatch.setattr(pc, name, lambda *args, _name=name, **kwargs: result(_name))
+    monkeypatch.setattr(
+        pc,
+        "check_corpus_rollups",
+        lambda *args, **kwargs: result("corpus_rollups"),
+        raising=False,
+    )
+
+    names = [r.name for r in pc.run_checks(FULL_ENV, recipient=None, send=False)]
+
+    assert "corpus_rollups" in names
+
+
 # --- object store -----------------------------------------------------------
 
 

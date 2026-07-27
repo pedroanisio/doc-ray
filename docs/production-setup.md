@@ -286,6 +286,16 @@ make prod-migrate-host    # AUTHORITATIVE: applies from the repo working tree
 > A schema version behind the code = migrations did **not** apply, regardless of
 > what the container path printed.
 
+> **1.53.1 sentence-denominator repair (#42).** Migration 146 deliberately runs a
+> full read-model refresh: it backfills `corpus_stats.n_sentences` from maintained
+> `document_stats`, repairs the deploy-time path migration 142 missed, and aborts if
+> either corpus refresh helper is not a `SECURITY DEFINER` function owned by the
+> `BYPASSRLS` `docray_batch` role. After migrations 146–147, run
+> `make prod-check NO_SEND=1` and require the `corpus_rollups` check to pass before
+> declaring the deploy healthy. The check reads only maintained rollups; it does not
+> count live sentence or lexeme facts. No environment/configuration change is
+> required.
+
 Then load the corpus by whichever fits:
 - **Fresh ingest from Spaces** — idempotent, content-addressed
   (`scripts/ingest_from_spaces.py`). Each new document also enqueues the standard
@@ -417,6 +427,11 @@ Exit codes: `0` all green, `1` warnings only, `2` at least one failed check. The
 SMTP probe is the only one that writes anything anywhere, and it is the only
 check that exercises outbound mail at all — a broken relay is otherwise invisible
 until a real user's registration returns 503.
+
+`corpus_rollups` is a release-blocking database-integrity probe. It compares
+tenant-level `corpus_stats` with the maintained `document_stats` and `lexeme_stats`
+inputs while assuming `docray_batch`; a failure means a denominator or vocabulary
+rollup is stale even if the API itself is reachable.
 
 The individual probes, if you want them by hand:
 

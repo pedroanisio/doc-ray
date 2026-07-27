@@ -19,6 +19,37 @@ doc-ray carries **one global version** covering both the application package
 (`docray_schema_version()`). They are kept in lockstep by
 `scripts/check_version_consistency.py`, which fails the build on any drift.
 
+## [1.53.1]
+
+### Fixed
+
+- **`termFrequency` no longer reports positive phrase hits out of zero sentences
+  (#42).** Migration 142 added `corpus_stats.n_sentences` to the per-tenant refresh
+  helper, but the deploy-time backfill called the older full-refresh helper, which
+  never wrote that column. Existing tenant rows therefore retained the default zero
+  until a later per-document pipeline refresh happened to repair them. Migration
+  146 corrects the full refresh, recomputes every tenant denominator from the
+  maintained `document_stats` rollup, and loudly verifies that both refresh helpers
+  remain `SECURITY DEFINER` functions owned by the `BYPASSRLS` `docray_batch` role.
+
+- **GraphQL and MCP degrade honestly if the rollup is unavailable.** A positive
+  `sentenceHits` result now returns `totalSentences: null` plus an explicit
+  unavailable-denominator note instead of an impossible “N of 0 sentences” claim.
+  The absolute bounded-hit `floodRisk` remains usable; a genuinely empty visible
+  corpus still returns zero hits and `totalSentences: 0`. The MCP return contract,
+  server instructions, architecture, and examples document the same behavior.
+
+- **Production verification now checks maintained corpus rollups.** `prod-check`
+  compares tenant totals with their document-level inputs under `docray_batch`
+  without aggregating the large sentence/lexeme fact tables. This makes stale
+  denominators a deploy failure instead of a user-visible contradiction.
+
+  **Migration:** apply migrations 146–147 before deploying the 1.53.1 application,
+  then run `make prod-check NO_SEND=1` and require `corpus_rollups` to pass. No
+  configuration or client-code change is required. `totalSentences` was already
+  nullable in GraphQL; clients that incorrectly assumed it was always numeric must
+  handle `null` and display the accompanying note.
+
 ## [1.53.0]
 
 ### Changed

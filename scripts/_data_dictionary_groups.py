@@ -255,8 +255,17 @@ GROUPS: list[tuple[str, str, list[str]]] = [
         "`jobs` queue are excluded from every snapshot and from restore, so a "
         "restore never clobbers the queue or the archive index it is reading from. "
         "`job_telemetry` is an append-only per-job execution record (GPU/CPU lane, "
-        "timings) for cost attribution (migration 126).",
-        ["jobs", "schema_migrations", "schema_version", "backups", "job_telemetry"],
+        "timings) for cost attribution (migration 126). `operation_schedule` "
+        "stores validated recurring maintenance cadences and their materialized "
+        "next firing time (migration 144).",
+        [
+            "jobs",
+            "operation_schedule",
+            "schema_migrations",
+            "schema_version",
+            "backups",
+            "job_telemetry",
+        ],
     ),
     (
         "Prism visual layer",

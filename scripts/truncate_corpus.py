@@ -12,6 +12,7 @@ job queue, while preserving what a fresh corpus still needs:
 * the curated canonical registry (``canonical``, ``canonical_merge``,
   ``form_index``), so new documents canonicalize against existing curation
 * the ``backups`` catalog (existing archives stay restorable)
+* recurring ``operation_schedule`` rows (maintenance configuration survives)
 
 Object-store blobs are deliberately untouched: re-uploads are
 content-addressed and idempotent, and the bucket also holds backup archives.
@@ -159,6 +160,9 @@ PRESERVED_TABLES = (
     "canonical_merge",
     "form_index",
     "backups",
+    # Recurring maintenance schedules are operational configuration, not corpus
+    # content. They remain useful after a reset and must not be silently erased.
+    "operation_schedule",
     # Per-job cost telemetry (migration 126) is append-only and deliberately keyed
     # by a non-FK job_id so it outlives the job it describes; it is cost-attribution
     # history, not corpus content, so a corpus wipe must not erase it.

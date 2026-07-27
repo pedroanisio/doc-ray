@@ -7,6 +7,7 @@ the real dependencies with the same adapters the running services use:
     config        every key production needs is present in the env file
     posture       anonymous API access, debug mode, and cookie flags are hardened
     database      the managed cluster answers, and no migration is pending
+    corpus_rollups tenant rollups agree with their maintained document/lexeme inputs
     object store  the Spaces/MinIO bucket answers a credentialed head request
     api           the local API's ``/readyz`` reports every dependency ready
     webapp        the local webapp answers on its loopback port
@@ -45,18 +46,20 @@ import sys
 import urllib.error
 import urllib.request
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-import psycopg
+from _prod_check_database import CheckResult, check_corpus_rollups, check_database
+from _prod_check_queries import CORPUS_ROLLUP_HEALTH_SQL as _CORPUS_ROLLUP_HEALTH_SQL
 
 from doc_ray.adapters import migrate as migrate_mod
 from doc_ray.adapters.mailer_smtp import SmtpMailer
 from doc_ray.adapters.object_store import ObjectStore
 from doc_ray.config import Config
 from doc_ray.ports.mailer import MailerError
+
+__all__ = ["_CORPUS_ROLLUP_HEALTH_SQL", "migrate_mod"]
 
 OK = "ok"
 WARN = "warn"
@@ -105,15 +108,6 @@ _TUNNEL_ORIGIN_ERRORS = ("Unable to reach the origin", "connection refused", "no
 ORIGIN_ERROR_WINDOW_SECONDS = 900
 
 HTTP_TIMEOUT_SECONDS = 10.0
-
-
-@dataclass(frozen=True)
-class CheckResult:
-    """One probe's verdict: a stable name, a status, and an operator-readable detail."""
-
-    name: str
-    status: str
-    detail: str
 
 
 def load_env_file(path: Path) -> dict[str, str]:
@@ -168,32 +162,6 @@ def check_posture(env: Mapping[str, str]) -> CheckResult:
 
 
 # --- stateful dependencies --------------------------------------------------
-
-
-def check_database(
-    env: Mapping[str, str], *, connect: Callable[..., Any] = psycopg.connect
-) -> CheckResult:
-    """Confirm the managed cluster answers and carries the current schema.
-
-    A cluster that is reachable but behind on migrations is a failure, not a
-    warning: the running code expects the schema it was built against.
-    """
-    try:
-        with connect(env.get("DATABASE_URL", ""), autocommit=True) as conn:
-            row = conn.execute("SELECT docray_schema_version()").fetchone()
-            version = row[0] if row else "unknown"
-            pending = list(migrate_mod.pending_migrations(conn))
-    except Exception as exc:
-        return CheckResult("database", FAIL, f"{type(exc).__name__}: {exc}")
-    if pending:
-        names = ", ".join(str(p) for p in pending[:3])
-        return CheckResult(
-            "database",
-            FAIL,
-            f"schema {version}, {len(pending)} pending migration(s): {names} "
-            "— run `make prod-migrate`",
-        )
-    return CheckResult("database", OK, f"schema {version}, no pending migrations")
 
 
 def check_object_store(
@@ -535,6 +503,7 @@ def run_checks(env: Mapping[str, str], *, recipient: str | None, send: bool) -> 
         check_env(env),
         check_posture(env),
         check_database(env),
+        check_corpus_rollups(env),
         check_object_store(env),
         check_api(api_url),
         check_webapp(webapp_url),

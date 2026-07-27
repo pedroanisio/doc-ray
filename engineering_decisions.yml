@@ -53,7 +53,7 @@ source_schema:         "db/migrations"
 # 1.47.0 allusion edges (131), 1.48.0 hyper-context rollups (133).
 # Kept in lockstep with doc_ray.__version__
 # by scripts/check_version_consistency.py.
-source_schema_version: "1.53.0"
+source_schema_version: "1.53.1"
 target_engine:         "PostgreSQL 16"
 total_decisions:       33
 
@@ -1343,7 +1343,7 @@ decisions:
       and sentences (~870k). Those aggregates are derived into read-model rollup
       tables — document_stats (per-document: n_sentences, n_lexeme_occurrences,
       n_tokens, pos_counts, top_verbs), corpus_stats (per-tenant distinct
-      lexemes), lexeme_stats (per-tenant lexeme usage), entity_frequency_stats
+      lexemes and sentence denominator), lexeme_stats (per-tenant lexeme usage), entity_frequency_stats
       (per-tenant entity frequency) — refreshed by the trusted batch writer at
       the pipeline job boundary (annotate / reannotate / ingest via
       docray_refresh_stats_for_document, debounced for tenant-wide recomputes),
@@ -1384,6 +1384,8 @@ decisions:
       - "db/migrations/095_corpus_stats.sql"
       - "db/migrations/098_reader_stats.sql"
       - "db/migrations/100_read_model_token_entity.sql"
+      - "db/migrations/146_corpus_stats_sentence_denominator.sql"
+      - "scripts/prod_check.py"
       - "src/doc_ray/adapters/persistence_read.py"
       - "webapp/corpus_web.py"
     claims:

@@ -1,6 +1,6 @@
 # doc-ray — Database ERD & Data Dictionary
 
-**Schema version `1.53.0`** (SemVer) · 145 migrations applied
+**Schema version `1.53.1`** (SemVer) · 147 migrations applied
 
 > Generated from the live schema by `scripts/gen_data_dictionary.py`. Do not edit by hand — re-run the generator.
 
@@ -2526,3 +2526,5 @@ owner's bypass.
 | 143 | `143_schema_version_1_52_0.sql` | advance the schema SemVer to 1.52.0 for the measured phrase pre-flight |
 | 144 | `144_operation_schedule.sql` | operation_schedule — recurring corpus-maintenance operations (visual tiers, semantic embed, geometry re-extract) with a materialized next_run_at the scheduler claims with FOR UPDATE SKIP LOCKED; admin-only, no user write policy |
 | 145 | `145_schema_version_1_53_0.sql` | advance the schema SemVer to 1.53.0 for the read/curation MCP endpoint split |
+| 146 | `146_corpus_stats_sentence_denominator.sql` | repair the full corpus-stats refresh, backfill sentence denominators, and assert the trusted batch-owner invariant |
+| 147 | `147_schema_version_1_53_1.sql` | advance the schema SemVer to 1.53.1 for the honest sentence denominator |

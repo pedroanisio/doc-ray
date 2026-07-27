@@ -107,12 +107,15 @@ class TermFrequency:
     proxy described above. ``sentence_scan`` is a **direct measurement**: for a term
     the lexeme index cannot count exactly, the server counts the sentences matching
     the same literal-substring rule ``searchSentences`` applies, so the verdict
-    predicts that tool rather than approximating it. Then ``sentenceHits`` and
-    ``totalSentences`` are populated, ``attested`` reflects whether the string
-    actually occurs, and ``floodRisk`` is banded on hits (one page / ten pages).
-    ``capped`` is ``true`` when the count stopped at the server's cap: the true total
-    is unknown and *at least* ``sentenceHits`` — a floor, never a total. All four are
-    ``null`` when the method is not a scan.
+    predicts that tool rather than approximating it. Then ``sentenceHits`` is
+    populated, ``attested`` reflects whether the string actually occurs, and
+    ``floodRisk`` is banded on hits (one page / ten pages). ``totalSentences`` is
+    normally the maintained corpus denominator; it is ``null``, with an explicit
+    unavailable-denominator ``note``, when positive hits prove that rollup is stale
+    or missing. It is never reported as a contradictory ``0``. ``capped`` is
+    ``true`` when the count stopped at the server's cap: the true total is unknown
+    and *at least* ``sentenceHits`` — a floor, never a total. The scan-only fields
+    are all ``null`` when the method is not a scan.
     """
 
     term: str

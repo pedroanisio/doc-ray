@@ -222,3 +222,67 @@ def test_corpus_stats_n_sentences_is_the_sum_over_that_tenants_documents(pg):
 
     assert int(row["summed"]) == 3, "fixture should contribute exactly three sentences"
     assert int(row["rolled_up"]) == int(row["summed"])
+
+
+def test_full_corpus_refresh_repairs_a_zero_sentence_denominator(pg) -> None:
+    """Issue #42: migration 142 called the full refresh, which omitted n_sentences."""
+    import _itdb
+
+    conn, created = pg
+    _ensure_migration_095(conn)
+    tenant = conn.execute(
+        "INSERT INTO tenants (slug, display_name) VALUES (%s, %s) RETURNING id",
+        (f"full-refresh-{_itdb.unique_sha()[:12]}", "full refresh sentence rollup"),
+    ).fetchone()["id"]
+    doc_id = _itdb.make_doc(conn, "Alpha one. Beta two. Gamma three.")
+    created.append(doc_id)
+    conn.execute("UPDATE documents SET tenant_id = %s WHERE id = %s", (tenant, doc_id))
+    conn.execute("SELECT docray_refresh_document_stats(%s)", (doc_id,))
+    conn.execute("SELECT docray_refresh_corpus_stats(%s)", (tenant,))
+    conn.execute("UPDATE corpus_stats SET n_sentences = 0 WHERE tenant_id = %s", (tenant,))
+
+    try:
+        conn.execute("SELECT docray_refresh_all_corpus_stats()")
+        row = conn.execute(
+            "SELECT n_sentences FROM corpus_stats WHERE tenant_id = %s", (tenant,)
+        ).fetchone()
+        assert int(row["n_sentences"]) == 3
+    finally:
+        conn.execute("SELECT docray_refresh_corpus_stats(%s)", (tenant,))
+
+
+def test_corpus_refresh_helpers_are_security_definer_and_batch_owned(pg) -> None:
+    """A later CREATE OR REPLACE must not silently restore forced-RLS undercounts."""
+    conn, _created = pg
+    _ensure_migration_095(conn)
+
+    rows = conn.execute(
+        """
+        SELECT p.oid::regprocedure::text AS helper,
+               p.prosecdef AS security_definer,
+               r.rolname AS owner,
+               r.rolbypassrls AS owner_bypasses_rls
+          FROM pg_proc p
+          JOIN pg_roles r ON r.oid = p.proowner
+         WHERE p.oid IN (
+             'docray_refresh_corpus_stats(uuid)'::regprocedure,
+             'docray_refresh_all_corpus_stats()'::regprocedure
+         )
+         ORDER BY helper
+        """
+    ).fetchall()
+
+    assert len(rows) == 2
+    assert all(row["security_definer"] for row in rows)
+    assert all(row["owner"] == "docray_batch" for row in rows)
+    assert all(row["owner_bypasses_rls"] for row in rows)
+
+
+def test_corrective_migration_contains_a_loud_owner_assertion() -> None:
+    """The apply path must raise instead of swallowing a failed owner reassignment."""
+    sql = (_ROOT / "db" / "migrations" / "146_corpus_stats_sentence_denominator.sql").read_text()
+
+    assert "RAISE EXCEPTION" in sql
+    assert "r.rolname <> 'docray_batch'" in sql
+    assert "NOT r.rolbypassrls" in sql
+    assert "NOT p.prosecdef" in sql

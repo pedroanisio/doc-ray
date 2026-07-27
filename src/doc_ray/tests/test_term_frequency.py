@@ -188,6 +188,24 @@ def test_phrase_frequency_is_an_explicit_rarest_component_upper_bound():
     assert TermFrequency.from_verdict(verdict).measurement == tf.COMPONENT_UPPER_BOUND
 
 
+def test_graphql_type_exposes_an_inconsistent_denominator_as_null() -> None:
+    """The GraphQL contract is nullable so issue #42 can fail honestly, not as 43-of-0."""
+    prepared = tf.prepare_terms(["Algorithm Design"])
+    (verdict,) = tf.build_verdicts(
+        prepared,
+        {"algorithm": 500, "design": 300},
+        10_000,
+        scans={prepared[0].key: tf.SentenceScan(hits=43, capped=False)},
+        total_sentences=0,
+    )
+
+    shaped = TermFrequency.from_verdict(verdict)
+
+    assert shaped.sentence_hits == 43
+    assert shaped.total_sentences is None
+    assert shaped.note is not None and "unavailable" in shaped.note.lower()
+
+
 def test_an_absent_phrase_component_proves_the_phrase_is_unattested():
     prepared = tf.prepare_terms(["design zephyrquux"])
 
@@ -440,6 +458,28 @@ async def test_term_frequency_triages_a_batch_in_one_call(monkeypatch):
     assert [r["floodRisk"] for r in out] == ["high", "low"]
     assert len(client.calls) == 1  # FR-3: one round-trip for the whole batch
     assert client.calls[0][1]["variables"]["t"] == ["spice", "zephyrquux"]
+
+
+@pytest.mark.asyncio
+async def test_mcp_preserves_the_graphql_missing_denominator_contract(monkeypatch):
+    """MCP must carry GraphQL null + the actionable note without reshaping either."""
+    row = _row("Algorithm Design", 300, 10_000, "low", True)
+    row.update(
+        {
+            "method": "sentence_scan",
+            "sentenceHits": 43,
+            "totalSentences": None,
+            "capped": False,
+            "note": "totalSentences unavailable — denominator rollup empty",
+        }
+    )
+    _patch(monkeypatch, {"data": {"termFrequency": [row]}})
+
+    (result,) = await structure.term_frequency(["Algorithm Design"])
+
+    assert result["sentenceHits"] == 43
+    assert result["totalSentences"] is None
+    assert "unavailable" in result["note"].lower()
 
 
 @pytest.mark.asyncio
