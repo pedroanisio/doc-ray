@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import types
 from contextlib import asynccontextmanager
 
 import httpx
@@ -174,6 +175,21 @@ async def test_create_app_installs_gzip_and_chains_fastmcp_lifespan(monkeypatch)
         events.append("original-exit")
 
     class _MCP:
+        """Registry double.
+
+        Since the read/curation split (#36 Phase 2) `create_app` no longer wraps the
+        sub-app's lifespan — Starlette never runs a mounted app's lifespan, so each
+        registry's session manager is entered explicitly instead. The double follows
+        that contract.
+        """
+
+        settings = types.SimpleNamespace(streamable_http_path="/mcp")
+
+        @property
+        def session_manager(self):
+            # session_manager.run() takes no app argument, unlike a Starlette lifespan.
+            return types.SimpleNamespace(run=lambda: original_lifespan(None))
+
         def streamable_http_app(self):
             return Starlette(lifespan=original_lifespan)
 

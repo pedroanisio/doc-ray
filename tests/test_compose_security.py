@@ -672,3 +672,17 @@ def test_postgres_and_migrate_declare_a_stop_grace_period():
         f"migrate stop_grace_period too short to cancel + unwind an in-flight statement: "
         f"{migrate_grace!r}"
     )
+
+
+def test_nginx_routes_both_mcp_endpoints_through_one_prefix():
+    """The curation endpoint (#36 Phase 2) rides the same prefix as the read one.
+
+    An exact-match `location = /mcp` would leave /mcp/curate to the webapp
+    catch-all, which answers 302 -> /login. That reads as "the tool is missing"
+    to a client rather than as a routing fault, so the prefix is pinned here.
+    """
+    text = (_ROOT / "nginx" / "templates" / "default.conf.template").read_text(encoding="utf-8")
+
+    assert "location /mcp {" in text
+    assert "location = /mcp" not in text
+    assert "$mcp_upstream" in text

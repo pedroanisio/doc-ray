@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import os
 from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
+from contextlib import AsyncExitStack, asynccontextmanager
 from urllib.parse import urlparse
 
 from mcp.server.fastmcp import FastMCP
@@ -109,7 +109,9 @@ SERVER_INSTRUCTIONS = (
     "nothing. Multi-word phrases are worth batching too — they come back MEASURED "
     "(method=`sentence_scan`, with sentenceHits) against the same literal-substring "
     "rule search_sentences uses, so for a phrase the pre-flight predicts the search "
-    "exactly. `capped: true` makes sentenceHits a floor, not a total.\n\n"
+    "exactly. `capped: true` makes sentenceHits a floor, not a total. A null "
+    "totalSentences plus an unavailable-denominator note means the maintained "
+    "rollup needs repair; the absolute floodRisk band is still usable.\n\n"
     "For who and what a document is about, prefer entity_profiles over "
     "entity_frequency: raw NER splits one entity across types and spellings, and "
     "profiles merge them and report the disagreement as typeConsistency — a low "
@@ -122,11 +124,44 @@ SERVER_INSTRUCTIONS = (
 )
 
 
+#: Absolute path of the read-only endpoint — the one every agent starts from.
+READ_PATH = "/mcp"
+#: Absolute path of the curation endpoint (#36 Phase 2, OD-1 Option A). Registered
+#: only when ``DOCRAY_MCP_ENABLE_WRITE`` is set, so a deployment that never enables
+#: writes exposes no curation path at all.
+CURATION_PATH = "/mcp/curate"
+
+
+def build_read_server() -> FastMCP:
+    """Create the read-only registry served at :data:`READ_PATH`.
+
+    Cannot be widened. Before #36 Phase 2, ``DOCRAY_MCP_ENABLE_WRITE`` added the
+    curation tools to *this* registry, so a read-only caller on a write-enabled
+    deployment downloaded 32 tools it would never invoke — the measured cost every
+    session paid before its first useful call.
+    """
+    return build_server(enable_write=False)
+
+
+def build_curation_server() -> FastMCP:
+    """Create the curation registry served at :data:`CURATION_PATH`.
+
+    Carries the read tools as well as the write ones: a curation agent has to be
+    able to read what it is about to change, and making it configure two endpoints
+    to do so would double the configuration burden this split already asks of
+    consumers once.
+    """
+    return build_server(enable_write=True)
+
+
 def build_server(enable_write: bool = False) -> FastMCP:
     """Create a FastMCP server with the corpus read + composition-grounding tools.
 
     Every tool is wrapped by :func:`~doc_ray.entrypoints.mcp.audit.audited`, so
     each call emits one audit log line (caller fingerprint, outcome, duration).
+
+    Prefer :func:`build_read_server` / :func:`build_curation_server`, which name
+    the two registries the deployment actually serves.
 
     Args:
         enable_write: When true, additionally register the reprocessing + curation
@@ -180,19 +215,40 @@ def create_app(cfg: Config | None = None) -> Starlette:
         A Starlette app exposing the MCP endpoint behind :class:`BearerAuthMiddleware`.
     """
     cfg = cfg or Config.from_env()
-    app = build_server(enable_write=cfg.mcp_enable_write).streamable_http_app()
-    original_lifespan = app.router.lifespan_context
+
+    # Two registries, ONE app. Each FastMCP builds its own absolutely-pathed route,
+    # so combining `routes` (rather than Mount-ing sub-apps) keeps the paths exact —
+    # a Mount would strip its prefix and leave the sub-app looking for "" instead of
+    # its own path. Sharing one app is also what makes A-FR-2 true by construction:
+    # there is a single middleware chain, so the curation endpoint cannot drift into
+    # a lower-scrutiny path.
+    read = build_read_server()
+    curation = build_curation_server() if cfg.mcp_enable_write else None
+    if curation is not None:
+        curation.settings.streamable_http_path = CURATION_PATH
+
+    read_app = read.streamable_http_app()
+    curation_app = curation.streamable_http_app() if curation is not None else None
+    routes = [*read_app.routes, *(curation_app.routes if curation_app is not None else ())]
 
     @asynccontextmanager
     async def lifespan(chained_app: Starlette) -> AsyncIterator[None]:
-        """Preserve FastMCP transport management, then close the shared HTTP pool."""
+        """Run each registry's session manager, then close the shared HTTP pool.
+
+        Starlette does not run a mounted sub-app's lifespan, and FastMCP puts its
+        session manager there — so every registry's manager is entered explicitly.
+        Missing one would 404 every request to that endpoint.
+        """
         try:
-            async with original_lifespan(chained_app):
+            async with AsyncExitStack() as stack:
+                await stack.enter_async_context(read.session_manager.run())
+                if curation is not None:
+                    await stack.enter_async_context(curation.session_manager.run())
                 yield
         finally:
             await close_client()
 
-    app.router.lifespan_context = lifespan
+    app = Starlette(routes=routes, lifespan=lifespan)
 
     # Ops Phase 3 (#18): liveness/readiness probes, mounted as plain routes so the
     # container runtime and a deploy gate can reach them. They bypass auth and the

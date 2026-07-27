@@ -33,7 +33,9 @@ plus **32 opt-in write tools**
 (reprocessing + curation + full collection lifecycle + projection review
 `confirm_projection` / `reject_projection` + allusion curation `propose_allusion` /
 `confirm_allusion` / `reject_allusion`) registered only when
-`DOCRAY_MCP_ENABLE_WRITE=true` — the default surface stays read-only. It also
+`DOCRAY_MCP_ENABLE_WRITE=true`, and served at their **own endpoint**
+(`/mcp/curate`) rather than widening `/mcp` — the read endpoint stays read-only
+whatever the flag says (see §2.1). It also
 declares MCP's **resources** primitive: 3 listable `docray://` entry points +
 5 drill-down templates (§3) addressing the same RLS-scoped reads by URI, and its
 **prompts** primitive: 4 user-selectable workflows (§3.7) that ship the corpus
@@ -99,6 +101,41 @@ principal whose token it presents, which for a token minted against a regular
 user account is that user's own documents, not the tenant's. Nothing in the MCP
 layer enforces this; it inherits the boundary from the GraphQL API, as with
 every other read rule.
+
+## 2.1 Two endpoints — read and curation (#36 Phase 2)
+
+| Endpoint | Registry | Registered when |
+|---|---|---|
+| `https://doc-ray.com/mcp` | the read tools only | always |
+| `https://doc-ray.com/mcp/curate` | read tools **+** the write tools | `DOCRAY_MCP_ENABLE_WRITE=true` |
+
+**Why.** Every agent session downloads the advertised tool surface before its
+first useful call. `DOCRAY_MCP_ENABLE_WRITE` used to *widen* `/mcp`, so on a
+write-enabled deployment a read-only caller paid for 32 curation tools it would
+never invoke. Measured: the read registry serializes to ~45.6K characters, the
+write-enabled one to ~78.5K — the split gives a read-only caller back roughly 42%
+of that cost.
+
+**What the split does and does not guarantee.** The server guarantees `/mcp`
+cannot be widened. It cannot guarantee the saving: MCP has no cross-server
+routing, so each endpoint is a separate client-side entry, and a client that
+configures **both** loads both tool lists and saves nothing. Point read-only
+agents at `/mcp` and only curation agents at `/mcp/curate`.
+
+**Not a weaker path.** Both endpoints are routes on one Starlette app behind one
+middleware chain, so bearer auth, rate limiting, audit logging and the health
+probes apply identically. `/mcp/curate` is not a lower-scrutiny door: every write
+remains gated by the API's `write` scope and per-document ACLs, exactly as before.
+
+**Migration (breaking).** A client that used `DOCRAY_MCP_ENABLE_WRITE` to get
+write tools from `/mcp` will no longer see them there — repoint it at
+`/mcp/curate`. The flag keeps its security meaning; it now decides whether the
+curation endpoint exists at all rather than how wide `/mcp` is.
+
+Deployment: nginx routes `location /mcp` as a **prefix**, so both endpoints reach
+the same service; tightening it to an exact match would drop `/mcp/curate` to the
+webapp catch-all (302 → `/login`, a silent break). The Cloudflare tunnel routes
+by hostname dashboard-side and needs no change.
 
 ## 2. Module layout
 
@@ -675,14 +712,13 @@ not spend one round-trip per term. Each row carries the numbers behind the verdi
 that number is `exact`, a `component_upper_bound`, or `unavailable`.
 `attested: false` distinguishes an absent lexeme from a lookup failure.
 
-**Whitespace phrases are conservative estimates, not fabricated counts.** For
-`"design decision"`, the same one-statement rollup read fetches `design` and
-`decision`; `uses` is the smaller component count, because the phrase cannot occur
-more often than its rarest component. The row reports
-`measurement: "component_upper_bound"`, includes both component counts in `parts`,
-and leaves positive `attested` null because separate counts do not prove adjacency.
-If either component is absent, `attested: false` is justified. Confirm actual
-ordered matches with `full_text_search(mode="phrase")`.
+**Whitespace phrases retain conservative secondary evidence.** For `"design
+decision"`, the rollup read fetches `design` and `decision`; `uses` is the smaller
+component count, because the phrase cannot occur more often than its rarest
+component. The row reports `measurement: "component_upper_bound"` and includes both
+component counts in `parts`, but its primary `floodRisk`/`attested` verdict comes
+from the direct sentence scan below. Separate component counts still do not prove
+adjacency.
 
 **What this tool cannot count, and why it now says so (BL-164).** The lexeme
 tokenizer (`lexemes._WORD_RE`) excludes `_` and digits from word characters, so the
@@ -715,6 +751,27 @@ exactly, rather than approximating it with a proxy:
 //     "uses": null, "share": null,        // no lexeme count exists, so none is invented
 //     "parts": [{"part": "shared", "uses": 12}, {"part": "buffers", "uses": 70}]}]
 ```
+
+**The denominator is nullable by design.** `totalSentences` comes from the
+maintained `corpus_stats` rollup, not a live count over the large `sentences` fact
+table. If the scan measures positive hits while that rollup is missing or stale,
+the response keeps the measured hit count and absolute hit-band verdict but returns
+`totalSentences: null` with an explicit note:
+
+```jsonc
+// The same shape is returned by GraphQL termFrequency and MCP term_frequency.
+{"term": "Model Context Protocol", "method": "sentence_scan",
+ "sentenceHits": 43, "totalSentences": null, "capped": false,
+ "floodRisk": "low", "attested": true,
+ "note": "… total-sentence denominator is unavailable because corpus_stats rollup is empty; …"}
+```
+
+This is an integrity-degraded result, never “43 of 0 sentences.” The `floodRisk`
+remains usable because scan bands are based on the bounded absolute hit count. A
+genuinely empty visible corpus still returns zero hits with `totalSentences: 0`.
+Operators should apply migration 146 and run `make prod-check NO_SEND=1`; a failing
+`corpus_rollups` check means the maintained tenant total disagrees with its
+document-level inputs and must be repaired before deployment is declared healthy.
 
 **`capped` is a floor, not a total.** The scan stops at `SENTENCE_HIGH_HITS`, so a
 phrase that floods the corpus costs the same as a rare one. When it stops there,
@@ -769,8 +826,9 @@ a bug:
 
 So `term_frequency` is a **corpus-saturation signal**, a strong proxy for — not an
 exact predictor of — any one tool's hit count. It is most precise for base-form
-content words (surface ≈ lemma); phrase results are upper bounds and it diverges
-for inflected or substring queries;
+content words (surface ≈ lemma); phrase/compound scan results directly predict
+`search_sentences`, while their `uses` component evidence remains an upper bound;
+single lexemes diverge for inflected or substring queries;
 when in doubt, trust the exposed numbers over the bucket. **Corpus-wide only for
 now** (Open decision 1(a)): passing `documentId`/`document_id` returns a typed
 `unsupported` error rather than corpus numbers mislabelled as document-scoped — a
@@ -877,10 +935,11 @@ is not advertised; no server operation currently depends on it.
 > A shared store (Redis/Postgres) would be needed for a hard cluster-wide cap — not
 > introduced here, deliberately.
 
-### Write tools (opt-in — `DOCRAY_MCP_ENABLE_WRITE=true`)
+### Write tools (opt-in — `DOCRAY_MCP_ENABLE_WRITE=true`, served at `/mcp/curate`)
 
-Registered **only** when writes are enabled, so the default surface stays
-read-only (a disabled deployment does not even list these in `tools/list`). Each
+Registered **only** when writes are enabled, and only on the curation endpoint
+`/mcp/curate` — a disabled deployment exposes no such path at all, and an enabled
+one still serves `/mcp` read-only (§2.1). Each
 forwards the caller's token into the API, whose guards remain authoritative:
 `_require_write_audited` (authenticated principal **+ `write` scope** + billing
 entitlement, audited) and `_require_document_write` (per-document ACL, BL-064). A

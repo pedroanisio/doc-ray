@@ -53,12 +53,17 @@ server {
         proxy_read_timeout 1h;
     }
 
-    # MCP Streamable-HTTP endpoint — the `mcp` service exists only when the
+    # MCP Streamable-HTTP endpoints — the `mcp` service exists only when the
     # docker-compose.mcp.yml overlay is layered on, so resolve the name at
     # request time via compose DNS (a literal proxy_pass host would make nginx
     # exit at config-load whenever the overlay is absent; this way it 502s
     # instead). POST and the SSE stream share this path — same streaming
     # settings as /jobs/events.
+    #
+    # PREFIX match, deliberately: it carries both the read endpoint (/mcp) and the
+    # curation endpoint (/mcp/curate, #36 Phase 2). Tightening this to `location =
+    # /mcp` would drop /mcp/curate through to the webapp catch-all below, which
+    # answers 302 -> /login rather than 404 — a silent break, not a loud one.
     location /mcp {
         resolver 127.0.0.11 valid=30s;
         set $mcp_upstream http://mcp:8080;

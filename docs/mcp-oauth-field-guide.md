@@ -10,6 +10,17 @@ disclaimer:
 
 # Securing an MCP Server with OAuth 2.1 — A Field Guide
 
+> **doc-ray note — two endpoints, one protected resource.** Since #36 Phase 2 the
+> server exposes `/mcp` (read) and `/mcp/curate` (curation). They are routes on one
+> app behind one `BearerAuthMiddleware`, and the `WWW-Authenticate` challenge
+> advertises a single `resource_metadata` URL derived from
+> `DOCRAY_PUBLIC_BASE_URL` — so under RFC 9728 the two paths are **one** protected
+> resource, not two. A token valid for one is valid for the other; the read/write
+> boundary is enforced by the API's `write` scope and per-document ACLs, never by
+> which path the request arrived on. Do not treat `/mcp/curate` as a separate
+> OAuth audience, and do not assume reaching it implies write authorization.
+
+
 **Audience:** engineers building or hardening a Model Context Protocol (MCP)
 server that agents (Claude Desktop, Claude Code, custom clients) connect to.
 **Goal:** take an MCP server from "paste a bearer token" to a standards-based
