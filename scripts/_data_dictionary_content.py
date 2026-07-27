@@ -374,6 +374,10 @@ MIGRATIONS = [
         "semantic embed, geometry re-extract) with a materialized next_run_at the "
         "scheduler claims with FOR UPDATE SKIP LOCKED; admin-only, no user write policy",
     ),
+    (
+        "145_schema_version_1_53_0",
+        "advance the schema SemVer to 1.53.0 for the read/curation MCP endpoint split",
+    ),
 ]
 
 # ---------------------------------------------------------------------------

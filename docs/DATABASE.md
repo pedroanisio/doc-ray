@@ -1,6 +1,6 @@
 # doc-ray — Database ERD & Data Dictionary
 
-**Schema version `1.52.0`** (SemVer) · 144 migrations applied
+**Schema version `1.53.0`** (SemVer) · 145 migrations applied
 
 > Generated from the live schema by `scripts/gen_data_dictionary.py`. Do not edit by hand — re-run the generator.
 
@@ -1867,6 +1867,8 @@ class progress), the applied-migration ledger, the schema's SemVer, and the corp
 `backups` and the `jobs` queue are excluded from every snapshot and from restore, so a restore never
 clobbers the queue or the archive index it is reading from. `job_telemetry` is an append-only per-
 job execution record (GPU/CPU lane, timings) for cost attribution (migration 126).
+`operation_schedule` stores validated recurring maintenance cadences and their materialized next
+firing time (migration 144).
 
 #### `jobs`
 
@@ -1909,6 +1911,35 @@ job execution record (GPU/CPU lane, timings) for cost attribution (migration 126
 - **Index** `idx_jobs_status`: public.jobs USING btree (status, id)
 - **Index** `jobs_enqueued_by_idx`: public.jobs USING btree (enqueued_by) WHERE (enqueued_by IS NOT NULL)
 - **RLS:** enabled — read/write policies via *document_id (admin-only when NULL)* (FORCED)
+
+#### `operation_schedule`
+
+Recurring corpus-maintenance operations. One row per schedule; the scheduler claims due rows with FOR UPDATE SKIP LOCKED and advances next_run_at in the same transaction.
+
+| Column | Type | Null | Key | Default | Notes |
+|---|---|---|---|---|---|
+| `id` | ulid |  | PK |  |  |
+| `operation_key` | text |  |  |  |  |
+| `cadence` | jsonb |  |  |  | Validated recurrence structure (kind + fields) from domain/operation_cadence.py, never a raw cron string. |
+| `only_missing` | boolean |  |  | `true` |  |
+| `priority` | integer |  |  | `500` |  |
+| `enabled` | boolean |  |  | `true` |  |
+| `note` | text | yes |  |  |  |
+| `next_run_at` | timestamp with time zone |  |  |  | Materialized next firing time (UTC). Advanced inside the claiming transaction so concurrent schedulers cannot double-fire one schedule. |
+| `last_run_at` | timestamp with time zone | yes |  |  |  |
+| `last_job_count` | integer | yes |  |  |  |
+| `last_error` | text | yes |  |  |  |
+| `created_at` | timestamp with time zone |  |  | `now()` |  |
+| `updated_at` | timestamp with time zone |  |  | `now()` |  |
+| `created_by` | uuid | yes | FK→principals |  |  |
+
+- **Primary key:** (id)
+- **FK:** FOREIGN KEY (created_by) REFERENCES principals(id) ON DELETE SET NULL
+- **Check:** CHECK (((last_job_count IS NULL) OR (last_job_count >= 0)))
+- **Check:** CHECK ((btrim(operation_key) <> ''::text))
+- **Check:** CHECK ((priority >= 0))
+- **Index** `operation_schedule_due_idx`: public.operation_schedule USING btree (next_run_at, id) WHERE enabled
+- **RLS:** enabled — read/write policies via *?* (FORCED)
 
 #### `schema_migrations`
 
@@ -2169,6 +2200,7 @@ tenants.
 | `tenant_id` | uuid |  | PK, FK→tenants |  |  |
 | `n_distinct_lexemes` | bigint |  |  | `0` |  |
 | `computed_at` | timestamp with time zone |  |  | `now()` |  |
+| `n_sentences` | bigint |  |  | `0` |  |
 
 - **Primary key:** (tenant_id)
 - **FK:** FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE
@@ -2307,7 +2339,7 @@ document-scoped table. A principal may **read** a same-tenant document iff it is
 *admin* or holds any `document_acl` row on it, and may **write** iff *admin* or
 holds an `annotate`/`delete`/`admin` grant.
 
-**Enforcement.** RLS is `ENABLE`d **and `FORCE`d** on 66 tables (incl. `jobs`
+**Enforcement.** RLS is `ENABLE`d **and `FORCE`d** on 67 tables (incl. `jobs`
 and `backups` since migration 043 — BL-064; `FORCE` applied fleet-wide by migration 106
 — BL-138, so even a table owner is filtered). The `docray`
 role is a **superuser**, so it **bypasses RLS** (superusers are exempt even under
@@ -2493,3 +2525,4 @@ owner's bypass.
 | 142 | `142_corpus_stats_sentences.sql` | corpus_stats.n_sentences — the tenant sentence total the term-frequency sentence scan divides by, rolled up from document_stats (never counted live) |
 | 143 | `143_schema_version_1_52_0.sql` | advance the schema SemVer to 1.52.0 for the measured phrase pre-flight |
 | 144 | `144_operation_schedule.sql` | operation_schedule — recurring corpus-maintenance operations (visual tiers, semantic embed, geometry re-extract) with a materialized next_run_at the scheduler claims with FOR UPDATE SKIP LOCKED; admin-only, no user write policy |
+| 145 | `145_schema_version_1_53_0.sql` | advance the schema SemVer to 1.53.0 for the read/curation MCP endpoint split |

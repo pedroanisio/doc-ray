@@ -19,6 +19,38 @@ doc-ray carries **one global version** covering both the application package
 (`docray_schema_version()`). They are kept in lockstep by
 `scripts/check_version_consistency.py`, which fails the build on any drift.
 
+## [1.53.0]
+
+### Changed
+
+- **BREAKING (MCP surface): curation tools moved to their own endpoint (#36 Phase 2).**
+  `DOCRAY_MCP_ENABLE_WRITE=true` used to *widen* `/mcp` to all 65 tools, so a
+  read-only caller on a write-enabled deployment downloaded 32 curation tools it
+  would never invoke — a cost every agent session paid before its first useful
+  call. The write registry now lives at **`/mcp/curate`**; `/mcp` is read-only
+  whatever the flag says. Measured: the read surface serializes to ~45.6K
+  characters against ~78.5K for the curation one — about 42% back for a read-only
+  caller.
+
+  **Migration:** a client that relied on `DOCRAY_MCP_ENABLE_WRITE` to get write
+  tools from `/mcp` must be repointed at `/mcp/curate`. The flag keeps its
+  security meaning — it now decides whether the curation endpoint exists at all
+  rather than how wide `/mcp` is, so a deployment with writes disabled exposes no
+  such path.
+
+  **The saving depends on you, not the server.** MCP has no cross-server routing:
+  each endpoint is a separate client-side entry, so a client configured with both
+  loads both tool lists and saves nothing. The server guarantees only that `/mcp`
+  cannot be widened.
+
+  **Not a weaker door.** Both endpoints are routes on one Starlette app behind one
+  middleware chain, so bearer auth, rate limiting, audit and health probes apply
+  identically, and they remain a single RFC 9728 protected resource — the
+  read/write boundary is the API's `write` scope and per-document ACLs, never the
+  path. nginx routes `location /mcp` as a prefix, pinned by a test: tightening it
+  to an exact match would drop `/mcp/curate` to the webapp catch-all as a 302 to
+  `/login`, which reads as a missing tool rather than a routing fault.
+
 ## [1.52.0]
 
 ### Changed

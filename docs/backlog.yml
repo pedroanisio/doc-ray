@@ -110,7 +110,7 @@ metadata:
   generated_by:     "Claude Sonnet 5 via Claude Code (merge of Claude Opus 4.8 backlog + OpenAI Codex improvement-proposal candidates)"
   generated_on:     "2026-07-05"
   system_of_record: "docs/backlog.yml"
-  total_items:      178
+  total_items:      179
 
 items:
 
@@ -6377,3 +6377,64 @@ items:
     owner:        "shared"
     source:       "GitHub issue #39 (Retrieval P1), implemented 2026-07-27 (Claude Opus 5 via Claude Code). EXPLAIN on the production corpus confirms Bitmap Index Scan on idx_sentences_text_trgm; 'Model Context Protocol' measures 212 sentences there — the phrase the issue reported as a fabricated zero."
     tags:         ["mcp", "retrieval", "term-frequency", "phrases", "d-024"]
+
+  - id:          "BL-179"
+    title:       "MCP curation tools widened the read endpoint every session paid for"
+    summary:     "`DOCRAY_MCP_ENABLE_WRITE=true` added the 32 curation tools to `/mcp` itself, so on a write-enabled deployment every read-only caller downloaded the write surface before its first useful call — ~78.5K serialized characters instead of ~45.6K."
+    description: |
+      Root cause. The read/write boundary existed only as a build-time flag on a
+      single registry: `build_server(enable_write=...)` decided how wide `/mcp`
+      was, per process. A deployment that needed curation at all had to widen the
+      endpoint everyone used.
+
+      Fix (#36 Phase 2, OD-1 Option A, operator-selected). Two registries, two
+      paths, one app: `/mcp` serves the read tools and cannot be widened;
+      `/mcp/curate` serves read + write and exists only when the flag is set. Both
+      are routes on one Starlette app behind one middleware chain, so auth, rate
+      limiting, audit and health probes apply identically and the curation path is
+      not a lower-scrutiny door.
+
+      Recorded limits, so they are not rediscovered as surprises:
+
+      (1) The saving is a property of consumer segmentation, not of the split. MCP
+      has no cross-server routing — each endpoint is a separate client-side entry —
+      so a client configured with both loads both lists and saves nothing. The
+      server can only guarantee that `/mcp` cannot be widened.
+
+      (2) The two paths are ONE RFC 9728 protected resource: one middleware, one
+      advertised `resource_metadata` URL. A token valid at `/mcp` is valid at
+      `/mcp/curate`; authorization is the API's `write` scope and per-document
+      ACLs, never the path.
+
+      (3) nginx routes `location /mcp` as a prefix. Tightening it to an exact
+      match would drop `/mcp/curate` to the webapp catch-all, which answers
+      302 -> /login — a silent break that reads as a missing tool. Pinned by test.
+
+      An alternative was considered and not selected: per-credential `tools/list`
+      on one endpoint (`FastMCP.list_tools` is overridable and the bearer
+      middleware sets the caller token before the MCP app runs). That would make
+      the reduction server-enforced rather than configuration-dependent, at the
+      cost of a credential-dependent tool list and listChanged cache invalidation.
+    category:     "api"
+    type:         "bug"
+    status:       "done"
+    complexity:   "M"
+    priority:     "high"
+    rationale:    "Discovery cost is paid by every session before any value is delivered, and it was being charged to callers who could not use what they were downloading. The fix is a boundary the codebase already modelled, moved from build-time width to a second address."
+    acceptance_criteria:
+      - "The read endpoint registers only the read tools regardless of DOCRAY_MCP_ENABLE_WRITE."
+      - "The curation endpoint carries read + write tools at its own path, and does not exist when writes are disabled."
+      - "Both endpoints answer tools/list over HTTP — proving each registry's session manager is actually running, which a route-existence assertion cannot show."
+      - "Enabling curation adds and removes no middleware: the two paths share one chain."
+      - "The read surface serializes materially smaller than the curation one, measured from live registries rather than a constant."
+      - "nginx keeps a prefix match for /mcp so both endpoints route to the same service."
+    dependencies: []
+    references:
+      - "src/doc_ray/entrypoints/mcp/server.py"
+      - "src/doc_ray/tests/test_mcp_curation_endpoint.py"
+      - "nginx/templates/default.conf.template"
+      - "docs/mcp-service.md"
+      - "docs/mcp-oauth-field-guide.md"
+    owner:        "shared"
+    source:       "GitHub issue #36 Phase 2; operator selected OD-1 Option A on 2026-07-27. Implemented same day (Claude Opus 5 via Claude Code). Measured surfaces: read 33 tools / 45,576 chars; curation 65 tools / 78,494 chars."
+    tags:         ["mcp", "discovery", "tokens", "breaking", "endpoints"]

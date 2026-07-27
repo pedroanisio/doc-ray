@@ -546,6 +546,7 @@ against.
 | BL-176 | MCP clients were bound to an in-memory transport session lost on restart | api | bug | done | S | high | shared |
 | BL-177 | MCP namespacing could not be justified by the available evaluation mode | tooling | tech-debt | done | XS | medium | shared |
 | BL-178 | term_frequency declined multi-word terms instead of measuring them (bounded sentence scan under search_sentences' own rule) | api | bug | done | M | high | shared |
+| BL-179 | MCP curation tools widened the read endpoint every session paid for (split to /mcp + /mcp/curate) | api | bug | done | M | high | shared |
 
 See [`backlog.yml`](backlog.yml) for each item's full description, rationale,
 acceptance criteria, dependencies, related decisions (`D-###`), and references.
