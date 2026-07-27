@@ -7,6 +7,7 @@ type NavItem = { to: string; label: string; end?: boolean; capability?: "backup"
 const NAV: NavItem[] = [
   { to: "/", label: "Dashboard", end: true },
   { to: "/jobs", label: "Jobs" },
+  { to: "/operations", label: "Operations" },
   { to: "/documents", label: "Documents" },
   { to: "/audit", label: "Audit log" },
   { to: "/backups", label: "Backups", capability: "backup" },

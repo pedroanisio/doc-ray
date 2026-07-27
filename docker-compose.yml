@@ -445,6 +445,25 @@ services:
       DOCRAY_BACKUP_RETENTION_DAYS: ${DOCRAY_BACKUP_RETENTION_DAYS:-30}
     entrypoint: ["python", "-m", "doc_ray.entrypoints.backup_scheduler"]
 
+  # Fires due rows in `operation_schedule` (migration 144) — the recurring half of
+  # the admin console's Operations page. Separate from the workers on purpose: a
+  # scheduler sharing a worker process would stop ticking exactly when the worker
+  # is busy draining a multi-hour GPU job, which is when a nightly sweep is due.
+  # It only enqueues, so it is cheap to run and safe to restart at any moment.
+  operation-scheduler:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      PYTHONPATH: /app/src
+      DATABASE_URL: postgresql://${POSTGRES_USER:-docray}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD to a non-default secret}@postgres:5432/${POSTGRES_DB:-docray}
+      DOCRAY_OPERATION_SCHEDULER_INTERVAL: ${DOCRAY_OPERATION_SCHEDULER_INTERVAL:-60}
+    entrypoint: ["python", "-m", "doc_ray.entrypoints.operation_scheduler"]
+
   # Optional ops monitor: exits non-zero when db_health finds a warning/error.
   # Enable with: docker compose --profile ops up -d db-health-monitor
   db-health-monitor:

@@ -359,6 +359,12 @@ MIGRATIONS = [
         "141_schema_version_1_51_0",
         "advance the schema SemVer to 1.51.0 for exact-surface NER corrections",
     ),
+    (
+        "144_operation_schedule",
+        "operation_schedule — recurring corpus-maintenance operations (visual tiers, "
+        "semantic embed, geometry re-extract) with a materialized next_run_at the "
+        "scheduler claims with FOR UPDATE SKIP LOCKED; admin-only, no user write policy",
+    ),
 ]
 
 # ---------------------------------------------------------------------------

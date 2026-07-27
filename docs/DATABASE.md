@@ -1,6 +1,6 @@
 # doc-ray — Database ERD & Data Dictionary
 
-**Schema version `1.51.0`** (SemVer) · 141 migrations applied
+**Schema version `1.51.0`** (SemVer) · 142 migrations applied
 
 > Generated from the live schema by `scripts/gen_data_dictionary.py`. Do not edit by hand — re-run the generator.
 
@@ -2493,3 +2493,4 @@ owner's bypass.
 | 139 | `139_schema_version_1_50_0.sql` | advance the schema SemVer to 1.50.0 for mention-confidence review |
 | 140 | `140_entity_surface_corrections.sql` | durable exact-surface/current-type NER correction rules without fake spans |
 | 141 | `141_schema_version_1_51_0.sql` | advance the schema SemVer to 1.51.0 for exact-surface NER corrections |
+| 144 | `144_operation_schedule.sql` | operation_schedule — recurring corpus-maintenance operations (visual tiers, semantic embed, geometry re-extract) with a materialized next_run_at the scheduler claims with FOR UPDATE SKIP LOCKED; admin-only, no user write policy |

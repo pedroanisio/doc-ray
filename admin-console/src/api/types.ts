@@ -126,3 +126,70 @@ export interface LivenessProbe {
   status: string;
   version?: string;
 }
+
+// ── Corpus maintenance operations (operations_types.py) ───────────────────────
+
+export type CadenceKind = "interval" | "daily" | "weekly" | "monthly";
+
+export interface Cadence {
+  kind: CadenceKind;
+  everyMinutes: number | null;
+  hour: number | null;
+  minute: number | null;
+  weekday: number | null;
+  dayOfMonth: number | null;
+  description: string;
+}
+
+/** Only the fields the chosen `kind` uses need to be set; the server validates. */
+export interface CadenceInput {
+  kind: CadenceKind;
+  everyMinutes?: number | null;
+  hour?: number | null;
+  minute?: number | null;
+  weekday?: number | null;
+  dayOfMonth?: number | null;
+}
+
+export interface Operation {
+  key: string;
+  label: string;
+  jobKind: string;
+  lane: "cpu" | "gpu";
+  summary: string;
+  completeness: string;
+  expensive: boolean;
+  defaultPriority: number;
+  pendingDocuments: number;
+  pendingUnits: number;
+  /** 'images' | 'sentences' | null when the document count is the whole story. */
+  unitLabel: string | null;
+  activeJobs: number;
+  lastStatus: string | null;
+  lastFinishedAt: string | null;
+  lastError: string | null;
+}
+
+export interface OperationSchedule {
+  id: string;
+  operationKey: string;
+  cadence: Cadence;
+  onlyMissing: boolean;
+  priority: number;
+  enabled: boolean;
+  note: string | null;
+  nextRunAt: string;
+  lastRunAt: string | null;
+  lastJobCount: number | null;
+  lastError: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface OperationRun {
+  operationKey: string;
+  enqueued: number;
+  priority: number;
+  runAfter: string | null;
+  jobIds: string[];
+}

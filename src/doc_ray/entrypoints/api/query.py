@@ -34,6 +34,7 @@ from doc_ray.entrypoints.api.lens_rollup_query import LensRollupQueries
 from doc_ray.entrypoints.api.mention_confidence_query import MentionConfidenceQueries
 from doc_ray.entrypoints.api.meta_query import MetaQueries
 from doc_ray.entrypoints.api.mutation_guards import _require_admin_read
+from doc_ray.entrypoints.api.operations_query import OperationQueries
 from doc_ray.entrypoints.api.projection_query import ProjectionQueries
 from doc_ray.entrypoints.api.security_audit import record_audit_event
 from doc_ray.entrypoints.api.security_audit_types import SecurityAuditEvent
@@ -69,6 +70,7 @@ class Query(
     MentionConfidenceQueries,
     CorrectionQueries,
     MetaQueries,
+    OperationQueries,
 ):
     """The GraphQL query root."""
 

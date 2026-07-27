@@ -10,6 +10,8 @@ from dataclasses import replace
 
 import pytest
 from _billing_test_support import (
+    BILLING_EXEMPT_MUTATIONS,
+    BILLING_GUARDED_MUTATIONS,
     _apply_billing_migration,
     _architecture_stripe_section,
     _cfg,
@@ -31,58 +33,8 @@ def test_paid_saas_mutations_cannot_drift_outside_billing_entitlement_guard() ->
         field.python_name: field.base_resolver.wrapped_func
         for field in schema.mutation.__strawberry_definition__.fields
     }
-    exempt_mutations = {
-        "create_billing_checkout_session": "mutation.create_billing_checkout_session",
-        "create_billing_portal_session": "mutation.create_billing_portal_session",
-        "retry_billing_event": "mutation.retry_billing_event",
-    }
-    guarded_mutations = {
-        "add_document_to_collection": "mutation.add_document_to_collection",
-        "annotate_document": "mutation.annotate",
-        "confirm_allusion": "mutation.confirm_allusion",
-        "propose_allusion": "mutation.propose_allusion",
-        "reject_allusion": "mutation.reject_allusion",
-        "archive_document": "mutation.archive_document",
-        "bulk_archive_documents": "mutation.bulk_archive_documents",
-        "bulk_tag_documents": "mutation.bulk_tag_documents",
-        "cancel_job": "mutation.cancel_job",
-        "canonicalize_document": "mutation.canonicalize",
-        "classify_document": "mutation.classify_document",
-        "confirm_document_classification": "mutation.confirm_document_classification",
-        "confirm_projection": "mutation.confirm_projection",
-        "correct_entity_mention": "mutation.correct_entity_mention",
-        "correct_entity_surface": "mutation.correct_entity_surface",
-        "create_backup": "mutation.backup",
-        "create_collection": "mutation.create_collection",
-        "decide_document_metadata_suggestions": ("mutation.decide_document_metadata_suggestions"),
-        "decide_visual_captions": "mutation.decide_visual_captions",
-        "decide_seeds": "mutation.decide_seeds",
-        "delete_collection": "mutation.delete_collection",
-        "delete_document": "mutation.delete",
-        "demote_lens": "mutation.demote_lens",
-        "embed_corpus_sentences": "mutation.embed_corpus_sentences",
-        "embed_document_sentences": "mutation.embed_document_sentences",
-        "ingest_document": "mutation.ingest",
-        "promote_collection_to_lens": "mutation.promote_collection_to_lens",
-        "reannotate": "mutation.reannotate",
-        "reextract_document": "mutation.reextract",
-        "reextract_documents": "mutation.reextract_documents",
-        "reject_projection": "mutation.reject_projection",
-        "remove_document_from_collection": "mutation.remove_document_from_collection",
-        "restore_backup": "mutation.restore",
-        "restore_document": "mutation.restore_document",
-        "revoke_document_share": "mutation.revoke_document_share",
-        "seed_approved": "mutation.seed_approved",
-        "set_document_default_lens": "mutation.set_document_default_lens",
-        "set_lens_projects": "mutation.set_lens_projects",
-        "semantic_enrich_document": "mutation.semantic_enrich",
-        "set_document_visibility": "mutation.set_document_visibility",
-        "share_document": "mutation.share_document",
-        "suggest_document_metadata": "mutation.suggest_document_metadata",
-        "suggest_seeds": "mutation.seed_suggest",
-        "update_collection": "mutation.update_collection",
-        "update_document_metadata": "mutation.update_metadata",
-    }
+    exempt_mutations = BILLING_EXEMPT_MUTATIONS
+    guarded_mutations = BILLING_GUARDED_MUTATIONS
     assert set(mutation_fields) == set(guarded_mutations) | set(exempt_mutations)
     assert set(exempt_mutations.values()) == _BILLING_ENTITLEMENT_EXEMPT_ACTIONS
     guards = (

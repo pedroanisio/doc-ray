@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Sequence
+from datetime import datetime
 from typing import Any
 
 import psycopg
@@ -29,9 +30,12 @@ from doc_ray.correlation import payload_with_request_metadata
 from doc_ray.domain.jobs import Job, JobStatus
 from doc_ray.domain.ulid import new_ulid_str
 
+# run_after is COALESCEd rather than defaulted in the column so a caller can defer
+# a job to an off-peak window ("run this sweep at 02:00") through the same enqueue
+# path the immediate case uses. NULL keeps the historical behaviour: eligible now.
 _INSERT = (
     "INSERT INTO jobs (id, kind, status, priority, payload, max_attempts, document_id, "
-    "enqueued_by) VALUES (%s, %s, 'queued', %s, %s, %s, %s, %s)"
+    "enqueued_by, run_after) VALUES (%s, %s, 'queued', %s, %s, %s, %s, %s, COALESCE(%s, now()))"
 )
 
 #: The trusted batch-writer role the RLS policies exempt (migration 106). Job
@@ -132,12 +136,16 @@ def enqueue(
     max_attempts: int = 3,
     document_id: str | None = None,
     enqueued_by: str | None = None,
+    run_after: datetime | None = None,
 ) -> str:
     """Insert a queued job (sync) and return its new id.
 
     ``enqueued_by`` records the principal a job acts for so the ``jobs`` read
     policy can show a caller their own jobs; the worker/CLI leave it ``None``
     (system-initiated work with no request principal).
+
+    ``run_after`` defers eligibility so an operator can aim an expensive sweep at
+    an off-peak window; ``None`` means eligible immediately.
 
     Elevates to the trusted writer exactly like :func:`enqueue_async` — see that
     function for why the queue is infrastructure rather than a user-writable
@@ -151,7 +159,16 @@ def enqueue(
         conn.execute(f"SET LOCAL ROLE {_BATCH_WRITER_ROLE}")
         conn.execute(
             _INSERT,
-            (job_id, kind, priority, Jsonb(payload), max_attempts, document_id, enqueued_by),
+            (
+                job_id,
+                kind,
+                priority,
+                Jsonb(payload),
+                max_attempts,
+                document_id,
+                enqueued_by,
+                run_after,
+            ),
         )
         _notify_job_event(
             conn,
@@ -177,8 +194,11 @@ async def enqueue_async(
     max_attempts: int = 3,
     document_id: str | None = None,
     enqueued_by: str | None = None,
+    run_after: datetime | None = None,
 ) -> str:
     """Insert a queued job (async, for the API) and return its new id.
+
+    ``run_after`` defers eligibility (see :func:`enqueue`); ``None`` means now.
 
     ARCHITECTURE — the queue is trusted infrastructure, not a user-writable table.
     An API request runs on a connection bound to the RLS role ``docray_api`` so a
@@ -201,7 +221,16 @@ async def enqueue_async(
         await conn.execute(f"SET LOCAL ROLE {_BATCH_WRITER_ROLE}")
         await conn.execute(
             _INSERT,
-            (job_id, kind, priority, Jsonb(payload), max_attempts, document_id, enqueued_by),
+            (
+                job_id,
+                kind,
+                priority,
+                Jsonb(payload),
+                max_attempts,
+                document_id,
+                enqueued_by,
+                run_after,
+            ),
         )
         await _notify_job_event_async(
             conn,

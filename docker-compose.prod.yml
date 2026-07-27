@@ -77,6 +77,10 @@ services:
     depends_on: !reset {}
     environment: *managed-env
 
+  operation-scheduler:
+    depends_on: !reset {}
+    environment: *managed-env
+
   webapp:
     depends_on: !reset {}
     # Per-user RLS on the webapp's direct DB reads needs the docray_api role:

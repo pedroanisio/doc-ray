@@ -47,6 +47,16 @@ _API_ONLY_ALLOWLIST: dict[str, str] = {
     "billingStatus": "The admin-console Billing page is the dedicated human surface.",
     # Job cancellation is a privileged operational action in the admin console.
     "cancelJob": "The admin-console Jobs page exposes this admin-only action.",
+    # Corpus-wide maintenance (visual tiers, semantic embed, geometry re-extract)
+    # is operator work, not corpus browsing: the read webapp deliberately has no
+    # button that enqueues thousands of GPU jobs. The admin-console Operations
+    # page is the single human surface for status, run, and schedule.
+    "operations": "The admin-console Operations page shows per-operation backlog and status.",
+    "operationSchedules": "The admin-console Operations page lists recurring schedules.",
+    "runOperation": "The admin-console Operations page runs operations now or at a chosen time.",
+    "createOperationSchedule": "The admin-console Operations page creates recurring schedules.",
+    "updateOperationSchedule": "The admin-console Operations page edits recurring schedules.",
+    "deleteOperationSchedule": "The admin-console Operations page deletes recurring schedules.",
     # Review uses the bounded canonical resolver; fuzzy registry discovery stays agent/API-only.
     "canonicalSearch": "The Review page uses canonical; fuzzy registry search is agent/API-only.",
     # Genre classification (SLP Block C) is an agent/API + MCP curation action; the read

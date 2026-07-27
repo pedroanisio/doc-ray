@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any
+from typing import Any, Final, Literal
 
 
 class JobStatus(str, Enum):
@@ -123,8 +123,11 @@ LONG_RUNNING_JOB_KINDS = frozenset(
 # rest (its WORKER_EXCLUDE_KINDS is that same set). Cost attribution needs the
 # mapping too — a GPU host-hour and a CPU host-hour are not priced alike — so it
 # lives here rather than being restated by each consumer.
-LANE_GPU = "gpu"
-LANE_CPU = "cpu"
+# Typed as literals, not bare str: the lane is a closed two-valued set, and
+# consumers that model it that way (the operations registry) would otherwise have
+# to re-narrow a plain str at every use site.
+LANE_GPU: Final[Literal["gpu"]] = "gpu"
+LANE_CPU: Final[Literal["cpu"]] = "cpu"
 
 
 def lane_for_kind(kind: str) -> str:

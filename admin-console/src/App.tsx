@@ -5,6 +5,7 @@ import { Layout } from "./components/Layout";
 import { LoginPage } from "./pages/LoginPage";
 import { DashboardPage } from "./pages/DashboardPage";
 import { JobsPage } from "./pages/JobsPage";
+import { OperationsPage } from "./pages/OperationsPage";
 import { DocumentsPage } from "./pages/DocumentsPage";
 import { AuditPage } from "./pages/AuditPage";
 import { BackupsPage } from "./pages/BackupsPage";
@@ -26,6 +27,7 @@ export function App() {
           >
             <Route index element={<DashboardPage />} />
             <Route path="jobs" element={<JobsPage />} />
+            <Route path="operations" element={<OperationsPage />} />
             <Route path="documents" element={<DocumentsPage />} />
             <Route path="audit" element={<AuditPage />} />
             <Route path="backups" element={<BackupsPage />} />
