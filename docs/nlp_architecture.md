@@ -4,8 +4,8 @@ disclaimer:
     No information within this document should be taken for granted.
     Any statement or premise not backed by a real logical definition
     or verifiable reference may be invalid, erroneous, or a hallucination.
-  generated_by: "Claude Opus 5 (1M context) via Claude Code"
-  date: "2026-07-25"
+  generated_by: "Claude Opus 5 (1M context) via Claude Code; retrieval-contract correction by OpenAI GPT-5 via Codex"
+  date: "2026-07-27"
 ---
 
 # How doc-ray Uses NLP
@@ -264,7 +264,7 @@ single `Doc`.
 
 | Output | Layer | Table | How it is derived |
 |---|---|---|---|
-| Tokens | 3 | `tokens` | spaCy tokenization; whitespace-only tokens skipped; `ordinal` is the spaCy token index |
+| Tokens | 3 | `tokens` | spaCy tokenization; whitespace-only tokens skipped; `ordinal` is the document-global spaCy token index (`t.i`), so it continues across sentence boundaries and can contain gaps |
 | Lemma + POS | 5, 6 | `tokens.upos` / `.xpos`, `lexemes` | `t.pos_` / `t.tag_`; alphabetic tokens get a lexeme link |
 | Morphology | 7 | `token_feature` | `t.morph.to_dict()` → one `(feature, value)` row each |
 | Noun chunks | 8 | `chunk` | `doc.noun_chunks`, written with `chunk_type='NP'` |
@@ -415,7 +415,7 @@ them is the most common source of "why didn't this match?".
 | `fullTextSearch` (document-level) | `persistence_fulltext_read.py::fulltext_search` | Postgres `tsvector`, ranked by `ts_rank`; `TERMS` uses `plainto_tsquery`, `PHRASE` uses `phraseto_tsquery`, and both are **stemmed per document language** |
 | `searchSentences` (sentence-level) | `persistence_read.py::search_sentences` | `ILIKE '%term%'` — literal, case-insensitive substring; **no stemming, no ranking** |
 | `lexemeKwic` | `persistence_read.py::lexeme_kwic` | exact lexeme-id lookup over `lexeme_occurrences`, with a ±45-character window |
-| `termFrequency` (pre-flight) | `persistence_read_terms.py` + `domain/term_frequency.py` | exact rollup count for one lexeme; phrases/compounds use a cap-bounded sentence scan under `searchSentences`' literal rule, with the rarest-component upper bound retained only as secondary evidence |
+| `termFrequency` (pre-flight) | `persistence_read_terms.py` + `domain/term_frequency.py` | exact lexeme-rollup measurement for one lexeme; whitespace phrases retain a rarest-component saturation ceiling; multi-word/unindexable terms use a cap-bounded sentence scan under `searchSentences`' literal rule |
 
 The sentence scan reads its denominator from `corpus_stats.n_sentences`, which is
 maintained from `document_stats` at the batch boundary rather than counted from the
@@ -453,6 +453,15 @@ path is the stemmed equivalent, since it addresses the lemma directly. The MCP
 server's own instructions push callers toward rare, specific query terms for this
 reason, and `search_sentences` returns a `coverage` field that reports when hits
 have clustered in one region of a document.
+
+**How the `termFrequency` verdict tiers compose.** A single indexed lexeme uses
+the maintained lexeme rollup and reports `measurement: "exact"`. For a
+whitespace phrase, `measurement: "component_upper_bound"` is the rarest
+component's saturation ceiling: useful pre-flight evidence, but not proof that
+the components occur adjacently. The measured half reports `method:
+"sentence_scan"` and counts sentences with the same `match_clause` rule used by
+`searchSentences`. That scan stops at `SENTENCE_HIGH_HITS = 2001`; when `capped`
+is true, the reported hit count is a floor rather than an exact total.
 
 **KWIC.** `lexeme_kwic` slices a ±45-character window out of `full_text` in SQL
 and splits it into `pre`/`hit`/`post` in Python for highlighting, with keyset

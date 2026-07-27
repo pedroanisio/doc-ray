@@ -4,8 +4,8 @@ disclaimer:
     No information within this document should be taken for granted.
     Any statement or premise not backed by a real logical definition
     or verifiable reference may be invalid, erroneous, or a hallucination.
-  generated_by: "Claude Sonnet 5 via Claude Code (merge of Claude Opus 4.8 backlog + OpenAI Codex improvement-proposal candidates)"
-  date: "2026-07-05"
+  generated_by: "Claude Sonnet 5 via Claude Code (merge of Claude Opus 4.8 backlog + OpenAI Codex improvement-proposal candidates); retrieval-contract correction by OpenAI GPT-5 via Codex"
+  date: "2026-07-27"
 ---
 
 # Backlog
@@ -363,6 +363,15 @@ grep checks and caller imports stayed stable), restoring
 (`test_api_refresh_tokens`, `test_read_surface_parity`, `test_doc_hygiene`,
 `test_truncate_corpus`) were fixed first so the suite was green to split
 against.
+
+**2026-07-27 retrieval-contract correction (#43):** reconciled the living NLP
+and foundational database specifications with shipped behavior. Whitespace-phrase
+`termFrequency` verdicts compose the rarest-component saturation ceiling with a
+bounded sentence scan under `searchSentences`' matching rule, while unindexable
+terms carry constituent evidence alongside that measured scan. In addition,
+`tokens.ordinal` is documented and regression-tested as document-global spaCy
+`t.i` rather than a sentence-local CoNLL-U identifier. No backlog item was added:
+this corrects the record for shipped BL-175/BL-164 behavior without changing it.
 
 ## Items
 

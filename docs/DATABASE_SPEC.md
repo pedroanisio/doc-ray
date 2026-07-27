@@ -4,8 +4,8 @@ disclaimer:
     No information within this document should be taken for granted.
     Any statement or premise not backed by a real logical definition
     or verifiable reference may be invalid, erroneous, or a hallucination.
-  generated_by: "Claude Fable 5 via Claude Code"
-  date: "2026-07-04"
+  generated_by: "Claude Fable 5 via Claude Code; token-ordinal correction by OpenAI GPT-5 via Codex"
+  date: "2026-07-27"
 ---
 
 # doc-ray — Database Specification
@@ -293,7 +293,7 @@ CREATE TABLE tokens (
     annotation_id ulid NOT NULL REFERENCES annotations(id) ON DELETE CASCADE,
     span_id       uuid NOT NULL REFERENCES spans(id),
     sentence_id   ulid REFERENCES sentences(id),
-    ordinal       int  NOT NULL,                    -- token index within sentence (CoNLL-U ID)
+    ordinal       int  NOT NULL,                    -- document-global spaCy token index (t.i)
     lexeme_uid    text REFERENCES lexemes(uid),     -- lemma + UPOS via the lexeme
     upos          text,                             -- Universal POS
     xpos          text,                             -- language-specific tag
@@ -310,6 +310,13 @@ CREATE TABLE subword (                              -- BPE/WordPiece pieces, ord
     PRIMARY KEY (token_id, position)
 );
 ```
+
+`tokens.ordinal` is the document-global spaCy token index (`t.i`): ordinals
+continue across sentence boundaries. Whitespace-only tokens are skipped, so gaps
+are possible; punctuation tokens are persisted with `lexeme_uid` NULL. Migration
+008's inline comment describing a sentence-local index is historically incorrect
+and immutable; this living specification is the corrected authority.
+
 *Note:* `tokens` generalizes `lexeme_occurrences`; the latter remains the
 materialized lexeme-layer projection over token lexeme links. Browser and
 GraphQL lexeme/KWIC reads use this projection table today; a future

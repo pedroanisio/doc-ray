@@ -58,6 +58,7 @@ DictCursor = psycopg.Cursor[dict[str, Any]]
 SentenceLookup = Callable[[int], str | None]
 
 #: A token row: (id, span_id, sentence_id, ordinal, lexeme_uid, upos, xpos).
+#: ``ordinal`` is the document-global spaCy token index (``t.i``), not sentence-local.
 TokenRow = tuple[str, str, str | None, int, str | None, str, str]
 #: A dependency row: (dependent_token_id, head_token_id, deprel).
 DepRow = tuple[str, str | None, str]
