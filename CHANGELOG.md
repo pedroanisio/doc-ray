@@ -19,7 +19,48 @@ doc-ray carries **one global version** covering both the application package
 (`docray_schema_version()`). They are kept in lockstep by
 `scripts/check_version_consistency.py`, which fails the build on any drift.
 
-## [Unreleased]
+## [1.48.2]
+
+### Added
+
+- **Document sources are modular the way extractors are.** A `DocumentSource` port
+  (`ports/document_source.py`) with a public registry (`adapters/document_source.py`)
+  turns a remote reference into bytes plus intake metadata, and the first adapter ingests
+  from arXiv (`abs`/`pdf` URLs, `arxiv:<id>`, bare and old-style ids) with `%PDF` magic
+  validation and Atom-API titles that degrade to the extractor title on failure. The
+  ingest core is bytes-first: `ingest_file`'s body became `ingest_bytes`
+  (filename/title/source_url), `ingest_file` is a thin path wrapper, `ingest_refs` mirrors
+  `ingest_paths` for remote refs, and `handle_ingest` drops its tempfile bridge. The CLI
+  accepts files, directories, and refs mixed; `source_url` is recorded in document metadata
+  for provenance.
+
+### Fixed
+
+- **Bulk ingest from Spaces no longer burns downloads on unfixable failures.** A failed
+  extraction records a `status='failed'` document under those exact bytes, so the SHA
+  dedup short-circuits before extraction can re-run — yet the loader treated `failed` as
+  retryable and re-downloaded the object every run, then reported the retry as
+  `duplicate`, a terminal-OK state. A permanent failure was relabelled benign and the run
+  exited 0 while the documents sat failed. `ingest_bytes` now reports `failed` (carrying
+  the recorded error) for a known-failed hash on *every* intake path, and the loader skips
+  an unchanged object that already failed — discriminated by document id, so a failed
+  *download* still retries. OCR-ing the file changes its ETag, which re-ingests it.
+- **Every intake path now refreshes the read-model rollup.** The Spaces loader enqueued the
+  post-ingest chain directly instead of going through the shared finalizer, so its
+  documents carried a stale rollup until some later job happened to refresh one — and
+  permanently under `--no-pipeline`. `finalize_new_document` is now public, returns the
+  head job id, and is the single definition of what a new document owes.
+- **`--limit` counts objects ingested, not objects considered.** The cap was applied to the
+  sorted key list *before* the manifest was consulted, so the budget was spent on
+  already-loaded keys and an incremental `--limit` loaded nothing new. A single plan now
+  decides every action once and caps on ingests, reporting what it held back; the dry run
+  consumes that same plan and so cannot disagree with the run that follows.
+- **The containerised test suite can see what it asserts on.** The test image copied
+  `CLAUDE.md` without `PURPOSE.md`/`DISCLAIMER.md`, so the doc-hygiene guard reported a
+  dangling reference that does not exist in the checkout; and the tracked-README guard
+  shelled out to `git ls-files` inside an image that excludes `.git`. Both now hold.
+
+## [1.48.1]
 
 ### Fixed
 

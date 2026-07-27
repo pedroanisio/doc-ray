@@ -11,9 +11,9 @@ doc_type: "release-note"
 audience: ["end-user", "administrator", "developer", "integrator"]
 surfaces: ["webapp", "api", "mcp"]
 classification: "public"
-applies_to: "1.48.0"
+applies_to: "1.48.2"
 owner: "documentation-maintainer"
-last_reviewed: "2026-07-26"
+last_reviewed: "2026-07-27"
 status: "current"
 ---
 
@@ -22,6 +22,9 @@ status: "current"
 What changed in each version, newest first. Each entry states who a change affects
 and any action required.
 
+- **[1.48.2](1.48.2.md)** — ingest a paper by arXiv reference instead of a
+  downloaded file; bulk loading stops re-fetching documents it can never read
+  and reports them honestly as failed.
 - **[1.48.0](1.48.0.md)** — relationship discovery over the entity graph:
   significant figures per lens, related-entity exploration with bounded hops,
   and honest co-occurrence strength with freshness stamps.

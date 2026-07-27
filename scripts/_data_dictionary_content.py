@@ -332,6 +332,12 @@ MIGRATIONS = [
         "(co-occurrence NPMI) + RLS; supersedes/drops lens_entity_stats",
     ),
     ("134_schema_version_1_48_0", "advance the schema SemVer to 1.48.0 for hyper-context rollups"),
+    ("135_schema_version_1_48_1", "advance the schema SemVer to 1.48.1 (marker, no DDL)"),
+    (
+        "136_schema_version_1_48_2",
+        "advance the schema SemVer to 1.48.2 for the arXiv source adapter and ingest "
+        "fixes (marker, no DDL)",
+    ),
 ]
 
 # ---------------------------------------------------------------------------
