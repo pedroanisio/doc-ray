@@ -3987,3 +3987,142 @@ def test_corpus_row_without_a_stats_rollup_renders_zero_not_500(client, monkeypa
     resp = client.get("/corpus")
     assert resp.status_code == 200, resp.get_data(as_text=True)[:600]
     assert "unsupported format string" not in resp.get_data(as_text=True)
+
+
+# --- failed documents: the reason must be visible, not just the status -------
+
+
+def _failed_doc_client(monkeypatch, error: str | None):
+    """A test client whose document detail returns a FAILED document."""
+
+    def failed_q1(sql, params=()):
+        if "SELECT * FROM documents WHERE id" in _norm(sql):
+            return dict(_DOC, status="failed", error=error)
+        return fake_q1(sql, params)
+
+    monkeypatch.setattr(webapp, "q1", failed_q1)
+    webapp.app.config.update(TESTING=True)
+    return webapp.app.test_client()
+
+
+def test_failed_document_shows_the_reason_it_failed(monkeypatch):
+    """A failed document must say WHY, not only that it failed.
+
+    The status pill tells an operator the document "needs attention before
+    retrying" while the actionable half — the recorded ``error``, e.g. "no
+    extractable text — scanned/image-only file? OCR required before ingest" —
+    was fetched by ``SELECT * FROM documents`` and then dropped on the floor.
+    Telling someone to act without telling them what is wrong is not an
+    operable surface.
+    """
+    client = _failed_doc_client(
+        monkeypatch, "no extractable text — scanned/image-only file? OCR required before ingest"
+    )
+
+    html = client.get(f"/doc/{DOC_ID}").get_data(as_text=True)
+
+    assert "no extractable text" in html
+    assert "OCR required before ingest" in html
+
+
+def test_failed_document_without_a_recorded_reason_still_explains_itself(monkeypatch):
+    """A failed document with a null ``error`` must not render an empty box."""
+    client = _failed_doc_client(monkeypatch, None)
+
+    html = client.get(f"/doc/{DOC_ID}").get_data(as_text=True)
+
+    assert "No reason was recorded" in html
+
+
+def test_healthy_document_shows_no_failure_notice(client):
+    """The failure notice is scoped to failed documents (``_DOC`` is extracted)."""
+    html = client.get(f"/doc/{DOC_ID}").get_data(as_text=True)
+
+    assert "Ingest failed" not in html
+    assert "No reason was recorded" not in html
+
+
+# --- upload by reference ----------------------------------------------------
+
+
+def test_upload_form_offers_ingest_by_reference(client):
+    """The upload page must expose the reference path, not files only."""
+    html = client.get("/upload").get_data(as_text=True)
+
+    assert 'name="ref"' in html
+    assert "arxiv.org" in html
+
+
+def test_upload_submit_sends_a_reference_to_the_ingest_mutation(client, monkeypatch):
+    """A submitted reference reaches ingestDocument as ``ref``, with no file part."""
+    seen: dict[str, object] = {}
+
+    class _Response:
+        status_code = 200
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"data": {"ingestDocument": {"id": "job-ref-1"}}}
+
+    def fake_post(url, **kwargs):
+        seen.update(kwargs)
+        return _Response()
+
+    monkeypatch.setattr("httpx.post", fake_post)
+    token = _csrf_token_from(client.get("/upload").get_data(as_text=True))
+
+    response = client.post(
+        "/upload",
+        data={
+            "ref": "https://arxiv.org/abs/2401.00001",
+            "pipeline": "on",
+            "csrf_token": token,
+        },
+    )
+
+    assert response.status_code == 302
+    assert "/job/job-ref-1" in response.headers["Location"]
+    body = seen["json"]["variables"]
+    assert body["ref"] == "https://arxiv.org/abs/2401.00001"
+    assert body["pipeline"] is True
+    assert "files" not in seen  # a reference upload carries no multipart body
+
+
+def test_upload_submit_rejects_a_request_with_neither_file_nor_reference(client):
+    """Submitting an empty form must explain what is missing, not 500."""
+    token = _csrf_token_from(client.get("/upload").get_data(as_text=True))
+
+    response = client.post("/upload", data={"pipeline": "on", "csrf_token": token})
+
+    assert response.status_code == 302
+    assert "error=" in response.headers["Location"]
+
+
+def test_upload_submit_rejects_a_file_and_a_reference_together(client):
+    """Two intake routes in one submission is ambiguous — say so, don't guess."""
+    import io as _io
+
+    token = _csrf_token_from(client.get("/upload").get_data(as_text=True))
+
+    response = client.post(
+        "/upload",
+        data={
+            "file": (_io.BytesIO(b"bytes"), "both.txt"),
+            "ref": "arxiv:2401.00001",
+            "csrf_token": token,
+        },
+        content_type="multipart/form-data",
+    )
+
+    assert response.status_code == 302
+    assert "error=" in response.headers["Location"]
+
+
+def test_upload_form_no_longer_marks_the_file_input_required(client):
+    """A required file input would make the reference route unreachable in a browser."""
+    html = client.get("/upload").get_data(as_text=True)
+
+    assert 'type="file" name="file"' in html
+    assert 'name="file" required' not in html

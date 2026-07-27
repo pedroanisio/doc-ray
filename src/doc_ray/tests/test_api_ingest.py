@@ -189,3 +189,194 @@ def test_ingest_document_upload_mutation_pipeline_false_skips_chain(pg):
             await aconn.close()
 
     asyncio.run(check())
+
+
+# --- ingest by reference (no upload) ----------------------------------------
+
+
+def _ref_mutation(ref: str, *, pipeline: bool = True) -> tuple[str, dict]:
+    """The ref-shaped ingestDocument call and its variables."""
+    return (
+        "mutation($r: String, $p: Boolean!)"
+        "{ ingestDocument(ref: $r, pipeline: $p) { kind status } }",
+        {"r": ref, "p": pipeline},
+    )
+
+
+def _run_mutation(query: str, variables: dict):
+    """Execute *query* against a shadow ``jobs`` table; return (result, payloads)."""
+    schema = build_schema()
+    captured: dict = {}
+
+    async def check():
+        aconn = await psycopg.AsyncConnection.connect(
+            _itdb.DB_URL, row_factory=dict_row, autocommit=True
+        )
+        try:
+            await aconn.execute("CREATE TEMP TABLE jobs (LIKE public.jobs INCLUDING ALL)")
+            await aconn.execute("GRANT ALL PRIVILEGES ON jobs TO docray_batch")
+            ctx = RequestContext(conn=aconn, principal=WRITE_PRINCIPAL, loaders=Loaders(aconn))
+            result = await schema.execute(query, variable_values=variables, context_value=ctx)
+            cur = await aconn.execute("SELECT kind, payload FROM jobs")
+            captured["rows"] = await cur.fetchall()
+            captured["result"] = result
+        finally:
+            await aconn.close()
+
+    asyncio.run(check())
+    return captured["result"], captured["rows"]
+
+
+def test_ingest_document_accepts_a_remote_reference(pg):
+    """A reference enqueues an ingest job carrying the ref — no blob, no upload.
+
+    The arXiv source adapter shipped without any way to reach it but the CLI;
+    this is the API half. The worker resolves and fetches the ref, so the
+    mutation must not block the request on a remote download.
+    """
+    conn, _created = pg
+    _itdb.ensure_admin_principal(conn, WRITE_PRINCIPAL.principal_id, "test-writer-ref")
+    query, variables = _ref_mutation("https://arxiv.org/abs/2401.00001")
+
+    result, rows = _run_mutation(query, variables)
+
+    assert result.errors is None, result.errors
+    assert result.data["ingestDocument"]["kind"] == "ingest"
+    assert result.data["ingestDocument"]["status"] == "queued"
+    assert len(rows) == 1
+    payload = rows[0]["payload"]
+    assert payload["ref"] == "https://arxiv.org/abs/2401.00001"
+    assert "storage_key" not in payload
+    assert payload["chain"] == ["annotate", "semantic_enrich", "canonicalize", "visual_extract"]
+    assert payload["owner_principal_id"] == WRITE_PRINCIPAL.principal_id
+
+
+def test_ingest_document_reference_honours_pipeline_false(pg):
+    """``pipeline: false`` opts a referenced ingest out of the chain, like an upload."""
+    conn, _created = pg
+    _itdb.ensure_admin_principal(conn, WRITE_PRINCIPAL.principal_id, "test-writer-ref")
+    query, variables = _ref_mutation("arxiv:2401.00002", pipeline=False)
+
+    result, rows = _run_mutation(query, variables)
+
+    assert result.errors is None, result.errors
+    assert "chain" not in rows[0]["payload"]
+
+
+def test_ingest_document_rejects_an_unresolvable_reference(pg):
+    """A ref no source adapter claims fails at the mutation, not silently in a worker.
+
+    Enqueuing a job that is guaranteed to fail would make the caller poll for a
+    failure the API already knew about.
+    """
+    conn, _created = pg
+    _itdb.ensure_admin_principal(conn, WRITE_PRINCIPAL.principal_id, "test-writer-ref")
+    query, variables = _ref_mutation("https://example.org/not-a-known-source.pdf")
+
+    result, rows = _run_mutation(query, variables)
+
+    assert result.errors, "an unresolvable reference must be rejected"
+    assert "no source adapter" in str(result.errors[0]).lower()
+    assert rows == []
+
+
+def test_ingest_document_requires_exactly_one_of_file_or_ref(pg):
+    """Neither argument is a caller error; the message must name both options."""
+    conn, _created = pg
+    _itdb.ensure_admin_principal(conn, WRITE_PRINCIPAL.principal_id, "test-writer-ref")
+
+    result, rows = _run_mutation(
+        "mutation{ ingestDocument(pipeline: true) { kind status } }",
+        {},
+    )
+
+    assert result.errors, "an ingest with neither a file nor a ref must be rejected"
+    message = str(result.errors[0]).lower()
+    assert "file" in message and "ref" in message
+    assert rows == []
+
+
+def test_ingest_document_rejects_a_file_and_a_ref_together(pg):
+    """Two intake routes in one call is ambiguous — reject rather than pick one."""
+    conn, _created = pg
+    _itdb.ensure_admin_principal(conn, WRITE_PRINCIPAL.principal_id, "test-writer-ref")
+    upload = UploadFile(
+        io.BytesIO(b"Both at once."),
+        filename="both.txt",
+        headers=Headers({"content-type": "text/plain"}),
+    )
+
+    result, rows = _run_mutation(
+        "mutation($f: Upload, $r: String)"
+        "{ ingestDocument(file: $f, ref: $r, pipeline: true) { kind status } }",
+        {"f": upload, "r": "arxiv:2401.00003"},
+    )
+
+    assert result.errors, "supplying both a file and a ref must be rejected"
+    assert rows == []
+
+
+def test_ingest_document_trims_surrounding_whitespace_from_a_reference(pg):
+    """A pasted reference often carries whitespace; it must not reach the worker."""
+    conn, _created = pg
+    _itdb.ensure_admin_principal(conn, WRITE_PRINCIPAL.principal_id, "test-writer-ref")
+    query, variables = _ref_mutation("  https://arxiv.org/abs/2401.00009\n")
+
+    result, rows = _run_mutation(query, variables)
+
+    assert result.errors is None, result.errors
+    assert rows[0]["payload"]["ref"] == "https://arxiv.org/abs/2401.00009"
+
+
+def test_ingest_document_treats_a_blank_reference_as_absent(pg):
+    """A blank ``ref`` alongside a file is an empty form field, not a second route.
+
+    Browsers post empty text inputs, so a whitespace-only ref must not be
+    mistaken for "both routes supplied" and reject a legitimate upload.
+    """
+    try:
+        ObjectStore(Config.from_env()).ensure_bucket()
+    except Exception as exc:
+        pytest.skip(f"object store unreachable: {exc}")
+
+    conn, _created = pg
+    _itdb.ensure_admin_principal(conn, WRITE_PRINCIPAL.principal_id, "test-writer-ref")
+    upload = UploadFile(
+        io.BytesIO(b"Blank ref beside a real file."),
+        filename="blank-ref.txt",
+        headers=Headers({"content-type": "text/plain"}),
+    )
+
+    result, rows = _run_mutation(
+        "mutation($f: Upload, $r: String)"
+        "{ ingestDocument(file: $f, ref: $r, pipeline: true) { kind status } }",
+        {"f": upload, "r": "   "},
+    )
+
+    assert result.errors is None, result.errors
+    assert len(rows) == 1
+    assert "storage_key" in rows[0]["payload"]
+    assert "ref" not in rows[0]["payload"]
+
+
+def test_ingest_document_upload_route_is_unchanged_by_the_reference_route(pg):
+    """Regression: making ``file`` nullable must not weaken the upload contract.
+
+    The extension allowlist (BL-106) still runs before the blob is stored.
+    """
+    conn, _created = pg
+    _itdb.ensure_admin_principal(conn, WRITE_PRINCIPAL.principal_id, "test-writer-ref")
+    upload = UploadFile(
+        io.BytesIO(b"payload"),
+        filename="danger.exe",
+        headers=Headers({"content-type": "application/octet-stream"}),
+    )
+
+    result, rows = _run_mutation(
+        "mutation($f: Upload){ ingestDocument(file: $f, pipeline: true) { kind status } }",
+        {"f": upload},
+    )
+
+    assert result.errors, "an unsupported extension must still be rejected"
+    assert "unsupported document type" in str(result.errors[0])
+    assert rows == []

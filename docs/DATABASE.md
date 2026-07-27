@@ -1,6 +1,6 @@
 # doc-ray — Database ERD & Data Dictionary
 
-**Schema version `1.48.2`** (SemVer) · 136 migrations applied
+**Schema version `1.49.0`** (SemVer) · 137 migrations applied
 
 > Generated from the live schema by `scripts/gen_data_dictionary.py`. Do not edit by hand — re-run the generator.
 
@@ -2476,3 +2476,4 @@ owner's bypass.
 | 134 | `134_schema_version_1_48_0.sql` | advance the schema SemVer to 1.48.0 for hyper-context rollups |
 | 135 | `135_schema_version_1_48_1.sql` | advance the schema SemVer to 1.48.1 (marker, no DDL) |
 | 136 | `136_schema_version_1_48_2.sql` | advance the schema SemVer to 1.48.2 for the arXiv source adapter and ingest fixes (marker, no DDL) |
+| 137 | `137_schema_version_1_49_0.sql` | advance the schema SemVer to 1.49.0 for reference intake across every surface (marker, no DDL) |

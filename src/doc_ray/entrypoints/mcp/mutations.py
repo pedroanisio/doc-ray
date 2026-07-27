@@ -42,10 +42,21 @@ from doc_ray.entrypoints.mcp.corpus import (
 
 
 async def _job_mutation(
-    field: str, extra_decl: str, extra_call: str, variables: dict[str, Any]
+    field: str,
+    extra_decl: str,
+    extra_call: str,
+    variables: dict[str, Any],
+    *,
+    id_decl: str = "$id:ID!",
+    id_arg: str = "documentId:$id",
 ) -> dict[str, Any]:
-    """Send a ``mutation`` selecting :data:`JOB_FIELDS` and return the Job payload."""
-    query = f"mutation($id:ID!{extra_decl}){{{field}(documentId:$id{extra_call}){{{JOB_FIELDS}}}}}"
+    """Send a ``mutation`` selecting :data:`JOB_FIELDS` and return the Job payload.
+
+    Most job mutations act on an existing document, so the document-id argument
+    is the default. ``id_decl``/``id_arg`` are emptied by the one mutation that
+    *creates* a document (``ingestDocument``), which has no id to act on.
+    """
+    query = f"mutation({id_decl}{extra_decl}){{{field}({id_arg}{extra_call}){{{JOB_FIELDS}}}}}"
     data = await gql(query, variables)
     job: dict[str, Any] = data[field]
     return job
@@ -56,6 +67,46 @@ async def reannotate(document_id: str, lang: str = "en") -> dict[str, Any]:
     _require_uuid(document_id, "document_id")
     return await _job_mutation(
         "reannotate", ",$lang:String!", ",lang:$lang", {"id": document_id, "lang": lang}
+    )
+
+
+async def ingest_document(
+    ref: str, title: str | None = None, pipeline: bool = True
+) -> dict[str, Any]:
+    """Ingest a document from a remote reference; returns the queued job.
+
+    The reference route into the corpus — the only intake an agent can drive,
+    since MCP carries no file uploads. Supported references are whatever the
+    server's source registry claims; today that is arXiv, in any of these forms:
+
+    * ``https://arxiv.org/abs/2401.00001``
+    * ``https://arxiv.org/pdf/2401.00001``
+    * ``arxiv:2401.00001``
+    * ``2401.00001`` (bare id) or ``math.GT/0309136`` (old style)
+
+    The API rejects a reference no source claims, so a bad reference fails here
+    and now rather than becoming a job that could only fail. The *worker* does
+    the download, so this returns as soon as the job is queued — poll it with
+    ``get_job``; the resulting ``document_id`` appears in the job's result once
+    it succeeds.
+
+    ``title`` overrides the title the source reports (arXiv's Atom API), which
+    itself overrides whatever the extractor reads out of the file. With
+    ``pipeline`` (the default) the document is annotated, semantically enriched,
+    canonicalized, and visually extracted before you read it; pass ``False`` to
+    load the text only.
+
+    Requires a write grant (``DOCRAY_MCP_ENABLE_WRITE`` on the server plus the
+    caller's ``write`` scope).
+    """
+    _require_nonempty(ref, "ref")
+    return await _job_mutation(
+        "ingestDocument",
+        "$ref:String,$title:String,$pipeline:Boolean!",
+        "ref:$ref,title:$title,pipeline:$pipeline",
+        {"ref": ref.strip(), "title": title, "pipeline": pipeline},
+        id_decl="",
+        id_arg="",
     )
 
 
@@ -597,6 +648,7 @@ async def reject_allusion(allusion_id: str) -> dict[str, Any]:
 
 
 TOOLS: tuple[Any, ...] = (
+    ingest_document,
     reannotate,
     reextract_document,
     annotate_document,

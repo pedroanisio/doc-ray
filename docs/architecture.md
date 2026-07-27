@@ -367,6 +367,15 @@ organization corpus (BL-139). `tenant_id` stays the organization axis and
 `owner_principal_id` the user axis, so introducing organizations re-parents
 nothing.
 
+`ingestDocument` carries two intake routes onto one job kind: a multipart
+`file`, whose blob the API stores content-addressed before enqueuing, and a
+`ref`, which the *worker* resolves against the source registry
+(`adapters/document_source.py`) and fetches. Resolution happens at the API so
+an unclaimable reference fails the request instead of becoming a job that
+could only fail; the fetch happens in the worker so no request is held open on
+a remote download. The CLI's `ingest_refs` is the unqueued mirror of the same
+path.
+
 Ownership is resolved at the API boundary: `ingestDocument` stamps the request
 principal into the job payload, and the worker threads it to `insert_document`.
 The worker cannot derive ownership itself — by the time a job runs there is no

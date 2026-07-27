@@ -338,6 +338,11 @@ MIGRATIONS = [
         "advance the schema SemVer to 1.48.2 for the arXiv source adapter and ingest "
         "fixes (marker, no DDL)",
     ),
+    (
+        "137_schema_version_1_49_0",
+        "advance the schema SemVer to 1.49.0 for reference intake across every "
+        "surface (marker, no DDL)",
+    ),
 ]
 
 # ---------------------------------------------------------------------------

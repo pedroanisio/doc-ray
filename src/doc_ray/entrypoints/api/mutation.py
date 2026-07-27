@@ -8,26 +8,20 @@ completion.
 
 from __future__ import annotations
 
-import hashlib
-from pathlib import Path
-from typing import Any, cast
+from typing import Any
 
 import strawberry
-from starlette.datastructures import UploadFile
-from strawberry.file_uploads import Upload
 
 from doc_ray.adapters import document_metadata_suggestion_store as metadata_suggestions
 from doc_ray.adapters import queue_postgres as queue
 from doc_ray.adapters import seed_suggestion_store as seeds
 from doc_ray.domain.jobs import (
-    DEFAULT_PIPELINE_CHAIN,
     KIND_ADD_DOCUMENT_TAGS,
     KIND_ANNOTATE,
     KIND_ARCHIVE_DOCUMENT,
     KIND_BACKUP,
     KIND_CANONICALIZE,
     KIND_DELETE,
-    KIND_INGEST,
     KIND_REANNOTATE,
     KIND_REEXTRACT,
     KIND_RESTORE,
@@ -49,12 +43,12 @@ from doc_ray.entrypoints.api.mutation_guards import (
     _clean_bulk_ids,
     _enqueue_job,
     _job_status,
-    _read_upload_bounded,
     _require_admin,
     _require_backup_admin,
     _require_document_write,
     _require_write_audited,
 )
+from doc_ray.entrypoints.api.mutation_ingest import IngestMutations
 from doc_ray.entrypoints.api.mutation_lenses import LensMutations
 from doc_ray.entrypoints.api.mutation_semantic import SemanticMutations
 from doc_ray.entrypoints.api.mutation_sharing import SharingMutations
@@ -70,6 +64,7 @@ class Mutation(
     ClassificationMutations,
     CollectionMutations,
     CorrectionMutations,
+    IngestMutations,
     LensMutations,
     ProjectionMutations,
     SemanticMutations,
@@ -447,60 +442,4 @@ class Mutation(
         job_id = await _enqueue_job(
             ctx, KIND_RESTORE, {"backup_id": str(backup_id)}, document_id=None
         )
-        return await _job_status(ctx, job_id)
-
-    @strawberry.mutation
-    async def ingest_document(
-        self, info: Info, file: Upload, title: str | None = None, pipeline: bool = True
-    ) -> Job:
-        """Upload a document: store the blob, enqueue ingestion; returns the job.
-
-        With ``pipeline`` (the default) the ingest job carries the standard
-        chain — annotate, then deterministic canonicalize — so an upload flows
-        to a fully linked document with no further calls. The blob is stored
-        content-addressed (``sha[:2]/sha.ext``) before enqueuing so the worker
-        can read it back; the object store's ``put`` (blocking boto3) runs off
-        the event loop. The upload is capped at ``DOCRAY_MAX_UPLOAD_MB`` (BL-098),
-        the same ceiling the webapp's Flask route already enforces.
-        """
-        import anyio
-
-        from doc_ray.adapters import extraction
-        from doc_ray.adapters.object_store import ObjectStore
-        from doc_ray.config import Config
-
-        ctx = info.context
-        await _require_write_audited(ctx, action="mutation.ingest")
-        settings = Config.from_env()
-        # The Upload scalar resolves to a Starlette UploadFile at runtime.
-        upload = cast(UploadFile, file)
-        data = await _read_upload_bounded(upload, settings.max_upload_bytes)
-        sha = hashlib.sha256(data).hexdigest()
-        filename = upload.filename
-        ext = Path(filename).suffix if filename else ""
-        # BL-106: the extension is attacker-supplied; check it against the same
-        # allowlist extraction.py dispatches on *before* the blob ever reaches
-        # the object store, not after (extraction's own check ran too late).
-        if not extraction.is_supported_extension(ext):
-            raise ValueError(f"unsupported document type: {ext!r}")
-        key = f"{sha[:2]}/{sha}{ext}"
-
-        store = ObjectStore(settings)
-        content_type = extraction.content_type_for_extension(ext)
-        await anyio.to_thread.run_sync(store.put, key, data, content_type)
-
-        payload: dict[str, Any] = {
-            "storage_key": key,
-            "sha256": sha,
-            "extension": ext,
-            "original_filename": filename,
-            "title": title,
-            # Ownership is resolved here, not in the worker: this is the only
-            # point where a request principal exists (migration 102). An upload
-            # therefore lands in the uploader's own corpus.
-            "owner_principal_id": ctx.principal.principal_id,
-        }
-        if pipeline:
-            payload["chain"] = list(DEFAULT_PIPELINE_CHAIN)
-        job_id = await _enqueue_job(ctx, KIND_INGEST, payload, document_id=None)
         return await _job_status(ctx, job_id)

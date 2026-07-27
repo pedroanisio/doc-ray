@@ -321,6 +321,21 @@
     </div>
   </div>
   {% if doc.description %}<p class="lede" style="margin-top:.6rem">{{ doc.description }}</p>{% endif %}
+  {# A 'failed' pill tells the reader to act; only the recorded error tells them
+     what to do about it. Without this the remedy (usually OCR) was reachable
+     from psql alone. #}
+  {% if doc.status == 'failed' %}
+    <div class="errbox">
+      <strong>Ingest failed.</strong>
+      {% if doc.error %}{{ doc.error }}{% else %}No reason was recorded for this failure.{% endif %}
+      <div class="muted" style="margin-top:.35rem">
+        Re-ingesting the same file cannot help: it is stored under its content
+        hash, so an identical copy is recognised and this failure is reported
+        again. Fix the source file (a scanned PDF needs OCR) and ingest the
+        corrected version.
+      </div>
+    </div>
+  {% endif %}
   {% if metadata_queued %}
     <div class="notice">Edit queued — the worker applies it within a few seconds; reload to see it.</div>
   {% endif %}

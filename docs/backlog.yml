@@ -110,7 +110,7 @@ metadata:
   generated_by:     "Claude Sonnet 5 via Claude Code (merge of Claude Opus 4.8 backlog + OpenAI Codex improvement-proposal candidates)"
   generated_on:     "2026-07-05"
   system_of_record: "docs/backlog.yml"
-  total_items:      165
+  total_items:      167
 
 items:
 
@@ -5741,3 +5741,102 @@ items:
     owner:        "shared"
     source:       "Found while landing the DocumentSource port + arXiv ingest adapter (2026-07-26, Claude Fable 5 via Claude Code): the full battery was run on the host against a throwaway pgvector DB and the failures were baselined against a clean HEAD worktree to rule out the in-flight diff."
     tags:         ["testing", "flaky", "environment", "landing-checklist"]
+
+  - id:          "BL-168"
+    title:       "The arXiv source adapter shipped reachable only from a shell"
+    summary:     "1.48.2 added the DocumentSource port and its arXiv adapter, but `ingest_refs` had exactly one caller — `entrypoints/cli.py`. `ingestDocument` took `file: Upload!` with no reference argument, the webapp upload form was a file input only, and MCP had no ingest tool at all. A capability nobody but an operator with SSH could use was documented in the public release note as something readers could do."
+    description: |
+      Root cause. The adapter work stopped at the application layer. Nothing
+      structurally prevented the surfaces from being wired — they simply were
+      not, and no gate caught it: D-034 surface parity compares GraphQL root
+      fields against webapp coverage, so a capability with NO GraphQL field is
+      invisible to it. The parity gate can prove "every API field has a human
+      surface"; it cannot prove "every capability has an API field".
+
+      Fix. `ingestDocument` now takes exactly one of `file` (multipart upload)
+      or `ref`. Resolution against the source registry happens at the API, so an
+      unclaimable reference is a caller error rather than a queued job that could
+      only fail; the fetch happens in the worker (`job_handlers_ingest.py`), so
+      no request is held open on a remote download. The webapp upload form gains
+      a reference field beside the file picker and posts a plain JSON mutation
+      for that route (no file part to map). MCP gains `ingest_document(ref,
+      title?, pipeline=True)` — an agent has no file transport, so a reference is
+      its only route into the corpus. Title precedence is caller > source >
+      extractor.
+
+      Not fixed here (deliberate): the parity gate still cannot see a
+      capability that has no GraphQL field. Detecting that class of gap needs a
+      different invariant than field-to-surface parity, and defining it is an
+      operator call.
+    category:     "api"
+    type:         "bug"
+    status:       "done"
+    complexity:   "M"
+    priority:     "high"
+    rationale:    "Shipping an intake path that only its author can invoke is indistinguishable, from a user's seat, from not shipping it — and the release note claimed otherwise, which is worse than silence."
+    acceptance_criteria:
+      - "ingestDocument accepts a ref and rejects a call carrying both a file and a ref, or neither, naming both options in the message."
+      - "A reference no source adapter claims is rejected by the mutation; no job is enqueued."
+      - "A blank/whitespace ref alongside a file is treated as an absent field, not a second intake route (browsers post empty text inputs)."
+      - "The worker resolves and fetches the reference, records source_url provenance, and applies caller > source > extractor title precedence."
+      - "The webapp upload form offers the reference field and its file input is no longer `required`, so the reference route is reachable in a browser."
+      - "MCP registers ingest_document behind DOCRAY_MCP_ENABLE_WRITE, and it is covered by the schema-contract, server-registry, and service-doc gates."
+      - "The upload route is unchanged: the BL-106 extension allowlist still rejects an unsupported type before the blob is stored."
+    dependencies: []
+    references:
+      - "src/doc_ray/entrypoints/api/mutation_ingest.py"
+      - "src/doc_ray/application/job_handlers_ingest.py"
+      - "src/doc_ray/entrypoints/mcp/mutations.py"
+      - "webapp/corpus_web.py"
+      - "webapp/templates/upload.html"
+      - "src/doc_ray/tests/test_api_ingest.py"
+      - "src/doc_ray/tests/test_jobs_worker_ingest_ref.py"
+      - "src/doc_ray/tests/test_mcp_mutations_ingest.py"
+    owner:        "shared"
+    source:       "Found 2026-07-27 (Claude Opus 5 via Claude Code) answering 'is all the UI/UX in place to operate those features?' after the 1.48.2 release: ingest_refs had one caller, and D-034 passed because the capability had no GraphQL field to be checked against."
+    tags:         ["ingest", "arxiv", "graphql", "mcp", "webapp", "surface-parity"]
+
+  - id:          "BL-169"
+    title:       "A failed document told operators to act without telling them what was wrong"
+    summary:     "`documents.error` holds the actionable half of an ingest failure ('no extractable text — scanned/image-only file? OCR required before ingest'). The webapp loaded it via `SELECT * FROM documents` and never rendered it, showing only a status pill whose tooltip said 'needs operator attention before retrying'. The admin console had a status filter whose options — ready / processing / failed — included two values no document has ever carried, against an exact-match query."
+    description: |
+      Root cause, both halves.
+
+      (1) `webapp/templates/document.html` rendered `terms.status_pill(doc.status)`
+      and nothing else. The error text was in scope the whole time. An operator
+      was told to act and had to reach psql to learn what the action was.
+
+      (2) `admin-console/src/pages/DocumentsPage.tsx` offered `ready` and
+      `processing`. `application/pipeline.py` writes only `extracted` and
+      `failed`, and `documents(status:)` is an exact match
+      (`persistence_read.py`), so those two options could only ever render
+      "No documents match" — a filter that looks like an empty corpus rather
+      than a wrong query. The console also never requested `Document.error`.
+
+      Fix. The reader renders the recorded reason for a failed document, plus
+      why re-ingesting the same bytes cannot help (content-addressed dedup
+      recognises the identical copy and reports the same failure). A failure with
+      no recorded reason says so rather than rendering an empty box. The console
+      filters on the values that exist and shows the reason under the badge.
+    category:     "webapp"
+    type:         "bug"
+    status:       "done"
+    complexity:   "S"
+    priority:     "high"
+    rationale:    "An instruction to act, with the cause withheld, is worse than no message: it costs the operator a database session to recover information the page already had in hand."
+    acceptance_criteria:
+      - "A failed document's page renders its recorded error and the reason re-ingesting identical bytes cannot help."
+      - "A failed document with a null error renders an explicit 'no reason was recorded' notice, not an empty box."
+      - "A healthy document renders no failure notice at all."
+      - "The admin console's status options are exactly the values the corpus stores (extracted, failed) and the selected value reaches the query."
+      - "The console requests Document.error and renders it for failed rows only."
+    dependencies: []
+    references:
+      - "webapp/templates/document.html"
+      - "admin-console/src/pages/DocumentsPage.tsx"
+      - "admin-console/src/api/documents.ts"
+      - "admin-console/src/pages/DocumentsPage.test.tsx"
+      - "tests/test_webapp.py"
+    owner:        "shared"
+    source:       "Found 2026-07-27 (Claude Opus 5 via Claude Code) auditing whether the 1.48.2 failed-vs-duplicate change was operable from any UI; the 17 failed documents in production were all the same scanned-PDF cause, visible only through psql."
+    tags:         ["webapp", "admin-console", "operability", "error-reporting"]

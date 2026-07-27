@@ -11,7 +11,7 @@ doc_type: "release-note"
 audience: ["end-user", "administrator", "developer", "integrator"]
 surfaces: ["webapp", "api", "mcp"]
 classification: "public"
-applies_to: "1.48.2"
+applies_to: "1.49.0"
 owner: "documentation-maintainer"
 last_reviewed: "2026-07-27"
 status: "current"
@@ -22,6 +22,8 @@ status: "current"
 What changed in each version, newest first. Each entry states who a change affects
 and any action required.
 
+- **[1.49.0](1.49.0.md)** — add a document by naming it (arXiv reference) from
+  the browser, the API, or an agent; a failed document now shows why it failed.
 - **[1.48.2](1.48.2.md)** — ingest a paper by arXiv reference instead of a
   downloaded file; bulk loading stops re-fetching documents it can never read
   and reports them honestly as failed.

@@ -251,38 +251,60 @@ def upload_form():
 
 
 def upload_submit():
-    """Send the uploaded file to the GraphQL ingest mutation and track its job.
+    """Send an uploaded file *or* a remote reference to the ingest mutation.
+
+    Two intake routes, one mutation. A file goes as a GraphQL multipart upload;
+    a reference goes as a plain JSON mutation, because there is no file part to
+    map and the *worker* performs the fetch — so the browser is never held open
+    on a remote download.
 
     The full pipeline (ingest -> annotate -> canonicalize) is enqueued by
-    default; unticking the checkbox uploads ingest-only. The browser never
-    touches the object store or the queue — the API is the one write path.
+    default; unticking the checkbox ingests only. The browser never touches the
+    object store or the queue — the API is the one write path.
     """
     import httpx
 
     upload = request.files.get("file")
-    if upload is None or not upload.filename:
-        return redirect(url_for("upload_form", error="choose a file first"))
-    operations = {
-        "query": (
-            "mutation($file: Upload!, $title: String, $pipeline: Boolean!) {"
-            " ingestDocument(file: $file, title: $title, pipeline: $pipeline) { id } }"
-        ),
-        "variables": {
-            "file": None,
-            "title": request.form.get("title") or None,
-            "pipeline": request.form.get("pipeline") == "on",
-        },
-    }
-    try:
-        response = httpx.post(
-            API_URL,
-            data={
+    has_file = upload is not None and bool(upload.filename)
+    ref = (request.form.get("ref") or "").strip()
+    if has_file and ref:
+        return redirect(url_for("upload_form", error="give a file or a reference, not both"))
+    if not has_file and not ref:
+        return redirect(url_for("upload_form", error="choose a file or paste a reference first"))
+
+    title = request.form.get("title") or None
+    pipeline = request.form.get("pipeline") == "on"
+    if ref:
+        post_kwargs: dict = {
+            "json": {
+                "query": (
+                    "mutation($ref: String, $title: String, $pipeline: Boolean!) {"
+                    " ingestDocument(ref: $ref, title: $title, pipeline: $pipeline) { id } }"
+                ),
+                "variables": {"ref": ref, "title": title, "pipeline": pipeline},
+            }
+        }
+    else:
+        operations = {
+            "query": (
+                "mutation($file: Upload, $title: String, $pipeline: Boolean!) {"
+                " ingestDocument(file: $file, title: $title, pipeline: $pipeline) { id } }"
+            ),
+            "variables": {"file": None, "title": title, "pipeline": pipeline},
+        }
+        post_kwargs = {
+            "data": {
                 "operations": json.dumps(operations),
                 "map": json.dumps({"0": ["variables.file"]}),
             },
-            files={"0": (upload.filename, upload.stream, upload.mimetype)},
+            "files": {"0": (upload.filename, upload.stream, upload.mimetype)},
+        }
+    try:
+        response = httpx.post(
+            API_URL,
             headers=api_auth_headers(),
             timeout=120.0,
+            **post_kwargs,
         )
         response.raise_for_status()
         body = response.json()
@@ -291,13 +313,13 @@ def upload_submit():
             raise RuntimeError(body["errors"][0].get("message", "GraphQL error"))
         job_id = ((body.get("data") or {}).get("ingestDocument") or {}).get("id")
         if not job_id:
-            raise RuntimeError("the API returned no job for this upload")
+            raise RuntimeError("the API returned no job for this ingest")
     except httpx.HTTPError:
         # Transport-level details (URLs, stack text) belong in the log, not the UI.
-        current_app.logger.exception("upload forwarding failed")
+        current_app.logger.exception("ingest forwarding failed")
         return redirect(url_for("upload_form", error="ingest API unreachable — is it running?"))
     except Exception as exc:
-        current_app.logger.exception("upload rejected")
+        current_app.logger.exception("ingest rejected")
         return redirect(url_for("upload_form", error=str(exc)))
     return redirect(url_for("job_status", job_id=job_id))
 

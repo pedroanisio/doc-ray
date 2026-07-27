@@ -87,6 +87,7 @@ Each of these enqueues a background Job or applies a curation decision; poll ret
 
 | Tool | Purpose | Key arguments |
 |---|---|---|
+| `ingest_document` | Ingest a document from a remote reference (arXiv `abs`/`pdf` URL, `arxiv:<id>`, or a bare id). The only intake verb: MCP carries no file uploads, so a reference is an agent's route into the corpus. The worker performs the fetch — poll the returned Job for the new `document_id`. | `ref`, `title`, `pipeline` |
 | `reannotate` | Re-run the full linguistic annotation for a Document. | `document_id`, `lang` |
 | `reextract_document` | Re-run text extraction for one Document. | `document_id` |
 | `annotate_document` | Run first-stage annotation for a Document. | `document_id`, `lang` |

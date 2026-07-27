@@ -61,6 +61,8 @@ export interface Document {
   charCount: number | null;
   createdAt: string;
   updatedAt: string | null;
+  /** Why a `failed` document failed; null for every other status. */
+  error: string | null;
 }
 
 // webapp GET /operator/health.json — the `operator-health.v1` contract in

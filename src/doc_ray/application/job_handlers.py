@@ -19,6 +19,7 @@ from doc_ray.application.allusions import handle_propose_allusions
 from doc_ray.application.backup import handle_backup, handle_restore
 from doc_ray.application.document_stats import refresh_document_stats as _refresh_document_stats
 from doc_ray.application.genre_classification import handle_classify_genre
+from doc_ray.application.job_handlers_ingest import ingest_reference as _ingest_reference
 from doc_ray.application.lens_rollups import handle_refresh_lens_rollup
 from doc_ray.application.projection import (
     handle_refresh_projection,
@@ -193,14 +194,24 @@ def handle_reextract(
 def handle_ingest(
     conn: psycopg.Connection[Any], store: ObjectStore | None, job: Job
 ) -> dict[str, Any]:
-    """Ingest an uploaded blob: fetch bytes, run the path-based pipeline.
+    """Ingest one document from an uploaded blob or a remote reference.
 
-    The blob is materialised under the payload's ``original_filename`` (basename
-    only — never a caller-controlled path) so the pipeline derives the document's
-    title/filename from the *uploaded* name, not a random temp name. An explicit
-    payload ``title`` overrides whatever the extractor derived.
+    Two payload shapes, one job kind:
 
-    The payload's ``owner_principal_id`` is the uploader the API resolved at
+    * ``storage_key`` — an upload. The blob is materialised under the payload's
+      ``original_filename`` (basename only — never a caller-controlled path) so
+      the pipeline derives the document's title/filename from the *uploaded*
+      name, not a random temp name.
+    * ``ref`` — a remote reference. The worker owns the download so the API can
+      answer immediately; the reference was already checked against the source
+      registry at mutation time, and is re-resolved here because a worker must
+      never trust a payload to still be valid.
+
+    An explicit payload ``title`` overrides whatever the extractor derived (for
+    a reference, the source's own title takes precedence over the extractor's
+    but yields to an explicit one).
+
+    The payload's ``owner_principal_id`` is the requester the API resolved at
     mutation time (migration 102) — the worker never derives ownership itself,
     because by the time the job runs there is no request principal to consult.
     """
@@ -209,6 +220,8 @@ def handle_ingest(
 
     if store is None:
         raise RuntimeError("ingest requires an object store")
+    if job.payload.get("ref"):
+        return _ingest_reference(conn, cast("S3ObjectStore", store), job)
     report_progress(0, 3, "Reading upload")
     storage_key = str(job.payload["storage_key"])
     data = verify_bytes(

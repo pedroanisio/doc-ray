@@ -439,6 +439,10 @@ async def test_set_document_default_lens_clears_with_null(monkeypatch: pytest.Mo
 def test_tools_tuple_is_the_reprocessing_and_curation_writers() -> None:
     names = {tool.__name__ for tool in mutations.TOOLS}
     assert names == {
+        # The one intake verb: an agent has no file transport, so a reference is
+        # its only route into the corpus. It creates a document rather than
+        # reprocessing one, but it is still reversible background work.
+        "ingest_document",
         "reannotate",
         "reextract_document",
         "annotate_document",

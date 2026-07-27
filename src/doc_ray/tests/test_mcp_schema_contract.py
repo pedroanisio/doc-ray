@@ -9,6 +9,7 @@ argument, this fails here instead of at runtime against a 401/GraphQL error.
 
 from __future__ import annotations
 
+import contextlib
 import re
 from typing import Any
 
@@ -60,7 +61,13 @@ class _CapturingClient:
 async def _capture(monkeypatch: pytest.MonkeyPatch, call) -> str:
     sink: dict[str, str] = {}
     monkeypatch.setattr(corpus.httpx, "AsyncClient", lambda **kw: _CapturingClient(sink))
-    await call()
+    # The document under test is captured in `post`, before the tool interprets
+    # the response. `_AutoData` answers every field with `[]`, which some tools
+    # correctly reject (semantic search treats an empty ranking as "nothing in
+    # scope is embedded"); that verdict is another suite's subject, not this
+    # one's, and it must not hide the operation this one validates.
+    with contextlib.suppress(corpus.ToolCallError):
+        await call()
     return sink["query"]
 
 
@@ -108,6 +115,8 @@ _READ_CALLS = [
 ]
 
 _WRITE_CALLS = [
+    lambda: mutations.ingest_document("https://arxiv.org/abs/2401.00001"),
+    lambda: mutations.ingest_document("arxiv:2401.00001", title="t", pipeline=False),
     lambda: mutations.reannotate(_DOC),
     lambda: mutations.reextract_document(_DOC),
     lambda: mutations.annotate_document(_DOC),
@@ -227,6 +236,7 @@ def test_api_schema_exposes_ranged_sentence_read() -> None:
 async def test_every_write_tool_is_contract_checked() -> None:
     """Guard against a new write tool being added without a schema-contract case."""
     covered = {
+        "ingest_document",
         "reannotate",
         "reextract_document",
         "annotate_document",

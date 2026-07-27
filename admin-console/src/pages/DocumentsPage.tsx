@@ -18,10 +18,11 @@ export function DocumentsPage() {
       <PageHeader
         title="Documents"
         actions={
-          <select value={status} onChange={(e) => setStatus(e.target.value)}>
+          // `documents(status:)` is an exact match, so these must be the values
+          // the corpus actually stores (pipeline.py writes only these two).
+          <select value={status} onChange={(e) => setStatus(e.target.value)} aria-label="Status">
             <option value="">All statuses</option>
-            <option value="ready">ready</option>
-            <option value="processing">processing</option>
+            <option value="extracted">extracted</option>
             <option value="failed">failed</option>
           </select>
         }
@@ -47,6 +48,12 @@ export function DocumentsPage() {
                   <td>{d.docType}</td>
                   <td>
                     <span className={`badge status-${d.status}`}>{d.status}</span>
+                    {d.status === "failed" && (
+                      // The badge says act; only the error says what to do.
+                      <div className="status-reason">
+                        {d.error ?? "No reason was recorded for this failure."}
+                      </div>
+                    )}
                   </td>
                   <td>{d.lifecycleState}</td>
                   <td>{d.language ?? "—"}</td>

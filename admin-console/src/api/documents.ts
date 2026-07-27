@@ -6,7 +6,7 @@ import { ApiClient } from "./client";
 import type { Document } from "./types";
 
 const DOCUMENT_FIELDS = `
-  id title docType status lifecycleState language charCount createdAt updatedAt
+  id title docType status error lifecycleState language charCount createdAt updatedAt
 `;
 
 export async function listDocuments(

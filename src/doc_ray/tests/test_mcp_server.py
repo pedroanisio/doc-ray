@@ -66,6 +66,7 @@ _PROMPT_NAMES = {
 }
 
 _WRITE_TOOL_NAMES = {
+    "ingest_document",
     "reannotate",
     "reextract_document",
     "annotate_document",

@@ -28,7 +28,7 @@ read tools** (19 from `entrypoints/mcp/corpus.py` — incl. `read_document_sente
 Block F hyper-context readers `lens_entities` / `entity_relations` / `related_entities`,
 and the Block E `allusions` reader) + 3
 composition-grounding tools from `entrypoints/mcp/compose.py`
-+ 1 semantic-search tool… see §3) always registered, plus **30 opt-in write tools**
++ 1 semantic-search tool… see §3) always registered, plus **31 opt-in write tools**
 (reprocessing + curation + full collection lifecycle + projection review
 `confirm_projection` / `reject_projection` + allusion curation `propose_allusion` /
 `confirm_allusion` / `reject_allusion`) registered only when
@@ -713,6 +713,7 @@ engineering decision **D-030**.
 
 | MCP tool | GraphQL mutation | Returns |
 |---|---|---|
+| `ingest_document(ref, title?, pipeline=True)` | `ingestDocument` | `Job` (the only intake verb; MCP has no file transport, so a reference is an agent's only route into the corpus) |
 | `reannotate(document_id, lang="en")` | `reannotate` | `Job` |
 | `reextract_document(document_id)` | `reextractDocument` | `Job` |
 | `annotate_document(document_id, lang="en")` | `annotateDocument` | `Job` |
@@ -883,9 +884,13 @@ collection is a first-class container with its own view, whereas tags are just
 labels. (A `smart` collection auto-populates from a `rule` + `doc_type`/`status`/
 `tags` filters instead of manual membership.)
 
-Not exposed via MCP: `ingestDocument` (multipart upload, not a plain mutation),
-the sharing mutations (`shareDocument`/`revokeDocumentShare`), and every
-destructive/admin verb. These remain available on the GraphQL API directly.
+`ingestDocument` is exposed **by reference only** (`ingest_document(ref, …)`):
+MCP has no multipart transport, so an agent cannot upload a file, but it can name
+one — the worker fetches it. Uploading remains GraphQL-only.
+
+Not exposed via MCP: the sharing mutations (`shareDocument`/`revokeDocumentShare`)
+and every destructive/admin verb. These remain available on the GraphQL API
+directly.
 
 ### Resources — `docray://` URIs and templates (always registered)
 

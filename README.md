@@ -110,12 +110,24 @@ LOCKED`, retried with backoff). Uploading through the API is the primary,
 webapp-driven ingestion path — the pipeline runs unattended from there:
 
 ```graphql
-mutation($f: Upload!) {
+mutation($f: Upload) {
   ingestDocument(file: $f, pipeline: true) { id status }   # pipeline: true is the default
 }
 # on success, enqueues annotate -> semantic_enrich -> canonicalize as a job-payload chain;
 # poll pipeline progress with: { jobs(documentId: "...") { kind status } }
 ```
+
+A document can also be named rather than uploaded — the worker fetches it, so
+nothing is downloaded by hand first:
+
+```graphql
+mutation { ingestDocument(ref: "https://arxiv.org/abs/2401.00001") { id status } }
+```
+
+Give exactly one of `file` or `ref`. References are matched by the source
+registry (`adapters/document_source.py`); arXiv ships today, and adding an
+origin is one adapter plus one registry entry. The same route is available from
+the webapp's upload page and, for agents, the `ingest_document` MCP tool.
 
 For push-based progress, the API also serves Server-Sent Events at
 `GET /jobs/events`. Use the same bearer token or `X-DocRay-API-Token` header as

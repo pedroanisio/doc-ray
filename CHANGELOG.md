@@ -19,6 +19,39 @@ doc-ray carries **one global version** covering both the application package
 (`docray_schema_version()`). They are kept in lockstep by
 `scripts/check_version_consistency.py`, which fails the build on any drift.
 
+## [1.49.0]
+
+### Added
+
+- **Ingest by reference from every surface, not just a shell.** 1.48.2 shipped the
+  arXiv source adapter with exactly one caller — the CLI — so the capability was
+  unreachable from the API, the browser, and agents. `ingestDocument` now takes
+  **exactly one** of `file` (a multipart upload) or `ref` (a reference a registered
+  source claims: arXiv `abs`/`pdf` URLs, `arxiv:<id>`, bare and old-style ids).
+  Resolution happens at the API, so an unclaimable reference is rejected on the
+  spot rather than becoming a queued job that could only fail; the *fetch* happens
+  in the worker, so no request is held open on a remote download. The webapp's
+  upload page gains a reference field beside the file picker, and MCP gains
+  `ingest_document(ref, title?, pipeline=True)` — an agent has no file transport,
+  so a reference is its only route into the corpus. Title precedence is
+  caller > source > extractor.
+
+### Fixed
+
+- **A failed document now says why it failed.** The reader showed a `failed` status
+  pill whose tooltip said "needs operator attention before retrying" while the
+  recorded `error` — usually `no extractable text — scanned/image-only file? OCR
+  required before ingest` — was loaded from the database and discarded. The reason
+  is now rendered with it, along with the reason re-ingesting the same bytes cannot
+  help (content-addressed dedup recognises the identical copy). Documents whose
+  failure predates the error column say so instead of showing an empty box.
+- **The admin console's status filter can now match a document.** Its options were
+  `ready` / `processing` / `failed`, but the corpus only ever stores `extracted`
+  and `failed`, and `documents(status:)` is an exact match — so two of the three
+  choices could only ever return "No documents match", with nothing to explain
+  why. The options are now the values that exist, and a failed row shows its
+  reason under the status badge.
+
 ## [1.48.2]
 
 ### Added

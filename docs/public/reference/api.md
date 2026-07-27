@@ -54,6 +54,7 @@ Redact real tokens and identifiers when sharing examples.
 Every mutation that changes corpus content enqueues a background **Job** and returns its status immediately. There is no synchronous pipeline result; poll the returned Job by id with the `job` query until it reaches a terminal status. See [Jobs](../concepts/jobs.md).
 
 - `ingestDocument` with `pipeline: true` (the default) chains annotation, semantic enrichment, and canonicalization automatically.
+- `ingestDocument` takes **exactly one** of `file` (a multipart upload) or `ref` (a reference a registered source claims — today arXiv `abs`/`pdf` URLs, `arxiv:<id>`, and bare ids). A reference is fetched by the worker, so the mutation returns as soon as the Job is queued; a reference no source claims is rejected immediately rather than becoming a Job that could only fail.
 - Bulk mutations return one Job per affected Document.
 - The billing, collection, sharing, seed-decision, and lens mutations return their result object directly rather than a Job, because they do not run the ingestion pipeline.
 
@@ -190,7 +191,7 @@ Every content mutation returns a Job unless noted. Poll the returned Job with th
 
 | Field | Purpose | Key arguments |
 |---|---|---|
-| `ingestDocument` | Ingest a Document; chains the pipeline when `pipeline` is true. | `file`, `title`, `pipeline` |
+| `ingestDocument` | Ingest a Document from an upload **or** a remote reference (exactly one of `file`/`ref`); chains the pipeline when `pipeline` is true. | `file`, `ref`, `title`, `pipeline` |
 | `reextractDocument` | Re-run text extraction for one Document. | `documentId` |
 | `reextractDocuments` | Re-run extraction across Documents. | `onlyMissingGeometry` |
 | `updateDocumentMetadata` | Edit a Document's title, description, tags, or authors. | `documentId`, `title`, `description`, `tags`, `authors` |
@@ -364,6 +365,25 @@ Response (identifier redacted):
   }
 }
 ```
+
+Ingest by reference instead — no upload, no multipart:
+
+```graphql
+mutation IngestRef($ref: String!) {
+  ingestDocument(ref: $ref, pipeline: true) {
+    id
+    kind
+    status
+  }
+}
+```
+
+```json
+{ "ref": "https://arxiv.org/abs/2401.00001" }
+```
+
+The Job's `result` carries the new `documentId` once the worker has fetched and
+extracted the document.
 
 Poll the Job until it reaches a terminal status:
 
