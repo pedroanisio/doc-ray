@@ -18,6 +18,7 @@ precise-looking wrong number is never reported.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any
 
@@ -404,23 +405,40 @@ def check_all_ok(calls: Calls) -> AssertionResult:
     return AssertionResult("all_ok", True, f"all {len(calls)} call(s) ok")
 
 
-def check_tool_reachable(calls: Calls, tool: str) -> AssertionResult:
-    """The tool ran and either returned or gave its documented ``unsupported`` error.
+def check_tool_reachable(
+    calls: Calls, tool: str, documented_kinds: Sequence[str] = ("unsupported",)
+) -> AssertionResult:
+    """The tool ran and either returned or gave one of its documented errors.
 
     For a deployment-optional tool (e.g. semantic search when the model stack is
     not installed on the API host), a typed ``unsupported`` failure is the tool's
     *correct*, documented behaviour — reachable, not broken. Any other error, or
     never being called, fails.
+
+    ``documented_kinds`` widens that allowance where a tool documents more than
+    one correct failure. It is per-task and explicit on purpose: a fixture whose
+    precondition is unmet (semantic search over sentences nobody embedded) must
+    name the kind it expects, so a *different* typed failure still fails the
+    assertion instead of being absorbed by a blanket tolerance.
+
+    Args:
+        calls: The task transcript.
+        tool: The tool whose reachability is asserted.
+        documented_kinds: Error kinds that count as correct behaviour.
+
+    Returns:
+        The assertion result, naming the kind when the tool failed as documented.
     """
     called = [c for c in calls if c.tool == tool]
     if not called:
         return AssertionResult(f"{tool}_reachable", False, "tool was never called")
+    allowed = tuple(documented_kinds)
     for call in called:
-        if not call.ok and call.error_kind != "unsupported":
+        if not call.ok and call.error_kind not in allowed:
             return AssertionResult(f"{tool}_reachable", False, f"raised [{call.error_kind}]")
-    unsupported = any(not c.ok for c in called)
+    documented = next((c.error_kind for c in called if not c.ok), None)
     return AssertionResult(
-        f"{tool}_reachable", True, "documented unsupported" if unsupported else "ok"
+        f"{tool}_reachable", True, f"documented {documented}" if documented else "ok"
     )
 
 

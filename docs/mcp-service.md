@@ -313,6 +313,89 @@ if a tool taking a `document_id` does not validate it locally (`_require_uuid`)
 before spending a round-trip. Adding a tool means writing a description that
 teaches its use — the gate is mechanical, not a review convention.
 
+### 3.1.1 What `search_sentences` matches, said where it is read (BL-166)
+
+A reviewer searched `Hick` corpus-wide, got back `thick`, `thicker`, `thickness`,
+and concluded the tool had lemma-normalized a proper noun — then, because the
+zero-hit note on a *scoped* search mentioned a substring scan, concluded that
+`search_sentences` had **two matching semantics under one name**: lemma-based
+corpus-wide, substring when scoped. Both readings are wrong. There is one
+predicate ([`persistence_read.search_sentences`](../src/doc_ray/adapters/persistence_read.py)),
+one `ILIKE`, and `document_id` only adds a `WHERE`. `thick` matched because it
+*contains* `hick`.
+
+The inference was wrong; the complaint underneath it was not. The matching rule
+was documented in [`domain/term_frequency.py`](../src/doc_ray/domain/term_frequency.py)
+and stated to the caller only *after* a zero-hit result — never in the tool
+description, which is the one text an agent has already read when it interprets a
+result. It now leads the description, and `test_mcp_p0.py` fails the build if it
+stops doing so.
+
+Stating the rule also meant keeping it. Three ways the implementation did not:
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| `Hick's law` → 0 hits, reported as an *exhaustive* scan | The corpus stores the typographic `’` that PDF/EPUB extraction preserves; the caller types `'` | Confusable folding: `'`↔`’`, `-`↔`–`/`—`, `"`↔`“`/`”` |
+| `shared_buffers` also matched `sharedXbuffers` | `_` and `%` reached Postgres as LIKE wildcards — on exactly the term class BL-164 redirects here | `%`/`_`/`\` escaped, `ESCAPE '\'` stated explicitly |
+| A hit found case-insensitively came back with an empty `hit` window | The KWIC split was `str.partition` (case-**sensitive**) while the match was `ILIKE` (case-**insensitive**) | One fold-aware splitter, shared |
+
+The rule lives in [`domain/search_terms.py`](../src/doc_ray/domain/search_terms.py)
+and is rendered to SQL by [`adapters/sentence_search_sql.py`](../src/doc_ray/adapters/sentence_search_sql.py);
+the API/MCP read adapter and the webapp's keyword route both use it, so a reader
+and an agent searching the same string get the same rows. Two properties keep it
+cheap and honest: the fold is **1:1 and length-preserving**, so a folded offset is
+an offset into the original text and `charStart`/`charEnd` stay exact; and a term
+with no confusables expands to exactly one pattern, so the `gin_trgm_ops` index
+(migration 002) is used exactly as before. A term with three or more confusables
+would exceed the 16-pattern ceiling and falls back to folding the column with
+`translate()` — correct, index-degraded, and rare.
+
+Folding widens; it never narrows. `hick` still matches `thick`, because that is
+the documented substring rule — the description now says so up front instead of
+leaving the caller to infer a lemma pipeline from the evidence.
+
+### 3.1.2 An empty semantic ranking is a precondition failure (BL-166)
+
+`semantic_search_sentences` scoped to a document returned `{"result": []}`, which
+a reviewer recorded as "no semantically similar sentences in this book". The book
+had no vectors. The ranking applies **no similarity floor** — it orders every
+embedding in scope by cosine distance and lets `LIMIT` cut the tail — so zero rows
+can only mean *nothing was searched*, never *nothing was similar*. Embedding is
+opt-in per document (`embed_document_sentences` is a worker job, never
+auto-chained after ingest), and a model cutover leaves prior-model vectors
+invisible behind the `e.model` filter, so an unembedded scope is the normal case,
+not an edge one.
+
+The tool now fails typed rather than returning an empty list:
+
+```jsonc
+// → [not_found] No embedded sentences in scope: document 9f14… has no sentence
+//    vectors for the active embedding model. This ranking applies no similarity
+//    floor, so this is NOT a finding that nothing was semantically similar —
+//    nothing was searched. … — run embed_document_sentences(document_id=…) …
+```
+
+The typed error is the *agent* boundary only. `briefing_pack` composes over the
+`BriefingReader` port, whose `_probe_semantic` already distinguishes four states
+(`off` / `unavailable` / `no_vectors` / `on`) and reports the sharper gap — "No
+sentence vectors are visible in your corpus yet; ranked passages by
+full-text/keyword match instead." Collapsing an unembedded scope into
+`SemanticUnavailable` would have *downgraded* that message, so the MCP reader
+keeps returning an empty page to the port while raising for the agent. The
+distinction is the point: a program branches on state, a caller writing prose
+quotes it.
+
+That asymmetry is also why the defect survived. Both non-agent surfaces already
+handled it — the port with a four-state probe, the webapp by falling back to
+keyword results with a notice. Only the agent surface returned the bare `[]`.
+
+**A statement timeout is a scope problem.** Corpus-wide semantic search can
+exhaust the API pool's `statement_timeout` (`DOCRAY_API_STATEMENT_TIMEOUT_MS`,
+default 15 s). That arrived as an unclassified `upstream_error`, which reads as
+"the server is broken" rather than "this query was too wide"; it is now a typed
+`timeout` whose hint asks for `document_id`, a lower `limit`, or a ranged read.
+The typing is not a performance fix — see BL-167 for the measurement.
+
 ### 3.2 `read_document_outline` — the map that aims the ranged reader (BL-146)
 
 Random access is only as good as the agent's ability to guess an ordinal. The

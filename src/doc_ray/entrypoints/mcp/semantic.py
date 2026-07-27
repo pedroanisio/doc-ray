@@ -10,7 +10,39 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
-from doc_ray.entrypoints.mcp.corpus import _require_nonempty, _require_uuid, gql
+from doc_ray.entrypoints.mcp.corpus import (
+    ToolCallError,
+    _require_nonempty,
+    _require_uuid,
+    gql,
+)
+
+#: What to do about an unembedded scope. Named as a tool call because the remedy
+#: is one: embedding is a worker job the caller can enqueue, not a deployment
+#: capability they have to wait for.
+_EMBED_HINT = (
+    "run embed_document_sentences(document_id=…) to embed it (worker job — poll "
+    "with get_job), or use search_sentences / full_text_search for lexical "
+    "retrieval meanwhile"
+)
+
+
+def _no_vectors_message(document_id: str | None) -> str:
+    """State what an empty ranking actually proves, and what it does not.
+
+    The distinction this preserves: the ranking has no similarity threshold, so
+    zero rows is never "nothing was close enough" — it is "there was nothing to
+    rank". Returning ``[]`` let a caller record the first, which is a fabricated
+    negative finding about the corpus's content.
+    """
+    scope = f"document {document_id}" if document_id else "the corpus visible to you"
+    return (
+        f"No embedded sentences in scope: {scope} has no sentence vectors for the "
+        f"active embedding model. This ranking applies no similarity floor, so this "
+        f"is NOT a finding that nothing was semantically similar — nothing was "
+        f"searched. Embeddings are opt-in per document (never auto-chained after "
+        f"ingest), and a model cutover leaves prior-model vectors invisible here."
+    )
 
 
 async def semantic_search_sentences(
@@ -23,9 +55,17 @@ async def semantic_search_sentences(
     ``search_sentences`` flooding on a common term: use it when you want the most
     relevant passages regardless of exact wording. Returns sentence text,
     document, ordinal, and a similarity score; pass ``document_id`` to scope to
-    one document. Requires the semantic stack on the API host; without it the
-    call fails with kind ``unsupported`` — do not retry, fall back to
-    ``search_sentences``.
+    one document.
+
+    **Embeddings are opt-in per document and are never auto-chained** — a
+    document is searchable here only after ``embed_document_sentences`` has run
+    for it. Because the ranking applies no similarity floor, an empty result can
+    only mean "nothing in this scope is embedded", never "nothing was similar";
+    that case therefore fails with kind ``not_found`` naming the document to
+    embed, instead of returning ``[]`` for you to misread as an answer.
+
+    Requires the semantic stack on the API host; without it the call fails with
+    kind ``unsupported`` — do not retry, fall back to ``search_sentences``.
     """
     _require_nonempty(query, "query")
     if document_id is not None:
@@ -37,6 +77,8 @@ async def semantic_search_sentences(
         {"q": query, "l": limit, "d": document_id},
     )
     rows: list[dict[str, Any]] = data["semanticSearchSentences"]
+    if not rows:
+        raise ToolCallError("not_found", _no_vectors_message(document_id), hint=_EMBED_HINT)
     return rows
 
 

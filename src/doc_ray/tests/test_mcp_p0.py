@@ -146,6 +146,31 @@ def test_cursor_messages_classify_as_bad_input():
 
 
 # --------------------------------------------------------------------------
+# 3b. A statement timeout is a scope problem, and must be typed as one.
+# --------------------------------------------------------------------------
+
+
+def test_a_statement_timeout_classifies_as_timeout_not_a_generic_upstream_error():
+    # Postgres' own wording, produced by the API pool's statement_timeout. As an
+    # unclassified upstream_error it read as "the server is broken", so a caller
+    # abandoned a capability that works fine one scope narrower.
+    message = "canceling statement due to statement timeout"
+    assert corpus._classify_graphql_error(message) == "timeout"
+
+
+@pytest.mark.asyncio
+async def test_a_timed_out_read_is_told_how_to_narrow_itself(monkeypatch):
+    _patch(monkeypatch, {"errors": [{"message": "canceling statement due to statement timeout"}]})
+    with pytest.raises(corpus.ToolCallError) as ei:
+        await corpus.search_sentences("the")
+    err = ei.value
+    assert err.kind == "timeout"
+    assert err.retriable is False  # repeating it unchanged times out again
+    hint = err.hint or ""
+    assert "document_id" in hint and "limit" in hint
+
+
+# --------------------------------------------------------------------------
 # 4. Drift guard — new MCP surface gets the same treatment.
 # --------------------------------------------------------------------------
 
@@ -162,6 +187,20 @@ def test_every_read_tool_has_a_substantive_description():
         if len(doc) < 80:
             thin.append(f"{tool.__name__} ({len(doc)} chars)")
     assert not thin, f"MCP tools need a substantive description (>=80 chars): {thin}"
+
+
+def test_search_sentences_states_its_retrieval_model_in_its_own_description():
+    # A reviewer read `Hick` -> "thick", "thickness" and concluded the tool had
+    # lemma-normalized a proper noun — then inferred that corpus-wide and
+    # document-scoped search used two different matching rules. Both readings are
+    # wrong (it is one ILIKE substring scan either way), and both were available
+    # only because the description never said what it matched. The fact was
+    # documented in domain/term_frequency.py, where the caller never looks.
+    doc = corpus.search_sentences.__doc__ or ""
+    lowered = doc.lower()
+    assert "substring" in lowered
+    assert "identical" in lowered or "same" in lowered  # scoped == corpus-wide
+    assert "term_frequency" in doc  # the pre-flight, named where it is needed
 
 
 def test_read_tools_validate_document_ids_before_the_network():

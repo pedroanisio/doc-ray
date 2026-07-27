@@ -110,7 +110,7 @@ metadata:
   generated_by:     "Claude Sonnet 5 via Claude Code (merge of Claude Opus 4.8 backlog + OpenAI Codex improvement-proposal candidates)"
   generated_on:     "2026-07-05"
   system_of_record: "docs/backlog.yml"
-  total_items:      167
+  total_items:      169
 
 items:
 
@@ -5723,6 +5723,15 @@ items:
       collisions between concurrent sessions sharing the docray-test project
       name. Either outcome is actionable: env-dependent tests must skip with a
       reason when their environment is absent; a real regression must be fixed.
+
+      2026-07-27 (BL-166): one of the five is closed, and it was a genuine
+      regression, not environment. `test_mcp_eval::test_full_scripted_run_passes_
+      every_task` failed because the `coverage-semantic-search` task's step was
+      not marked `expect_error`, so the generic `no_unexpected_tool_error`
+      short-circuit fired on the typed `unsupported` its OWN assertion documents
+      as correct behaviour for a host without sentence-transformers. Fixed with
+      the step flag; verified passing on a host run against a fresh pgvector DB.
+      Four remain (the tokenCount rollup and the three billing tests).
     category:     "testing"
     type:         "bug"
     status:       "ready"
@@ -5741,6 +5750,156 @@ items:
     owner:        "shared"
     source:       "Found while landing the DocumentSource port + arXiv ingest adapter (2026-07-26, Claude Fable 5 via Claude Code): the full battery was run on the host against a throwaway pgvector DB and the failures were baselined against a clean HEAD worktree to rule out the in-flight diff."
     tags:         ["testing", "flaky", "environment", "landing-checklist"]
+
+  - id:          "BL-166"
+    title:       "search_sentences broke its own literal-substring promise; an empty semantic ranking was returned as a finding"
+    summary:     "Reviewer evidence: `Hick's` returned a confident zero (the corpus stores `Hick’s`) and the note called that scan exhaustive; `Hick` returned `thick`/`thickness`, which the reviewer read as lemma normalization and then as proof that search_sentences had two matching semantics under one name. Separately, semantic_search_sentences scoped to an unembedded document returned `{\"result\": []}`, recorded as 'no semantically similar sentences in this book'."
+    description: |
+      Two retrieval tools, one failure mode: a bounded, technically-true result
+      presented in a shape the caller can only read as a fact about the corpus.
+
+      (1) `search_sentences` — the promise was not kept. The tool description
+      says "keyword-in-context search"; `domain/term_frequency.py` documents the
+      actual rule (case-insensitive literal substring) where a caller never
+      looks; the zero-hit note states it only AFTER the wasted call. Three
+      implementation gaps under that:
+
+        a. `%` and `_` were forwarded to Postgres as LIKE wildcards, so
+           `shared_buffers` also matched `sharedXbuffers` — on exactly the term
+           class BL-164 redirects to this tool ("its literal-substring match
+           handles this term directly; use it to find out").
+        b. No typographic folding. PDF/EPUB extraction preserves `’`, `“”`,
+           en/em dashes; a caller types the ASCII forms. `Hick's law` therefore
+           returned 0 hits against a book that uses the phrase throughout — and
+           BL-164's `coverage.exhaustive` then certified that zero as a complete
+           scan, which is a false negative wearing a completeness badge.
+        c. `_split_kwic` used `str.partition` (case-SENSITIVE) to window a match
+           found by `ILIKE` (case-INSENSITIVE), so a legitimate hit could return
+           an empty `hit` with the whole sentence in `pre`.
+
+      The reviewer's own diagnosis — "two matching semantics under one name,
+      lemma corpus-wide and substring when scoped" — is refuted: there is one
+      predicate and `document_id` only adds a `WHERE`. `thick` matched because it
+      contains `hick`. But the misdiagnosis was reachable only because the
+      description never stated the retrieval model, so it is treated as the
+      report of a real defect in the description, not as a fact about matching.
+
+      The webapp's keyword route carried its own copy of the same SQL and the
+      same `partition` split, so both surfaces were wrong in the same three ways
+      independently — the drift the shared read adapter exists to prevent.
+
+      (2) `semantic_search_sentences` — the ranking applies NO similarity floor
+      (`ORDER BY vector <=> query LIMIT n`), so zero rows cannot mean "nothing
+      was similar"; it can only mean nothing in scope was embedded. Embedding is
+      opt-in per document (`embed_document_sentences` is worker-only and never
+      auto-chained) and a model cutover leaves prior-model vectors invisible
+      behind the `e.model` filter, so an unembedded scope is the normal case.
+      Returning `[]` made the fabricated reading the natural one — and the same
+      ambiguity was baked into the eval fixture, whose comment recorded "returns
+      an empty result ... counts as reachable".
+
+      Fix. One matching rule in `domain/search_terms.py` (escape LIKE
+      metacharacters; fold `'`/`’`, `-`/`–`/`—`, `"`/`“`/`”`; case- and
+      fold-aware KWIC that reports the DOCUMENT's spelling), rendered to SQL by
+      `adapters/sentence_search_sql.py` and used by both the read adapter and the
+      webapp route. The fold is 1:1 and length-preserving so citation offsets
+      stay exact, and a term with no confusables still expands to exactly one
+      pattern, so the `gin_trgm_ops` index is used as before; ≥3 confusables
+      exceed the 16-pattern ceiling and fall back to a `translate()`-folded
+      column (correct, index-degraded, rare). The tool description now leads with
+      the retrieval model, and `test_mcp_p0.py` fails the build if it stops doing
+      so. Semantic search fails typed (`not_found`) naming the document to embed
+      — at the AGENT boundary only: the `BriefingReader` port still receives an
+      empty page, because `_probe_semantic` already distinguishes `no_vectors`
+      from `unavailable` and reports a sharper gap than the error would.
+      Statement timeouts classify as a typed `timeout` with a narrow-the-scope
+      hint instead of a bare `upstream_error` (the corpus-wide latency itself is
+      BL-167).
+
+      Worth recording: both non-agent surfaces already handled this correctly —
+      the port with its four-state probe, the webapp by falling back to keyword
+      results with a notice. Only the agent surface returned the bare `[]`.
+
+      Side effect: `test_mcp_eval::test_full_scripted_run_passes_every_task`, one
+      of BL-165's five host-run failures, now passes. Its semantic step is
+      declared `expect_error=True` — the fixture document has no vectors, so a
+      typed failure is the expected outcome on every host, and the generic
+      `no_unexpected_tool_error` short-circuit was firing on the `unsupported`
+      half of the outcome the task's own assertion documents as correct.
+    category:     "api"
+    type:         "bug"
+    status:       "done"
+    complexity:   "S"
+    priority:     "high"
+    rationale:    "PALS's LAW applied to retrieval again (cf. BL-164): both defects produced confident, actionable, WRONG negative claims about corpus content — the exact output an agent quotes into a deliverable. A completeness signal (coverage.exhaustive) attached to a matcher that silently under-matched is worse than no signal, because it converts a query bug into evidence of absence."
+    acceptance_criteria:
+      - "A term typed with ' matches text stored with ’ (and -/–/— , \"/“/”), in both the API/MCP read path and the webapp keyword route."
+      - "% and _ in a term are matched literally, never as LIKE wildcards."
+      - "A KWIC window for a case-insensitive hit is populated and quotes the document's spelling, not the caller's."
+      - "A term with no confusable characters still produces exactly one ILIKE pattern (trigram index preserved)."
+      - "search_sentences' own description states the substring rule and that scoped and corpus-wide matching are identical; a build gate enforces it."
+      - "semantic_search_sentences never returns [] — an unembedded scope fails typed, naming embed_document_sentences, and briefing_pack degrades to lexical instead of failing."
+      - "A Postgres statement timeout surfaces as kind 'timeout' with a narrowing hint, not upstream_error."
+    dependencies: []
+    references:
+      - "src/doc_ray/domain/search_terms.py"
+      - "src/doc_ray/adapters/sentence_search_sql.py"
+      - "src/doc_ray/adapters/persistence_read.py"
+      - "src/doc_ray/entrypoints/mcp/semantic.py"
+      - "src/doc_ray/entrypoints/mcp/corpus.py"
+      - "webapp/search_web.py"
+      - "src/doc_ray/tests/test_search_terms.py"
+      - "src/doc_ray/tests/test_sentence_search_matching_db.py"
+      - "src/doc_ray/tests/test_mcp_semantic_absence.py"
+      - "docs/mcp-service.md"
+    owner:        "shared"
+    source:       "Field report from an agent that used 10 of 62 MCP tools over ~15 calls to build a corpus-grounded deliverable (2026-07-27). Root-caused and fixed the same session (Claude Opus 5 via Claude Code): the substring/lemma claim was refuted against persistence_read.search_sentences, and the escaping, folding and KWIC defects were found while verifying it."
+    tags:         ["mcp", "retrieval", "false-negative", "grounding", "search", "semantic"]
+
+  - id:          "BL-167"
+    title:       "Corpus-wide semantic_search_sentences exhausts the API statement timeout"
+    summary:     "A reviewer's corpus-wide semantic_search_sentences call hit the API pool's statement_timeout (DOCRAY_API_STATEMENT_TIMEOUT_MS, default 15s) against the production corpus; the same query scoped with document_id returned. BL-166 typed the failure ('timeout' + a narrow-the-scope hint) but did not measure or fix the cost."
+    description: |
+      Reported, not reproduced here: the timeout needs the production corpus's
+      embedding volume and RLS shape, which a throwaway test database does not
+      have. What is known from the code:
+
+        - `persistence_semantic_read.semantic_search_sentences` sets
+          `hnsw.iterative_scan = 'relaxed_order'` precisely because HNSW returns
+          its candidate set BEFORE the RLS and `e.model` filters apply, so a
+          plain top-N can under-return for a non-admin principal.
+        - Iterative scan trades that correctness for an unbounded-until-satisfied
+          scan: the more rows the filters reject, the further it walks. Unscoped,
+          there is no `document_id` predicate to cut the candidate space.
+        - `hnsw.max_scan_tuples` / `hnsw.scan_mem_multiplier` are not set, so the
+          scan runs on pgvector defaults.
+
+      Any fix must be measured, not guessed: an `EXPLAIN (ANALYZE, BUFFERS)` of
+      the unscoped query on the production corpus, per principal shape (admin vs
+      RLS-scoped), before choosing between an explicit `max_scan_tuples` bound, a
+      per-query timeout below the pool default, or a partial/model-scoped index.
+      Bounding the scan changes what the tool returns, so the honesty question
+      travels with the perf question: a truncated ranking must say so in the
+      payload, exactly as `search_sentences` says `limit_reached`.
+    category:     "persistence"
+    type:         "bug"
+    status:       "ready"
+    complexity:   "M"
+    priority:     "medium"
+    rationale:    "A capability that times out at its default scope is a capability agents stop reaching for. Typing the error (BL-166) keeps the caller from concluding the server is broken, but it does not give them the corpus-wide semantic search the tool advertises."
+    acceptance_criteria:
+      - "A corpus-wide semantic_search_sentences call at default limit completes within the API statement timeout on the production corpus, for both an admin and an RLS-scoped principal, with EXPLAIN (ANALYZE, BUFFERS) output recorded in the item."
+      - "If the fix bounds the scan, a truncated ranking is declared in the payload — never returned as if complete."
+      - "The RLS under-return that hnsw.iterative_scan exists to prevent does not regress: a scoped principal still gets a full page when one is available."
+    dependencies: ["BL-166"]
+    references:
+      - "src/doc_ray/adapters/persistence_semantic_read.py"
+      - "src/doc_ray/entrypoints/api/semantic_query.py"
+      - "src/doc_ray/config.py"
+      - "docs/runbook-corpus-embeddings.md"
+    owner:        "shared"
+    source:       "Same 2026-07-27 field report as BL-166: the reviewer's corpus-wide semantic call timed out while the document-scoped call returned. Not reproduced against a test database — the code-level reasoning above is from persistence_semantic_read.py, and the measurement is the first acceptance criterion."
+    tags:         ["semantic", "performance", "pgvector", "hnsw", "rls"]
 
   - id:          "BL-168"
     title:       "The arXiv source adapter shipped reachable only from a shell"

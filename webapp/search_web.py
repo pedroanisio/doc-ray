@@ -12,6 +12,9 @@ from types import ModuleType
 
 from flask import current_app, request
 
+from doc_ray.adapters.sentence_search_sql import match_clause
+from doc_ray.domain.search_terms import kwic
+
 try:
     from webapp.visual_web import image_search
 except ModuleNotFoundError:  # pragma: no cover - direct ``python webapp/app.py`` path.
@@ -35,23 +38,29 @@ query SemanticSearch($query: String!, $limit: Int!) {
 
 
 def _keyword_results(term: str, page: int) -> tuple[list[dict], bool]:
-    """Return the existing literal-substring results and pager state."""
+    """Return the literal-substring results and pager state.
+
+    Matches through the shared rule (:mod:`doc_ray.domain.search_terms`) that the
+    API and MCP surfaces use, so a reader and an agent searching the same string
+    get the same rows: ``%``/``_`` stay literal, and a typed ``'`` finds the
+    typographic ``’`` the extractor stored.
+    """
+    match_sql, match_params = match_clause("s.text", term)
     rows = _core.q(
-        """
+        f"""
         SELECT d.id AS doc_id, d.title, s.ordinal, s.text
         FROM sentences s JOIN documents d ON d.id = s.document_id
-        WHERE s.text ILIKE %(term)s
+        WHERE {match_sql}
         ORDER BY d.title, s.ordinal LIMIT %(limit)s OFFSET %(offset)s
         """,
         {
-            "term": f"%{term}%",
+            **match_params,
             "limit": KEYWORD_PAGE_SIZE,
             "offset": (page - 1) * KEYWORD_PAGE_SIZE,
         },
     )
     for row in rows:
-        pre, found, post = row["text"].partition(term)
-        row["pre"], row["hit"], row["post"] = pre, (term if found else ""), post
+        row["pre"], row["hit"], row["post"] = kwic(row["text"], term)
     return rows, len(rows) == KEYWORD_PAGE_SIZE
 
 

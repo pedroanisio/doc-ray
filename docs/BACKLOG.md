@@ -533,6 +533,8 @@ against.
 | BL-163 | Test suite carries 5 deterministic reds from shared test-DB residue (billing webhook fixture ids, stale rollups, mcp_eval) | testing | bug | ready | S | medium | unassigned |
 | BL-164 | term_frequency reported unattested for terms the lexeme index cannot hold (`shared_buffers`, `COVID-19`); search coverage never affirmed completeness | api | bug | done | S | high | shared |
 | BL-165 | Five pytest failures reproduce at clean HEAD on a host-run against a fresh pgvector test DB | testing | bug | ready | S | medium | shared |
+| BL-166 | search_sentences broke its own literal-substring promise; an empty semantic ranking was returned as a finding | api | bug | done | S | high | shared |
+| BL-167 | Corpus-wide semantic_search_sentences exhausts the API statement timeout | persistence | bug | ready | M | medium | shared |
 | BL-168 | The arXiv source adapter shipped reachable only from a shell (no API `ref` argument, no webapp field, no MCP tool) | api | bug | done | M | high | shared |
 | BL-169 | A failed document told operators to act without telling them what was wrong; admin-console status filter offered values no document carries | webapp | bug | done | S | high | shared |
 

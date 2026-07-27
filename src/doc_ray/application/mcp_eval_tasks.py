@@ -383,9 +383,13 @@ _SEMANTIC = EvalTask(
     kind="coverage",
     prompt="Find sentences about the spice by meaning, not exact keyword.",
     # semantic search is deployment-optional (NLP Layer 20); scoped to doc_main,
-    # which carries no embeddings in the fixture, so the tool returns an empty
-    # result where the model stack is installed and a typed ``unsupported`` where
-    # it is not — both count as reachable, and both are deterministic.
+    # which carries no embeddings in the fixture. So the tool answers a typed
+    # ``not_found`` (nothing in scope is embedded — embedding is opt-in per
+    # document) where the model stack is installed, and ``unsupported`` where it
+    # is not. Both are documented outcomes, both count as reachable, and both are
+    # deterministic. An empty list used to stand in for the first, which is the
+    # defect: it reads as "nothing was semantically similar", a claim the ranking
+    # never makes (it applies no similarity floor).
     grounded_in="reachability: semantic_search_sentences (Layer 20, deployment-optional)",
     steps=(
         Step(
@@ -395,12 +399,21 @@ _SEMANTIC = EvalTask(
                 "document_id": _main(ctx),
                 "limit": 5,
             },
+            # The fixture document has no vectors, so a typed failure IS the
+            # expected outcome on every host — ``not_found`` where the model
+            # stack is installed, ``unsupported`` where it is not. Without this
+            # flag the generic no_unexpected_tool_error short-circuit fired on
+            # the ``unsupported`` half and failed a task whose own assertion
+            # documents that outcome as correct.
+            expect_error=True,
         ),
     ),
     assertions=(
         Assertion(
             "semantic_reachable",
-            lambda calls: scoring.check_tool_reachable(calls, "semantic_search_sentences"),
+            lambda calls: scoring.check_tool_reachable(
+                calls, "semantic_search_sentences", ("unsupported", "not_found")
+            ),
         ),
         _within(TaskBudget(max_calls=2, max_chars=15_000)),
     ),

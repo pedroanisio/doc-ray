@@ -62,6 +62,14 @@ class _MCPBriefingReader(BriefingReader):
             # service falls back to lexical retrieval on this signal.
             if exc.kind == "unsupported":
                 raise SemanticUnavailable(str(exc)) from exc
+            # `not_found` means nothing in scope is embedded. The agent-facing
+            # tool raises that rather than return `[]`, because an agent reads an
+            # empty list as a finding about the corpus; the BriefingReader port
+            # does not — `_probe_semantic` reads empty as `no_vectors` and says
+            # so in the pack's gaps, which is a strictly better message than the
+            # stack-unavailable one. So the port's contract is honoured here.
+            if exc.kind == "not_found":
+                return []
             raise
         return [
             {

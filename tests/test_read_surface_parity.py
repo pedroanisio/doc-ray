@@ -9,10 +9,12 @@ from collections.abc import Callable
 from typing import Any
 
 from doc_ray.adapters import persistence_read as read
+from doc_ray.adapters.sentence_search_sql import match_clause
 from doc_ray.entrypoints.api import query as api_query
 from doc_ray.entrypoints.api import types as api_types
 from doc_ray.ports.repository import ReadRepository
 from webapp import app as webapp
+from webapp import search_web
 
 DOC_ID = uuid.UUID("11111111-1111-1111-1111-111111111111")
 LEX_UID = "lx_en.v_say01"
@@ -185,7 +187,23 @@ def test_webapp_sentence_search_reads_share_reader_table_shape(monkeypatch):
         read.search_sentences,
         (
             "FROM sentences s JOIN documents d ON d.id = s.document_id",
-            "WHERE s.text ILIKE",
             "ORDER BY d.title, s.ordinal",
         ),
     )
+
+
+def test_webapp_sentence_search_matches_through_the_shared_matching_rule(monkeypatch):
+    # Parity on the WHERE clause is no longer a shared *fragment* — it is a
+    # shared *builder*. Both surfaces used to inline `s.text ILIKE %(term)s` and
+    # were independently wrong in the same three ways (BL-166): LIKE wildcards
+    # left unescaped, no typographic folding, and a case-sensitive KWIC split of
+    # a case-insensitive match. Pinning the text again would just re-authorize
+    # two copies, so this pins the single source instead.
+    web_sql = _record_route(monkeypatch, "/search?q=startup", webapp.search)
+
+    assert "match_clause" in _source(read.search_sentences)
+    assert "match_clause" in _source(search_web._keyword_results)
+    assert "kwic(" in _source(search_web._keyword_results)
+    # …and the clause it builds is what the webapp actually executed.
+    expected, _params = match_clause("s.text", "startup")
+    assert _norm(expected) in web_sql

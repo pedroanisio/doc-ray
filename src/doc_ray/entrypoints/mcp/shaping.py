@@ -70,10 +70,12 @@ def _unflooded_note(
     where = "this document" if document_scoped else "the corpus visible to you"
     return (
         f"0 hits. This was an exhaustive case-insensitive substring scan of {where}, "
-        f"not a sample — {term!r} does not occur in it as a literal string. Absence of "
-        f"the exact string is not absence of the idea: try a different spelling, "
-        f"hyphenation, or spacing, or search a synonym before concluding the topic is "
-        f"missing."
+        f"not a sample — {term!r} does not occur in it as a literal string. Typographic "
+        f"apostrophes, quotes and dashes were already folded to their ASCII forms, so "
+        f"that class of mismatch is ruled out. Absence of the exact string is not "
+        f"absence of the idea: try a different spelling, hyphenation, or spacing, run "
+        f"term_frequency on your candidate terms to see which are attested at all, or "
+        f"search a synonym before concluding the topic is missing."
     )
 
 
@@ -134,13 +136,15 @@ def _search_coverage(
         note = (
             f"Returned the maximum {limit} hits, spanning ordinals "
             f"{coverage['ordinal_min']}–{coverage['ordinal_max']}. A common term can flood one "
-            f"region and hide the rest — narrow with a rarer, scene-specific term, or use "
+            f"region and hide the rest — narrow with a rarer, scene-specific term (batch your "
+            f"candidates through term_frequency to pick one before searching), or use "
             f"read_document_sentences by ordinal range (e.g. beyond {coverage['ordinal_max']}) "
             f"to cover the untouched text."
         )
     else:
         note = (
             f"Returned the maximum {limit} hits. A common term can flood results — narrow with "
-            f"a rarer, scene-specific term, or use read_document_sentences by ordinal range."
+            f"a rarer, scene-specific term (triage candidates with term_frequency first), or "
+            f"use read_document_sentences by ordinal range."
         )
     return coverage, note

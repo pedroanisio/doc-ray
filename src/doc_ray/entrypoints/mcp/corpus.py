@@ -50,7 +50,9 @@ class ToolCallError(RuntimeError):
 
     Kinds: ``bad_input`` (fix the arguments), ``permission_denied`` (fix the
     token/scopes), ``not_found``, ``unsupported`` (this deployment cannot serve
-    the capability — never retriable), ``upstream_unavailable`` (retriable), and
+    the capability — never retriable), ``timeout`` (the query exceeded the API's
+    statement budget; narrow the scope, do not repeat it unchanged),
+    ``upstream_unavailable`` (retriable), and
     ``upstream_error`` (unclassified upstream failure). Subclasses
     ``RuntimeError`` so existing callers that caught the old raw errors keep
     working.
@@ -76,6 +78,11 @@ _KIND_HINTS = {
     "unsupported": (
         "this deployment does not serve the capability — do not retry; "
         "use text-side tools (full_text_search, search_sentences, visual_captions) instead"
+    ),
+    "timeout": (
+        "the read exceeded the API statement budget — repeating it unchanged will "
+        "time out again; narrow it (pass document_id, lower limit, use a rarer term) "
+        "or address a range directly with read_document_sentences"
     ),
 }
 
@@ -103,6 +110,13 @@ def _classify_graphql_error(message: str) -> str:
     # "no module named" is the raw leak from API hosts predating that error.
     if "not installed" in lowered or "no module named" in lowered:
         return "unsupported"
+    # Postgres' own wording for the API pool's statement_timeout ("canceling
+    # statement due to statement timeout"), plus the transport-side deadline.
+    # Unclassified, this arrived as a bare upstream_error, which reads as "the
+    # server is broken" rather than "this query was too wide" — the caller then
+    # abandons a capability that works fine at a narrower scope.
+    if "statement timeout" in lowered or "timed out" in lowered or "timeout" in lowered:
+        return "timeout"
     if "not found" in lowered or "does not exist" in lowered:
         return "not_found"
     if any(marker in lowered for marker in ("invalid", "expected", "must be", "cannot represent")):
@@ -242,6 +256,22 @@ async def search_sentences(
     response_format: str = "detailed",
 ) -> dict[str, Any]:
     """Keyword-in-context search across the corpus you can read (pre/hit/post windows).
+
+    **What it matches: a case-insensitive LITERAL SUBSTRING.** No stemming, no
+    lemmatization, no word boundaries — and the rule is identical whether you pass
+    ``document_id`` or search corpus-wide. Three consequences worth knowing before
+    you read a result:
+
+    - A short term matches *inside* longer words: ``Hick`` also returns ``thick``,
+      ``thickness``. That is substring matching, not lemma normalization — narrow
+      the term (``Hick's law``) rather than concluding the index mangled it.
+    - ``%`` and ``_`` are literal characters here, not wildcards.
+    - Typographic punctuation is folded, so a term typed with ``'`` also matches
+      the ``’`` that PDF/EPUB extraction stores (likewise ``-``/``—`` and
+      ``"``/``“”``). Spelling, hyphenation and spacing still have to match.
+
+    Run ``term_frequency`` on your candidate terms FIRST (one batched call): it
+    tells you which will flood before you spend a search on one.
 
     Use RARE, scene-specific terms. A common, high-frequency word floods one region
     of a document and starves coverage of the rest — the returned ``coverage`` and
