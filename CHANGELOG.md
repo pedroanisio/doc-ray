@@ -75,6 +75,25 @@ doc-ray carries **one global version** covering both the application package
   migration, reindex, token backfill, environment/configuration change, or SDK
   release is required.
 
+### Added
+
+- **Phrase retrieval is measured rather than assumed (#47).**
+  `scripts/eval_phrase_retrieval.py` is a reproducible, read-only harness that
+  times the shipped stage-1 phrase path across seven fixed query classes,
+  records the access path the planner chose for each, prices the stage-2
+  positional index from catalog estimates, and applies the go/no-go criteria as
+  a pure function instead of as prose. It ships no feature code: no GraphQL,
+  MCP, webapp or SDK surface changes. Documented in
+  [docs/phrase-retrieval-evaluation.md](docs/phrase-retrieval-evaluation.md);
+  first run in `docs/eval/phrase-retrieval-2026-07-28.md`; decision **D-035**.
+
+  The production leg cannot write. It runs in a read-only transaction and reads
+  the setting back, bounds every statement with a timeout, screens each
+  statement before execution, and refuses to benchmark rows RLS hides from it —
+  a fast scan over an empty result set is a measurement failure, not a result.
+  The report generator likewise refuses to emit a number that does not carry
+  provenance.
+
 ### Fixed
 
 - **An overlong author name no longer kills the whole ingest.** `authors.name`

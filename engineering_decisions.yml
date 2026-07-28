@@ -55,7 +55,7 @@ source_schema:         "db/migrations"
 # by scripts/check_version_consistency.py.
 source_schema_version: "1.53.1"
 target_engine:         "PostgreSQL 16"
-total_decisions:       33
+total_decisions:       34
 
 decisions:
 
@@ -2059,5 +2059,146 @@ decisions:
             context:     "ci"
             side_effects: "reads"
             command:     "pytest tests/test_surface_parity_guard.py"
+            expect:
+              exit:      0
+
+  - id:                 "D-035"
+    title:              "Stage-1 phrase retrieval is measured; the positional engine stays gated on an unindexed candidate scan"
+    version_introduced: "1.53.1"
+    category:           "performance"
+    decision: |
+      `scripts/eval_phrase_retrieval.py` is the reproducible, read-only harness
+      for the phrase-retrieval programme. It measures the shipped stage-1 path
+      (#45 search, #46 counts) against fixed query classes, records the access
+      path the planner chose for each, prices the stage-2 positional index from
+      catalog estimates, and applies the go/no-go criteria as a pure function
+      (`scripts/_phrase_eval_criteria.decide`) rather than as prose. The dated
+      report is `docs/eval/phrase-retrieval-2026-07-28.md`; re-running the
+      harness regenerates it, and the generator refuses to write a report
+      containing a number that does not carry provenance.
+
+      Measured on production, 2026-07-28, read-only, as `docray_api` with an
+      admin RLS principal over 1,966,114 sentences (1,277 MB): six of seven
+      query classes exceed a 5,000 ms statement timeout against a 300-400 ms
+      budget. The seventh (`of it`) completes in 54 ms p50 only because it fills
+      the 2,001-row candidate cap after 15,044 rows and the LIMIT stops the
+      scan. Every one of the seven classes plans a `Seq Scan` over `sentences`.
+
+      The criteria therefore return GO on FR-5's structural-failure clause. The
+      recommendation recorded for #48 is nonetheless **not** "build the
+      positional engine yet", because the same measurement identifies a
+      materially cheaper candidate: a GIN trigram index on `sentences.text`
+      already exists, is valid, and occupies 380 MB, and the shipped candidate
+      clause does not use it under any tested variant (ILIKE or LIKE, literal or
+      parameterized, with or without the RLS principal, and with
+      `enable_seqscan = off`, where the planner reports the sequential scan as
+      `Disabled: true` for want of an alternative). Making an index the cluster
+      already carries usable is a smaller change than a surface-term registry, a
+      backfill over the token fact table, and a new composite index, and it must
+      be priced before the larger one is approved.
+    rationale: |
+      The approved plan held the stage-2 positional token engine behind a
+      measured decision because its cost is real and its benefit was assumed.
+      Measuring it produced two results the plan did not anticipate.
+
+      First, the cost profile is inverted relative to the specification. FR-5
+      exempts the all-short-words class as the one expected to be non-selective;
+      in practice it is the only class that meets the budget, because a
+      non-selective predicate fills the candidate cap immediately and `LIMIT`
+      stops the scan early. A *rare* phrase is the expensive case: the scan must
+      read the whole relation to establish that few rows match. `EXPLAIN
+      (ANALYZE)` on `Model Context Protocol` removed 1,974,077 rows by filter in
+      5,167 ms to return 358. A cap bounds rows returned, never rows scanned.
+
+      Second, the bottleneck is candidate *generation*, not verification.
+      Verification is pure `surface_word_v1` matching over at most 2,001
+      candidate texts and is bounded by construction; the measured cost is the
+      leading-wildcard `ILIKE` superset that finds those candidates, which
+      D-025's rationale already recorded as an unresolved offender
+      ("searchSentences' leading-wildcard ILIKE scan (needs a trigram / FTS
+      index)"). The positional token engine proposed in #48 would replace the
+      verification substrate. It does not, on this evidence, address the step
+      that is actually slow.
+
+      Recording GO while recommending against starting #48 immediately is not a
+      contradiction: FR-5's criteria answer "is stage 1 structurally inadequate
+      at production scale", and the answer is yes. Which remedy to buy is the
+      operator's decision, and this entry exists so that decision is made
+      against numbers instead of against the assumption the plan started from.
+
+      OD-1 was resolved as "both", but only the server-side column is populated:
+      the loopback MCP leg needs a bearer credential the harness does not take,
+      and an unmeasured column is reported as unmeasured rather than estimated.
+      OD-2's escalation to 100 runs was not triggered — no class sits near
+      enough to the budget line for a larger sample to change the verdict; the
+      failures exceed it by more than an order of magnitude. OD-3 is recorded in
+      `_phrase_eval_criteria.decide`: FR-5's GO clause ("any structural budget
+      failure") and its NO-GO clause (which explicitly tolerates the
+      all-short-words class) collide, and the specific exemption wins over the
+      general rule, or the exemption would be unreachable.
+    decision_status:    "proposed"
+    decision_date:      "2026-07-28"
+    owner:              ["pedroanisio@faz.ai"]
+    scope_path:
+      - "scripts/eval_phrase_retrieval.py"
+      - "scripts/_phrase_eval_criteria.py"
+      - "scripts/_phrase_eval_report.py"
+      - "docs/eval/phrase-retrieval-2026-07-28.md"
+      - "src/doc_ray/adapters/sentence_search_sql.py"
+      - "src/doc_ray/adapters/persistence_sentence_search.py"
+      - "src/doc_ray/adapters/persistence_read_terms.py"
+    claims:
+      - claim_id:    "D-035.k1"
+        claim_text:  "The go/no-go criteria are a deterministic function of measured inputs, not a judgement."
+        auditable:   true
+        status:      "populated"
+        declared_checks_count: 2
+        checks:
+          - check_id:    "D-035.k1.c1"
+            description: "FR-5 criteria return GO / NO_GO / OPERATOR exactly per spec over fixture matrices."
+            check_kind:  "shell"
+            severity:    "error"
+            context:     "ci"
+            side_effects: "reads"
+            command:     "pytest tests/test_phrase_eval_criteria.py"
+            expect:
+              exit:      0
+          - check_id:    "D-035.k1.c2"
+            description: "The report generator emits frontmatter and rejects any number lacking provenance."
+            check_kind:  "shell"
+            severity:    "error"
+            context:     "ci"
+            side_effects: "reads"
+            command:     "pytest tests/test_phrase_eval_report.py"
+            expect:
+              exit:      0
+      - claim_id:    "D-035.k2"
+        claim_text:  "The production leg cannot write: it runs read-only, screens every statement, and verifies the setting took."
+        auditable:   true
+        status:      "populated"
+        declared_checks_count: 1
+        checks:
+          - check_id:    "D-035.k2.c1"
+            description: "Write statements are refused before execution and a non-read-only session aborts the run."
+            check_kind:  "shell"
+            severity:    "error"
+            context:     "ci"
+            side_effects: "reads"
+            command:     "pytest tests/test_phrase_eval_harness.py"
+            expect:
+              exit:      0
+      - claim_id:    "D-035.k3"
+        claim_text:  "Stage-1 candidate generation plans a sequential scan of the sentences fact table for every measured query class."
+        auditable:   true
+        status:      "populated"
+        declared_checks_count: 1
+        checks:
+          - check_id:    "D-035.k3.c1"
+            description: "Re-run the read-only production leg; the access-path table must still report no index per class."
+            check_kind:  "shell"
+            severity:    "warning"
+            context:     "workspace"
+            side_effects: "reads"
+            command:     "python scripts/eval_phrase_retrieval.py --prod --explain --role docray_api --principal <admin-uuid> --report docs/eval/phrase-retrieval-<date>.md"
             expect:
               exit:      0

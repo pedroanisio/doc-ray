@@ -110,7 +110,7 @@ metadata:
   generated_by:     "Claude Sonnet 5 via Claude Code (merge of Claude Opus 4.8 backlog + OpenAI Codex improvement-proposal candidates); BL-181/BL-182/BL-183 by OpenAI GPT-5 via Codex"
   generated_on:     "2026-07-27"
   system_of_record: "docs/backlog.yml"
-  total_items:      184
+  total_items:      185
 
 items:
 
@@ -6702,3 +6702,61 @@ items:
     owner:        "shared"
     source:       "Operator-reported pipeline failure (2026-07-28); strict-TDD fix by Claude Opus 5 via Claude Code."
     tags:         ["ingest", "postgres", "btree", "data-integrity", "regression"]
+
+  - id:          "BL-186"
+    title:       "Phrase-retrieval evaluation harness and the stage-2 go/no-go record"
+    summary:     "Measure the shipped stage-1 phrase path read-only at production scale, price stage 2, and record the decision as D-035."
+    description: |
+      Implemented by GitHub issue #47 as the measurement gate in front of the
+      stage-2 positional token engine (#48). No feature code ships: the
+      deliverable is a reproducible harness, a dated report, and a validated
+      decision entry.
+
+      `scripts/eval_phrase_retrieval.py` times seven fixed query classes,
+      records how many candidates each returned and which access path the
+      planner chose, verifies word boundaries through the shipped
+      `surface_word_v1` matcher, and prices the stage-2 registry and index from
+      `pg_class.reltuples` plus a bounded `TABLESAMPLE`. Decision logic and
+      report rendering live in sibling modules so each file stays inside the
+      D-015 cap and the criteria stay unit-testable without a database.
+
+      The production leg is structurally unable to write: read-only transaction
+      with the setting read back, defensive statement timeout, per-statement
+      screening, credentials never logged. It refuses to report latencies over
+      rows RLS hides, and refuses a NO_GO verdict when no class matched
+      anything. The report generator refuses to write a number without
+      provenance.
+
+      First run (2026-07-28, production, read-only, 1,966,114 sentences): six of
+      seven classes exceed the 5 s timeout against a 300-400 ms budget, and all
+      seven plan a sequential scan of `sentences`. The bottleneck is candidate
+      generation — the leading-wildcard ILIKE superset D-025 already flagged —
+      not the verification substrate stage 2 would replace. Recorded as D-035,
+      status `proposed`, pending the operator's decision on #48.
+    category:     "testing"
+    type:         "feature"
+    status:       "done"
+    complexity:   "M"
+    priority:     "high"
+    rationale:    "Building the largest item in the programme on an unmeasured hypothesis is the expensive failure; the repo's precedent (D-025) is measurement-first."
+    acceptance_criteria:
+      - "The FR-5 criteria are a pure function returning GO / NO_GO / OPERATOR exactly per spec over fixture matrices."
+      - "The report carries house frontmatter and no number without provenance; the generator refuses to write one that does."
+      - "The production leg is read-only by construction: verified session, screened statements, no credential in output."
+      - "A session that cannot see the corpus, or a run where no class matched, cannot produce a NO_GO verdict."
+      - "A statement timeout is recorded as a measurement and restores the session context for the remaining classes."
+      - "Each class reports its chosen access path alongside its timings."
+      - "The decision is recorded as a validated entry with auditable checks; landing checklist green."
+    dependencies: ["BL-182", "BL-183"]
+    references:
+      - "scripts/eval_phrase_retrieval.py"
+      - "scripts/_phrase_eval_criteria.py"
+      - "scripts/_phrase_eval_report.py"
+      - "tests/test_phrase_eval_criteria.py"
+      - "tests/test_phrase_eval_report.py"
+      - "tests/test_phrase_eval_harness.py"
+      - "docs/phrase-retrieval-evaluation.md"
+      - "docs/eval/phrase-retrieval-2026-07-28.md"
+    owner:        "shared"
+    source:       "GitHub issue #47 (Retrieval P8); strict-TDD implementation by Claude Opus 5 via Claude Code."
+    tags:         ["retrieval", "phrase", "evaluation", "measurement", "read-only", "adr"]

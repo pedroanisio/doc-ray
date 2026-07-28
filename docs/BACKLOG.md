@@ -561,6 +561,7 @@ this corrects the record for shipped BL-175/BL-164 behavior without changing it.
 | BL-182 | Sentence search opt-in phrase mode with verified occurrence citations | api | feature | done | M | high | shared |
 | BL-183 | term_frequency verified phrase-occurrence counts | api | feature | done | M | high | shared |
 | BL-185 | Bound dimension values that live inside a unique btree | persistence | bug | done | S | high | shared |
+| BL-186 | Phrase-retrieval evaluation harness and the stage-2 go/no-go record | testing | feature | done | M | high | shared |
 
 See [`backlog.yml`](backlog.yml) for each item's full description, rationale,
 acceptance criteria, dependencies, related decisions (`D-###`), and references.
