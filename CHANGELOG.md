@@ -19,6 +19,49 @@ doc-ray carries **one global version** covering both the application package
 (`docray_schema_version()`). They are kept in lockstep by
 `scripts/check_version_consistency.py`, which fails the build on any drift.
 
+## [1.54.0]
+
+### Fixed
+
+- **Sentence-text search can reach its index again (#51).** `sentences.text` has
+  carried a GIN trigram index since migration 002. Migration 018 put an RLS
+  policy on the table, and PostgreSQL will not evaluate a non-leakproof qual
+  ahead of a security qual — both pattern operators (`textlike`, `texticlike`)
+  are non-leakproof, because testing "does this sentence match?" before "may
+  this caller see it?" could reveal that a hidden document contains a search
+  term. The planner therefore refused the index, and kept refusing under
+  `enable_seqscan = off`. The index had been unreachable for every RLS-subject
+  caller for more than a hundred migrations, with nothing to signal it.
+
+  Measured on production, 2026-07-28: an ordinary one-word search took 3,774 ms
+  to return a single page of 200 rows, reading all 1,966,114 sentences
+  (1,277 MB). Every query class in the #47 evaluation planned a sequential scan.
+
+  Candidate selection now runs through `docray_readable_sentence_ids` (migration
+  148), a `SECURITY DEFINER` helper owned by the `BYPASSRLS` batch role that
+  applies the caller's readable-document filter explicitly in SQL. RLS is no
+  longer in the planner's way, so the index is reachable again.
+
+  **This moves a guarantee from the database into code**, so the helper's
+  permission behaviour is asserted rather than assumed. `SECURITY DEFINER`
+  changes `current_user` but not the `role` GUC or `session_user`, so
+  `docray_effective_actor()` still resolves the *caller's* principal.
+  Cross-principal isolation, the admin path, and the
+  definer-identity-is-never-the-caller rule are each pinned by a test.
+
+  Terms shorter than three characters (`of`, `it`) still scan: pg_trgm cannot
+  extract a trigram from them. That is inherent, and it is already the cheap
+  case, because a non-selective predicate fills the candidate cap immediately.
+
+### Changed
+
+- **`termFrequency`'s bounded sentence scan uses the index-backed helper.**
+  Behaviour is unchanged — the same `surface_word_v1` verification runs over the
+  same kind of candidate superset — but candidates are found through the index
+  instead of a full scan. Terms whose match plan cannot reduce to a single
+  unfolded pattern (confusable spellings, fold-matched terms, all-short-word
+  queries) keep the previous predicate, which is no slower than it was.
+
 ## [1.53.1]
 
 ### Added

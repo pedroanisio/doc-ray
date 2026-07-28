@@ -42,7 +42,13 @@ def test_mixed_candidate_batch_is_one_statement_and_uses_both_candidate_rules(
     assert scans["phrase"].occurrence_sentences == 1
     assert scans["single"].occurrence_sentences == 1
     assert scans["missing"].occurrence_sentences == 0
-    assert " AND " in statements[0]
+    # Candidate generation now runs through the index-backed helper (BL-187):
+    # RLS forbids a non-leakproof ILIKE ahead of its security qual, so the
+    # trigram index is only reachable inside a SECURITY DEFINER function. The
+    # previous assertion here looked for the inline `AND` of ILIKE terms, which
+    # is the shape that could not use the index. The batch is still ONE
+    # statement, which is what this test exists to protect.
+    assert "docray_readable_sentence_ids" in statements[0]
 
 
 def test_candidate_false_positives_are_removed_and_repeated_occurrences_are_counted(pg) -> None:

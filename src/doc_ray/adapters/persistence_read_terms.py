@@ -21,7 +21,11 @@ from typing import Any
 from psycopg import AsyncConnection
 from psycopg.rows import dict_row
 
-from doc_ray.adapters.sentence_search_sql import match_clause, phrase_candidate_clause
+from doc_ray.adapters.sentence_search_sql import (
+    match_clause,
+    padded_index_patterns,
+    phrase_candidate_clause,
+)
 from doc_ray.domain.phrase_profile import phrase_words
 from doc_ray.domain.term_frequency import SentenceScan, verify_sentence_candidates
 
@@ -111,17 +115,35 @@ def _scan_sql(keys_to_text: dict[str, str]) -> tuple[str, dict[str, Any]]:
     parts: list[str] = []
     params: dict[str, Any] = {}
     for index, (key, term) in enumerate(keys_to_text.items()):
-        clause = phrase_candidate_clause if len(phrase_words(term)) > 1 else match_clause
-        predicate, clause_params = clause("s.text", term, prefix=f"t{index}")
-        params.update(clause_params)
         params[f"k{index}"] = key
+        patterns = padded_index_patterns(term)
+        if patterns is None:
+            # No word can drive the trigram index (all shorter than three
+            # characters, confusable, or fold-matched). Keep the original
+            # predicate: it is no slower than it was, and the helper could only
+            # widen the superset without narrowing anything.
+            clause = phrase_candidate_clause if len(phrase_words(term)) > 1 else match_clause
+            predicate, clause_params = clause("s.text", term, prefix=f"t{index}")
+            params.update(clause_params)
+            source = f"SELECT s.id, s.text FROM sentences s WHERE {predicate} LIMIT %(cap)s"
+        else:
+            # Index-backed candidates. RLS forbids a non-leakproof ILIKE ahead of
+            # its security qual, so the trigram index is only reachable inside
+            # the SECURITY DEFINER helper, which applies the caller's readable
+            # documents explicitly (migration 148).
+            for slot, pattern in enumerate(patterns):
+                params[f"t{index}_p{slot}"] = pattern
+            args = ", ".join(f"%(t{index}_p{slot})s" for slot in range(len(patterns)))
+            source = (
+                f"SELECT s.id, s.text FROM docray_readable_sentence_ids("
+                f"{args}, NULL::uuid, %(cap)s) s"
+            )
         parts.append(
             f"SELECT %(k{index})s AS key, b{index}.id AS sentence_id, "
             f"b{index}.text AS text, "
             f"{_TOTAL_SENTENCES_SQL} AS total_sentences "
             f"FROM (VALUES (1)) seed{index}(one) "
-            f"LEFT JOIN LATERAL (SELECT s.id, s.text FROM sentences s "
-            f"WHERE {predicate} LIMIT %(cap)s) b{index} ON TRUE"
+            f"LEFT JOIN LATERAL ({source}) b{index} ON TRUE"
         )
     return "\nUNION ALL\n".join(parts), params
 

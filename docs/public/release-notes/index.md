@@ -11,9 +11,9 @@ doc_type: "release-note"
 audience: ["end-user", "administrator", "developer", "integrator"]
 surfaces: ["webapp", "api", "mcp"]
 classification: "public"
-applies_to: "1.53.1"
+applies_to: "1.54.0"
 owner: "documentation-maintainer"
-last_reviewed: "2026-07-27"
+last_reviewed: "2026-07-28"
 status: "current"
 ---
 
@@ -22,6 +22,9 @@ status: "current"
 What changed in each version, newest first. Each entry states who a change affects
 and any action required.
 
+- **[1.54.0](1.54.0.md)** — searching sentence text is much faster; searches
+  that took seconds now use the text index that was already there
+  (**migration required**, no configuration change).
 - **[1.53.1](1.53.1.md)** — add citation-bearing whole-phrase sentence search, repair phrase-frequency sentence denominators, and
   return an explicit null when that maintained rollup is unavailable
   (**migration required**, no configuration change).

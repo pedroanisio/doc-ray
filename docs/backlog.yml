@@ -110,7 +110,7 @@ metadata:
   generated_by:     "Claude Sonnet 5 via Claude Code (merge of Claude Opus 4.8 backlog + OpenAI Codex improvement-proposal candidates); BL-181/BL-182/BL-183 by OpenAI GPT-5 via Codex"
   generated_on:     "2026-07-27"
   system_of_record: "docs/backlog.yml"
-  total_items:      185
+  total_items:      186
 
 items:
 
@@ -6760,3 +6760,75 @@ items:
     owner:        "shared"
     source:       "GitHub issue #47 (Retrieval P8); strict-TDD implementation by Claude Opus 5 via Claude Code."
     tags:         ["retrieval", "phrase", "evaluation", "measurement", "read-only", "adr"]
+
+  - id:          "BL-187"
+    title:       "Restore index-backed sentence-text search under row-level security"
+    summary:     "RLS made the trigram index on sentences.text unreachable; candidate selection moves behind a BYPASSRLS SECURITY DEFINER helper."
+    description: |
+      Production, 2026-07-28: an ordinary one-word sentence search took 3,774 ms
+      to return a single page of 200 rows, reading all 1,966,114 sentences
+      (1,277 MB). Every query class in the #47 phrase-retrieval evaluation
+      planned a sequential scan of `sentences`.
+
+      `sentences.text` has carried a `gin_trgm_ops` index since migration 002
+      (380 MB in production, valid, correct opclass). Migration 018 added the
+      RLS `p_read` policy. PostgreSQL will not evaluate a non-leakproof qual
+      ahead of a security qual, and both pattern operators are non-leakproof
+      (`textlike`, `texticlike`): matching before the permission check could
+      disclose that an unreadable document contains the search term. The planner
+      therefore refused the index, and kept refusing under `enable_seqscan =
+      off`, returning the sequential scan with the disable penalty because no
+      alternative existed. The index was dead for every RLS-subject caller for
+      more than a hundred migrations with nothing reporting it.
+
+      Migration 148 adds `docray_readable_sentence_ids`: SECURITY DEFINER, owned
+      by the BYPASSRLS batch writer (migration 114's invariant), pinned
+      search_path, applying `docray_readable_documents()` explicitly in its body.
+      RLS leaves the planner's way and the index is reachable again.
+
+      Fixed arity of four scalar patterns, because only separate scalar ILIKE
+      terms reach the index — `ILIKE ALL (array)` and an `unnest` form were both
+      measured falling back to a scan. Unused slots take '%', which matches
+      everything and yields no trigram. `adapters/sentence_search_sql.py` decides
+      eligibility: confusable OR-plans and fold-matched terms keep the previous
+      predicate, because reducing an OR to one branch would drop true matches
+      rather than widen the superset, and a single-word term keeps its
+      punctuation because match_plan treats %, _ and \ as data.
+
+      The guarantee moves from the database into reviewed code, so the security
+      behaviour is asserted: SECURITY DEFINER changes current_user but not the
+      role GUC or session_user, so docray_effective_actor() still resolves the
+      caller's principal. Cross-principal isolation, the admin path, and the
+      definer-is-never-the-caller rule each have a test.
+
+      Terms under three characters ('of', 'it') still scan; pg_trgm cannot
+      extract a trigram from them. That is inherent and already the cheap case,
+      because a non-selective predicate fills the candidate cap immediately.
+    category:     "persistence"
+    type:         "bug"
+    status:       "done"
+    complexity:   "M"
+    priority:     "high"
+    rationale:    "A dead index on the primary retrieval surface is a user-facing regression that also blocks the #48 decision: the measured cost was blamed on the verification substrate a positional engine would replace, when it belonged to candidate generation."
+    acceptance_criteria:
+      - "The helper is SECURITY DEFINER, owned by a BYPASSRLS role, with a pinned search_path."
+      - "It returns only sentences from documents the CALLER may read; a stranger sees nothing and an admin sees the tenant."
+      - "The definer's own identity is never used as the caller's."
+      - "Under RLS the trigram index is unavailable even with enable_seqscan off; in the definer context it is reachable."
+      - "Padding slots with '%' does not prevent index use; sub-trigram terms are documented as scanning."
+      - "A wildcard in a single-word term stays literal data, so searching 'quxscan%' does not match plain 'quxscan'."
+      - "term_frequency's bounded scan routes through the helper and keeps one statement for the whole batch."
+      - "Landing checklist green; version lockstep advanced to 1.54.0."
+    dependencies: []
+    references:
+      - "db/migrations/148_readable_sentence_ids.sql"
+      - "db/migrations/149_schema_version_1_54_0.sql"
+      - "src/doc_ray/adapters/sentence_search_sql.py"
+      - "src/doc_ray/adapters/persistence_read_terms.py"
+      - "src/doc_ray/tests/test_sentence_search_definer_db.py"
+      - "src/doc_ray/tests/test_sentence_search_index_usage_db.py"
+      - "src/doc_ray/tests/test_indexable_patterns.py"
+      - "docs/nlp_architecture.md"
+    owner:        "shared"
+    source:       "Measured during GitHub issue #47 (P8 evaluation); strict-TDD fix by Claude Opus 5 via Claude Code."
+    tags:         ["retrieval", "postgres", "rls", "index", "performance", "security"]

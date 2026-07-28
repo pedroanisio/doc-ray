@@ -1,6 +1,6 @@
 # doc-ray — Database ERD & Data Dictionary
 
-**Schema version `1.53.1`** (SemVer) · 147 migrations applied
+**Schema version `1.54.0`** (SemVer) · 149 migrations applied
 
 > Generated from the live schema by `scripts/gen_data_dictionary.py`. Do not edit by hand — re-run the generator.
 
@@ -2300,6 +2300,7 @@ SELECT a.document_id,
 | `docray_prevent_audit_event_mutation()` | `trigger` | invoker | plpgsql |
 | `docray_principal_by_email(email text)` | `uuid` | DEFINER | sql |
 | `docray_readable_documents()` | `SETOF uuid` | DEFINER | sql |
+| `docray_readable_sentence_ids(pattern_1 text, pattern_2 text, pattern_3 text, pattern_4 text, document uuid, max_rows integer)` | `TABLE(id ulid, text text)` | DEFINER | sql |
 | `docray_refresh_all_corpus_stats()` | `void` | DEFINER | plpgsql |
 | `docray_refresh_corpus_stats(tenant uuid)` | `void` | DEFINER | sql |
 | `docray_refresh_document_stats(doc uuid)` | `void` | DEFINER | sql |
@@ -2528,3 +2529,5 @@ owner's bypass.
 | 145 | `145_schema_version_1_53_0.sql` | advance the schema SemVer to 1.53.0 for the read/curation MCP endpoint split |
 | 146 | `146_corpus_stats_sentence_denominator.sql` | repair the full corpus-stats refresh, backfill sentence denominators, and assert the trusted batch-owner invariant |
 | 147 | `147_schema_version_1_53_1.sql` | advance the schema SemVer to 1.53.1 for the honest sentence denominator |
+| 148 | `148_readable_sentence_ids.sql` | add the SECURITY DEFINER candidate helper that lets sentence-text search reach its trigram index again: RLS forbids a non-leakproof ILIKE ahead of its security qual, so the index has been unreachable since migration 018 |
+| 149 | `149_schema_version_1_54_0.sql` | advance the schema SemVer to 1.54.0 for the index-backed sentence search |

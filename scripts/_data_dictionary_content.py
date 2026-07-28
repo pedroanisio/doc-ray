@@ -387,6 +387,16 @@ MIGRATIONS = [
         "147_schema_version_1_53_1",
         "advance the schema SemVer to 1.53.1 for the honest sentence denominator",
     ),
+    (
+        "148_readable_sentence_ids",
+        "add the SECURITY DEFINER candidate helper that lets sentence-text search "
+        "reach its trigram index again: RLS forbids a non-leakproof ILIKE ahead of "
+        "its security qual, so the index has been unreachable since migration 018",
+    ),
+    (
+        "149_schema_version_1_54_0",
+        "advance the schema SemVer to 1.54.0 for the index-backed sentence search",
+    ),
 ]
 
 # ---------------------------------------------------------------------------

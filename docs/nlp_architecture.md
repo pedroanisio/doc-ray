@@ -454,7 +454,42 @@ Opt-in `match="phrase"` is stage 1 of the phrase architecture. Adapter SQL build
 a correct candidate superset by AND-ing each `surface_word_v1` query word's
 existing `match_clause`; words of at least three characters lead, longest first,
 so the trigram index gets the best stable selectivity proxy available without a
-new corpus statistic. All-short queries are still measurable. The adapter scans
+new corpus statistic. All-short queries are still measurable.
+
+**Reaching the trigram index at all (migration 148).** That selectivity ordering
+assumed the `gin_trgm_ops` index on `sentences.text` was reachable. Between
+migration 018 and migration 148 it was not, for any RLS-subject caller.
+PostgreSQL refuses to evaluate a non-leakproof qual ahead of a security qual,
+and both pattern operators are non-leakproof (`textlike`, `texticlike`:
+`proleakproof = false`) — testing "does this sentence match?" before "may this
+caller see it?" could disclose that an unreadable document contains the term. The
+planner therefore chose a sequential scan, and continued to under
+`enable_seqscan = off`, where it reports the scan carrying the disable penalty
+because no alternative exists. Measured on production 2026-07-28: an ordinary
+one-word search read all 1,966,114 sentences in 3,774 ms.
+
+`docray_readable_sentence_ids` is the way back to the index. It is `SECURITY
+DEFINER`, owned by the `BYPASSRLS` batch writer (the migration 114 invariant),
+and applies `docray_readable_documents()` explicitly in its body, so RLS is not
+in the planner's way. Its arity is fixed at four scalar patterns because only
+separate scalar `ILIKE` terms reach the index — `ILIKE ALL (array)` and an
+`unnest` form both fall back to a scan — and unused slots take `%`, which matches
+everything and yields no trigram. Passing fewer patterns than a phrase has words
+stays correct: this is a candidate superset, and the pure verifier removes the
+false positives.
+
+The safety argument is that `SECURITY DEFINER` changes `current_user` but not the
+`role` GUC or `session_user`, so `docray_effective_actor()` still resolves the
+*caller's* principal rather than the batch role's.
+`test_sentence_search_definer_db.py` pins that, along with cross-principal
+isolation and the admin path — the guarantee moved out of the database's hands,
+so it is asserted rather than assumed. `adapters/sentence_search_sql.py`
+decides eligibility: a term whose match plan is an OR of confusable spellings or
+a `translate()`-folded column keeps the previous predicate, because reducing an
+OR to one branch would drop true matches rather than merely widening the
+candidate set. Terms under three characters are also excluded — pg_trgm cannot
+extract a trigram from them — which is the one case the fix cannot help, and
+already the cheap one because the candidate cap fills immediately. The adapter scans
 keyset batches, verifies in `domain/phrase_profile.py`, and stops after 2,001
 candidates or a full output page. Its debug log records candidates scanned,
 verified rows, emitted rows, and whether the cap was reached.
