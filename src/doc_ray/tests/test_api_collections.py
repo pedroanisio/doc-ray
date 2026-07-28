@@ -405,3 +405,31 @@ def test_collection_mutation_rejects_malformed_collection_id_cleanly(pg):
             await aconn.close()
 
     asyncio.run(check())
+
+
+def test_create_collection_rejects_a_name_too_long_for_its_unique_index(pg):
+    """`document_collections.name` is `text NOT NULL UNIQUE` (migration 047).
+
+    Same shape as the authors defect of 2026-07-28: an oversized value reaches a
+    btree that cannot hold it and the write aborts with a database-level error.
+    A collection name is typed by a person, though, so the honest response is to
+    reject it by name rather than silently store a truncated one they did not
+    choose.
+    """
+    conn, _created = pg
+    schema = build_schema()
+
+    async def check() -> None:
+        aconn = await _aconn_as(WRITE_PRINCIPAL.principal_id)
+        try:
+            result = await schema.execute(
+                'mutation($n:String!){createCollection(name:$n,kind:"manual"){id}}',
+                variable_values={"n": "c" * 5000},
+                context_value=_ctx(aconn),
+            )
+            assert result.errors is not None
+            assert "too long" in str(result.errors[0]).lower()
+        finally:
+            await aconn.close()
+
+    asyncio.run(check())

@@ -8,6 +8,7 @@ are the reversible operator lifecycle, distinct from ingestion ``status``.
 from __future__ import annotations
 
 from doc_ray.adapters.persistence_geometry import DictConnection
+from doc_ray.domain.indexed_text import bound_for_index
 
 #: Every ``document_metadata_history.field`` value this module can write.
 #:
@@ -28,22 +29,33 @@ HISTORY_FIELDS: tuple[str, ...] = (
 
 
 def _author_id(conn: DictConnection, name: str) -> int:
-    """Upsert an author by name and return its id."""
+    """Upsert an author by name and return its id.
+
+    The name is bounded to what ``authors_name_key`` can index. Document
+    metadata is not length-controlled at the source — a PDF may put an entire
+    author list in its ``/Author`` field — and an oversized value used to abort
+    the whole ingest at the persist step, discarding all the extraction work
+    before it. See :mod:`doc_ray.domain.indexed_text`.
+    """
     row = conn.execute(
         "INSERT INTO authors (name) VALUES (%s) "
         "ON CONFLICT (name) DO UPDATE SET name = EXCLUDED.name RETURNING id",
-        (name,),
+        (bound_for_index(name),),
     ).fetchone()
     assert row is not None  # RETURNING guarantees a row
     return int(row["id"])
 
 
 def _tag_id(conn: DictConnection, tag: str) -> int:
-    """Upsert a tag and return its id."""
+    """Upsert a tag and return its id.
+
+    Bounded for the same reason as :func:`_author_id`: ``tags.tag`` is the same
+    unbounded ``text`` under the same kind of UNIQUE btree.
+    """
     row = conn.execute(
         "INSERT INTO tags (tag) VALUES (%s) "
         "ON CONFLICT (tag) DO UPDATE SET tag = EXCLUDED.tag RETURNING id",
-        (tag,),
+        (bound_for_index(tag),),
     ).fetchone()
     assert row is not None  # RETURNING guarantees a row
     return int(row["id"])

@@ -77,6 +77,25 @@ doc-ray carries **one global version** covering both the application package
 
 ### Fixed
 
+- **An overlong author name no longer kills the whole ingest.** `authors.name`
+  and `tags.tag` are `text NOT NULL UNIQUE` (migration 004), so PostgreSQL keeps
+  a btree over them and rejects any entry above ~2704 bytes. Document metadata
+  is not length-controlled at the source — a PDF may put an entire author list,
+  or an abstract, in its `/Author` field — so such a file aborted at
+  *Persisting extracted document* with `index row size 3184 exceeds btree
+  version 4 maximum 2704`, discarding the extraction, sentencing and
+  object-store upload already paid for. Both dimension upserts now bound the
+  value through `doc_ray.domain.indexed_text`, which keeps a readable head and
+  appends a digest of the full original so two different long names stay two
+  different authors instead of silently merging. Ordinary names are stored
+  byte-for-byte unchanged.
+
+- **Collection names are rejected rather than mangled.** `createCollection` and
+  `updateCollection` now fail with an explicit "too long" error instead of
+  reaching the same btree limit on `document_collections.name`. A name someone
+  typed is not machine-extracted metadata: storing a truncated version they did
+  not choose would be worse than telling them.
+
 - **`termFrequency` no longer reports positive phrase hits out of zero sentences
   (#42).** Migration 142 added `corpus_stats.n_sentences` to the per-tenant refresh
   helper, but the deploy-time backfill called the older full-refresh helper, which

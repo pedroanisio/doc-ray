@@ -15,6 +15,7 @@ import strawberry
 from strawberry.scalars import JSON
 
 from doc_ray.adapters import persistence_read as read
+from doc_ray.domain.indexed_text import check_fits_index
 from doc_ray.entrypoints.api.context import RequestContext
 from doc_ray.entrypoints.api.mutation_guards import (
     _audit_mutation_event,
@@ -105,6 +106,9 @@ class CollectionMutations:
         clean_name = name.strip()
         if not clean_name:
             raise ValueError("collection name is required")
+        # `document_collections.name` is UNIQUE, so an oversized name reaches a
+        # btree that cannot hold it and aborts the write at the database.
+        check_fits_index(clean_name, label="collection name")
         clean_kind = _clean_collection_kind(kind)
         clean_rule = (
             _clean_collection_rule(rule, doc_type=doc_type, status=status, tags=tags)
@@ -211,6 +215,7 @@ class CollectionMutations:
             clean_name = name.strip()
             if not clean_name:
                 raise ValueError("collection name cannot be empty")
+            check_fits_index(clean_name, label="collection name")
             cur = await ctx.conn.execute(
                 "SELECT 1 FROM document_collections WHERE name = %s AND id <> %s",
                 (clean_name, coll_id),

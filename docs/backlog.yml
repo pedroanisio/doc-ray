@@ -110,7 +110,7 @@ metadata:
   generated_by:     "Claude Sonnet 5 via Claude Code (merge of Claude Opus 4.8 backlog + OpenAI Codex improvement-proposal candidates); BL-181/BL-182/BL-183 by OpenAI GPT-5 via Codex"
   generated_on:     "2026-07-27"
   system_of_record: "docs/backlog.yml"
-  total_items:      183
+  total_items:      184
 
 items:
 
@@ -6643,3 +6643,62 @@ items:
     owner:        "shared"
     source:       "GitHub issue #46 (2026-07-27); strict TDD implementation by OpenAI Codex after operator approval."
     tags:         ["term-frequency", "phrase-retrieval", "occurrence-counts", "graphql", "mcp", "tdd"]
+
+  - id:          "BL-185"
+    title:       "Bound dimension values that live inside a unique btree"
+    summary:     "An overlong extracted author name aborted ingest at the persist step; authors/tags are now bounded and collection names rejected."
+    description: |
+      Production, 2026-07-28: an ingest reached "Persisting extracted document"
+      and died with `index row size 3184 exceeds btree version 4 maximum 2704
+      for index "authors_name_key"`.
+
+      `authors.name` and `tags.tag` are `text NOT NULL UNIQUE` (migration 004),
+      so PostgreSQL maintains a btree over each and refuses any entry above
+      roughly a third of an 8 KB page. Nothing between a PDF's `/Author`
+      metadata field and the INSERT bounded the value: the extraction
+      dispatcher's `clean()` chokepoint strips NUL bytes only, and the pipeline
+      passes the author through verbatim. A document that puts an entire author
+      list — or an abstract — in that field therefore failed *after* extraction,
+      sentence splitting and the object-store upload had all been paid for.
+
+      `doc_ray.domain.indexed_text` now owns the invariant. `bound_for_index`
+      keeps a readable head of the value and appends a digest of the full
+      original, so an oversized name fits the index while two distinct long
+      names remain two distinct authors — plain truncation would have merged
+      them into one dimension row. The bound counts UTF-8 bytes, because the
+      btree does, and never splits a codepoint. It also sits below the server
+      limit rather than at it: the limit covers the whole index row, so a
+      2704-byte value still overflowed at 2720 bytes.
+
+      `document_collections.name` carries the same unbounded UNIQUE text
+      (migration 047) but is typed by a person, so `createCollection` and
+      `updateCollection` raise an explicit "too long" error instead of storing a
+      name the user did not choose.
+
+      No schema change: the fix is at the write boundary, so no migration and no
+      backfill. Documents that already failed are unaffected until re-uploaded.
+    category:     "persistence"
+    type:         "bug"
+    status:       "done"
+    complexity:   "S"
+    priority:     "high"
+    rationale:    "A dimension table keyed on unbounded external text is a latent ingest failure; the invariant belongs next to the index it protects, not at any one caller."
+    acceptance_criteria:
+      - "An author name of the size that failed in production ingests successfully and is stored within the index limit."
+      - "Two distinct overlong author names remain two rows; the same overlong name upserts to one."
+      - "Ordinary author names are stored byte-for-byte unchanged."
+      - "Multibyte names are bounded by UTF-8 byte length and never split mid-codepoint."
+      - "Oversized tags are bounded on the same path; oversized collection names are rejected with an explicit error."
+      - "A regression test reproduces the original ProgramLimitExceeded against a real btree using incompressible text."
+    dependencies: []
+    references:
+      - "src/doc_ray/domain/indexed_text.py"
+      - "src/doc_ray/adapters/persistence_doc_admin.py"
+      - "src/doc_ray/entrypoints/api/mutation_collections.py"
+      - "src/doc_ray/tests/test_indexed_text.py"
+      - "src/doc_ray/tests/test_indexed_text_db.py"
+      - "db/migrations/004_normalize_4nf.sql"
+      - "db/migrations/047_document_collections.sql"
+    owner:        "shared"
+    source:       "Operator-reported pipeline failure (2026-07-28); strict-TDD fix by Claude Opus 5 via Claude Code."
+    tags:         ["ingest", "postgres", "btree", "data-integrity", "regression"]
