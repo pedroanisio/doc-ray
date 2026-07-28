@@ -42,7 +42,13 @@ def _patch(monkeypatch: Any, captured: dict[str, Any], content: str = "A flowcha
     def fake_urlopen(req: Any, timeout: int | None = None) -> _FakeResp:
         captured["url"] = req.full_url
         captured["body"] = json.loads(req.data.decode("utf-8"))
-        return _FakeResp({"choices": [{"message": {"content": content}}]})
+        captured["headers"] = dict(req.headers)
+        return _FakeResp(
+            {
+                "choices": [{"message": {"content": content}}],
+                "usage": {"prompt_tokens": 1100, "completion_tokens": 210, "total_tokens": 1310},
+            }
+        )
 
     monkeypatch.setattr(vlm_vllm.urllib_request, "urlopen", fake_urlopen)
 
@@ -57,6 +63,7 @@ def test_chat_request_shape_and_response(monkeypatch: Any) -> None:
     out = vlm.caption_image(_png((100, 100)), "")
 
     assert out.caption == "A labelled diagram."
+    assert out.analysis["usage"]["prompt_tokens"] == 1100  # billing telemetry rides along
     body = captured["body"]
     assert captured["url"] == "http://h:8011/v1/chat/completions"
     assert body["model"] == "qwen3-vl-8b"
@@ -89,3 +96,93 @@ def test_defaults(monkeypatch: Any) -> None:
     monkeypatch.delenv("DOCRAY_VLM_MODEL", raising=False)
     monkeypatch.delenv("DOCRAY_VLM_ENDPOINT", raising=False)
     assert VLLMVisionLanguageModel().model_id == DEFAULT_MODEL
+
+
+def test_negative_temperature_omits_the_field(monkeypatch: Any) -> None:
+    captured: dict[str, Any] = {}
+    _patch(monkeypatch, captured)
+    VLLMVisionLanguageModel(endpoint="http://h:8011/v1", temperature=-1).caption_image(
+        _png((50, 50)), ""
+    )
+    assert "temperature" not in captured["body"]  # hosted models may reject explicit values
+
+
+def test_api_key_sends_bearer_header(monkeypatch: Any) -> None:
+    captured: dict[str, Any] = {}
+    _patch(monkeypatch, captured)
+    VLLMVisionLanguageModel(endpoint="http://h:8011/v1", api_key="do-secret").caption_image(
+        _png((50, 50)), ""
+    )
+    assert captured["headers"]["Authorization"] == "Bearer do-secret"
+
+
+def test_no_api_key_sends_no_auth_header(monkeypatch: Any) -> None:
+    monkeypatch.delenv("DOCRAY_VLM_API_KEY", raising=False)
+    captured: dict[str, Any] = {}
+    _patch(monkeypatch, captured)
+    VLLMVisionLanguageModel(endpoint="http://h:8011/v1").caption_image(_png((50, 50)), "")
+    assert "Authorization" not in captured["headers"]
+
+
+def test_api_key_from_env(monkeypatch: Any) -> None:
+    monkeypatch.setenv("DOCRAY_VLM_API_KEY", "env-secret")
+    captured: dict[str, Any] = {}
+    _patch(monkeypatch, captured)
+    VLLMVisionLanguageModel(endpoint="http://h:8011/v1").caption_image(_png((50, 50)), "")
+    assert captured["headers"]["Authorization"] == "Bearer env-secret"
+
+
+def _http_error(code: int) -> Any:
+    import email.message
+    import urllib.error
+
+    return urllib.error.HTTPError("http://h", code, "err", email.message.Message(), io.BytesIO())
+
+
+def test_transient_errors_retry_then_succeed(monkeypatch: Any) -> None:
+    calls = {"n": 0}
+    sleeps: list[float] = []
+    monkeypatch.setattr(vlm_vllm.time, "sleep", sleeps.append)
+
+    def flaky_urlopen(req: Any, timeout: int | None = None) -> _FakeResp:
+        calls["n"] += 1
+        if calls["n"] < 3:
+            raise _http_error(500 if calls["n"] == 1 else 429)
+        return _FakeResp({"choices": [{"message": {"content": "ok"}}]})
+
+    monkeypatch.setattr(vlm_vllm.urllib_request, "urlopen", flaky_urlopen)
+    out = VLLMVisionLanguageModel(endpoint="http://h:8011/v1").caption_image(_png((50, 50)), "")
+    assert out.caption == "ok"
+    assert calls["n"] == 3 and len(sleeps) == 2  # two failures, two backoffs
+
+
+def test_non_transient_error_raises_immediately(monkeypatch: Any) -> None:
+    calls = {"n": 0}
+    monkeypatch.setattr(vlm_vllm.time, "sleep", lambda s: None)
+
+    def bad_request(req: Any, timeout: int | None = None) -> _FakeResp:
+        calls["n"] += 1
+        raise _http_error(400)
+
+    monkeypatch.setattr(vlm_vllm.urllib_request, "urlopen", bad_request)
+    import pytest
+
+    with pytest.raises(Exception, match="400"):
+        VLLMVisionLanguageModel(endpoint="http://h:8011/v1").caption_image(_png((50, 50)), "")
+    assert calls["n"] == 1  # no retries on a permanent error
+
+
+def test_retries_exhaust_then_raise(monkeypatch: Any) -> None:
+    calls = {"n": 0}
+    monkeypatch.setattr(vlm_vllm.time, "sleep", lambda s: None)
+
+    def always_503(req: Any, timeout: int | None = None) -> _FakeResp:
+        calls["n"] += 1
+        raise _http_error(503)
+
+    monkeypatch.setattr(vlm_vllm.urllib_request, "urlopen", always_503)
+    import pytest
+
+    with pytest.raises(Exception, match="503"):
+        VLLMVisionLanguageModel(endpoint="http://h:8011/v1").caption_image(_png((50, 50)), "")
+    assert calls["n"] == 4  # initial + one per backoff step

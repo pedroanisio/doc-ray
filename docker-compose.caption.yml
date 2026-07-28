@@ -1,0 +1,60 @@
+# Dedicated visual_caption lane (2026-07-28). The Tier-3 caption backfill
+# occupied both general worker lanes and starved user-facing jobs: an upload's
+# seconds-long ingest sat QUEUED behind two book-length caption runs (same
+# failure mode as the 2026-07-12 reannotate incident that created worker-fast).
+#
+# This overlay fences visual_caption off both general lanes and adds a
+# caption-only pool that reuses the already-built worker image. Captions call
+# the Ollama VLM over HTTP, so these workers stay light (no spaCy/torch loads);
+# scale with --scale worker-caption=2 to keep two concurrent caption streams.
+#
+# The caption timeout is explicit: successful caption jobs cluster just under
+# the generic 3600 s WORKER_JOB_TIMEOUT_SECONDS ceiling, and image-heavy books
+# (up to 3711 images) need many hours of VLM time.
+#
+# Bring up (from /apps/doc-ray):
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml \
+#     -f docker-compose.ollama.yml -f docker-compose.caption.yml \
+#     up -d --no-deps --scale worker-caption=2 worker worker-fast worker-caption
+
+services:
+  worker:
+    environment:
+      WORKER_EXCLUDE_KINDS: ${WORKER_EXCLUDE_KINDS:-visual_caption}
+
+  worker-fast:
+    environment:
+      WORKER_EXCLUDE_KINDS: ${WORKER_FAST_EXCLUDE_KINDS:-annotate,reannotate,visual_extract,semantic_embed,visual_embed,visual_caption}
+
+  worker-caption:
+    image: doc-ray-worker
+    restart: unless-stopped
+    stop_grace_period: 60s
+    # Concurrent caption streams; pinned here so a plain `up` never downscales
+    # the pool back to one replica. Local Ollama serializes vision decode, so
+    # more than 2 buys nothing there — raise DOCRAY_CAPTION_WORKERS only with a
+    # horizontally scaling backend (DOCRAY_VLM_BACKEND=vllm against a hosted
+    # serverless endpoint).
+    deploy:
+      replicas: ${DOCRAY_CAPTION_WORKERS:-2}
+    environment:
+      PYTHONPATH: /app/src
+      DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL to the managed Postgres cluster (append ?sslmode=require)}
+      S3_ENDPOINT: ${S3_ENDPOINT:?Set S3_ENDPOINT to your Spaces endpoint}
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY:-minioadmin}
+      S3_SECRET_KEY: ${S3_SECRET_KEY:-minioadmin}
+      S3_BUCKET: ${S3_BUCKET:-documents}
+      WORKER_ONLY_KINDS: visual_caption
+      WORKER_JOB_TIMEOUT_VISUAL_CAPTION_SECONDS: ${WORKER_JOB_TIMEOUT_VISUAL_CAPTION_SECONDS:-86400}
+      DOCRAY_OLLAMA_HOST: ${DOCRAY_OLLAMA_HOST:-http://ollama:11434}
+      DOCRAY_OLLAMA_MODEL: ${DOCRAY_OLLAMA_MODEL:-qwen2.5}
+      # Tier-3 VLM backend switch (vlm_factory): default keeps local Ollama.
+      # For hosted serverless (e.g. DigitalOcean inference) set in .env.prod:
+      #   DOCRAY_VLM_BACKEND=vllm
+      #   DOCRAY_VLM_ENDPOINT=https://inference.do-ai.run/v1
+      #   DOCRAY_VLM_API_KEY=<key>  DOCRAY_VLM_MODEL=<vision slug>
+      DOCRAY_VLM_BACKEND: ${DOCRAY_VLM_BACKEND:-}
+      DOCRAY_VLM_ENDPOINT: ${DOCRAY_VLM_ENDPOINT:-http://localhost:8011/v1}
+      DOCRAY_VLM_API_KEY: ${DOCRAY_VLM_API_KEY:-}
+      DOCRAY_VLM_MODEL: ${DOCRAY_VLM_MODEL:-qwen3-vl:32b-instruct}
+    entrypoint: ["python", "-m", "doc_ray.entrypoints.worker"]

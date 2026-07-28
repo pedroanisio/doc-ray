@@ -13,9 +13,13 @@ transports the model's words, it does not decide anything.
 from __future__ import annotations
 
 import base64
+import contextlib
 import io
 import json
 import os
+import time
+from typing import Any
+from urllib import error as urllib_error
 from urllib import request as urllib_request
 
 from doc_ray.adapters.extraction_common import env_float, env_int
@@ -30,6 +34,12 @@ DEFAULT_TEMPERATURE = 0.1
 #: needs far fewer, and prefill cost scales with vision tokens, so downscaling is
 #: the dominant throughput lever for a corpus-wide pass. 0 disables downscaling.
 DEFAULT_IMAGE_MAX_PX = 1024
+#: Transient statuses hosted endpoints emit under load. One bad call must not
+#: fail a whole document's caption job (the orchestrator captions hundreds of
+#: images per job and restarts from zero on any exception), so these retry
+#: in-adapter with backoff; anything else — 400/401/402/404 — raises immediately.
+_RETRYABLE_STATUSES = frozenset({429, 500, 502, 503, 504})
+_RETRY_SLEEPS_SECONDS = (2.0, 8.0, 20.0)
 
 
 def _prepare_image(image_bytes: bytes, max_px: int) -> tuple[str, str]:
@@ -61,16 +71,24 @@ class VLLMVisionLanguageModel(VisionLanguageModel):
         model: str | None = None,
         endpoint: str | None = None,
         *,
+        api_key: str | None = None,
         num_predict: int | None = None,
         temperature: float | None = None,
         timeout_seconds: int = 180,
     ) -> None:
-        """Configure model/endpoint/decoding from args or DOCRAY_VLM_* env."""
+        """Configure model/endpoint/decoding from args or DOCRAY_VLM_* env.
+
+        ``api_key`` (or ``DOCRAY_VLM_API_KEY``) sends a Bearer token — hosted
+        OpenAI-compatible endpoints (e.g. DigitalOcean serverless inference at
+        ``https://inference.do-ai.run/v1``) require it; a local vLLM does not,
+        so an unset key sends no Authorization header at all.
+        """
         self.model_id = model or os.environ.get("DOCRAY_VLM_MODEL", DEFAULT_MODEL)
         self.model_version = "vllm"
         self._endpoint = (
             endpoint or os.environ.get("DOCRAY_VLM_ENDPOINT", DEFAULT_ENDPOINT)
         ).rstrip("/")
+        self._api_key = (api_key or os.environ.get("DOCRAY_VLM_API_KEY", "")).strip()
         self._num_predict = (
             num_predict
             if num_predict is not None
@@ -83,6 +101,32 @@ class VLLMVisionLanguageModel(VisionLanguageModel):
         )
         self._max_px = env_int(os.environ, "DOCRAY_VLM_IMAGE_MAX_PX", DEFAULT_IMAGE_MAX_PX)
         self._timeout = timeout_seconds
+
+    def _post_with_retry(self, req: urllib_request.Request) -> dict[str, Any]:
+        """POST *req*, retrying transient failures; return the decoded JSON body.
+
+        Retries HTTP {429, 5xx}, dropped connections, and timeouts up to
+        ``len(_RETRY_SLEEPS_SECONDS)`` times (a 429's ``Retry-After`` wins over
+        the schedule when longer). Non-transient HTTP errors raise unchanged.
+        """
+        last_exc: Exception | None = None
+        for sleep_s in (*_RETRY_SLEEPS_SECONDS, None):
+            try:
+                with urllib_request.urlopen(req, timeout=self._timeout) as resp:
+                    return dict(json.loads(resp.read().decode("utf-8")))
+            except urllib_error.HTTPError as exc:
+                if exc.code not in _RETRYABLE_STATUSES or sleep_s is None:
+                    raise
+                retry_after = exc.headers.get("Retry-After") if exc.headers else None
+                with contextlib.suppress(ValueError, TypeError):
+                    sleep_s = max(sleep_s, float(retry_after or 0.0))
+                last_exc = exc
+            except (urllib_error.URLError, TimeoutError, OSError) as exc:
+                if sleep_s is None:
+                    raise
+                last_exc = exc
+            time.sleep(sleep_s)
+        raise last_exc if last_exc else RuntimeError("unreachable")  # pragma: no cover
 
     def caption_image(self, image_bytes: bytes, evidence_text: str) -> VLMOutput:
         """Return the model's feature-report caption (untrusted, plain text)."""
@@ -105,15 +149,26 @@ class VLLMVisionLanguageModel(VisionLanguageModel):
                 }
             ],
             "max_tokens": self._num_predict,
-            "temperature": self._temperature,
         }
+        # A negative temperature means "send none — use the model's default":
+        # some hosted models reject explicit values (DO's kimi-k2.5 400s with
+        # "temperature must be 1 for this model").
+        if self._temperature >= 0:
+            payload["temperature"] = self._temperature
+        headers = {"content-type": "application/json"}
+        if self._api_key:
+            headers["Authorization"] = f"Bearer {self._api_key}"
         req = urllib_request.Request(
             f"{self._endpoint}/chat/completions",
             data=json.dumps(payload).encode("utf-8"),
-            headers={"content-type": "application/json"},
+            headers=headers,
         )
-        with urllib_request.urlopen(req, timeout=self._timeout) as resp:
-            body = json.loads(resp.read().decode("utf-8"))
+        body = self._post_with_retry(req)
         choices = body.get("choices") or [{}]
         content = (choices[0].get("message") or {}).get("content") or ""
-        return VLMOutput(caption=str(content).strip())
+        # Token accounting rides along in the analysis channel: hosted endpoints
+        # bill per token, and the stored per-image usage is what turns a caption
+        # row into a cost record (and the ROI benchmark into real numbers).
+        usage = body.get("usage")
+        analysis = {"usage": usage} if isinstance(usage, dict) else {}
+        return VLMOutput(caption=str(content).strip(), analysis=analysis)

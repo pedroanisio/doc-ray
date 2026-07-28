@@ -32,7 +32,7 @@ COMPOSE_ADMIN := docker compose --env-file .env.prod -f admin-console/docker-com
 # deliberately excluded: its token is a hard `${...:?}` requirement interpolated
 # file-wide, and the tunnel keeps running untouched (orphan warning, never removed
 # without --remove-orphans).
-COMPOSE_PROD_OLLAMA := $(COMPOSE_PROD) -f docker-compose.ollama.yml -f docker-compose.ollama.gpu.yml
+COMPOSE_PROD_OLLAMA := $(COMPOSE_PROD) -f docker-compose.ollama.yml -f docker-compose.ollama.gpu.yml -f docker-compose.caption.yml
 
 # MCP connector server overlay on top of the managed+ollama stack. The `mcp`
 # service front-ends the in-network API (api:8000) and is loopback-bound on
@@ -138,7 +138,12 @@ prod-migrate-host: ## Apply migrations to the MANAGED cluster from the REPO work
 # default (DOCRAY_BACKUP_ENABLED, D-033) and the scheduler exits immediately when
 # it is. Start it explicitly if you switch the flag on.
 prod-up: prod-migrate ## Migrate, then start the managed stack (api + webapp + workers)
-	$(COMPOSE_PROD) up -d --build api webapp worker worker-fast
+	# Full overlay set, not bare COMPOSE_PROD: recreating `worker`/`worker-fast`
+	# without the ollama+caption overlays strips DOCRAY_OLLAMA_HOST and the
+	# visual_caption lane fencing — a bare worker then claims caption jobs, dials
+	# localhost:11434 inside its own container, and terminally fails the whole
+	# queue (2026-07-28: two full caption waves lost to exactly this).
+	$(COMPOSE_PROD_OLLAMA) up -d --build api webapp worker worker-fast worker-caption
 
 prod-web: ## Add the public TLS front door (nginx + self-signed certgen) to a running prod stack
 	$(COMPOSE_PROD) up -d --build nginx-certgen nginx

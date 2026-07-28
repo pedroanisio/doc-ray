@@ -373,7 +373,7 @@ def handle_visual_caption(
 ) -> dict[str, Any]:
     """Prism Tier-3: grounded VLM captions with the PALS commit/review gate."""
     from doc_ray.adapters.image_ocr_pymupdf import PyMuPDFImageOcr
-    from doc_ray.adapters.vlm_ollama import OllamaVisionLanguageModel
+    from doc_ray.adapters.vlm_factory import make_vlm
     from doc_ray.application import visual_caption
 
     if job.document_id is None:
@@ -385,7 +385,7 @@ def handle_visual_caption(
         conn,
         store,
         job.document_id,
-        vlm=OllamaVisionLanguageModel(),
+        vlm=make_vlm(),
         image_ocr=PyMuPDFImageOcr(),
     )
 
