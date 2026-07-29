@@ -32,6 +32,19 @@ WORKDIR /app
 # src/ layout: the ingest package lives under src/, so put it on the path.
 ENV PYTHONPATH=/app/src
 
+# Tesseract is a RUNTIME dependency of the extractor, not a test-only one: an
+# image-only PDF (a scan) has no text layer, and without this the worker's OCR
+# fallback cannot run at all — every scanned upload lands as status='failed'
+# with "OCR required before ingest", advice no deployment built from this image
+# could take. Language packs are the whole cost (~5 MB each); add more here to
+# widen DOCRAY_PDF_OCR_LANGUAGE.
+RUN apt-get update \
+      && apt-get install -y --no-install-recommends \
+        tesseract-ocr \
+        tesseract-ocr-eng \
+        tesseract-ocr-por \
+      && rm -rf /var/lib/apt/lists/*
+
 COPY --from=deps /usr/local /usr/local
 
 COPY src ./src

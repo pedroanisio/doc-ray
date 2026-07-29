@@ -19,6 +19,7 @@ from typing import Literal
 
 from doc_ray.domain.jobs import (
     KIND_REEXTRACT,
+    KIND_RETRY_EXTRACT,
     KIND_SEMANTIC_EMBED,
     KIND_VISUAL_CAPTION,
     KIND_VISUAL_EMBED,
@@ -105,6 +106,18 @@ OPERATIONS: tuple[Operation, ...] = (
         lane=LANE_CPU,
         summary="Re-derives page geometry for PDFs so spans carry page numbers.",
         completeness="Skips documents that already have page geometry.",
+    ),
+    Operation(
+        key="retry_extract",
+        label="Retry failed extraction",
+        job_kind=KIND_RETRY_EXTRACT,
+        lane=LANE_CPU,
+        summary=(
+            "Re-reads the stored original of every document whose ingest found no "
+            "text and promotes the ones the current extractor can read — the sweep "
+            "to run after enabling OCR, since re-uploading the same bytes cannot."
+        ),
+        completeness="Only documents left in status='failed' are eligible.",
     ),
 )
 

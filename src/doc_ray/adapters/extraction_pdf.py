@@ -9,6 +9,7 @@ PyMuPDF is unavailable or errors on a file.
 
 from __future__ import annotations
 
+import glob
 import io
 import json
 import os
@@ -16,7 +17,7 @@ import re as _re
 import shlex
 import subprocess
 from collections import Counter
-from collections.abc import Iterator, Mapping
+from collections.abc import Iterator, Mapping, MutableMapping
 from typing import Any, Protocol
 
 import pypdf
@@ -50,10 +51,51 @@ class _PyMuPDFDocument(Protocol):
         ...
 
 
-def pdf_ocr_enabled_from_env(env: Mapping[str, str] | None = None) -> bool:
-    """Return whether image-only PDF OCR is explicitly enabled."""
+class OcrUnavailableError(RuntimeError):
+    """The OCR pass was required for an image-only PDF and could not run.
+
+    Distinct from "this PDF has no text": the document *is* readable, the
+    deployment just cannot read it. Raised instead of degrading to the flat
+    pypdf fallback, which would report the generic "no extractable text" and
+    hide a missing Tesseract behind a message about the source file.
+    """
+
+
+#: Where Debian/Ubuntu keep Tesseract's language data. PyMuPDF resolves
+#: ``TESSDATA_PREFIX`` itself when the operator sets it; these are probed only
+#: when it is unset, so an image that installs ``tesseract-ocr`` needs no
+#: version-specific ENV line that would silently rot on the next base bump.
+_TESSDATA_GLOBS = ("/usr/share/tesseract-ocr/*/tessdata", "/usr/share/tessdata")
+
+
+def ensure_tessdata_prefix(env: MutableMapping[str, str] | None = None) -> str | None:
+    """Return the resolved ``TESSDATA_PREFIX``, discovering it when unset.
+
+    An explicitly configured value always wins and is never overwritten.
+    """
     source = os.environ if env is None else env
-    return source.get("DOCRAY_PDF_OCR", "").strip().lower() in {"1", "true", "yes", "on"}
+    configured = source.get("TESSDATA_PREFIX", "").strip()
+    if configured:
+        return configured
+    for pattern in _TESSDATA_GLOBS:
+        for candidate in sorted(glob.glob(pattern)):
+            if os.path.isdir(candidate):
+                source["TESSDATA_PREFIX"] = candidate
+                return candidate
+    return None
+
+
+def pdf_ocr_enabled_from_env(env: Mapping[str, str] | None = None) -> bool:
+    """Return whether OCR may run on a PDF that extracted to zero text.
+
+    Default ON. The OCR pass fires only when the layout extractor found *no*
+    text at all, so the alternative to running it is not a cheaper ingest — it
+    is a failed one. Opt out with ``DOCRAY_PDF_OCR=0`` on a deployment whose
+    image has no Tesseract and that would rather record the failure.
+    """
+    source = os.environ if env is None else env
+    raw = source.get("DOCRAY_PDF_OCR", "1").strip().lower()
+    return raw not in {"0", "false", "no", "off"}
 
 
 def pdf_math_backend_from_env(env: Mapping[str, str] | None = None) -> str | None:
@@ -256,7 +298,18 @@ def extract_pdf_pymupdf(data: bytes, fallback_title: str) -> Extracted:
     ocr_applied = False
     if not full_text.strip() and ocr_enabled:
         language = pdf_ocr_language_from_env()
-        blocks = _blocks_from_pages(doc, ocr=True, language=language)
+        ensure_tessdata_prefix()
+        try:
+            blocks = _blocks_from_pages(doc, ocr=True, language=language)
+        except Exception as exc:  # noqa: BLE001 — re-raised as a diagnosable failure
+            # Never fall through to the flat fallback here: it will also read
+            # zero characters, and the operator would be told to OCR a file the
+            # deployment just failed to OCR. Name the real fault instead.
+            raise OcrUnavailableError(
+                f"image-only PDF needs OCR, but the OCR pass failed "
+                f"(language={language!r}): {exc}. Is Tesseract installed in "
+                f"this image, and is the language pack present?"
+            ) from exc
         full_text = pdf_layout.to_markdown(blocks, thresholds=thresholds)
         ocr_applied = bool(full_text.strip())
     meta = doc.metadata or {}
@@ -340,5 +393,10 @@ def extract_pdf(data: bytes, fallback_title: str) -> Extracted:
         import fitz  # noqa: F401
 
         return extract_pdf_pymupdf(data, fallback_title)
+    except OcrUnavailableError:
+        # The structured path already established there is nothing to read
+        # without OCR; pypdf cannot do better, and swallowing this would
+        # replace a precise, actionable fault with the generic empty-text one.
+        raise
     except Exception:
         return extract_pdf_pypdf(data, fallback_title)

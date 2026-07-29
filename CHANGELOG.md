@@ -19,6 +19,46 @@ doc-ray carries **one global version** covering both the application package
 (`docray_schema_version()`). They are kept in lockstep by
 `scripts/check_version_consistency.py`, which fails the build on any drift.
 
+## [Unreleased]
+
+### Fixed
+
+- **A scanned PDF now ingests instead of failing with advice the deployment
+  could not take.** An image-only PDF (a patent scan, `US2022099404A1`) landed
+  as `status='failed'` reading *"no extractable text — scanned/image-only file?
+  OCR required before ingest"*. Five defects stood behind that one screen, and
+  all five are fixed:
+
+  1. **OCR was opt-in and switched off.** The fallback existed behind
+     `DOCRAY_PDF_OCR`, unset in every deployment. It runs only when the layout
+     extractor found *no* text, so the alternative to running it was never a
+     cheaper ingest — it was a failed one. It is now on by default;
+     `DOCRAY_PDF_OCR=0` opts out.
+  2. **Tesseract was not in the runtime image.** It was installed only in
+     `docker/test/Dockerfile`, so OCR passed in CI and was impossible in
+     production. The runtime image now ships `tesseract-ocr` with the `eng` and
+     `por` language packs, and `TESSDATA_PREFIX` is discovered at run time
+     rather than hardcoded to a version-specific path.
+  3. **A failing OCR pass was swallowed.** `extract_pdf` caught every exception
+     from the PyMuPDF path and retried with pypdf, which reads zero characters
+     from a scan too — so a missing Tesseract surfaced as the generic
+     "OCR required" message. It now raises `OcrUnavailableError`, naming the
+     real fault.
+  4. **A failed document was unrecoverable.** Ingest dedupes by content hash, so
+     re-uploading the identical file reported the same failure, and the geometry
+     re-extract path selected only documents that already had text. A new
+     `retry_extract` job kind re-reads the stored (hash-verified) original with
+     the current extractor, promotes the document on success and runs the full
+     post-ingest pipeline, or leaves it `failed` with *this* attempt's reason.
+     Reachable from the document page's failure box, the
+     `retryDocumentExtraction` mutation, and a corpus-wide operation.
+  5. **"Preview failed" was untrue.** The preview state was derived from
+     `status` alone, and the three asset routes (download, page PNG, cover)
+     gated on `status == 'extracted'` — so the stored, intact bytes of a scan
+     could neither be shown nor downloaded. A failed document now serves its
+     original and renders its first-page cover; non-PDFs say "Text extraction
+     failed", which is what actually happened.
+
 ## [1.54.0]
 
 ### Fixed

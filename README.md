@@ -177,7 +177,10 @@ counts, so an agent picks a rarer candidate without trusting substring noise) /
 below)
 / `reannotate` / `deleteDocument` / `archiveDocument` / `restoreDocument` /
 `bulkArchiveDocuments` / `bulkTagDocuments` / `annotateDocument` /
-`reextractDocument` / `reextractDocuments` / `canonicalizeDocument(resolve:)` /
+`reextractDocument` / `reextractDocuments` /
+`retryDocumentExtraction(documentId:)` (re-read a *failed* document's stored
+original with the current extractor — the only recovery path, since ingest
+dedupes identical bytes) / `canonicalizeDocument(resolve:)` /
 `semanticEnrichDocument` / `embedDocumentSentences` / `embedCorpusSentences` / `updateDocumentMetadata` / `suggestDocumentMetadata`
 / `decideDocumentMetadataSuggestions` / `decideVisualCaptions` / `shareDocument` /
 `revokeDocumentShare` / `setDocumentVisibility` / `cancelJob` /

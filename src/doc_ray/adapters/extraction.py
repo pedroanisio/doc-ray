@@ -36,6 +36,9 @@ from doc_ray.adapters.extraction_office import (
     extract_pptx as extract_pptx,
 )
 from doc_ray.adapters.extraction_pdf import (
+    OcrUnavailableError as OcrUnavailableError,
+)
+from doc_ray.adapters.extraction_pdf import (
     extract_pdf as extract_pdf,
 )
 from doc_ray.adapters.extraction_pdf import (

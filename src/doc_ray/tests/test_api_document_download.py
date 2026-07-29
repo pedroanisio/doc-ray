@@ -277,6 +277,28 @@ def test_pdf_page_render_returns_clean_errors(monkeypatch) -> None:
     assert _get(pending_app, f"/documents/{DOC_ID}/pages/1.png").status_code == 409
 
 
+def test_a_failed_document_still_serves_its_stored_original(monkeypatch) -> None:
+    """A failed *text* extraction says nothing about the bytes.
+
+    Ingest stores the blob before extracting and keeps it on failure, yet all
+    three asset routes gated on ``status == 'extracted'`` — so the file a
+    reader most needs to inspect (the scan that could not be read) could
+    neither be downloaded nor rendered. Only ``pending``, a row that exists
+    before its bytes do, has nothing to serve.
+    """
+    pdf = _make_pdf(page_count=1)
+    sha = hashlib.sha256(pdf).hexdigest()
+    row = _pdf_row(status="failed", page_count=1, content_sha256=sha)
+
+    download_app, _ = _app(monkeypatch, row, _Store({"documents/ab/report.pdf": pdf}))
+    page_app, _ = _app(monkeypatch, row, _Store({"documents/ab/report.pdf": pdf}))
+    cover_app, _ = _app(monkeypatch, row, _Store({"documents/ab/report.pdf": pdf}))
+
+    assert _get(download_app, f"/documents/{DOC_ID}/download").status_code == 200
+    assert _get(page_app, f"/documents/{DOC_ID}/pages/1.png").status_code == 200
+    assert _get(cover_app, f"/documents/{DOC_ID}/cover.webp").status_code == 200
+
+
 # --- Cover delivery: small WebP thumbnails (docs/cover-delivery-optimization.md) -----------
 
 _FIXTURE_PDF = Path(__file__).resolve().parents[3] / "static" / "fixtures" / "AirFrance447_BEA.pdf"

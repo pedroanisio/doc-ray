@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from typing import Any
 
@@ -454,41 +454,62 @@ def insert_document(
                     ],
                 )
 
-        if provenance:
-            with conn.cursor() as cur:
-                cur.executemany(
-                    """
-                    INSERT INTO document_provenance
-                        (id, document_id, kind, tool, tool_version, actor,
-                         input_sha256, output_sha256, note)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-                    """,
-                    [
-                        (
-                            e["id"],
-                            doc_id,
-                            e["kind"],
-                            e["tool"],
-                            e["tool_version"],
-                            e["actor"],
-                            e["input_sha256"],
-                            e["output_sha256"],
-                            e["note"],
-                        )
-                        for e in provenance
-                    ],
-                )
-            param_rows = [
-                (e["id"], k, str(v))
-                for e in provenance
-                for k, v in (e.get("params") or {}).items()
-                if v is not None
-            ]
-            if param_rows:
-                with conn.cursor() as cur:
-                    cur.executemany(
-                        "INSERT INTO provenance_params (event_id, key, value) "
-                        "VALUES (%s, %s, %s) ON CONFLICT (event_id, key) DO NOTHING",
-                        param_rows,
-                    )
+        append_provenance_events(conn, str(doc_id), provenance)
     return str(doc_id)
+
+
+def append_provenance_events(
+    conn: DictConnection,
+    document_id: str,
+    events: Sequence[Mapping[str, Any]] | None,
+) -> None:
+    """Append provenance events (and their params) to a document's audit trail.
+
+    The trail is append-only: a later ingest repair adds ``extracted`` and
+    ``segmented`` events beside the original failure rather than rewriting it,
+    so "this document was recovered by a second extraction" stays readable.
+
+    Args:
+        conn: Open database connection (caller owns the transaction).
+        document_id: Document the events belong to.
+        events: Event records from ``domain.provenance.build_events``; an empty
+            or ``None`` sequence writes nothing.
+    """
+    if not events:
+        return
+    with conn.cursor() as cur:
+        cur.executemany(
+            """
+            INSERT INTO document_provenance
+                (id, document_id, kind, tool, tool_version, actor,
+                 input_sha256, output_sha256, note)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+            """,
+            [
+                (
+                    e["id"],
+                    document_id,
+                    e["kind"],
+                    e["tool"],
+                    e["tool_version"],
+                    e["actor"],
+                    e["input_sha256"],
+                    e["output_sha256"],
+                    e["note"],
+                )
+                for e in events
+            ],
+        )
+    param_rows = [
+        (e["id"], k, str(v))
+        for e in events
+        for k, v in (e.get("params") or {}).items()
+        if v is not None
+    ]
+    if param_rows:
+        with conn.cursor() as cur:
+            cur.executemany(
+                "INSERT INTO provenance_params (event_id, key, value) "
+                "VALUES (%s, %s, %s) ON CONFLICT (event_id, key) DO NOTHING",
+                param_rows,
+            )

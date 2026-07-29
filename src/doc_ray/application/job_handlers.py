@@ -27,6 +27,8 @@ from doc_ray.application.projection import (
 from doc_ray.application.projection import (
     refresh_projections_chained as _refresh_projections_chained,
 )
+from doc_ray.application.reextract import handle_reextract as handle_reextract
+from doc_ray.application.retry_extract import handle_retry_extract as handle_retry_extract
 from doc_ray.application.semantic_embed import handle_semantic_embed
 from doc_ray.domain.jobs import (
     KIND_ADD_DOCUMENT_TAGS,
@@ -45,6 +47,7 @@ from doc_ray.domain.jobs import (
     KIND_REFRESH_PROJECTION,
     KIND_RESTORE,
     KIND_RESTORE_DOCUMENT,
+    KIND_RETRY_EXTRACT,
     KIND_SCORE_MENTIONS,
     KIND_SEED_APPROVED,
     KIND_SEED_CANONICAL,
@@ -174,20 +177,6 @@ def handle_reannotate(
     # against the fresh mentions (durable reviews re-apply by stable span, #8).
     _refresh_projections_chained(conn, job.document_id)
     return info or {"skipped": True}
-
-
-def handle_reextract(
-    conn: psycopg.Connection[Any], store: ObjectStore | None, job: Job
-) -> dict[str, Any]:
-    """Backfill page/bbox geometry by re-reading a document's original blob."""
-    from doc_ray.application import reextract
-
-    if job.document_id is None:
-        raise RuntimeError("reextract requires a document_id")
-    if store is None:
-        raise RuntimeError("reextract requires an object store")
-    report_progress(0, 1, "Re-extracting document geometry")
-    return reextract.backfill_document_geometry_from_store(conn, store, job.document_id)
 
 
 def handle_ingest(
@@ -329,6 +318,7 @@ def handle_visual_extract(
     conn: psycopg.Connection[Any], store: ObjectStore | None, job: Job
 ) -> dict[str, Any]:
     """Prism Tier-1: detect image regions and store deterministic visual features."""
+    from doc_ray.adapters.epub_image_source_zip import ZipEpubImageSource
     from doc_ray.adapters.pdf_image_source_pymupdf import PyMuPDFImageSource
     from doc_ray.adapters.pdf_renderer_pymupdf import PyMuPDFRenderer
     from doc_ray.application import visual_extract
@@ -344,6 +334,9 @@ def handle_visual_extract(
         job.document_id,
         renderer=PyMuPDFRenderer(),
         image_source=PyMuPDFImageSource(),
+        # EPUBs carry the same figures as PDFs and were silently skipped entirely;
+        # this adapter is stdlib zip + PIL, so wiring it costs no new dependency.
+        epub_image_source=ZipEpubImageSource(),
     )
 
 
@@ -543,6 +536,7 @@ HANDLERS: dict[str, Handler] = {
     KIND_VISUAL_CAPTION: handle_visual_caption,
     KIND_REANNOTATE: handle_reannotate,
     KIND_REEXTRACT: handle_reextract,
+    KIND_RETRY_EXTRACT: handle_retry_extract,
     KIND_DELETE: handle_delete,
     KIND_ARCHIVE_DOCUMENT: handle_archive_document,
     KIND_RESTORE_DOCUMENT: handle_restore_document,

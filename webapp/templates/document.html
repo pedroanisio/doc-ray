@@ -327,15 +327,30 @@
      what to do about it. Without this the remedy (usually OCR) was reachable
      from psql alone. #}
   {% if doc.status == 'failed' %}
+    {% set retry = reprocess_steps | selectattr("step", "equalto", "retry_extract") | selectattr("available") | first %}
     <div class="errbox">
       <strong>Ingest failed.</strong>
       {% if doc.error %}{{ doc.error }}{% else %}No reason was recorded for this failure.{% endif %}
       <div class="muted" style="margin-top:.35rem">
-        Re-ingesting the same file cannot help: it is stored under its content
-        hash, so an identical copy is recognised and this failure is reported
-        again. Fix the source file (a scanned PDF needs OCR) and ingest the
-        corrected version.
+        The original file is stored and intact — only reading its text failed.
+        Re-uploading the same file cannot help: it is recognised by content hash
+        and this failure is reported again. Retry the extraction below to re-read
+        the stored original with the current extractor (a scanned PDF is read by
+        OCR); if it still finds no text, the reason recorded here is updated.
       </div>
+      {% if retry %}
+        {% if retry.active %}
+          <div class="muted" style="margin-top:.35rem">
+            Retry extraction is {{ retry.active_status }}{% if retry.progress and retry.progress.stage %} — {{ retry.progress.stage }}{% endif %}. Reload to see the outcome.
+          </div>
+        {% else %}
+          <form method="post" action="{{ url_for('document_reprocess', doc_id=doc.id) }}" style="margin-top:.5rem">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="step" value="retry_extract">
+            <button type="submit">Retry extraction</button>
+          </form>
+        {% endif %}
+      {% endif %}
     </div>
   {% endif %}
   {% if metadata_queued %}

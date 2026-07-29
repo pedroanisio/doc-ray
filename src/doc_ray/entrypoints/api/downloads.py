@@ -58,6 +58,20 @@ def _is_pdf_document(row: dict[str, Any]) -> bool:
     return row.get("doc_type") == "pdf" or row.get("mime_type") == "application/pdf"
 
 
+#: Statuses whose stored original is present and serveable. ``failed`` belongs
+#: here: ingest stores the blob *before* extraction and keeps it on failure
+#: (``pipeline.record_failure``), so a scanned PDF that yielded no text still
+#: downloads and still renders. Only ``pending`` — a row that exists before its
+#: bytes do — has nothing to serve.
+_ORIGINAL_AVAILABLE_STATUSES = frozenset({"extracted", "failed"})
+
+
+def _require_original_available(row: dict[str, Any]) -> None:
+    """Raise 409 unless the document's stored original can be served."""
+    if str(row.get("status") or "") not in _ORIGINAL_AVAILABLE_STATUSES:
+        raise HTTPException(status_code=409, detail="document original is not available yet")
+
+
 def _pdf_page_cache_key(document_id: str, row: dict[str, Any], page_number: int) -> str:
     """Return the stable object-store key for a rendered PDF page image."""
     version = str(row.get("content_sha256") or document_id)
@@ -182,8 +196,7 @@ async def _document_download_response(document_id: str, request: Request) -> Res
 
     if row is None:
         raise HTTPException(status_code=404, detail="document not found")
-    if row.get("status") != "extracted":
-        raise HTTPException(status_code=409, detail="document original is not available yet")
+    _require_original_available(row)
 
     key = _object_key_from_source_uri(str(row.get("source_uri") or ""), store.bucket)
     if key is None:
@@ -230,8 +243,7 @@ async def _document_page_png_response(
 
     if row is None:
         raise HTTPException(status_code=404, detail="document not found")
-    if row.get("status") != "extracted":
-        raise HTTPException(status_code=409, detail="document original is not available yet")
+    _require_original_available(row)
     if not _is_pdf_document(row):
         raise HTTPException(status_code=415, detail="document is not a PDF")
 
@@ -303,8 +315,7 @@ async def _document_cover_webp_response(document_id: str, width: int, request: R
 
     if row is None:
         raise HTTPException(status_code=404, detail="document not found")
-    if row.get("status") != "extracted":
-        raise HTTPException(status_code=409, detail="document original is not available yet")
+    _require_original_available(row)
     if not _is_pdf_document(row):
         raise HTTPException(status_code=415, detail="document is not a PDF")
 

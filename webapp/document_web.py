@@ -16,19 +16,29 @@ try:
     from webapp import document_assets_web
     from webapp.collections_web import available_manual_collections
     from webapp.document_metadata import submit_metadata_update
-    from webapp.job_view import is_active_job, summarize_outcome, summarize_progress
     from webapp.overlay_web import original_markup, original_overlay
     from webapp.previews import document_preview
     from webapp.reader_blocks import attach_page_blocks, latest_annotation_state
+    from webapp.reprocess_web import (
+        _REPROCESS_CONFIG,
+        _step_applies_to_status,
+        active_reprocess_jobs,
+        reprocess_steps,
+    )
     from webapp.visual_web import document_visual_model
 except ModuleNotFoundError:  # pragma: no cover - direct ``python webapp/app.py`` path.
     import document_assets_web
     from collections_web import available_manual_collections
     from document_metadata import submit_metadata_update
-    from job_view import is_active_job, summarize_outcome, summarize_progress
     from overlay_web import original_markup, original_overlay
     from previews import document_preview
     from reader_blocks import attach_page_blocks, latest_annotation_state
+    from reprocess_web import (
+        _REPROCESS_CONFIG,
+        _step_applies_to_status,
+        active_reprocess_jobs,
+        reprocess_steps,
+    )
     from visual_web import document_visual_model
 
 _core: ModuleType
@@ -70,142 +80,6 @@ def reader_url(doc_id: str, **overrides: object) -> str:
         else:
             args[name] = value
     return url_for("document", doc_id=doc_id, **args)
-
-
-_REPROCESS_CONFIG = {
-    "reextract": {
-        "label": "Re-extract",
-        "description": "Rebuild text and page geometry from the original PDF.",
-        "mutation": "mutation($id: ID!) { reextractDocument(documentId: $id) { id } }",
-        "response_key": "reextractDocument",
-        "active_kinds": {"reextract"},
-        "pdf_only": True,
-    },
-    "annotate": {
-        "label": "Re-annotate",
-        "description": (
-            "Run full annotation (tokens, part-of-speech, named entities) again. "
-            "This deletes and replaces entity mentions — re-run Re-canonicalize "
-            "afterward if this document has been canonicalized."
-        ),
-        "mutation": "mutation($id: ID!) { annotateDocument(documentId: $id) { id } }",
-        "response_key": "annotateDocument",
-        "active_kinds": {"annotate"},
-        "pdf_only": False,
-    },
-    "reannotate": {
-        "label": "Refresh word frequency",
-        "description": (
-            "Recompute word-frequency/lexicon data from the current text, without "
-            "re-running full annotation. Does not touch entities or part-of-speech."
-        ),
-        "mutation": "mutation($id: ID!) { reannotate(documentId: $id) { id } }",
-        "response_key": "reannotate",
-        "active_kinds": {"reannotate"},
-        "pdf_only": False,
-    },
-    "semantic_enrich": {
-        "label": "Re-enrich",
-        "description": "Recompute deterministic semantic enrichment.",
-        "mutation": "mutation($id: ID!) { semanticEnrichDocument(documentId: $id) { id } }",
-        "response_key": "semanticEnrichDocument",
-        "active_kinds": {"semantic_enrich"},
-        "pdf_only": False,
-    },
-    "canonicalize": {
-        "label": "Re-canonicalize",
-        "description": "Re-run deterministic entity canonicalization.",
-        "mutation": "mutation($id: ID!) { canonicalizeDocument(documentId: $id) { id } }",
-        "response_key": "canonicalizeDocument",
-        "active_kinds": {"canonicalize"},
-        "pdf_only": False,
-    },
-}
-
-
-def active_reprocess_jobs(doc_id: str) -> dict[str, dict]:
-    """Return active pipeline jobs keyed by reprocess step.
-
-    A running job whose heartbeat went stale (worker killed mid-run) is
-    excluded — it must not block re-running the step it will never finish.
-    """
-    rows = _core.q(
-        """
-        SELECT id, kind, status, progress_current, progress_total, progress_stage,
-               started_at, heartbeat_at
-        FROM jobs
-        WHERE document_id = %s AND status IN ('queued', 'running')
-        ORDER BY id DESC
-        """,
-        (doc_id,),
-    )
-    active: dict[str, dict] = {}
-    for row in rows:
-        if not is_active_job(row):
-            continue
-        for step, cfg in _REPROCESS_CONFIG.items():
-            if row.get("kind") in cfg["active_kinds"] and step not in active:
-                active[step] = row
-    return active
-
-
-def failed_reprocess_jobs(doc_id: str) -> dict[str, dict]:
-    """Return the most recent job per reprocess step, if that attempt failed.
-
-    ``active_reprocess_jobs`` only sees queued/running jobs, so a step whose
-    last attempt permanently failed (retries exhausted, or reclaimed after a
-    stale heartbeat) looked identical to a step that was never run — the
-    reprocess control just offered to run it again with no explanation. A
-    step is only reported here when its single most recent job (of any
-    status) is the failed one; once a later attempt succeeds, the failure
-    is superseded and stops showing.
-    """
-    rows = _core.q(
-        """
-        SELECT id, kind, status, attempts, max_attempts, error
-        FROM jobs
-        WHERE document_id = %s
-        ORDER BY id DESC
-        """,
-        (doc_id,),
-    )
-    latest_seen: set[str] = set()
-    failed: dict[str, dict] = {}
-    for row in rows:
-        for step, cfg in _REPROCESS_CONFIG.items():
-            if row.get("kind") not in cfg["active_kinds"] or step in latest_seen:
-                continue
-            latest_seen.add(step)
-            if row.get("status") == "failed":
-                failed[step] = row
-    return failed
-
-
-def reprocess_steps(doc: dict, doc_id: str) -> list[dict]:
-    """Build document-page reprocess controls from live job state."""
-    active_jobs = active_reprocess_jobs(doc_id)
-    failed_jobs = failed_reprocess_jobs(doc_id)
-    is_pdf = str(doc.get("doc_type") or "").lower() == "pdf"
-    steps = []
-    for step, cfg in _REPROCESS_CONFIG.items():
-        available = is_pdf or not cfg["pdf_only"]
-        active = active_jobs.get(step)
-        failed = failed_jobs.get(step) if not active else None
-        steps.append(
-            {
-                "step": step,
-                "label": cfg["label"],
-                "description": cfg["description"],
-                "available": available,
-                "active": active,
-                "active_status": active.get("status") if active else None,
-                "progress": summarize_progress(active) if active else None,
-                "outcome": summarize_outcome(failed) if failed else None,
-                "attempts": failed.get("attempts") if failed else None,
-                "max_attempts": failed.get("max_attempts") if failed else None,
-            }
-        )
-    return steps
 
 
 def _paginate_sentences(
@@ -459,7 +333,7 @@ def document(doc_id):
         metadata_queued=request.args.get("metadata_queued"),
         suggestions_error=request.args.get("suggestions_error"),
         suggestions_queued=request.args.get("suggestions_queued"),
-        reprocess_steps=reprocess_steps(doc, str(doc_id)),
+        reprocess_steps=reprocess_steps(_core.q, doc, str(doc_id)),
         reprocess_queued=request.args.get("reprocess_queued"),
         reprocess_error=request.args.get("reprocess_error"),
     )
@@ -478,7 +352,17 @@ def document_reprocess(doc_id):
         return redirect(
             url_for("document", doc_id=doc_id, reprocess_error="re-extract is PDF-only")
         )
-    active = active_reprocess_jobs(str(doc_id)).get(step)
+    if not _step_applies_to_status(cfg, doc):
+        return redirect(
+            url_for(
+                "document",
+                doc_id=doc_id,
+                reprocess_error=(
+                    f"{cfg['label']} does not apply to a {doc.get('status') or 'unknown'} document"
+                ),
+            )
+        )
+    active = active_reprocess_jobs(_core.q, str(doc_id)).get(step)
     if active is not None:
         return redirect(
             url_for(

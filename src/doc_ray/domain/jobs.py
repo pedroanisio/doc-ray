@@ -42,6 +42,14 @@ KIND_BACKUP = "backup"
 KIND_RESTORE = "restore"
 KIND_UPDATE_METADATA = "update_metadata"
 KIND_REEXTRACT = "reextract"
+# Repair path for a document whose ingest read no text (a scan ingested before
+# the deployment could OCR). Re-reads the stored blob with the current
+# extractor and promotes the document out of `status='failed'`, which no other
+# path can do: ingest dedupes by content hash and refuses the same bytes twice.
+# CPU lane on purpose — it is a per-document operator action, not a sweep, and
+# the OCR it may run is CPU-bound. A book-sized scan can approach the default
+# hour-long job timeout; raise WORKER_JOB_TIMEOUT_RETRY_EXTRACT_SECONDS if so.
+KIND_RETRY_EXTRACT = "retry_extract"
 # Prism Tier-1: detect image/regions in a document and compute deterministic
 # visual features (CPU-only; no model). Appended to the post-ingest chain tail.
 KIND_VISUAL_EXTRACT = "visual_extract"
@@ -110,11 +118,25 @@ KIND_SCORE_MENTIONS = "score_mentions"
 # It lives here, not in the GraphQL entrypoint, because it is the pipeline every
 # ingest path owes a document: the API upload mutation and the operator bulk
 # loaders must enqueue the same work, and a second definition is how they drift.
+#
+# ORDERING INVARIANT — KIND_SCORE_MENTIONS RUNS AFTER KIND_CANONICALIZE.
+# Canonicalization MINTS mentions: its registry scan writes a `term`-layer
+# annotation with one entity_mention per matched form. While scoring ran at
+# position 2 those mentions did not exist yet, so they were never scored and
+# their confidence stayed NULL forever — measured 2026-07-29 as 131,172 unscored
+# term mentions across 624 documents, 100% of that layer. Every surface that
+# ranks, filters, or triages on entity_mention.confidence silently dropped them.
+# The move is safe in the other direction: mention_confidence_store's scorer
+# reads spans, mentions, the entity_frequency_stats rollup, and the canonical
+# registry forms directly — never entity_projection — so it depends on nothing
+# canonicalize writes, and its registry_novelty_signal is *better* informed once
+# the registry scan has run. src/doc_ray/tests/test_job_kind_config.py pins the
+# order so this cannot silently regress.
 DEFAULT_PIPELINE_CHAIN: tuple[str, ...] = (
     KIND_ANNOTATE,
-    KIND_SCORE_MENTIONS,
     KIND_SEMANTIC_ENRICH,
     KIND_CANONICALIZE,
+    KIND_SCORE_MENTIONS,
     KIND_SEMANTIC_EMBED,
     KIND_VISUAL_EXTRACT,
 )

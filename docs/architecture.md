@@ -490,7 +490,7 @@ on the next start — the runner is safe to interrupt at any point.
 
 | Port | Adapter |
 |---|---|
-| `TextExtractor` | `adapters.extraction.extract` — dispatch by extension; PDF via PyMuPDF (structured Markdown), opt-in Tesseract OCR for image-only pages, opt-in verified external math extraction for LaTeX-bearing PDFs, and a pypdf fallback |
+| `TextExtractor` | `adapters.extraction.extract` — dispatch by extension; PDF via PyMuPDF (structured Markdown), default-on Tesseract OCR when a PDF extracts to zero text (`DOCRAY_PDF_OCR=0` opts out; a failed OCR pass raises `OcrUnavailableError` rather than degrading), opt-in verified external math extraction for LaTeX-bearing PDFs, and a pypdf fallback |
 | `ObjectStore` | `adapters.object_store.ObjectStore` — MinIO/S3 blob store |
 | `Repository` | `adapters.persistence` — Postgres data-access (documents, spans, sentences, lexemes, annotations) |
 | `Annotator` | `domain.lexemes.RuleAnalyzer` (zero-dep) and `adapters.annotation_spacy.SpacyAnnotator` (real POS) |

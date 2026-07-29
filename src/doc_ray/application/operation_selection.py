@@ -43,6 +43,9 @@ _BASE: dict[str, str] = {
     ),
     "semantic_embed": "EXISTS (SELECT 1 FROM sentences s WHERE s.document_id = d.id)",
     "reextract": ("d.status = 'extracted' AND d.doc_type = 'pdf' AND d.source_uri IS NOT NULL"),
+    # A repair, so the eligible set is the damaged one: ingest kept the bytes for
+    # exactly this reason, and a failed document with no blob is unrecoverable.
+    "retry_extract": "d.status = 'failed' AND d.source_uri IS NOT NULL",
 }
 
 _MISSING: dict[str, str] = {
@@ -58,6 +61,9 @@ _MISSING: dict[str, str] = {
         "NOT EXISTS ("
         " SELECT 1 FROM spans sp WHERE sp.document_id = d.id AND sp.page_number IS NOT NULL)"
     ),
+    # ``status='failed'`` already means "owes text"; a successful repair promotes
+    # the document out of the base set, so there is nothing further to subtract.
+    "retry_extract": "true",
 }
 
 #: The unit an operator actually cares about when sizing a sweep. Images for the
@@ -75,6 +81,7 @@ _UNIT: dict[str, tuple[str, str] | None] = {
     ),
     "semantic_embed": ("sentences", "SELECT count(*) FROM sentences s WHERE s.document_id = d.id"),
     "reextract": None,
+    "retry_extract": None,
 }
 
 

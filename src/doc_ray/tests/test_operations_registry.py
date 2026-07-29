@@ -84,6 +84,20 @@ class TestSelectionSql:
         with pytest.raises(UnknownOperationError):
             selection_sql("drop_everything", only_missing=True)
 
+    def test_retry_extract_selects_exactly_the_documents_ingest_could_not_read(self) -> None:
+        """The one sweep whose eligible set is the *damaged* one.
+
+        Nothing else could clear ``status='failed'``: ingest refuses the same
+        bytes twice and the geometry re-extract selects only extracted PDFs, so
+        an OCR-less deployment's failures were permanent.
+        """
+        sql, params = selection_sql("retry_extract", only_missing=True)
+        assert "d.status = 'failed'" in sql
+        assert "d.source_uri IS NOT NULL" in sql
+        assert "d.status = 'extracted'" not in sql
+        assert params == {}
+        assert get_operation("retry_extract").job_kind == "retry_extract"
+
     def test_unit_labels_match_what_each_tier_actually_counts(self) -> None:
         assert unit_label("visual_embed") == "images"
         assert unit_label("semantic_embed") == "sentences"

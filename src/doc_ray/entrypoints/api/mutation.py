@@ -26,6 +26,7 @@ from doc_ray.domain.jobs import (
     KIND_REEXTRACT,
     KIND_RESTORE,
     KIND_RESTORE_DOCUMENT,
+    KIND_RETRY_EXTRACT,
     KIND_SEED_APPROVED,
     KIND_SEED_SUGGEST,
     KIND_SEMANTIC_ENRICH,
@@ -91,6 +92,20 @@ class Mutation(
         ctx = info.context
         await _require_document_write(ctx, str(document_id), action="mutation.reextract")
         job_id = await _enqueue_job(ctx, KIND_REEXTRACT, {}, document_id=str(document_id))
+        return await _job_status(ctx, job_id)
+
+    @strawberry.mutation
+    async def retry_document_extraction(self, info: Info, document_id: strawberry.ID) -> Job:
+        """Enqueue an extraction retry for a document whose ingest read no text.
+
+        The only way back for a ``failed`` document: ingest dedupes by content
+        hash, so re-uploading the identical file reports the same failure. This
+        re-reads the stored original with the current extractor (OCR included)
+        and, on success, promotes the document and runs the full pipeline.
+        """
+        ctx = info.context
+        await _require_document_write(ctx, str(document_id), action="mutation.retry_extract")
+        job_id = await _enqueue_job(ctx, KIND_RETRY_EXTRACT, {}, document_id=str(document_id))
         return await _job_status(ctx, job_id)
 
     @strawberry.mutation
