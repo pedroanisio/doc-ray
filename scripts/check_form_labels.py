@@ -36,7 +36,6 @@ from __future__ import annotations
 
 import argparse
 import re
-import sys
 from dataclasses import dataclass
 from html.parser import HTMLParser
 from pathlib import Path
@@ -52,9 +51,7 @@ _CONTROL_TAGS: frozenset[str] = frozenset({"input", "select", "textarea"})
 #: ``input`` types that are not filled in by the user, so they are out of scope.
 #: ``button``/``submit``/``reset`` are named by their own ``value``; ``hidden``
 #: is never presented; ``image`` is named by ``alt``.
-_EXEMPT_INPUT_TYPES: frozenset[str] = frozenset(
-    {"hidden", "submit", "reset", "button", "image"}
-)
+_EXEMPT_INPUT_TYPES: frozenset[str] = frozenset({"hidden", "submit", "reset", "button", "image"})
 
 _JINJA_BLOCK = re.compile(r"\{%.*?%\}", re.DOTALL)
 _JINJA_COMMENT = re.compile(r"\{#.*?#\}", re.DOTALL)
