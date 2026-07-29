@@ -7145,7 +7145,7 @@ items:
       still leaves 5,851 individual decisions.
     category:     "webapp"
     type:         "tech-debt"
-    status:       "ready"
+    status:       "done"
     complexity:   "M"
     priority:     "critical"
     rationale:    "The human-verification gate is the control that makes untrusted VLM output safe to use. A gate no operator can physically work is not a control; it is an unbounded queue that silently converts into permanent non-adoption."
@@ -7266,7 +7266,7 @@ items:
       breadth by what a user can visually scan, not by what fits in a page.
     category:     "webapp"
     type:         "feature"
-    status:       "ready"
+    status:       "done"
     complexity:   "M"
     priority:     "high"
     rationale:    "Ordering determines what an operator believes about the corpus. An unordered queue over a skewed distribution produces a false impression of the whole from an unrepresentative head, and that misjudgement is expensive to reverse."
@@ -7300,7 +7300,7 @@ items:
       loosely related blocks with the image behind a link to another page.
     category:     "webapp"
     type:         "tech-debt"
-    status:       "ready"
+    status:       "done"
     complexity:   "S"
     priority:     "medium"
     rationale:    "The operator's task is comparison under repetition. Without visual hierarchy every item costs full reading effort, which multiplies directly by queue depth."
@@ -7331,7 +7331,7 @@ items:
       queue to reach 5,851 unnoticed.
     category:     "webapp"
     type:         "feature"
-    status:       "ready"
+    status:       "done"
     complexity:   "XS"
     priority:     "medium"
     rationale:    "Unbounded work with no progress signal is abandoned. The count alone communicates volume but not tractability, which is the thing an operator needs in order to start at all."

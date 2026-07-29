@@ -90,20 +90,112 @@
 {% else %}
   <section class="card">
     <h2>Untrusted caption proposals</h2>
-    <form method="post" action="{{ url_for('review_action') }}">
-      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="lane" value="visual"><input type="hidden" name="kind" value="visual"><input type="hidden" name="document_id" value="{{ document_id or '' }}">
-      {% for item in visual_items|default([]) %}
-        <article class="review-item">
-          <label><input type="checkbox" name="item_id" value="{{ item.id }}"> <strong>Untrusted caption proposal</strong></label>
-          <p>{{ item.caption }}</p>
-          <p><span class="pill">{{ item.groundingBand }} · {{ '%.1f'|format(item.groundingScore * 100) }}%</span></p>
-          <a href="{{ url_for('document_page_image', doc_id=item.documentId, page_number=item.pageNumber) }}">View image context · page {{ item.pageNumber }}</a>
-          {% if item.groundingEvidence %}<details><summary>Grounding evidence</summary><pre>{{ item.groundingEvidence|tojson(indent=2) }}</pre></details>{% endif %}
-        </article>
-      {% else %}<p class="lede">No captions are awaiting review.</p>{% endfor %}
-      {% if visual_items|default([]) %}<button name="action" value="approve">Approve selected</button> <button name="action" value="reject">Reject selected</button>{% endif %}
+
+    <form method="get" action="{{ url_for('review') }}" class="triage" data-testid="triage-controls">
+      <input type="hidden" name="lane" value="visual">
+      {% if document_id %}<input type="hidden" name="document_id" value="{{ document_id }}">{% endif %}
+      <label>Sort
+        <select name="sort" data-testid="sort-select" onchange="this.form.submit()">
+          {% for value, label in visual_sorts|default([]) %}
+            <option value="{{ value }}" {{ 'selected' if visual_sort == value }}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>Grounding
+        <select name="band" data-testid="band-select" onchange="this.form.submit()">
+          {% for value, label, _lo, _hi in visual_bands|default([]) %}
+            <option value="{{ value }}" {{ 'selected' if visual_band == value }}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>Per page
+        <select name="page_size" data-testid="page-size-select" onchange="this.form.submit()">
+          {% for n in [25, 50, 100, 200] %}
+            <option value="{{ n }}" {{ 'selected' if page_size == n }}>{{ n }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <noscript><button type="submit">Apply</button></noscript>
     </form>
+
+    {# Never print a total we could not read. A count query that returns 0 while
+       rows are on screen is not "zero pending", it is "unknown" — displaying the
+       former is the same fail-open mistake as a gate that cannot see its data. #}
+    <p class="hint" data-testid="queue-progress">
+      Showing <strong>{{ visual_items|default([])|length }}</strong>
+      {%- if counts.visual %} of <strong data-testid="queue-total">{{ counts.visual }}</strong> pending
+        · about {{ ((counts.visual / page_size)|round(0, 'ceil'))|int }} pages at this size
+      {%- else %} on this page · <span data-testid="queue-total-unknown">queue total unavailable</span>
+      {%- endif %}
+      {%- if visual_band %} · filtered to {{ visual_band }}{% endif %}
+    </p>
+
+    <form method="post" action="{{ url_for('review_action') }}" data-testid="decision-form">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="lane" value="visual"><input type="hidden" name="kind" value="visual"><input type="hidden" name="document_id" value="{{ document_id or '' }}">
+
+      {% if visual_items|default([]) %}
+      <div class="bulkbar" data-testid="bulk-bar">
+        <label><input type="checkbox" data-testid="select-all" onchange="
+          var f=this.closest('form');
+          f.querySelectorAll('input[name=item_id]').forEach(function(b){b.checked=this.checked}, this);
+          f.dispatchEvent(new Event('change', {bubbles:true}));
+        "> <strong>Select all {{ visual_items|length }} on this page</strong></label>
+        <span class="pill" data-testid="selected-count">0 selected</span>
+      </div>
+      {% endif %}
+
+      {% for item in visual_items|default([]) %}
+        <article class="review-item proposal" data-testid="proposal">
+          <div class="proposal-grid">
+            <a class="thumb" href="{{ url_for('document_page_image', doc_id=item.documentId, page_number=item.pageNumber) }}"
+               title="Open page {{ item.pageNumber }} in context">
+              <img loading="lazy" alt="Image on page {{ item.pageNumber }}"
+                   data-testid="proposal-thumb"
+                   src="{{ url_for('document_image', doc_id=item.documentId, image_id=item.documentImageId, ext='webp') }}?w=200">
+            </a>
+            <div class="proposal-body">
+              <label class="proposal-head">
+                <input type="checkbox" name="item_id" value="{{ item.id }}" data-testid="proposal-checkbox">
+                <span class="pill {{ 'ok' if item.groundingScore >= 0.8 else '' }}" data-testid="grounding-pill">{{ '%.0f'|format(item.groundingScore * 100) }}% · {{ item.groundingBand }}</span>
+                <span class="kicker">page {{ item.pageNumber }}</span>
+              </label>
+              <p class="caption-text" data-testid="caption-text">{{ item.caption }}</p>
+              {% if item.groundingEvidence %}<details><summary>Grounding evidence</summary><pre>{{ item.groundingEvidence|tojson(indent=2) }}</pre></details>{% endif %}
+            </div>
+          </div>
+        </article>
+      {% else %}<p class="lede" data-testid="empty-state">No captions match this filter.</p>{% endfor %}
+
+      {% if visual_items|default([]) %}
+        <div class="actions">
+          <button name="action" value="approve" data-testid="approve-btn">Approve selected</button>
+          <button name="action" value="reject" data-testid="reject-btn">Reject selected</button>
+        </div>
+      {% endif %}
+    </form>
+
+    {% if next_cursor %}
+      <div class="pager">
+        <a data-testid="next-page" href="{{ url_for('review', lane='visual', document_id=document_id, sort=visual_sort, band=visual_band, page_size=page_size, after=next_cursor) }}">next page →</a>
+      </div>
+    {% endif %}
   </section>
+  <script>
+  // Live selected-count: a bulk action must state how many rows it will affect
+  // before it is taken (BL-194).
+  (function () {
+    var form = document.querySelector('[data-testid="decision-form"]');
+    if (!form) return;
+    var out = form.querySelector('[data-testid="selected-count"]');
+    function sync() {
+      var n = form.querySelectorAll('input[name=item_id]:checked').length;
+      if (out) out.textContent = n + ' selected';
+      form.querySelectorAll('[data-testid$="-btn"]').forEach(function (b) { b.disabled = n === 0; });
+    }
+    form.addEventListener('change', sync);
+    sync();
+  })();
+  </script>
 {% endif %}
 <style>
   .review-layout { display:grid; grid-template-columns:minmax(14rem,1fr) minmax(0,2fr); gap:1rem; }
@@ -111,5 +203,21 @@
   .review-item:first-of-type { border-top:0; }
   .review-item .hint { display:block; margin:.3rem 0; }
   @media (max-width:760px){ .review-layout { grid-template-columns:1fr; } }
+  .triage { display:flex; gap:1rem; flex-wrap:wrap; align-items:end; margin:.5rem 0 1rem; }
+  .triage label { display:flex; flex-direction:column; font-size:.85rem; gap:.25rem; }
+  .bulkbar { display:flex; align-items:center; gap:.75rem; padding:.6rem .8rem;
+             border:1px solid var(--line); border-radius:.4rem; margin-bottom:.75rem;
+             position:sticky; top:0; background:var(--bg,#fff); z-index:2; }
+  .proposal-grid { display:grid; grid-template-columns:120px minmax(0,1fr); gap:1rem; align-items:start; }
+  .proposal .thumb img { width:120px; height:auto; border:1px solid var(--line); border-radius:.3rem; display:block; }
+  .proposal-head { display:flex; align-items:center; gap:.6rem; margin-bottom:.4rem; }
+  /* Clamp long captions so proposals occupy comparable vertical space and can be
+     compared by scanning rather than by reading each one in full (BL-198). */
+  .caption-text { display:-webkit-box; -webkit-line-clamp:4; -webkit-box-orient:vertical;
+                  overflow:hidden; margin:.2rem 0; }
+  .proposal:focus-within .caption-text, .caption-text:hover { -webkit-line-clamp:unset; overflow:visible; }
+  .pill.ok { border-color:#2e7d32; color:#2e7d32; }
+  .actions { position:sticky; bottom:0; padding:.75rem 0; background:var(--bg,#fff); }
+  @media (max-width:760px){ .proposal-grid { grid-template-columns:1fr; } }
 </style>
 {% endblock %}

@@ -124,8 +124,25 @@ class VisualQueries:
         status: str = "pending",
         limit: int = 100,
         after: str | None = None,
+        sort: str = visual_read.DEFAULT_REVIEW_SORT,
+        min_grounding: float | None = None,
+        max_grounding: float | None = None,
     ) -> list[VisualReviewItem]:
-        """Return untrusted Tier-3 caption proposals awaiting human review."""
+        """Return untrusted Tier-3 caption proposals awaiting human review.
+
+        Ordered by ``sort`` — ``grounding_desc`` (the default), ``grounding_asc``,
+        ``newest`` or ``oldest`` — and optionally bounded to a grounding band with
+        ``minGrounding``/``maxGrounding``.
+
+        The default puts the most approvable proposals first. Returning the queue
+        newest-first made the opening screen an unrepresentative sample of the
+        worst items, which is a misleading answer about the corpus rather than
+        merely an inconvenient one (BL-197).
+
+        Bands compose with ``documentId``, so a reviewer can work one document's
+        strong proposals, or sweep the whole corpus below a floor for rejection.
+        Cursors from ``after`` are only valid within a single ``sort``.
+        """
         doc_id = clean_uuid(str(document_id)) if document_id is not None else None
         if document_id is not None and doc_id is None:
             return []
@@ -136,6 +153,9 @@ class VisualQueries:
             status=status,
             limit=ctx.page_size(limit),
             after=after,
+            sort=sort,
+            min_grounding=min_grounding,
+            max_grounding=max_grounding,
         )
         return [VisualReviewItem.from_row(row) for row in rows]
 

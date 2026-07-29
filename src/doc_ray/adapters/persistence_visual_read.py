@@ -125,6 +125,37 @@ async def list_visual_captions(conn: _AConn, document_id: str, *, limit: int = 1
     return await cur.fetchall()
 
 
+#: Ordering the review queue supports. An allowlist, not caller text: the value
+#: reaches an ORDER BY, and a keyset cursor is only correct for an order the
+#: cursor was built for.
+_SORTS: dict[str, str] = {
+    "grounding_desc": "vr.grounding_score DESC, vr.created_at DESC, vr.id DESC",
+    "grounding_asc": "vr.grounding_score ASC, vr.created_at DESC, vr.id DESC",
+    "newest": "vr.created_at DESC, vr.id DESC",
+    "oldest": "vr.created_at ASC, vr.id ASC",
+}
+
+#: Highest grounding first. The queue previously returned newest-first, so the
+#: first screen was an unrepresentative sample of the worst items and an operator
+#: reasonably concluded the whole corpus was noise (BL-197). Surfacing the most
+#: approvable work first is what makes a session's effort productive.
+DEFAULT_REVIEW_SORT = "grounding_desc"
+
+
+def _sort_clause(sort: str) -> str:
+    """Map a sort name to its ORDER BY clause, failing closed on anything else.
+
+    Raises:
+        ValueError: The name is not one of :data:`_SORTS`.
+    """
+    try:
+        return _SORTS[sort]
+    except KeyError:
+        raise ValueError(
+            f"unknown visual review sort {sort!r}; expected one of {sorted(_SORTS)}"
+        ) from None
+
+
 async def list_visual_review(
     conn: _AConn,
     *,
@@ -132,13 +163,26 @@ async def list_visual_review(
     status: str = "pending",
     limit: int = 100,
     after: str | None = None,
+    sort: str = DEFAULT_REVIEW_SORT,
+    min_grounding: float | None = None,
+    max_grounding: float | None = None,
 ) -> list[Row]:
-    """Return the RLS-scoped Tier-3 caption review queue, newest first."""
+    """Return the RLS-scoped Tier-3 caption review queue.
+
+    ``sort`` selects the order (see :data:`_SORTS`); ``min_grounding`` and
+    ``max_grounding`` bound the grounding band. The band is applied in SQL rather
+    than after the page is cut, so a filtered page is a full page of matches
+    instead of a short page with matching rows stranded behind it.
+
+    Keyset pagination stays correct only within one order, so ``after`` cursors
+    are not portable across a change of ``sort``.
+    """
     if status not in {"pending", "approved", "rejected"}:
         raise ValueError("visual review status must be pending, approved, or rejected")
+    order_by = _sort_clause(sort)
     cursor = decode_cursor(after, "visual-review")
     cur = await conn.execute(
-        """
+        f"""
         SELECT vr.id, vr.document_image_id, vr.document_id, vr.proposed,
                vr.grounding_score, vr.grounding_evidence, vr.status, vr.reviewer,
                vr.created_at, vr.updated_at, di.page_number, di.object_key
@@ -146,16 +190,22 @@ async def list_visual_review(
         JOIN document_image di ON di.id = vr.document_image_id
         WHERE vr.status = %(status)s
           AND (%(doc)s::uuid IS NULL OR vr.document_id = %(doc)s::uuid)
+          AND (%(min_grounding)s::float8 IS NULL
+               OR vr.grounding_score >= %(min_grounding)s::float8)
+          AND (%(max_grounding)s::float8 IS NULL
+               OR vr.grounding_score <= %(max_grounding)s::float8)
           AND (%(after_created)s::timestamptz IS NULL
                OR (vr.created_at, vr.id)
                   < (%(after_created)s::timestamptz, %(after_id)s::ulid))
-        ORDER BY vr.created_at DESC, vr.id DESC
+        ORDER BY {order_by}
         LIMIT %(limit)s
         """,
         {
             "doc": document_id,
             "status": status,
             "limit": limit,
+            "min_grounding": min_grounding,
+            "max_grounding": max_grounding,
             "after_created": cursor["created_at"] if cursor else None,
             "after_id": cursor["id"] if cursor else None,
         },

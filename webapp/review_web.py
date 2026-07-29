@@ -41,13 +41,34 @@ query ReviewUnresolved($documentId: ID!) {
 }
 """
 _VISUAL_QUERY = """
-query ReviewVisual($documentId: ID, $after: String) {
-  visualReview(documentId: $documentId, status: "pending", limit: 25, after: $after) {
+query ReviewVisual($documentId: ID, $after: String, $limit: Int!, $sort: String!,
+                   $minGrounding: Float, $maxGrounding: Float) {
+  visualReview(documentId: $documentId, status: "pending", limit: $limit, after: $after,
+               sort: $sort, minGrounding: $minGrounding, maxGrounding: $maxGrounding) {
     id documentImageId documentId proposed groundingScore groundingEvidence status
     pageNumber objectKey createdAt cursor
   }
 }
 """
+
+#: Sort names the lane offers, in the order they appear in the control.
+VISUAL_SORTS = (
+    ("grounding_desc", "Best grounded first"),
+    ("grounding_asc", "Worst grounded first"),
+    ("newest", "Newest first"),
+    ("oldest", "Oldest first"),
+)
+
+#: Grounding bands an operator can sweep. The floor band exists because
+#: rejecting in bulk is the fastest way to shrink a queue of this size.
+VISUAL_BANDS = (
+    ("", "All bands", None, None),
+    ("strong", "Strong (80-100%)", 0.8, None),
+    ("moderate", "Moderate (60-80%)", 0.6, 0.8),
+    ("weak", "Weak (20-60%)", 0.2, 0.6),
+    ("floor", "Floor (0-20%)", None, 0.2),
+)
+_BANDS_BY_KEY = {key: (lo, hi) for key, _label, lo, hi in VISUAL_BANDS}
 
 
 def _pending_counts() -> dict:
@@ -139,8 +160,34 @@ def _grounding_band(score: float) -> str:
     return "Weak grounding"
 
 
-def _visual_lane(document_id: str | None, after: str | None) -> dict:
-    result = _core.gql(_VISUAL_QUERY, {"documentId": document_id, "after": after})
+def _visual_lane(
+    document_id: str | None,
+    after: str | None,
+    *,
+    sort: str = "grounding_desc",
+    band: str = "",
+    page_size: int = PAGE_SIZE,
+) -> dict:
+    """Return one page of caption proposals, ordered and optionally band-filtered.
+
+    The ordering is the point: returning the queue newest-first put an
+    unrepresentative sample of the worst proposals on the opening screen, so an
+    operator's first impression of the corpus was wrong (BL-197).
+    """
+    if sort not in dict(VISUAL_SORTS):
+        sort = "grounding_desc"
+    low, high = _BANDS_BY_KEY.get(band, (None, None))
+    result = _core.gql(
+        _VISUAL_QUERY,
+        {
+            "documentId": document_id,
+            "after": after,
+            "limit": page_size,
+            "sort": sort,
+            "minGrounding": low,
+            "maxGrounding": high,
+        },
+    )
     items = list(result.get("visualReview") or [])
     for item in items:
         item["groundingBand"] = _grounding_band(float(item.get("groundingScore") or 0))
@@ -152,7 +199,12 @@ def _visual_lane(document_id: str | None, after: str | None) -> dict:
         )
     return {
         "visual_items": items,
-        "next_cursor": items[-1].get("cursor") if len(items) == PAGE_SIZE else None,
+        "visual_sort": sort,
+        "visual_band": band,
+        "visual_sorts": VISUAL_SORTS,
+        "visual_bands": VISUAL_BANDS,
+        "page_size": page_size,
+        "next_cursor": items[-1].get("cursor") if len(items) == page_size else None,
     }
 
 
@@ -172,7 +224,15 @@ def review():
         elif lane == "entities":
             model.update(_entity_lane(document_id, after))
         else:
-            model.update(_visual_lane(document_id, after))
+            model.update(
+                _visual_lane(
+                    document_id,
+                    after,
+                    sort=request.args.get("sort", "grounding_desc"),
+                    band=request.args.get("band", ""),
+                    page_size=max(1, min(200, request.args.get("page_size", PAGE_SIZE, type=int))),
+                )
+            )
     except Exception as exc:  # noqa: BLE001 - API read errors belong in the inbox envelope
         current_app.logger.warning("review lane read failed: %s", exc)
         error = str(exc)

@@ -34,6 +34,26 @@ COMPOSE_ADMIN := docker compose --env-file .env.prod -f admin-console/docker-com
 # without --remove-orphans).
 COMPOSE_PROD_OLLAMA := $(COMPOSE_PROD) -f docker-compose.ollama.yml -f docker-compose.ollama.gpu.yml -f docker-compose.caption.yml
 
+# CPU-ONLY managed stack: the same set MINUS both ollama overlays. For a host
+# with no NVIDIA device, where COMPOSE_PROD_OLLAMA cannot come up at all —
+# `.ollama.gpu.yml` reserves `nvidia.com/gpu=all` via CDI, and `.ollama.yml`
+# gives `worker`/`worker-fast` a hard `depends_on: ollama`, so the unresolvable
+# device does not merely skip the resolver: it leaves BOTH worker lanes in
+# `Created` while api/webapp keep serving. Nothing drains the queue and the site
+# looks healthy (observed twice on the CPU host, 2026-07-29).
+#
+# The caption overlay is KEPT: WORKER_EXCLUDE_KINDS lives there, not in the
+# ollama overlays, and dropping it lets a general worker claim visual_caption
+# jobs (the 2026-07-28 incident). Captions need no local model here because
+# DOCRAY_VLM_BACKEND=vllm points the lane at a hosted endpoint.
+#
+# Trade-off: the ollama overlays are the only place DOCRAY_RESOLVER_BACKEND and
+# DOCRAY_OLLAMA_HOST reach the workers, so the frontier resolver falls back to
+# its `anthropic` default here. That capability is unbacked on a GPU-free host
+# either way; this target makes the failure a missing key rather than a stalled
+# stack.
+COMPOSE_PROD_CPU := $(COMPOSE_PROD) -f docker-compose.caption.yml
+
 # MCP connector server overlay on top of the managed+ollama stack. The `mcp`
 # service front-ends the in-network API (api:8000) and is loopback-bound on
 # :8080; a Cloudflare public-hostname rule routes doc-ray.com/mcp -> mcp:8080.
@@ -174,6 +194,14 @@ prod-up: prod-migrate ## Migrate, then start the managed stack (api + webapp + w
 	# localhost:11434 inside its own container, and terminally fails the whole
 	# queue (2026-07-28: two full caption waves lost to exactly this).
 	$(COMPOSE_PROD_OLLAMA) up -d --build api webapp worker worker-fast worker-caption
+
+prod-up-cpu: prod-migrate ## Migrate, then start the managed stack on a GPU-FREE host (no ollama overlays; use instead of prod-up when `nvidia-smi` is absent)
+	# Same services as prod-up. The ollama overlays are omitted because this host
+	# has no NVIDIA device: the CDI reservation is unresolvable, and since the
+	# ollama overlay makes worker/worker-fast depend_on it, prod-up leaves BOTH
+	# lanes in `Created` while api/webapp keep serving — a stalled queue behind a
+	# healthy-looking site. The caption overlay is retained for its lane fencing.
+	$(COMPOSE_PROD_CPU) up -d --build api webapp worker worker-fast worker-caption
 
 prod-web: ## Add the public TLS front door (nginx + self-signed certgen) to a running prod stack
 	$(COMPOSE_PROD) up -d --build nginx-certgen nginx

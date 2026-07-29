@@ -2825,10 +2825,18 @@ def test_review_visual_lane_shows_untrusted_caption_grounding_and_context(client
     monkeypatch.setattr(webapp, "gql", visual_gql)
     html = client.get("/review?lane=visual").get_data(as_text=True)
 
-    assert "Untrusted caption proposal" in html
     assert "A red line rises across the chart." in html
-    assert "Strong grounding · 84.0%" in html
+    # The score leads the pill so a column of proposals can be compared by
+    # scanning; the band still accompanies it (BL-197/BL-198).
+    assert "84% · Strong grounding" in html
+    # The page-in-context link is retained, and the image itself is now shown
+    # beside the caption — the decision is "is this true of THAT image".
     assert f"/doc/{DOC_ID}/page/7.png" in html
+    assert f"/doc/{DOC_ID}/image/image-1.webp" in html
+    # Triage controls and a bulk affordance must be on the page at all.
+    assert 'data-testid="sort-select"' in html
+    assert 'data-testid="band-select"' in html
+    assert 'data-testid="select-all"' in html
 
 
 def test_review_denied_write_surfaces_error_without_500(client, monkeypatch):

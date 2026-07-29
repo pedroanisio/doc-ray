@@ -570,12 +570,12 @@ this corrects the record for shipped BL-175/BL-164 behavior without changing it.
 | BL-191 | Metadata enrichment from Crossref, Open Library and DataCite with per-field provenance | extraction | feature | ready | L | medium | shared |
 | BL-192 | Widen the metadata-suggestion contract beyond title/tags/duplicate | persistence | feature | ready | M | medium | shared |
 | BL-193 | The supported-format list was re-typed on eight surfaces and every copy drifted | extraction | tech-debt | done | S | medium | shared |
-| BL-194 | The caption review queue cannot be worked: 5,851 proposals, 25 per page, no bulk selection | webapp | tech-debt | ready | M | critical | unassigned |
+| BL-194 | The caption review queue cannot be worked: 5,851 proposals, 25 per page, no bulk selection | webapp | tech-debt | done | M | critical | unassigned |
 | BL-195 | The caption grounding gate never opens: no proposal scores above 80% against a 0.8 auto-commit threshold | nlp | bug | done | M | critical | unassigned |
 | BL-196 | Corrupted VLM output reaches the human queue instead of being rejected mechanically | nlp | bug | done | S | high | unassigned |
-| BL-197 | The review queue has no triage: no sort, no filter, and the worst proposals surface first | webapp | feature | ready | M | high | unassigned |
-| BL-198 | Caption proposals render as undifferentiated walls of text with no visual hierarchy | webapp | tech-debt | ready | S | medium | unassigned |
-| BL-199 | The review queue discloses a count but never progress, remaining effort, or scale | webapp | feature | ready | XS | medium | unassigned |
+| BL-197 | The review queue has no triage: no sort, no filter, and the worst proposals surface first | webapp | feature | done | M | high | unassigned |
+| BL-198 | Caption proposals render as undifferentiated walls of text with no visual hierarchy | webapp | tech-debt | done | S | medium | unassigned |
+| BL-199 | The review queue discloses a count but never progress, remaining effort, or scale | webapp | feature | done | XS | medium | unassigned |
 | BL-200 | Decide whether visual captions require per-item human approval at all | docs | research | done | M | high | unassigned |
 
 See [`backlog.yml`](backlog.yml) for each item's full description, rationale,
