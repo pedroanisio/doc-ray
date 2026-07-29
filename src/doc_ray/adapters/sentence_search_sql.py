@@ -21,6 +21,10 @@ from typing import Any
 from doc_ray.domain.phrase_profile import phrase_words
 from doc_ray.domain.search_terms import FOLD_SOURCE, FOLD_TARGET, match_plan
 
+#: The SECURITY DEFINER candidate helper (migration 148). RLS forbids a
+#: non-leakproof ``ILIKE`` ahead of its security qual, so this is the only
+#: context from which the trigram index on ``sentences.text`` is reachable.
+HELPER_FUNCTION = "docray_readable_sentence_ids"
 #: Scalar pattern slots on ``docray_readable_sentence_ids`` (migration 148).
 #: Fixed arity, because only separate scalar ``ILIKE`` terms reach the trigram
 #: index — ``ILIKE ALL (array)`` and an ``unnest`` form both fall back to a
@@ -85,6 +89,41 @@ def padded_index_patterns(term: str) -> tuple[str, ...] | None:
         return None
     pad = [MATCH_ALL_PATTERN] * (MAX_INDEX_PATTERNS - len(patterns))
     return tuple(patterns) + tuple(pad)
+
+
+def candidate_probe(
+    term: str, document_id: str | None, *, cap: int, prefix: str = "cand"
+) -> tuple[str, dict[str, Any]] | None:
+    """Return the probe enumerating a *complete* candidate set, or ``None``.
+
+    ``None`` means the term cannot drive the trigram index at all — every word
+    is shorter than three characters, confusable, or fold-matched — so probing
+    would spend a round trip to learn nothing. The caller keeps its existing
+    predicate, exactly as :func:`padded_index_patterns` already directs
+    ``term_frequency``.
+
+    The probe asks for ``cap + 1`` rows, which is what makes completeness
+    decidable. The helper applies its ``LIMIT`` before any ordering, so a full
+    ``cap`` rows is indistinguishable from "there were more, arbitrarily
+    chosen" — and ordering an arbitrary subset is how a keyset-paginated
+    surface silently returns the wrong page. One row past the cap separates
+    *the whole match set* from *a truncated sample*: at or under the cap the
+    outer query may order and page the rows knowing nothing was dropped.
+    """
+    patterns = padded_index_patterns(term)
+    if patterns is None:
+        return None
+    params: dict[str, Any] = {f"{prefix}_doc": document_id, f"{prefix}_cap": cap + 1}
+    slots: list[str] = []
+    for slot, pattern in enumerate(patterns):
+        name = f"{prefix}_p{slot}"
+        params[name] = pattern
+        slots.append(f"%({name})s")
+    sql = (
+        f"SELECT id FROM {HELPER_FUNCTION}("
+        f"{', '.join(slots)}, %({prefix}_doc)s::uuid, %({prefix}_cap)s)"
+    )
+    return sql, params
 
 
 def match_clause(column: str, term: str, *, prefix: str = "q") -> tuple[str, dict[str, Any]]:

@@ -16,6 +16,7 @@ import strawberry
 from strawberry.scalars import JSON
 
 from doc_ray.adapters import persistence_read as read
+from doc_ray.domain.read_consistency import CORPUS_STAT_GUARANTEES, Freshness, assess
 from doc_ray.entrypoints.api.correction_types import (
     EntityMentionCorrection as EntityMentionCorrection,
 )
@@ -141,6 +142,77 @@ class DocumentHit:
             document_id=strawberry.ID(str(row["doc_id"])),
             title=row["title"],
             rank=float(row["rank"]),
+        )
+
+
+@strawberry.type
+class ReadPathGuaranteeInfo:
+    """What one figure on the corpus band promises about the value it carries.
+
+    ``guarantee`` is ``exact`` (read live from the authoritative relation),
+    ``rollup`` (derived, refreshed by the pipeline job that changed the counts)
+    or ``debounced`` (derived, recomputed at most once per
+    ``stalenessBoundSeconds``, so it may legitimately lag). Read this before
+    quoting a total: a debounced figure past its window is well-formed,
+    plausible and out of date, and ``stale`` is the only signal that says so.
+    """
+
+    figure: str
+    guarantee: str
+    staleness_bound_seconds: int
+    computed_at: datetime | None
+    age_seconds: int
+    stale: bool
+    label: str
+
+    @classmethod
+    def from_freshness(cls, freshness: Freshness) -> ReadPathGuaranteeInfo:
+        """Build the GraphQL view of a domain freshness verdict."""
+        return cls(
+            figure=freshness.figure,
+            guarantee=freshness.guarantee.value,
+            staleness_bound_seconds=freshness.staleness_bound_seconds,
+            computed_at=freshness.computed_at,
+            age_seconds=freshness.age_seconds,
+            stale=freshness.stale,
+            label=freshness.label,
+        )
+
+
+@strawberry.type
+class CorpusStats:
+    """Corpus-wide totals, each carrying the guarantee behind it.
+
+    The four figures are served by three different read paths and do not make
+    the same promise, so they are returned with their declarations rather than
+    as four interchangeable integers. This is the same declaration the browser's
+    corpus band renders, so a human and an agent are told the same thing.
+    """
+
+    documents: int
+    sentences: int
+    lexemes: int
+    occurrences: int
+    guarantees: list[ReadPathGuaranteeInfo]
+
+    @classmethod
+    def from_row(cls, row: Row) -> CorpusStats:
+        """Build corpus stats plus their guarantees from one totals row."""
+        computed_at = row.get("lexemes_computed_at")
+        return cls(
+            documents=int(row["docs"]),
+            sentences=int(row["sents"]),
+            lexemes=int(row["lexemes"]),
+            occurrences=int(row["occ"]),
+            guarantees=[
+                ReadPathGuaranteeInfo.from_freshness(
+                    assess(
+                        declaration,
+                        computed_at if declaration.figure == "lexemes" else None,
+                    )
+                )
+                for declaration in CORPUS_STAT_GUARANTEES
+            ],
         )
 
 

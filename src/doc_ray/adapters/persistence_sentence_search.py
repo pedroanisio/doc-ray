@@ -16,7 +16,11 @@ from typing import Any, Literal
 import psycopg
 
 from doc_ray.adapters.read_cursors import decode_cursor, encode_cursor
-from doc_ray.adapters.sentence_search_sql import match_clause, phrase_candidate_clause
+from doc_ray.adapters.sentence_search_sql import (
+    candidate_probe,
+    match_clause,
+    phrase_candidate_clause,
+)
 from doc_ray.domain.phrase_profile import find_occurrences
 from doc_ray.domain.search_terms import kwic
 
@@ -55,6 +59,53 @@ class SentenceSearchRows(list[Row]):
 async def _rows(conn: _AConn, sql: str, params: dict[str, Any]) -> list[Row]:
     cur = await conn.execute(sql, params)
     return await cur.fetchall()
+
+
+async def complete_candidate_ids(
+    conn: _AConn, term: str, document_id: str | None, *, cap: int
+) -> list[str] | None:
+    """Every sentence id the index can offer for *term*, or ``None``.
+
+    ``None`` is the instruction "page the way you always did". It is returned
+    for three different reasons, deliberately collapsed into one answer,
+    because in each case there is no complete candidate set to order and the
+    pre-existing predicate is still correct:
+
+    * the term cannot drive the index at all;
+    * the helper truncated, so its subset is arbitrary;
+    * the helper found nothing.
+
+    That last case is the one worth stating. An empty result is *ambiguous*:
+    it means "no sentence matches" or it means "this connection resolves no
+    readable documents", and those are indistinguishable from here. The helper
+    is ``SECURITY DEFINER`` and applies ``docray_readable_documents()``
+    explicitly instead of leaning on the policy, so a connection that is exempt
+    from RLS — an owner or ``BYPASSRLS`` role, which sees every row under the
+    old predicate — resolves *no* principal and therefore no readable
+    documents. Restricting such a caller to the empty set would turn "you may
+    read everything" into "you may read nothing", silently and only for
+    indexable terms.
+
+    Falling back instead costs a wasted probe on a genuine miss, which is the
+    cheap case anyway: a query that matches nothing is not the one D-035
+    measured at 3,774 ms. It buys back the property that routing can only ever
+    narrow a set the caller was already going to be shown.
+    """
+    probe = candidate_probe(term, document_id, cap=cap)
+    if probe is None:
+        return None
+    sql, params = probe
+    rows = await _rows(conn, sql, params)
+    if not rows or len(rows) > cap:
+        return None
+    return [str(row["id"]) for row in rows]
+
+
+def _id_restriction(candidate_ids: list[str] | None) -> tuple[str, dict[str, Any]]:
+    """Narrow to a complete candidate set, or add nothing to the query."""
+    if candidate_ids is None:
+        return "", {}
+    return " AND s.id = ANY(%(cand_ids)s::ulid[])", {"cand_ids": candidate_ids}
 
 
 def verify_candidate(row: Row, phrase: str) -> Row | None:
@@ -99,6 +150,12 @@ async def search_phrase_sentences(
     scanned = 0
     verified = 0
     candidate_limit = PHRASE_CANDIDATE_SCAN_CAP
+    # Probed once for the whole search, not per batch: the candidate set is a
+    # property of the phrase, and re-probing between batches could shift it
+    # under the resumable cursor.
+    restrict_sql, restrict_params = _id_restriction(
+        await complete_candidate_ids(conn, phrase, document_id, cap=candidate_limit)
+    )
 
     while scanned < candidate_limit and len(emitted) < limit:
         batch_limit = min(PHRASE_CANDIDATE_BATCH_SIZE, candidate_limit - scanned)
@@ -110,7 +167,7 @@ async def search_phrase_sentences(
             "FROM sentences s JOIN documents d ON d.id = s.document_id "
             "JOIN spans sp ON sp.id = s.span_id "
             "JOIN document_content c ON c.document_id = s.document_id "
-            f"WHERE {match_sql} "
+            f"WHERE {match_sql}{restrict_sql} "
             "  AND (%(doc)s::uuid IS NULL OR s.document_id = %(doc)s::uuid) "
             "  AND (%(after_title)s::text IS NULL OR d.title > %(after_title)s "
             "       OR (d.title = %(after_title)s AND s.ordinal > %(after_ord)s::int) "
@@ -119,6 +176,7 @@ async def search_phrase_sentences(
             "ORDER BY d.title, s.ordinal, s.id LIMIT %(candidate_limit)s",
             {
                 **match_params,
+                **restrict_params,
                 "doc": document_id,
                 "candidate_limit": batch_limit,
                 "after_title": cursor["title"] if cursor else None,
@@ -181,14 +239,19 @@ async def search_sentences(
         raise ValueError("match must be 'substring' or 'phrase'")
 
     # Frozen compatibility path: query, ordering, cursor, and KWIC are the exact
-    # historical implementation. Phrase-only joins/fields never reach it.
+    # historical implementation. Phrase-only joins/fields never reach it. The id
+    # restriction narrows which rows are considered; it changes neither the
+    # predicate that decides a hit nor the order they come back in.
     cursor = decode_cursor(after, "sentence-search")
     match_sql, match_params = match_clause("s.text", term)
+    restrict_sql, restrict_params = _id_restriction(
+        await complete_candidate_ids(conn, term, document_id, cap=PHRASE_CANDIDATE_SCAN_CAP)
+    )
     rows = await _rows(
         conn,
         "SELECT s.id, d.id AS doc_id, d.title, s.ordinal, s.text "
         "FROM sentences s JOIN documents d ON d.id = s.document_id "
-        f"WHERE {match_sql} "
+        f"WHERE {match_sql}{restrict_sql} "
         "  AND (%(doc)s::uuid IS NULL OR s.document_id = %(doc)s::uuid) "
         "  AND (%(after_title)s::text IS NULL OR d.title > %(after_title)s "
         "       OR (d.title = %(after_title)s AND s.ordinal > %(after_ord)s::int) "
@@ -197,6 +260,7 @@ async def search_sentences(
         "ORDER BY d.title, s.ordinal, s.id LIMIT %(limit)s",
         {
             **match_params,
+            **restrict_params,
             "doc": document_id,
             "limit": limit,
             "after_title": cursor["title"] if cursor else None,

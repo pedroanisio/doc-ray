@@ -485,6 +485,38 @@ async def corpus_manifest(shard_count: int) -> dict[str, Any]:
     return manifest
 
 
+async def corpus_stats() -> dict[str, Any]:
+    """Size the corpus — totals, each with the consistency guarantee behind it.
+
+    Returns ``{documents, sentences, lexemes, occurrences, guarantees:[...]}``.
+    Use it to size a sweep before planning one, and to decide what you may
+    truthfully assert about the corpus.
+
+    READ ``guarantees`` BEFORE QUOTING A NUMBER. The four totals come off three
+    different read paths and do not make the same promise:
+
+    * ``exact`` — counted live from the corpus on this request.
+    * ``rollup`` — summed from per-document rollups, exact for every document
+      whose pipeline job has committed.
+    * ``debounced`` — recomputed at most once per ``stalenessBoundSeconds``, so
+      it can lag the others. ``lexemes`` is this one today.
+
+    A debounced figure past its window is well-formed, plausible and out of
+    date, and nothing errors when it is: ``stale: true`` is the only signal you
+    get. When it is set, report the figure with its ``label`` (for example
+    "computed 45 minutes ago") rather than as a current count, and use
+    ``documents`` — which is exact — as the denominator for coverage claims.
+    Scoped to the documents your token may read.
+    """
+    data = await gql(
+        "query{corpusStats{documents sentences lexemes occurrences"
+        " guarantees{figure guarantee stalenessBoundSeconds computedAt ageSeconds stale label}}}",
+        {},
+    )
+    stats: dict[str, Any] = data["corpusStats"]
+    return stats
+
+
 async def corpus_shard(
     shard_index: int, shard_count: int, limit: int = 50, after: str | None = None
 ) -> list[dict[str, Any]]:
@@ -670,6 +702,7 @@ TOOLS: tuple[Callable[..., Any], ...] = (
     list_collections,
     get_collection,
     list_lenses,
+    corpus_stats,
     corpus_manifest,
     corpus_shard,
     entity_frequency,

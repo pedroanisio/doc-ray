@@ -43,24 +43,43 @@ def extract_txt(data: bytes, fallback_title: str) -> Extracted:
     )
 
 
+#: Longest run of backticks inside a would-be code block, used to size a fence
+#: that the block's own content cannot terminate early.
+_BACKTICK_RUN_RE = _re.compile(r"`+")
+
+
 class _HTMLText(_HTMLParser):
     """Collect visible text from HTML/XHTML, skipping script/style, breaking blocks."""
 
     _SKIP = {"script", "style", "head", "title"}
     _BREAK = {"p", "br", "div", "li", "h1", "h2", "h3", "h4", "h5", "h6", "tr"}
     _HEADINGS = {"h1": 1, "h2": 2, "h3": 3, "h4": 4, "h5": 5, "h6": 6}
+    #: Preformatted content is fenced rather than inlined. Without a fence a
+    #: ``# comment`` line in a code sample is indistinguishable from a heading in
+    #: the stored text, and the outline reads it as document structure.
+    _CODE = {"pre"}
 
     def __init__(self) -> None:
         """Initialize the parser with charref conversion enabled."""
         super().__init__(convert_charrefs=True)
         self.parts: list[str] = []
         self._skip = 0
+        self._code = 0
+        self._code_parts: list[str] = []
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         """Track skip depth for hidden tags and emit breaks for block tags."""
         tag = tag.lower()
         if tag in self._SKIP:
             self._skip += 1
+        elif tag in self._CODE:
+            if self._code == 0:
+                self._code_parts = []
+            self._code += 1
+        elif self._code:
+            # Inside a code block no markup becomes a marker: an <h1> in a code
+            # sample is sample text, not a heading.
+            return
         elif tag in self._HEADINGS:
             self.parts.append(f"\n{'#' * self._HEADINGS[tag]} ")
         elif tag == "li":
@@ -73,19 +92,55 @@ class _HTMLText(_HTMLParser):
         tag = tag.lower()
         if tag in self._SKIP and self._skip:
             self._skip -= 1
+        elif tag in self._CODE:
+            if self._code:
+                self._code -= 1
+            if self._code == 0:
+                self._flush_code()
+        elif self._code:
+            return
         elif tag in self._BREAK:
             self.parts.append("\n")
 
     def handle_data(self, data: str) -> None:
         """Collect character data when not inside a skipped element."""
-        if self._skip == 0:
+        if self._skip:
+            return
+        if self._code:
+            self._code_parts.append(data)
+        else:
             self.parts.append(data)
+
+    def flush_open_code(self) -> None:
+        """Emit any code buffered by a ``<pre>`` the document never closed."""
+        if self._code:
+            self._code = 0
+            self._flush_code()
+
+    def _flush_code(self) -> None:
+        """Emit the buffered preformatted text as a fenced block.
+
+        The fence is one backtick longer than the longest backtick run in the
+        body, so a code sample that itself shows fenced Markdown cannot close
+        the block early and leak its remainder back into heading detection.
+        """
+        body = "".join(self._code_parts).strip("\n")
+        self._code_parts = []
+        if not body.strip():
+            return
+        longest = max((len(run) for run in _BACKTICK_RUN_RE.findall(body)), default=0)
+        fence = "`" * max(3, longest + 1)
+        self.parts.append(f"\n{fence}\n{body}\n{fence}\n")
 
 
 def html_to_text(html: str) -> str:
     """Return the visible text of an HTML/XHTML string."""
     p = _HTMLText()
     p.feed(html)
+    # A malformed document can end with <pre> still open. Its text is buffered
+    # rather than emitted, so flush it here — losing content would be a worse
+    # failure than the heading noise the fencing exists to prevent.
+    p.flush_open_code()
     raw = "".join(p.parts)
     return "\n".join(line.strip() for line in raw.splitlines() if line.strip())
 

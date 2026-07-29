@@ -381,12 +381,16 @@ def handle_visual_caption(
     if store is None:
         raise RuntimeError("visual_caption requires an object store")
     report_progress(0, 1, "Captioning document images")
+    # Retries resume by default: captions are billed per request, and re-running a
+    # book from image 0 on every attempt re-buys work the endpoint already charged
+    # for. Enqueue with payload {"force": true} to demand a genuine re-caption.
     return visual_caption.caption_document_images(
         conn,
         store,
         job.document_id,
         vlm=make_vlm(),
         image_ocr=PyMuPDFImageOcr(),
+        resume=not bool(job.payload.get("force")),
     )
 
 

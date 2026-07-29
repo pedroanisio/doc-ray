@@ -199,6 +199,42 @@ async def list_documents(
     return rows
 
 
+async def corpus_stats(conn: _AConn) -> Row:
+    """Return the corpus-wide totals plus the rollup timestamp behind the lexeme count.
+
+    Mirrors the browser's corpus band exactly (D-034): an index-only live count of
+    the caller's visible documents, two sums over the per-document ``document_stats``
+    rollups, and the tenant-wide distinct-lexeme scalar from ``corpus_stats``.
+
+    ``lexemes_computed_at`` comes back with the value because the scalar's recompute
+    is debounced — without the timestamp a caller cannot tell a current figure from
+    a lagging one, and the number reads as authoritative either way. See
+    :mod:`doc_ray.domain.read_consistency`.
+
+    Every subquery is RLS-scoped, and soft-deleted documents are excluded so the
+    totals agree with the lists built from the same tables.
+    """
+    row = await _row(
+        conn,
+        """
+        SELECT (SELECT count(*) FROM documents WHERE lifecycle_state <> 'deleted') docs,
+               (SELECT coalesce(sum(ds.n_sentences), 0) FROM document_stats ds
+                  JOIN documents d ON d.id = ds.document_id
+                  WHERE d.lifecycle_state <> 'deleted') sents,
+               (SELECT CASE WHEN EXISTS (
+                          SELECT 1 FROM documents WHERE lifecycle_state <> 'deleted')
+                       THEN coalesce((SELECT n_distinct_lexemes FROM corpus_stats), 0)
+                       ELSE 0 END) lexemes,
+               (SELECT coalesce(sum(ds.n_lexeme_occurrences), 0) FROM document_stats ds
+                  JOIN documents d ON d.id = ds.document_id
+                  WHERE d.lifecycle_state <> 'deleted') occ,
+               (SELECT computed_at FROM corpus_stats) lexemes_computed_at
+        """,
+        {},
+    )
+    return row or {"docs": 0, "sents": 0, "lexemes": 0, "occ": 0, "lexemes_computed_at": None}
+
+
 async def corpus_shard_counts(conn: _AConn, shard_count: int) -> list[Row]:
     """Return ``{shard, n}`` — the visible document count in each shard 0..N-1.
 

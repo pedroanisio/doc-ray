@@ -43,6 +43,7 @@ from doc_ray.entrypoints.api.sentence_search_query import SentenceSearchQueries
 from doc_ray.entrypoints.api.structure_query import StructureQueries
 from doc_ray.entrypoints.api.types import (
     CorpusManifest,
+    CorpusStats,
     Document,
     DocumentShare,
     EntityFrequency,
@@ -99,6 +100,20 @@ class Query(
             tags=tags,
         )
         return [Document.from_row(r) for r in rows]
+
+    @strawberry.field
+    async def corpus_stats(self, info: Info) -> CorpusStats:
+        """Return corpus-wide totals, each with the guarantee behind it.
+
+        The four figures come off three different read paths — a live count, two
+        pipeline rollups, and one debounced scalar — so each is returned with its
+        declaration. Check ``guarantees`` before quoting a number: a debounced
+        figure past its window is well-formed, plausible and out of date, and
+        ``stale`` is the only thing that says so. RLS-scoped, so the totals
+        describe the corpus this token can read.
+        """
+        row = await read.corpus_stats(info.context.conn)
+        return CorpusStats.from_row(row)
 
     @strawberry.field
     async def corpus_manifest(self, info: Info, shard_count: int) -> CorpusManifest:

@@ -28,9 +28,11 @@ from doc_ray.domain.entity_profiles import reconcile
 _AConn = AsyncConnection[Any]
 Row = dict[str, Any]
 
-#: Heading lines pulled before level-trimming. Generous enough that a deeply
-#: structured book still offers a choice of levels, bounded so a pathological
-#: document cannot stream its whole body back as "headings".
+#: Heading-or-fence candidate lines pulled before level-trimming. Generous
+#: enough that a deeply structured book still offers a choice of levels, bounded
+#: so a pathological document cannot stream its whole body back as "headings".
+#: Fence delimiters share this budget because dropping one would silently invert
+#: the inside/outside state of every heading after it.
 _HEADING_SCAN_CAP = 2000
 
 #: Raw frequency rows read per requested profile. Grouping merges rows (Arrakis
@@ -40,10 +42,13 @@ _RAW_ROWS_PER_PROFILE = 6
 #: Characters of a sentence used to label a fallback bucket.
 _LABEL_CHARS = 90
 
-#: Every ATX heading line, with its absolute offset into the document text. The
-#: window sum walks the line array to recover offsets ``string_to_array`` drops;
-#: ``document_content`` is a per-document blob, not a fact table, so this is
-#: O(one document) and D-024-clean.
+#: Every ATX heading line *and every fenced-code delimiter*, with its absolute
+#: offset into the document text. Fences are selected alongside headings because
+#: a ``#`` inside a code block is a comment, not structure, and that can only be
+#: decided by walking the two in document order. The window sum walks the line
+#: array to recover offsets ``string_to_array`` drops; ``document_content`` is a
+#: per-document blob, not a fact table, so this is O(one document) and
+#: D-024-clean.
 _HEADING_LINES_SQL = """
 SELECT x.line AS line, x.char_start AS char_start
 FROM (
@@ -54,7 +59,7 @@ FROM (
          LATERAL unnest(string_to_array(dc.full_text, E'\\n')) WITH ORDINALITY AS l(line, ord)
     WHERE dc.document_id = %(doc)s
 ) x
-WHERE x.line ~ '^#{1,6}[ \\t]+[^ \\t]'
+WHERE x.line ~ '^(#{1,6}[ \\t]+[^ \\t]|`{3,}|~{3,})'
 ORDER BY x.char_start
 LIMIT %(cap)s
 """
@@ -160,12 +165,9 @@ async def document_outline(conn: _AConn, document_id: str, *, max_entries: int =
         )
 
     lines = await _rows(conn, _HEADING_LINES_SQL, {"doc": document_id, "cap": _HEADING_SCAN_CAP})
-    headings: list[tuple[int, str, int]] = []
-    for line in lines:
-        parsed = outline_domain.parse_heading_lines(line["line"])
-        if parsed:
-            level, title, _ = parsed[0]
-            headings.append((level, title, int(line["char_start"])))
+    headings = outline_domain.headings_outside_fences(
+        (row["line"], int(row["char_start"])) for row in lines
+    )
 
     if len(headings) >= 2:
         kept, dropped = outline_domain.select_headings(headings, max_entries)

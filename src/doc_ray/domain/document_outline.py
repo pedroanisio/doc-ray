@@ -30,6 +30,12 @@ from dataclasses import dataclass
 #: per line, so ``#hashtag`` (no space) and a seven-hash run are not headings.
 HEADING_RE = re.compile(r"^(#{1,6})[ \t]+(\S.*?)[ \t\r]*$", re.MULTILINE)
 
+#: A fenced code-block delimiter: three or more backticks or tildes, with an
+#: optional info string. Per CommonMark a fence is closed only by the *same*
+#: character, at least as long, and carrying no info string of its own — so
+#: ```` ```python ```` inside an open block is content, not a close.
+FENCE_RE = re.compile(r"^(?P<fence>`{3,}|~{3,})[ \t]*(?P<info>\S.*?)?[ \t\r]*$")
+
 #: ``(level, title, char_start, ordinal, page)`` — a heading resolved onto the
 #: sentence that contains it. ``page`` is ``None`` for documents without layout.
 ResolvedHeading = tuple[int, str, int, int, "int | None"]
@@ -68,6 +74,52 @@ def parse_heading_lines(text: str | None) -> list[tuple[int, str, int]]:
         (len(match.group(1)), match.group(2).strip(), match.start())
         for match in HEADING_RE.finditer(text)
     ]
+
+
+def headings_outside_fences(
+    lines: Iterable[tuple[str, int]],
+) -> list[tuple[int, str, int]]:
+    """Keep only the ATX headings that are *not* inside a fenced code block.
+
+    A ``#`` at the start of a line is a Python or shell comment as often as it is
+    a heading, and code reaches the stored text from two directions: EPUB/HTML
+    ``<pre>`` blocks, and ``.md`` documents stored verbatim. Detecting headings
+    one line at a time cannot tell the two apart, and the failure is not
+    cosmetic — measured on *Agentic Architectural Patterns* it produced 1,278
+    "headings" across 4,897 sentences, with comment lines such as
+    ``# --- Initialize the LLM ---`` presented as chapter titles. An outline that
+    misdescribes a document that badly is worse than no outline, because callers
+    trust ``source="headings"`` as real structure.
+
+    *lines* is every heading-or-fence candidate line in document order, as
+    ``(line, char_start)``. Non-candidate lines are irrelevant: only a fence
+    delimiter can change fence state, so the caller may filter them out in SQL
+    without affecting the result.
+
+    Returns ``(level, title, char_start)`` for the surviving headings.
+    """
+    open_fence: str | None = None
+    kept: list[tuple[int, str, int]] = []
+    for line, char_start in lines:
+        fence = FENCE_RE.match(line)
+        if fence is not None:
+            marker = fence.group("fence")
+            if open_fence is None:
+                open_fence = marker
+            elif (
+                marker[0] == open_fence[0]
+                and len(marker) >= len(open_fence)
+                and fence.group("info") is None
+            ):
+                open_fence = None
+            continue
+        if open_fence is not None:
+            continue
+        parsed = parse_heading_lines(line)
+        if parsed:
+            level, title, _ = parsed[0]
+            kept.append((level, title, char_start))
+    return kept
 
 
 def build_heading_outline(

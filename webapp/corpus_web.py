@@ -13,6 +13,7 @@ from types import ModuleType
 
 from flask import abort, current_app, redirect, request, url_for
 
+from doc_ray.domain.read_consistency import CORPUS_STAT_GUARANTEES, assess
 from doc_ray.entrypoints.api.context import MAX_BATCH_IDS
 
 try:
@@ -89,6 +90,30 @@ def _group_documents(rows: list[dict], group_by: str) -> list[dict]:
     ]
 
 
+def corpus_stat_freshness(totals) -> dict:
+    """Return the freshness verdict for each figure on the corpus stat band.
+
+    The band is the browser's binding for the ``corpusStats`` GraphQL field, and
+    both resolve their promise through the same domain declaration — so a human
+    reading the band and an agent reading the API are told the same thing about
+    the same number.
+
+    Args:
+        totals: The corpus totals row, carrying ``lexemes_computed_at``.
+
+    Returns:
+        A mapping of figure name to :class:`~doc_ray.domain.read_consistency.Freshness`.
+    """
+    computed_at = (totals or {}).get("lexemes_computed_at")
+    return {
+        declaration.figure: assess(
+            declaration,
+            computed_at if declaration.figure == "lexemes" else None,
+        )
+        for declaration in CORPUS_STAT_GUARANTEES
+    }
+
+
 def documents():
     """Render the corpus landing page: a paginated document list plus corpus-wide totals.
 
@@ -144,6 +169,12 @@ def documents():
     # disagrees with the list below it. The stats sums join back to the (small,
     # RLS-scoped) documents table to drop the deleted set; this stays index-only
     # and does not reintroduce the D-024 fact-table scan.
+    #
+    # The four figures do NOT share one guarantee — docs is live, sentences and
+    # occurrences are pipeline rollups, and the lexeme scalar is debounced and may
+    # lag. Its `computed_at` is read alongside the value so the band can declare
+    # what it is showing instead of printing four numbers that look alike
+    # (doc_ray.domain.read_consistency).
     totals = _core.q1(
         "SELECT (SELECT count(*) FROM documents WHERE lifecycle_state <> 'deleted') docs, "
         "(SELECT coalesce(sum(ds.n_sentences), 0) FROM document_stats ds "
@@ -154,12 +185,14 @@ def documents():
         "             ELSE 0 END) lexemes, "
         "(SELECT coalesce(sum(ds.n_lexeme_occurrences), 0) FROM document_stats ds "
         "   JOIN documents d ON d.id = ds.document_id "
-        "   WHERE d.lifecycle_state <> 'deleted') occ"
+        "   WHERE d.lifecycle_state <> 'deleted') occ, "
+        "(SELECT computed_at FROM corpus_stats) lexemes_computed_at"
     )
     return _core.render_template(
         "documents.html",
         rows=rows,
         totals=totals,
+        stat_freshness=corpus_stat_freshness(totals),
         page=page,
         has_next=len(rows) == per_page,
         view=view,
