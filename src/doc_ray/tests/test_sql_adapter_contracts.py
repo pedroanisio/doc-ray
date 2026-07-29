@@ -172,10 +172,10 @@ _ALIAS_STOPWORDS = {
 }
 
 
-def _adapter_sql_literals() -> dict[str, list[str]]:
-    """Every SQL string literal in each adapter module, keyed by filename."""
+def _sql_literals_in(directory: Path) -> dict[str, list[str]]:
+    """Return SQL string literals in every Python module below one directory."""
     out: dict[str, list[str]] = {}
-    for path in sorted(_ADAPTERS_DIR.glob("*.py")):
+    for path in sorted(directory.glob("*.py")):
         tree = ast.parse(path.read_text(encoding="utf-8"))
         literals = [
             node.value
@@ -190,8 +190,13 @@ def _adapter_sql_literals() -> dict[str, list[str]]:
             )
         ]
         if literals:
-            out[path.name] = literals
+            out[str(path.relative_to(_ROOT))] = literals
     return out
+
+
+def _adapter_sql_literals() -> dict[str, list[str]]:
+    """Every SQL string literal in each adapter module, keyed by relative path."""
+    return _sql_literals_in(_ADAPTERS_DIR)
 
 
 def _alias_to_table(sql: str, known_tables: set[str]) -> dict[str, str]:
@@ -212,6 +217,26 @@ def _alias_to_table(sql: str, known_tables: set[str]) -> dict[str, str]:
     return amap
 
 
+def _qualified_column_failures(
+    sources: dict[str, list[str]], columns: dict[str, set[str]]
+) -> tuple[list[str], int]:
+    """Resolve qualified SQL columns and return stale references plus scan size."""
+    known = set(columns)
+    failures: list[str] = []
+    checked = 0
+    for filename, literals in sources.items():
+        for sql in literals:
+            aliases = _alias_to_table(sql, known)
+            for alias, column in re.findall(r"\b([a-z_][a-z0-9_]*)\.([a-z_][a-z0-9_]*)\b", sql):
+                table = aliases.get(alias)
+                if table is None:
+                    continue
+                checked += 1
+                if column not in columns[table]:
+                    failures.append(f"{filename}: {alias}.{column} not in {table}")
+    return sorted(set(failures)), checked
+
+
 def test_all_adapter_sql_qualified_columns_exist_in_schema():
     """Every ``alias.column`` in every adapter's SQL must exist in the schema.
 
@@ -220,24 +245,32 @@ def test_all_adapter_sql_qualified_columns_exist_in_schema():
     removed column an adapter still names becomes a test failure instead of a
     runtime error on an uncovered query path.
     """
-    columns = _schema_columns()
-    known = set(columns)
-    checked = 0
-    failures: list[str] = []
-    for filename, literals in _adapter_sql_literals().items():
-        for sql in literals:
-            amap = _alias_to_table(sql, known)
-            for alias, column in re.findall(r"\b([a-z_][a-z0-9_]*)\.([a-z_][a-z0-9_]*)\b", sql):
-                table = amap.get(alias)
-                if table is None:
-                    continue
-                checked += 1
-                if column not in columns[table]:
-                    failures.append(f"{filename}: {alias}.{column} not in {table}")
+    failures, checked = _qualified_column_failures(_adapter_sql_literals(), _schema_columns())
     assert not failures, (
         f"adapter SQL references column(s) absent from the migrated schema: {sorted(set(failures))}"
     )
     assert checked >= 200, f"only {checked} alias.column refs checked — the scanner regressed"
+
+
+def test_all_webapp_sql_qualified_columns_exist_in_schema():
+    """Every qualified webapp read-path column must exist in the migrated schema."""
+    sources = _sql_literals_in(_ROOT / "webapp")
+
+    failures, checked = _qualified_column_failures(sources, _schema_columns())
+
+    assert not failures, f"webapp SQL drifted from migrations: {failures}"
+    assert len(sources) >= 14, "the webapp SQL inventory shrank without updating this guard"
+    assert checked >= 300, f"only {checked} webapp alias.column refs checked — scanner regressed"
+
+
+def test_qualified_column_guard_rejects_a_removed_schema_column():
+    """Regression: an unresolved qualified column must make the guard fail loudly."""
+    sources = {"broken.py": ["SELECT d.removed_title FROM documents AS d"]}
+
+    failures, checked = _qualified_column_failures(sources, _schema_columns())
+
+    assert checked == 1
+    assert failures == ["broken.py: d.removed_title not in documents"]
 
 
 def test_schema_columns_keeps_columns_named_like_a_constraint_keyword():

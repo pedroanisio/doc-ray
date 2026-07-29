@@ -10,10 +10,8 @@ from graphql import parse, validate
 from doc_ray.entrypoints.api.schema import build_schema
 
 _ROOT = Path(__file__).resolve().parents[3]
-_WEBAPP_GRAPHQL_CLIENT_FILES = (
-    "webapp/document_web.py",
-    "webapp/corpus_web.py",
-    "webapp/admin_web.py",
+_WEBAPP_GRAPHQL_CLIENT_FILES = tuple(
+    str(path.relative_to(_ROOT)) for path in sorted((_ROOT / "webapp").glob("*.py"))
 )
 _MCP_GRAPHQL_CLIENT_FILES = ("src/doc_ray/entrypoints/mcp/corpus.py",)
 
@@ -80,8 +78,21 @@ def test_webapp_graphql_documents_validate_against_live_schema():
     """Flask webapp GraphQL mutations must stay valid against Strawberry SDL."""
     documents = _literal_graphql_documents(_WEBAPP_GRAPHQL_CLIENT_FILES)
 
-    assert documents, "webapp GraphQL contract guard found no operation strings"
+    assert len(documents) >= 19, (
+        f"only {len(documents)} webapp GraphQL documents checked — the scanner regressed"
+    )
     _assert_documents_validate(documents)
+
+
+def test_webapp_graphql_guard_discovers_every_operation_module():
+    """Regression: a new webapp GraphQL module must join the contract guard automatically."""
+    operation_modules = {
+        str(path.relative_to(_ROOT))
+        for path in sorted((_ROOT / "webapp").glob("*.py"))
+        if _graphql_literals(ast.parse(path.read_text(encoding="utf-8"), filename=str(path)))
+    }
+
+    assert set(_WEBAPP_GRAPHQL_CLIENT_FILES) >= operation_modules
 
 
 def test_mcp_graphql_documents_validate_against_live_schema():

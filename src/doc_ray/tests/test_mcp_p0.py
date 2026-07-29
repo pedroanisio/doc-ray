@@ -11,11 +11,15 @@ Runs without a network: ``httpx.AsyncClient`` is stubbed, like test_mcp_corpus.p
 
 from __future__ import annotations
 
+import inspect
+import re
 from unittest.mock import AsyncMock
 
 import pytest
 
-from doc_ray.entrypoints.mcp import corpus, server
+from doc_ray.domain import phrase_profile
+from doc_ray.domain import term_frequency as term_frequency_domain
+from doc_ray.entrypoints.mcp import corpus, server, tool_meta
 
 
 class _FakeResp:
@@ -57,6 +61,30 @@ def _patch(monkeypatch, payload):
     return client
 
 
+_INSTRUCTION_DOMAIN_IDENTIFIERS = frozenset(
+    {
+        phrase_profile.PROFILE_SURFACE_WORD_V1,
+        term_frequency_domain.METHOD_SENTENCE_SCAN,
+    }
+)
+_INSTRUCTION_REQUIRED_PARAMETERS = frozenset(
+    {"from_ordinal", "match", "response_format", "to_ordinal"}
+)
+
+
+def _server_instruction_contract_failures(instructions: str) -> list[str]:
+    """Return snake-case guidance tokens absent from the live MCP contract."""
+    tools = {tool.__name__ for tool in tool_meta._ALL_TOOLS}
+    parameters = {
+        parameter
+        for tool in tool_meta._ALL_TOOLS
+        for parameter in inspect.signature(tool).parameters
+    }
+    identifiers = set(re.findall(r"\b[a-z][a-z0-9]*(?:_[a-z0-9]+)+\b", instructions))
+    unresolved = identifiers - tools - parameters - _INSTRUCTION_DOMAIN_IDENTIFIERS
+    return [f"unresolved MCP instruction identifier: {name}" for name in sorted(unresolved)]
+
+
 # --------------------------------------------------------------------------
 # 1. Server instructions — teach the retrieval model once, up front.
 # --------------------------------------------------------------------------
@@ -81,6 +109,28 @@ def test_build_server_passes_instructions_to_fastmcp():
         getattr(mcp, "_mcp_server", None), "instructions", None
     )
     assert advertised == server.SERVER_INSTRUCTIONS
+
+
+def test_server_instruction_identifiers_resolve_against_live_mcp_contract():
+    """Every snake-case identifier in model guidance must remain live and callable."""
+    text = server.SERVER_INSTRUCTIONS
+    parameters = {
+        parameter
+        for tool in tool_meta._ALL_TOOLS
+        for parameter in inspect.signature(tool).parameters
+    }
+
+    assert not _server_instruction_contract_failures(text)
+    assert parameters >= _INSTRUCTION_REQUIRED_PARAMETERS
+    assert all(parameter in text for parameter in _INSTRUCTION_REQUIRED_PARAMETERS)
+    assert all(identifier in text for identifier in _INSTRUCTION_DOMAIN_IDENTIFIERS)
+
+
+def test_server_instruction_guard_rejects_a_retired_tool_name():
+    """Regression: stale model guidance must fail instead of advertising a dead tool."""
+    failures = _server_instruction_contract_failures("Call retired_document_reader first.")
+
+    assert failures == ["unresolved MCP instruction identifier: retired_document_reader"]
 
 
 # --------------------------------------------------------------------------
