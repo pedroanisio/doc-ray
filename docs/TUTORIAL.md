@@ -419,7 +419,8 @@ means an empty database.
   first annotation job after a fresh container start pays a one-time model
   load cost.
 - **Not every annotation layer is model-grade, and this repo says so.**
-  Per [docs/SHOWCASE.md](SHOWCASE.md)'s honesty notes: discourse relations,
+  Per the archived [historical showcase](archive/SHOWCASE.md)'s honesty notes:
+  discourse relations,
   temporal expressions, sentiment, and embeddings are deterministic
   heuristics, provenance-stamped as such — they support drift/search
   experiments, not semantic-interpretation claims. Coreference is a
@@ -478,7 +479,7 @@ heartbeat timeout (`WORKER_CLAIM_TIMEOUT_SECONDS`, default 120s).
   design.
 - [docs/canonicalization_pipeline.md](canonicalization_pipeline.md) — how
   entity mentions get resolved to canonical Wikidata identities.
-- [docs/SHOWCASE.md](SHOWCASE.md) — the full ingestion tool-chain and
+- [Historical showcase](archive/SHOWCASE.md) — the early ingestion tool-chain and
   per-layer provenance table.
 - [skills/doc-ray-graphql-maximizer/references/graphql-value-playbook.md](../skills/doc-ray-graphql-maximizer/references/graphql-value-playbook.md)
   — query templates an agent uses for deeper corpus exploration once past

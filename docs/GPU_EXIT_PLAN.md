@@ -12,8 +12,12 @@ disclaimer:
 
 ## Headline
 
-**Nothing on this host uses the GPU.** The exit is a droplet resize, not a
-re-architecture. Measured saving: **~$1,000/month (~$12,000/year)**.
+**GPU-host retirement is blocked.** The runtime measurements below still show
+an idle GPU path, but 46 Documents remain explicitly deferred for H200
+re-annotation. Do not resize or destroy the host until the read-only readiness
+gate returns `ready`.
+
+Potential saving after the gate clears: **~$1,000/month (~$12,000/year)**.
 
 The host is `ml-ai-ubuntu-gpu-6000adax1-48gb-tor1` (RTX 6000 Ada 48 GB),
 `gpu-6000adax1-48gb`, **$1.57/h = $1,168/month**.
@@ -34,19 +38,24 @@ Only the `ollama` container was ever granted the GPU (via
 serverless) and the frontier resolver (never enabled). It currently holds no
 model in VRAM.
 
-### The one standing reason to keep a GPU is already discharged
+### The standing H200 work list is not discharged
 
 `docs/PENDING_TRF_H200.md` defers a set of oversized documents to a large-VRAM
 run, because `en_core_web_trf` OOMed on an 8 GB dev card (peak VRAM scales with
 document length). That was the last documented argument for large-VRAM hardware.
 
-**Zero documents now carry the `pending-trf-h200` tag**, which is exactly that
-document's own stated `retire-when` condition. Separately, the constraint cannot
-recur after this migration: the OOM was a *VRAM* ceiling, and CPU annotation has
-no VRAM ceiling — an oversized book annotates against host RAM, slowly but
-without failing. Leaving the GPU removes the problem the deferral existed for.
+The configured database measured on 2026-07-29 has **46 Documents carrying the
+`pending-trf-h200` tag**, so the runbook's retirement condition is false. The
+count is operational state and must not be copied forward as a durable premise.
+Measure it directly:
 
-(29 documents remain unannotated for unrelated reasons; none are tagged.)
+```bash
+python scripts/check_gpu_exit_readiness.py --env-file .env --json
+```
+
+Exit code `0` and `status: ready` are required before any destructive host
+action. Exit code `1` means deferred work remains; exit code `2` means readiness
+could not be measured. Neither nonzero result authorizes retirement.
 
 ## Current resource envelope
 
@@ -93,26 +102,30 @@ instead if the caption/worker pools are to be scaled well beyond present levels.
 
 ## Migration steps
 
-1. **Decide the resolver policy.** `DOCRAY_RESOLVER_BACKEND=ollama` is set but
+1. **Clear and verify the H200 work list.** Complete or explicitly abandon the
+   deferred work under [`PENDING_TRF_H200.md`](PENDING_TRF_H200.md), then require
+   `check_gpu_exit_readiness.py --json` to return `status: ready`.
+2. **Decide the resolver policy.** `DOCRAY_RESOLVER_BACKEND=ollama` is set but
    has never been exercised. Either set it to `anthropic` (the adapter exists),
    or add an OpenAI-compatible resolver adapter pointing at
    `https://inference.do-ai.run/v1` — the same shape as `vlm_vllm`. Until then,
    dropping Ollama removes an unused capability, not a working one.
-2. **Add a GPU-free deploy path.** `COMPOSE_PROD_OLLAMA` (and therefore
+3. **Add a GPU-free deploy path.** `COMPOSE_PROD_OLLAMA` (and therefore
    `make prod-up`) currently layers `docker-compose.ollama.yml` +
    `docker-compose.ollama.gpu.yml`. Introduce a compose set without them so the
    stack never asks for a device the host lacks.
-3. **Provision** a `c-8` droplet in `tor1`.
-4. **Move the block volume**: detach from the GPU droplet, attach to the new one
+4. **Provision** a `c-8` droplet in `tor1`.
+5. **Move the block volume**: detach from the GPU droplet, attach to the new one
    (same region, so the checkout moves intact with no copy).
-5. **Bring the stack up**: copy `.env.prod` (secrets — never in git), build
+6. **Bring the stack up**: copy `.env.prod` (secrets — never in git), build
    images, `up -d` with the GPU-free compose set.
-6. **Cut over ingress**: the Cloudflare tunnel follows `CLOUDFLARE_TUNNEL_TOKEN`
+7. **Cut over ingress**: the Cloudflare tunnel follows `CLOUDFLARE_TUNNEL_TOKEN`
    in `.env.prod`; start `cloudflared` on the new host and stop it on the old one
    so only one replica serves the hostname.
-7. **Verify** before destroying anything: `make prod-check`, a webapp login, an
-   MCP read, and one end-to-end ingest.
-8. **Destroy the GPU droplet.** Billing stops at destroy, not at power-off.
+8. **Verify** before destroying anything: the standalone GPU-exit check must be
+   ready; then run `make prod-check`, a webapp login, an MCP read, and one
+   end-to-end ingest.
+9. **Destroy the GPU droplet.** Billing stops at destroy, not at power-off.
 
 ## Risks and how they are handled
 

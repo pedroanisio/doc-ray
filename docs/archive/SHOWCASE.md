@@ -12,7 +12,7 @@ disclaimer:
 
 > **Historical** — written against the v0 schema era (migrations 001–012);
 > capabilities have grown substantially since. Current entry points:
-> [README](../README.md), [docs/public/](public/index.md).
+> [README](../../README.md), [docs/public/](../public/index.md).
 
 This document describes the full ingestion tool-chain and how it populates the
 complete NLP annotation stack (migrations 001–012; entity linking, layer 12,
@@ -61,7 +61,7 @@ docker compose exec -T postgres psql -U docray -d docray -f - < scripts/showcase
 This table tracks whether a layer is populated by a real annotator (writer
 provenance). For the fuller picture — schema, read adapter, GraphQL,
 browser, and health exposure per layer, plus a drift guard that keeps the
-claims honest — see [`docs/nlp_capability_matrix.md`](nlp_capability_matrix.md).
+claims honest — see [`docs/nlp_capability_matrix.md`](../nlp_capability_matrix.md).
 
 | Provenance | NLP layer | Tool | Kind |
 |---|---|---|---|

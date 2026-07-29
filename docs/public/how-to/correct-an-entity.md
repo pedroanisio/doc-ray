@@ -11,9 +11,9 @@ doc_type: "how-to"
 audience: ["end-user", "integrator", "developer"]
 surfaces: ["webapp", "mcp", "api"]
 classification: "public"
-applies_to: "1.51.0"
+applies_to: "1.54.0"
 owner: "documentation-maintainer"
-last_reviewed: "2026-07-26"
+last_reviewed: "2026-07-29"
 status: "current"
 ---
 

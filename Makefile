@@ -50,7 +50,7 @@ COMPOSE_GPU_WORKER := $(COMPOSE_PROD) -f docker-compose.gpu.yml -f docker-compos
 # base compose: it must never recreate a worker, and it needs no env file.
 COMPOSE_LAB := docker compose -f docker-compose.openwebui.yml
 
-.PHONY: help check check-static prod-check db-dump truncate-db workers-up workers-status \
+.PHONY: help check check-static docs prod-check db-dump truncate-db workers-up workers-status \
         prod-migrate prod-migrate-host prod-up prod-web prod-admin-console-up \
         prod-admin-console-down prod-tunnel prod-down gpu-up gpu-worker-up \
         gpu-worker-status gpu-worker-down prod-ollama-up \
@@ -60,6 +60,12 @@ COMPOSE_LAB := docker compose -f docker-compose.openwebui.yml
 
 help: ## List available tasks
 	@grep -E '^[a-z][a-zA-Z_-]*:.*## ' $(MAKEFILE_LIST) | awk -F ':.*## ' '{printf "  %-17s %s\n", $$1, $$2}'
+
+docs: ## Validate public docs, links, released artifacts, and quarantine policy
+	@$(PYTHON) scripts/check_public_docs.py
+	@$(PYTHON) scripts/check_doc_links.py
+	@$(PYTHON) scripts/check_doc_artifacts.py
+	@$(PYTHON) scripts/check_doc_quarantine_policy.py
 
 check-static: ## Run the static landing gates only (lint, types, size, version) — fast, no DB
 	@fail=0; \
@@ -77,6 +83,18 @@ check-static: ## Run the static landing gates only (lint, types, size, version) 
 	  $(PYTHON) scripts/check_read_path_aggregates.py || fail=1; \
 	echo "── GraphQL → webapp parity (D-034) ─────────────"; \
 	  $(PYTHON) scripts/check_surface_parity.py --strict || fail=1; \
+	echo "── GraphQL skill drift ─────────────────────────"; \
+	  $(PYTHON) skills/doc-ray-graphql-maximizer/scripts/check_doc_ray_drift.py || fail=1; \
+	echo "── public documentation ────────────────────────"; \
+	  $(PYTHON) scripts/check_public_docs.py || fail=1; \
+	echo "── documentation links ─────────────────────────"; \
+	  $(PYTHON) scripts/check_doc_links.py || fail=1; \
+	echo "── documentation artifacts ─────────────────────"; \
+	  $(PYTHON) scripts/check_doc_artifacts.py || fail=1; \
+	echo "── documentation quarantine policy ─────────────"; \
+	  $(PYTHON) scripts/check_doc_quarantine_policy.py || fail=1; \
+	echo "── release state ───────────────────────────────"; \
+	  $(PYTHON) scripts/check_release_state.py || fail=1; \
 	if [ $$fail -ne 0 ]; then echo; echo "static gates: FAILED"; exit 1; fi; \
 	echo; echo "static gates: PASSED"
 
@@ -96,6 +114,18 @@ check: ## Run ALL landing-checklist gates (static gates + pytest); mirrors CLAUD
 	  $(PYTHON) scripts/check_read_path_aggregates.py || fail=1; \
 	echo "── GraphQL → webapp parity (D-034) ─────────────"; \
 	  $(PYTHON) scripts/check_surface_parity.py --strict || fail=1; \
+	echo "── GraphQL skill drift ─────────────────────────"; \
+	  $(PYTHON) skills/doc-ray-graphql-maximizer/scripts/check_doc_ray_drift.py || fail=1; \
+	echo "── public documentation ────────────────────────"; \
+	  $(PYTHON) scripts/check_public_docs.py || fail=1; \
+	echo "── documentation links ─────────────────────────"; \
+	  $(PYTHON) scripts/check_doc_links.py || fail=1; \
+	echo "── documentation artifacts ─────────────────────"; \
+	  $(PYTHON) scripts/check_doc_artifacts.py || fail=1; \
+	echo "── documentation quarantine policy ─────────────"; \
+	  $(PYTHON) scripts/check_doc_quarantine_policy.py || fail=1; \
+	echo "── release state ───────────────────────────────"; \
+	  $(PYTHON) scripts/check_release_state.py || fail=1; \
 	echo "── pytest (D-013) ──────────────────────────────"; \
 	  $(PYTHON) -m pytest tests src/doc_ray/tests || fail=1; \
 	if [ $$fail -ne 0 ]; then echo; echo "make check: FAILED"; exit 1; fi; \

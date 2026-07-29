@@ -284,6 +284,29 @@ def test_pending_docs_declare_retirement_condition():
 
 
 # ---------------------------------------------------------------------------
+# Structural documentation policy must not carry unresolved repository state.
+# ---------------------------------------------------------------------------
+
+
+def test_gitignore_has_no_conflict_markers_and_keeps_quarantine_ignored():
+    text = (_ROOT / ".gitignore").read_text(encoding="utf-8")
+    assert not any(marker in text for marker in ("<<<<<<<", "=======", ">>>>>>>"))
+    assert re.search(r"^\.doc-quarantine/$", text, re.MULTILINE)
+
+
+def test_web_manual_has_one_canonical_location_under_docs():
+    assert (_ROOT / "docs" / "webapp_user_manual.md").is_file()
+    assert not (_ROOT / "webapp_user_manual.md").exists()
+
+
+def test_historical_docs_live_under_archive():
+    assert (_ROOT / "docs" / "archive" / "DATABASE_SPEC.md").is_file()
+    assert (_ROOT / "docs" / "archive" / "SHOWCASE.md").is_file()
+    assert not (_ROOT / "docs" / "DATABASE_SPEC.md").exists()
+    assert not (_ROOT / "docs" / "SHOWCASE.md").exists()
+
+
+# ---------------------------------------------------------------------------
 # Self-test: each guard above must actually be able to fail, not pass vacuously.
 # ---------------------------------------------------------------------------
 

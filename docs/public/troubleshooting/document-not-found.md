@@ -11,9 +11,9 @@ doc_type: "troubleshooting"
 audience: ["end-user", "administrator"]
 surfaces: ["webapp", "api", "mcp"]
 classification: "public"
-applies_to: "1.41.0"
+applies_to: "1.54.0"
 owner: "documentation-maintainer"
-last_reviewed: "2026-07-25"
+last_reviewed: "2026-07-29"
 status: "current"
 ---
 

@@ -11,9 +11,9 @@ doc_type: "concept"
 audience: ["end-user", "administrator", "developer", "integrator", "operator", "evaluator"]
 surfaces: ["webapp", "api", "mcp", "cli", "config"]
 classification: "public"
-applies_to: "1.43.0"
+applies_to: "1.54.0"
 owner: "documentation-maintainer"
-last_reviewed: "2026-07-25"
+last_reviewed: "2026-07-29"
 status: "current"
 ---
 
@@ -24,7 +24,7 @@ queryable, linguistically annotated corpus, resolves the people, places, dates, 
 organizations inside them into shared canonical identities, and exposes the result
 to people, applications, and AI agents.
 
-This documentation applies to version 1.43.0.
+This documentation applies to version 1.54.0.
 
 ## Sections
 
@@ -38,7 +38,6 @@ This documentation applies to version 1.43.0.
   migration guidance by version.
 - **[Troubleshooting](troubleshooting/index.md)** — what a symptom means and how to
   resolve it.
-- **[Release notes](release-notes/index.md)** — what changed in each version.
 
 ## Start here, by role
 

@@ -146,6 +146,8 @@ def test_check_database_fails_when_migrations_are_pending(monkeypatch) -> None:
 
     assert result.status == pc.FAIL
     assert "2 pending" in result.detail
+    assert "102_x.sql" in result.detail
+    assert "103_y.sql" in result.detail
 
 
 def test_check_database_fails_when_the_cluster_is_unreachable() -> None:
@@ -156,6 +158,26 @@ def test_check_database_fails_when_the_cluster_is_unreachable() -> None:
 
     assert result.status == pc.FAIL
     assert "connection refused" in result.detail
+
+
+def test_gpu_exit_is_a_warning_while_deferred_documents_remain(monkeypatch) -> None:
+    monkeypatch.setattr(
+        pc,
+        "check_gpu_readiness",
+        lambda env: type(
+            "Result",
+            (),
+            {
+                "status": "blocked",
+                "detail": "46 document(s) still carry `pending-trf-h200`",
+            },
+        )(),
+    )
+
+    result = pc.check_gpu_exit(FULL_ENV)
+
+    assert result.status == pc.WARN
+    assert "46" in result.detail
 
 
 class _RollupConn:
@@ -214,6 +236,7 @@ def test_run_checks_includes_the_corpus_rollup_probe(monkeypatch) -> None:
         "check_env",
         "check_posture",
         "check_database",
+        "check_gpu_exit",
         "check_object_store",
         "check_api",
         "check_webapp",

@@ -1,9 +1,10 @@
-"""Generate docs/DATABASE.md — the doc-ray ERD spec + data dictionary.
+"""Generate docs/DATABASE.md — the repository target-schema data dictionary.
 
-Introspects the LIVE schema (all applied migrations) so the reference never
-drifts from reality. Curated prose, groupings, and the Mermaid ER diagrams are
-authored here; every table/column/key/constraint/index/policy figure is pulled
-from the catalog.
+Introspects a database only after proving its migration ledger exactly matches
+``db/migrations``. Curated prose, groupings, and Mermaid ER diagrams are authored
+here; every table/column/key/constraint/index/policy figure is pulled from that
+fully migrated catalog. The resulting document describes the schema expected by
+the checkout, not an unchecked deployment snapshot.
 
     DATABASE_URL=postgresql://docray:docray@localhost:5455/docray \
         python scripts/gen_data_dictionary.py
@@ -259,7 +260,7 @@ def _in_sync(text: str, out_path: str) -> tuple[bool, str]:
     except FileNotFoundError:
         return False, f"{out_path} does not exist — run the generator to create it."
     if current == text:
-        return True, f"{out_path} is in sync with the live schema."
+        return True, f"{out_path} is in sync with the repository target schema."
     cur_lines, new_lines = current.splitlines(), text.splitlines()
     for i, (a, b) in enumerate(zip(cur_lines, new_lines, strict=False), 1):
         if a != b:
@@ -282,6 +283,11 @@ def _migration_file_stems() -> set[str]:
     }
 
 
+def _migration_filenames() -> set[str]:
+    """Filenames of every committed migration."""
+    return {os.path.basename(path) for path in glob.glob(os.path.join(MIGRATIONS_DIR, "*.sql"))}
+
+
 def _migration_narrative_gap(files: set[str], narrated: set[str]) -> tuple[set[str], set[str]]:
     """Return ``(files_without_entry, entries_without_file)`` for the §9 narrative.
 
@@ -294,6 +300,11 @@ def _migration_narrative_gap(files: set[str], narrated: set[str]) -> tuple[set[s
     error at generation time, not an invisible omission (drift map H3).
     """
     return files - narrated, narrated - files
+
+
+def _migration_ledger_gap(committed: set[str], applied: set[str]) -> tuple[set[str], set[str]]:
+    """Return committed migrations missing from the DB and unknown ledger entries."""
+    return committed - applied, applied - committed
 
 
 def _coverage_gap(live_tables: set[str], grouped_tables: set[str]) -> tuple[set[str], set[str]]:
@@ -326,7 +337,7 @@ def main(argv: list[str] | None = None) -> int:
     import argparse
 
     ap = argparse.ArgumentParser(
-        description="Generate (or --check) docs/DATABASE.md from the live schema."
+        description="Generate or check docs/DATABASE.md from a fully migrated target schema."
     )
     ap.add_argument(
         "--check",
@@ -372,6 +383,17 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         raise
 
+    committed_files = _migration_filenames()
+    applied_files = {row["filename"] for row in q(conn, "SELECT filename FROM schema_migrations")}
+    missing_applied, unknown_applied = _migration_ledger_gap(committed_files, applied_files)
+    if missing_applied or unknown_applied:
+        print(
+            "database migration ledger does not match the repository target:\n"
+            f"  committed but not applied: {sorted(missing_applied) or 'none'}\n"
+            f"  applied but not committed: {sorted(unknown_applied) or 'none'}"
+        )
+        return 1
+
     # Fail-closed on §5 coverage: every live base table must be in a GROUP. This
     # is the invariant the drift gate cannot see (see _coverage_gap) — enforce it
     # in both generate and --check modes so a new migration that forgets to group
@@ -387,7 +409,6 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 1
 
-    applied = conn.execute("SELECT count(*) n FROM schema_migrations").fetchone()["n"]
     try:
         ver = conn.execute("SELECT docray_schema_version() v").fetchone()["v"]
     except Exception:
@@ -396,10 +417,15 @@ def main(argv: list[str] | None = None) -> int:
     o: list[str] = []
     o.append("# doc-ray — Database ERD & Data Dictionary\n")
     if ver:
-        o.append(f"**Schema version `{ver}`** (SemVer) · {applied} migrations applied\n")
+        o.append(
+            f"**Schema version `{ver}`** (SemVer) · {len(committed_files)} committed "
+            "migrations define the repository target schema\n"
+        )
     o.append(
-        "> Generated from the live schema by `scripts/gen_data_dictionary.py`. "
-        "Do not edit by hand — re-run the generator.\n"
+        "> Generated from a database whose migration ledger exactly matches "
+        "`db/migrations/`. This describes the schema expected after all committed "
+        "migrations; it does not prove a deployment is current. Run `make prod-check` "
+        "for deployed migration lockstep. Do not edit by hand.\n"
     )
     o.append("## 1. Overview\n")
     o.append(OVERVIEW)

@@ -48,6 +48,41 @@ repos:
         pass_filenames: false
         always_run: true
 
+      - id: public-docs-drift
+        name: public documentation metadata, API, MCP, route, and link gate
+        entry: python3 scripts/check_public_docs.py
+        language: system
+        pass_filenames: false
+        always_run: true
+
+      - id: markdown-link-drift
+        name: repository Markdown link gate
+        entry: python3 scripts/check_doc_links.py
+        language: system
+        pass_filenames: false
+        always_run: true
+
+      - id: documentation-artifact-drift
+        name: released documentation artifact checksum gate
+        entry: python3 scripts/check_doc_artifacts.py
+        language: system
+        pass_filenames: false
+        always_run: true
+
+      - id: documentation-quarantine-policy
+        name: documentation quarantine ignore-policy gate
+        entry: python3 scripts/check_doc_quarantine_policy.py
+        language: system
+        pass_filenames: false
+        always_run: true
+
+      - id: release-state-drift
+        name: canonical version and annotated Git tag gate
+        entry: python3 scripts/check_release_state.py
+        language: system
+        pass_filenames: false
+        always_run: true
+
       - id: validate-decisions
         name: engineering_decisions.yml valid — D-016
         entry: python engineering/schema/scripts/validate_decisions.py engineering_decisions.yml

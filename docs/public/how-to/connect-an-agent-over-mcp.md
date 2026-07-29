@@ -11,9 +11,9 @@ doc_type: "how-to"
 audience: ["integrator", "administrator"]
 surfaces: ["mcp", "config"]
 classification: "restricted"
-applies_to: "1.41.0"
+applies_to: "1.54.0"
 owner: "documentation-maintainer"
-last_reviewed: "2026-07-25"
+last_reviewed: "2026-07-29"
 status: "current"
 ---
 
@@ -87,4 +87,4 @@ Even with write tools enabled, the token must carry the `write` scope, and each 
 - [Search the corpus](/docs/how-to/search-the-corpus)
 - [Read a document](/docs/how-to/read-a-document)
 - [Correct an entity](/docs/how-to/correct-an-entity)
-- Reference: [MCP server](/docs/reference/mcp), [Configuration](/docs/reference/configuration)
+- Reference: [MCP server](/docs/reference/mcp), [Configuration](/docs/reference/config)

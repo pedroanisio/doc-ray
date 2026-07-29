@@ -12,6 +12,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -42,6 +44,16 @@ jobs:
         run: python scripts/check_file_size.py src/doc_ray webapp scripts
       - name: Doc-Ray GraphQL skill drift gate
         run: python3 skills/doc-ray-graphql-maximizer/scripts/check_doc_ray_drift.py
+      - name: Public documentation drift gate
+        run: python scripts/check_public_docs.py
+      - name: Repository Markdown link gate
+        run: python scripts/check_doc_links.py
+      - name: Documentation artifact checksum gate
+        run: python scripts/check_doc_artifacts.py
+      - name: Documentation quarantine ignore-policy gate
+        run: python scripts/check_doc_quarantine_policy.py
+      - name: Canonical version and annotated Git tag gate
+        run: python scripts/check_release_state.py
       - name: Validate engineering decisions (D-016)
         run: |
           python engineering/schema/scripts/validate_decisions.py engineering_decisions.yml

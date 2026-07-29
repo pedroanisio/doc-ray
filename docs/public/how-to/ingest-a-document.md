@@ -11,9 +11,9 @@ doc_type: "how-to"
 audience: ["end-user", "developer"]
 surfaces: ["webapp", "api"]
 classification: "public"
-applies_to: "1.41.0"
+applies_to: "1.54.0"
 owner: "documentation-maintainer"
-last_reviewed: "2026-07-25"
+last_reviewed: "2026-07-29"
 status: "current"
 ---
 
@@ -107,5 +107,5 @@ Add a PDF, EPUB, HTML, Markdown, plain-text, DOCX, PPTX, or SVG file to the Corp
 
 - [Read a document](/docs/how-to/read-a-document)
 - [Find who and what a document is about](/docs/how-to/find-who-and-what-a-document-is-about)
-- Concept: [Job](/docs/concepts/jobs), [Document](/docs/concepts/documents)
+- Concept: [Job](/docs/concepts/jobs), [Document](/docs/concepts/corpus-and-documents)
 - Reference: [GraphQL API](/docs/reference/api), [MCP server](/docs/reference/mcp)

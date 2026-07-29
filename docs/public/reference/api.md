@@ -11,9 +11,9 @@ doc_type: "reference"
 audience: ["developer", "integrator"]
 surfaces: ["api"]
 classification: "public"
-applies_to: "1.53.1"
+applies_to: "1.54.0"
 owner: "documentation-maintainer"
-last_reviewed: "2026-07-27"
+last_reviewed: "2026-07-29"
 status: "current"
 ---
 
@@ -77,6 +77,7 @@ Listings are **keyset-paginated**. A list field returns objects each carrying a 
 | `visualReview` | List untrusted Tier-3 caption proposals and their review status. | `documentId`, `status`, `limit`, `after` |
 | `documentMetadataHistory` | Return the change log of a Document's metadata fields. | `documentId` |
 | `documentMetadataSuggestions` | List generated metadata suggestions for a Document. | `documentId`, `status` |
+| `corpusStats` | Return maintained Corpus totals, including visible Documents, Sentences, Lexemes, and last refresh time. | none |
 | `corpusManifest` | Return the shard map for splitting the Corpus into `shardCount` parts. | `shardCount` |
 | `corpusShard` | Return one disjoint slice of the Corpus for map-reduce sweeps. | `shardIndex`, `shardCount`, `limit`, `after` |
 

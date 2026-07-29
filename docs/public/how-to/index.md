@@ -11,9 +11,9 @@ doc_type: "how-to"
 audience: ["end-user", "administrator", "integrator", "developer", "operator"]
 surfaces: ["webapp", "api", "mcp", "config"]
 classification: "public"
-applies_to: "1.43.0"
+applies_to: "1.54.0"
 owner: "documentation-maintainer"
-last_reviewed: "2026-07-25"
+last_reviewed: "2026-07-29"
 status: "current"
 ---
 
@@ -57,5 +57,5 @@ Task-focused guides for working with Doc-Ray across the Corpus browser, the Grap
 ## Related documentation
 
 - Concepts: [Corpus, Documents, Collections, Lenses, Canonical Entities, Jobs, and Backups](/docs/concepts)
-- Reference: [GraphQL API](/docs/reference/api), [MCP server](/docs/reference/mcp), [Operator CLI](/docs/reference/cli), [Configuration](/docs/reference/configuration)
+- Reference: [GraphQL API](/docs/reference/api), [MCP server](/docs/reference/mcp), [Operator CLI](/docs/reference/cli), [Configuration](/docs/reference/config)
 - [Troubleshooting](/docs/troubleshooting)

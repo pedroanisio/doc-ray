@@ -5,6 +5,26 @@ All notable changes to `doc-ray-graphql-maximizer` are recorded here.
 The format follows Keep a Changelog conventions and the skill uses Semantic
 Versioning through the repo-local `VERSION` file.
 
+## [0.3.0] - 2026-07-29
+
+### Added
+
+- Added an exhaustive, categorized inventory of all live Query and Mutation
+  root fields, including evidence products, visual search/review, collections,
+  lenses, sharing, operation schedules, billing, projections, and allusions.
+
+### Changed
+
+- The drift checker now fails closed when the playbook omits a live root field
+  or retains a removed field. Schema growth can no longer pass as a warning.
+- Expanded goal classification to route agents through the newer evidence,
+  visual, organization, operations, billing, and relationship surfaces.
+- Removed the unsupported custom frontmatter version key. Package version
+  parity is now enforced across `VERSION`, README, CHANGELOG, and the SKILL body.
+- Corrected mutation-return, pagination, and authorization guidance; clarified
+  relationship semantics, visual-stack availability, and the distinction
+  between checkout-generated schema and deployed-endpoint introspection.
+
 ## [0.2.1] - 2026-07-12
 
 ### Fixed

@@ -35,52 +35,6 @@ REQUIRED_PATHS = [
     "docs/webapp_user_manual.md",
 ]
 
-EXPECTED_QUERIES = {
-    "version",
-    "documents",
-    "document",
-    "auditEvents",
-    "documentMetadataHistory",
-    "documentMetadataSuggestions",
-    "searchSentences",
-    "fullTextSearch",
-    "lexeme",
-    "lexemes",
-    "entities",
-    "entityFrequency",
-    "job",
-    "jobs",
-    "seedSuggestions",
-    "canonical",
-    "canonicalSearch",
-    "unresolvedMentions",
-    "resolutionReview",
-}
-
-EXPECTED_MUTATIONS = {
-    "reannotate",
-    "reextractDocument",
-    "reextractDocuments",
-    "cancelJob",
-    "deleteDocument",
-    "archiveDocument",
-    "restoreDocument",
-    "bulkArchiveDocuments",
-    "bulkTagDocuments",
-    "updateDocumentMetadata",
-    "annotateDocument",
-    "semanticEnrichDocument",
-    "canonicalizeDocument",
-    "suggestSeeds",
-    "suggestDocumentMetadata",
-    "decideDocumentMetadataSuggestions",
-    "decideSeeds",
-    "seedApproved",
-    "createBackup",
-    "restoreBackup",
-    "ingestDocument",
-}
-
 EXPECTED_DOCUMENT_FIELDS = {
     "id",
     "title",
@@ -145,13 +99,10 @@ def check_package_metadata(root: Path, errors: list[str]) -> None:
     if changelog.exists() and f"## [{version}]" not in read_text(changelog):
         errors.append("CHANGELOG.md has no entry for the current VERSION")
     skill_md = root / "SKILL.md"
-    if skill_md.exists():
-        # The frontmatter version is what skill loaders read; it must track
-        # the VERSION file exactly or installed copies mis-report themselves.
-        if f"version: {version}" not in read_text(skill_md).split("---", 2)[1]:
-            errors.append("SKILL.md frontmatter version does not match VERSION")
-    else:
+    if not skill_md.exists():
         errors.append("missing SKILL.md")
+    elif f"Package version: `{version}`." not in read_text(skill_md):
+        errors.append("SKILL.md body does not mention the current VERSION")
 
 
 def schema_digest(root: Path) -> dict[str, object]:
@@ -186,6 +137,28 @@ def require_text(path: Path, needles: list[str], errors: list[str], label: str) 
     missing = [needle for needle in needles if needle not in text]
     if missing:
         errors.append(f"{label} missing expected text: {', '.join(missing)}")
+
+
+def documented_root_operations(path: Path) -> dict[str, set[str]]:
+    """Read the exhaustive Query and Mutation inventory from the playbook."""
+    inventory = {"Query": set(), "Mutation": set()}
+    in_inventory = False
+    current_root: str | None = None
+    for line in read_text(path).splitlines():
+        if line == "## Root Operation Inventory":
+            in_inventory = True
+            current_root = None
+            continue
+        if in_inventory and line.startswith("## "):
+            break
+        if not in_inventory:
+            continue
+        if line in {"### Query", "### Mutation"}:
+            current_root = line.removeprefix("### ")
+            continue
+        if current_root is not None:
+            inventory[current_root].update(re.findall(r"`([a-z][A-Za-z0-9]*)`", line))
+    return inventory
 
 
 def check_auth_visibility_contract(root: Path, errors: list[str]) -> None:
@@ -233,25 +206,20 @@ def check_schema(root: Path, errors: list[str], warnings: list[str]) -> None:
     mutations = set(digest.get("root_mutations", []))
     focus = digest.get("focus_types", {})
     document_fields = set(focus.get("Document", [])) if isinstance(focus, dict) else set()
-    missing_queries = sorted(EXPECTED_QUERIES - queries)
-    missing_mutations = sorted(EXPECTED_MUTATIONS - mutations)
     missing_doc_fields = sorted(EXPECTED_DOCUMENT_FIELDS - document_fields)
-    if missing_queries:
-        errors.append(f"schema missing expected Query fields: {', '.join(missing_queries)}")
-    if missing_mutations:
-        errors.append(f"schema missing expected Mutation fields: {', '.join(missing_mutations)}")
     if missing_doc_fields:
         errors.append(f"schema missing expected Document fields: {', '.join(missing_doc_fields)}")
-    new_queries = sorted(queries - EXPECTED_QUERIES)
-    new_mutations = sorted(mutations - EXPECTED_MUTATIONS)
-    if new_queries:
-        warnings.append(
-            f"schema has new Query fields not yet described by skill: {', '.join(new_queries)}"
-        )
-    if new_mutations:
-        warnings.append(
-            f"schema has new Mutation fields not yet described by skill: {', '.join(new_mutations)}"
-        )
+    playbook = skill_root() / "references" / "graphql-value-playbook.md"
+    documented = documented_root_operations(playbook)
+    for root_name, live in (("Query", queries), ("Mutation", mutations)):
+        missing = sorted(live - documented[root_name])
+        stale = sorted(documented[root_name] - live)
+        if missing:
+            errors.append(f"playbook missing live {root_name} fields: {', '.join(missing)}")
+        if stale:
+            errors.append(f"playbook lists stale {root_name} fields: {', '.join(stale)}")
+    if warnings:
+        raise AssertionError("schema drift must fail closed, not emit warnings")
 
 
 def main(argv: list[str] | None = None) -> int:

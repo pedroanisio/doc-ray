@@ -7,8 +7,8 @@ disclaimer:
   generated_by: "Claude Opus 5 (1M context) via Claude Code"
   date: "2026-07-25"
 title: "doc·ray — Web Interface and Agent (MCP) Manual"
-applies_to: "1.43.0"
-last_reviewed: "2026-07-25"
+applies_to: "1.54.0"
+last_reviewed: "2026-07-29"
 ---
 
 # doc·ray — Web Interface and Agent (MCP) Manual

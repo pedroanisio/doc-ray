@@ -73,7 +73,7 @@ def test_build_tokens_persists_document_global_spacy_ordinals(monkeypatch: Any) 
 
 
 def test_database_spec_documents_the_token_ordinal_contract() -> None:
-    spec = (REPO_ROOT / "docs" / "DATABASE_SPEC.md").read_text(encoding="utf-8")
+    spec = (REPO_ROOT / "docs" / "archive" / "DATABASE_SPEC.md").read_text(encoding="utf-8")
     prose = " ".join(spec.split())
     folded_prose = prose.casefold()
 

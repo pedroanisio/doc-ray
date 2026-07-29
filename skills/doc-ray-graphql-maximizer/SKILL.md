@@ -1,12 +1,11 @@
 ---
 name: doc-ray-graphql-maximizer
-version: 0.2.1
-description: Enable AI agents to extract maximum value from the Doc-Ray GraphQL API. Use when an agent needs to explore, query, audit, extend, test, or operate Doc-Ray's Strawberry GraphQL surface; discover corpus contents; drill into documents, sentences, lexemes, entities, canonicalization, annotation layers, jobs, backups, uploads, or schema capabilities; or turn GraphQL access into evidence-grounded answers and next actions.
+description: Enable AI agents to extract maximum value from the Doc-Ray GraphQL API. Use when an agent needs to explore, query, audit, extend, test, or operate Doc-Ray's Strawberry GraphQL surface; discover corpus contents; drill into documents, sentences, lexemes, entities, canonicalization, annotation layers, jobs, scheduled operations, billing, sharing, lenses, visual evidence, backups, uploads, or schema capabilities; or turn GraphQL access into evidence-grounded answers and next actions.
 ---
 
 # Doc-Ray GraphQL Maximizer
 
-Package version: see `VERSION`. The package README and CHANGELOG are present
+Package version: `0.3.0`. The package README and CHANGELOG are present
 because this skill is intended to be installed and updated across agent
 environments, not only loaded from one checkout.
 
@@ -41,14 +40,20 @@ missing, what needs curation, and what follow-up query or job unlocks more value
      metadata history, tokens, dependencies, chunks, coreference, entity links.
    - **Lexical analysis**: lexemes, occurrences, KWIC evidence.
    - **Entity/canonical work**: entity frequency, seed suggestions, canonical
-     search, unresolved mentions, resolution review.
+     search, unresolved mentions, resolution review, corrections, projections,
+     allusions, and relationship analysis.
+   - **Evidence products**: briefing packs, outlines, corpus manifests/shards,
+     term frequency, semantic sentence search, and visual/cross-modal evidence.
+   - **Collections, lenses & sharing**: collection membership, lens promotion,
+     default lenses, projections, visibility, and document shares.
    - **Pipeline/write operation**: upload, annotate, semantic enrichment,
      canonicalize, metadata update, seed approval, backup, restore, delete
      (soft), re-extraction/geometry backfill, job cancellation.
    - **Lifecycle & organization**: archive/restore documents, bulk archive/tag,
      metadata suggestions (suggest → review → decide).
-   - **Operations & audit**: job progress/timing, SSE job events, stalled-job
-     diagnosis, tenant-admin security audit events.
+   - **Operations, billing & audit**: runnable operations and schedules, job
+     progress/timing, SSE events, stalled-job diagnosis, billing state/events,
+     and tenant-admin security audit events.
    - **API development**: schema, resolvers, read adapters, auth, pagination,
      tests.
 4. Choose the smallest query set that preserves evidence. Prefer fields that
@@ -67,16 +72,18 @@ missing, what needs curation, and what follow-up query or job unlocks more value
   classes as the current source of truth.
 - Use GraphQL reads first. Use mutations only when the user explicitly wants a
   write, queue job, backup, restore, upload, or curation decision.
-- Assume mutations require an authenticated principal with `write` scope. Use
-  bearer auth or `X-DocRay-API-Token` only when the user/environment provides a
-  valid token.
+- Treat authenticated `write` scope as the mutation baseline, then inspect the
+  resolver's stricter authorization. Scheduling and billing mutations require tenant-admin authority.
+  Sharing grants are limited to `read` or `annotate` and require the document
+  owner or a tenant admin.
 - Treat API visibility as caller-relative. State which principal/auth mode was
   used for every corpus inventory result.
 - When a GraphQL corpus query returns no rows, do not conclude the database is
   empty until you have checked auth/RLS scope or an operator/database surface.
-- Page every list using `limit` and `after`; preserve returned `cursor` values
-  in findings so another agent can resume.
-- For long-running operations, return the job ID and poll `job(id:)` or
+- Page only fields whose live signature exposes pagination arguments. When a
+  field has `limit` and `after`, preserve returned `cursor` values so another
+  agent can resume; do not invent `after` for unpaginated lists.
+- For mutations that return a long-running job, return its ID and poll `job(id:)` or
   `jobs(documentId:)` until `status` is terminal. Request the progress fields
   (`progressCurrent`, `progressTotal`, `progressStage`) and timing
   (`createdAt`, `startedAt`, `finishedAt`, `attempts`) — a `running` job with
@@ -91,6 +98,9 @@ missing, what needs curation, and what follow-up query or job unlocks more value
   text.
 - For schema or behavior changes, validate with focused tests under
   `src/doc_ray/tests/test_api*.py` and related read-adapter tests.
+- Treat `schema_digest.py` as checkout-generated schema evidence, not
+  introspection of an independently deployed endpoint. Probe that endpoint when
+  deployment parity matters.
 
 ## High-Value Query Patterns
 
@@ -123,8 +133,8 @@ planning a multi-step exploration. It includes query templates for:
 - `scripts/install_or_update.py`: install or update this skill into
   `${CODEX_HOME:-~/.codex}/skills`, using `VERSION` for SemVer comparison.
 - `scripts/check_doc_ray_drift.py`: verify the skill package and its bundled
-  assumptions against the live Doc-Ray checkout: required API files, schema root
-  fields, package README/CHANGELOG, and SemVer metadata.
+  assumptions against the live Doc-Ray checkout: required API files, exhaustive
+  playbook/root-operation parity, package README/CHANGELOG, and SemVer metadata.
 - `scripts/list_documents.py`: list all GraphQL-visible documents with health
   checks, pagination, safe token loading, and table/JSON output.
 - `scripts/schema_digest.py`: print a compact live schema digest for task-time

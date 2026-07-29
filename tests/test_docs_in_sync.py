@@ -22,14 +22,23 @@ REPO = Path(__file__).resolve().parents[1]
 
 def test_database_md_migration_count_matches_migration_files():
     header = (REPO / "docs" / "DATABASE.md").read_text(encoding="utf-8")
-    m = re.search(r"(\d+) migrations applied", header)
-    assert m, "DATABASE.md no longer documents its 'N migrations applied' count"
+    m = re.search(r"(\d+) committed migrations define the repository target schema", header)
+    assert m, (
+        "DATABASE.md must label its count as the repository target schema, not as "
+        "proof that an arbitrary deployment has applied every migration"
+    )
     documented = int(m.group(1))
     on_disk = len(list((REPO / "db" / "migrations").glob("*.sql")))
     assert documented == on_disk, (
         f"DATABASE.md documents {documented} migrations but db/migrations/ holds "
         f"{on_disk} — re-run `python scripts/gen_data_dictionary.py`."
     )
+
+
+def test_database_md_names_the_live_deployment_gate():
+    text = (REPO / "docs" / "DATABASE.md").read_text(encoding="utf-8")
+    assert "make prod-check" in text
+    assert "does not prove" in text
 
 
 def test_database_md_migration_history_lists_every_migration_file():

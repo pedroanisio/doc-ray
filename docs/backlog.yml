@@ -603,7 +603,7 @@ items:
       - "Rows marked writer-backed cite a production code path and a test."
     related_decisions: ["D-001", "D-002"]
     references:
-      - "docs/DATABASE_SPEC.md"
+      - "docs/archive/DATABASE_SPEC.md"
       - "docs/nlp_composition_mastery.md"
       - "docs/nlp_capability_matrix.md"
       - "src/doc_ray/entrypoints/api/query.py"
@@ -680,7 +680,7 @@ items:
       - "The event records language, tool/version, and per-layer counts."
       - "The run is never visible without its provenance event."
     references:
-      - "docs/DATABASE_SPEC.md"
+      - "docs/archive/DATABASE_SPEC.md"
       - "src/doc_ray/adapters/annotation_spacy.py"
       - "src/doc_ray/tests/test_complete_mapping.py"
       - "src/doc_ray/entrypoints/api/types.py"
@@ -877,7 +877,7 @@ items:
     references:
       - "docs/nlp_composition_mastery.md"
       - "src/doc_ray/application/corpus_health.py"
-      - "docs/DATABASE_SPEC.md"
+      - "docs/archive/DATABASE_SPEC.md"
     owner:        "shared"
     source:       "docs/doc_ray_improvement_proposal.md BL-024; grep-verified absent 2026-07-04. Completed 2026-07-05 with migration 036 adding corpus_snapshot, evaluation_run, evaluation_metric, and gold_sample; application.evaluation records lexical/entity distributions with fact_refs and compares snapshots deterministically."
     tags:         ["evaluation", "drift", "metrics", "nlp"]
@@ -906,7 +906,7 @@ items:
     references:
       - "src/doc_ray/adapters/annotation_spacy.py"
       - "webapp/app.py"
-      - "docs/DATABASE_SPEC.md"
+      - "docs/archive/DATABASE_SPEC.md"
     owner:        "shared"
     source:       "docs/doc_ray_improvement_proposal.md BL-025; completed 2026-07-04 with a named spaCy token-to-lexeme projection helper, pure projection test, and live token/occurrence parity guard."
     tags:         ["lexemes", "tokens", "projection", "persistence"]

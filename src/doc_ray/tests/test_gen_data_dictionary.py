@@ -133,3 +133,22 @@ def test_every_migration_file_has_a_narrative_entry():
     )
     assert not missing, f"migration files with no §9 MIGRATIONS entry: {sorted(missing)}"
     assert not phantom, f"§9 MIGRATIONS entries naming no migration file: {sorted(phantom)}"
+
+
+# --- live ledger must match the repository target --------------------------
+
+
+def test_migration_ledger_gap_reports_every_missing_and_phantom_filename():
+    mod = _load()
+    missing, phantom = mod._migration_ledger_gap(
+        {"001_init.sql", "002_added.sql", "003_more.sql"},
+        {"001_init.sql", "099_ghost.sql"},
+    )
+    assert missing == {"002_added.sql", "003_more.sql"}
+    assert phantom == {"099_ghost.sql"}
+
+
+def test_migration_ledger_gap_is_empty_for_an_exact_deployment():
+    mod = _load()
+    expected = {"001_init.sql", "002_added.sql"}
+    assert mod._migration_ledger_gap(expected, expected) == (set(), set())

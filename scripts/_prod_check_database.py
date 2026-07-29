@@ -33,7 +33,7 @@ def check_database(
     except Exception as exc:
         return CheckResult("database", "fail", f"{type(exc).__name__}: {exc}")
     if pending:
-        names = ", ".join(str(p) for p in pending[:3])
+        names = ", ".join(getattr(path, "name", str(path)) for path in pending)
         return CheckResult(
             "database",
             "fail",

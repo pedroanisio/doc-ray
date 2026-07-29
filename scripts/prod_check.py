@@ -7,6 +7,7 @@ the real dependencies with the same adapters the running services use:
     config        every key production needs is present in the env file
     posture       anonymous API access, debug mode, and cookie flags are hardened
     database      the managed cluster answers, and no migration is pending
+    gpu_exit      the deferred H200 work count is measured (warning while blocked)
     corpus_rollups tenant rollups agree with their maintained document/lexeme inputs
     object store  the Spaces/MinIO bucket answers a credentialed head request
     api           the local API's ``/readyz`` reports every dependency ready
@@ -52,6 +53,7 @@ from typing import Any
 
 from _prod_check_database import CheckResult, check_corpus_rollups, check_database
 from _prod_check_queries import CORPUS_ROLLUP_HEALTH_SQL as _CORPUS_ROLLUP_HEALTH_SQL
+from check_gpu_exit_readiness import check_readiness as check_gpu_readiness
 
 from doc_ray.adapters import migrate as migrate_mod
 from doc_ray.adapters.mailer_smtp import SmtpMailer
@@ -159,6 +161,16 @@ def check_posture(env: Mapping[str, str]) -> CheckResult:
     if wrong:
         return CheckResult("posture", WARN, "; ".join(wrong))
     return CheckResult("posture", OK, "anonymous API off, debug off, secure cookies, https base")
+
+
+def check_gpu_exit(env: Mapping[str, str]) -> CheckResult:
+    """Surface the volatile H200 work count without misclassifying app health."""
+    result = check_gpu_readiness(env)
+    if result.status == "ready":
+        return CheckResult("gpu_exit", OK, result.detail)
+    if result.status == "blocked":
+        return CheckResult("gpu_exit", WARN, result.detail)
+    return CheckResult("gpu_exit", FAIL, result.detail)
 
 
 # --- stateful dependencies --------------------------------------------------
@@ -503,6 +515,7 @@ def run_checks(env: Mapping[str, str], *, recipient: str | None, send: bool) -> 
         check_env(env),
         check_posture(env),
         check_database(env),
+        check_gpu_exit(env),
         check_corpus_rollups(env),
         check_object_store(env),
         check_api(api_url),

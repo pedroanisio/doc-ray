@@ -11,9 +11,9 @@ doc_type: "how-to"
 audience: ["administrator", "operator"]
 surfaces: ["webapp", "api", "config"]
 classification: "restricted"
-applies_to: "1.42.0"
+applies_to: "1.54.0"
 owner: "documentation-maintainer"
-last_reviewed: "2026-07-25"
+last_reviewed: "2026-07-29"
 status: "current"
 ---
 
@@ -99,4 +99,4 @@ Result: `{"data":{"restoreBackup":{"id":"cccc2222-...","kind":"restore","status"
 
 - [Archive or delete a document](/docs/how-to/archive-or-delete-a-document)
 - Concept: [Backup](/docs/concepts/backups)
-- Reference: [Configuration](/docs/reference/configuration), [GraphQL API](/docs/reference/api), [Operator CLI](/docs/reference/cli)
+- Reference: [Configuration](/docs/reference/config), [GraphQL API](/docs/reference/api), [Operator CLI](/docs/reference/cli)

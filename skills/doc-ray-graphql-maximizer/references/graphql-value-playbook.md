@@ -109,6 +109,75 @@ Conclusion rule: report "no documents visible to this GraphQL caller" unless an
 authenticated/admin GraphQL query or RLS-aware SQL check proves the corpus is
 actually empty.
 
+## Root Operation Inventory
+
+This is the exhaustive live root-field contract. The drift checker compares it
+to Strawberry's generated schema in both directions; add, rename, or remove an
+operation here in the same change as its resolver. Inspect the live schema for
+arguments and return fields before composing a request.
+
+### Query
+
+- Corpus and evidence: `briefingPack`, `fullTextSearch`,
+  `semanticSearchSentences`, `searchSentences`, `searchSentencePage`,
+  `documents`, `document`, `documentOutline`, `corpusStats`, `corpusManifest`,
+  `corpusShard`, `termFrequency`.
+- Visual evidence: `documentImages`, `imageClassSummary`, `visualCaptions`,
+  `visualReview`, `crossModalImageSearch`.
+- Entities and canonicalization: `entityProfiles`, `entities`,
+  `entityFrequency`, `canonical`, `canonicalSearch`, `unresolvedMentions`,
+  `resolutionReview`, `entityProjection`, `allusions`, `lensEntities`,
+  `entityRelations`, `relatedEntities`, `uncertainMentions`,
+  `entityMentionCorrections`, `entitySurfaceOccurrences`.
+- Organization and access: `collections`, `collection`, `lenses`,
+  `documentClassification`, `documentShares`.
+- Platform and operations: `version`, `backupEnabled`, `operations`,
+  `operationSchedules`, `auditEvents`, `billingStatus`, `billingEvents`,
+  `documentMetadataHistory`, `documentMetadataSuggestions`, `lexeme`,
+  `lexemes`, `job`, `jobs`, `seedSuggestions`.
+
+### Mutation
+
+- Allusion review: `proposeAllusion`, `confirmAllusion`, `rejectAllusion`.
+- Billing: `createBillingCheckoutSession`, `createBillingPortalSession`,
+  `retryBillingEvent`.
+- Classification: `classifyDocument`, `confirmDocumentClassification`.
+- Collections and lenses: `createCollection`, `addDocumentToCollection`,
+  `removeDocumentFromCollection`, `updateCollection`, `deleteCollection`,
+  `promoteCollectionToLens`, `demoteLens`, `setDocumentDefaultLens`,
+  `setLensProjects`.
+- Entity curation: `correctEntityMention`, `correctEntitySurface`,
+  `confirmProjection`, `rejectProjection`, `canonicalizeDocument`,
+  `suggestSeeds`, `decideSeeds`, `seedApproved`.
+- Operations and embeddings: `runOperation`, `createOperationSchedule`,
+  `updateOperationSchedule`, `deleteOperationSchedule`,
+  `embedDocumentSentences`, `embedCorpusSentences`.
+- Sharing: `shareDocument`, `setDocumentVisibility`, `revokeDocumentShare`.
+- Visual review: `decideVisualCaptions`.
+- Ingestion, processing, metadata, and lifecycle: `ingestDocument`,
+  `reannotate`, `reextractDocument`, `cancelJob`, `reextractDocuments`,
+  `deleteDocument`, `archiveDocument`, `restoreDocument`,
+  `bulkArchiveDocuments`, `bulkTagDocuments`, `updateDocumentMetadata`,
+  `annotateDocument`, `semanticEnrichDocument`, `suggestDocumentMetadata`,
+  `decideDocumentMetadataSuggestions`.
+- Backup and restore: `createBackup`, `restoreBackup`.
+
+## Domain Selection Caveats
+
+- Relationship reads have different meanings: `entityRelations` is direct NPMI
+  co-occurrence evidence, not a real-world relationship claim;
+  `relatedEntities` is bounded N-hop graph reachability.
+- Visual operations are deployment-dependent. In particular,
+  `crossModalImageSearch` can reject the request unless the vision stack is configured.
+- Pagination is field-specific. Inspect the live signature: `billingEvents`
+  accepts `limit` but not `after`; `documentShares` and `operationSchedules`
+  expose neither; several visual reads also omit `after`.
+- Scheduling and billing writes are tenant-admin operations. Sharing writes are
+  owner-or-tenant-admin operations and only grant `read` or `annotate`.
+- `schema_digest.py` imports `build_schema()` from the checkout. Its output is
+  checkout-generated schema, not deployed-endpoint introspection; query the
+  target endpoint when deployment parity is part of the claim.
+
 ## Document Drill-Down
 
 Use this after choosing a document ID.
@@ -232,8 +301,10 @@ description, and why it should be approved or rejected.
 
 ## Write and Job Workflows
 
-Use mutations only when requested. Every mutation either returns a job or, for
-seed decisions, a row count.
+Use mutations only when requested. Inspect each live return type: pipeline and
+reprocessing mutations commonly return jobs; seed decisions return row counts;
+billing writes return billing sessions/events; sharing writes return a share,
+visibility string, or count; and scheduling writes return schedules or a Boolean.
 
 ```graphql
 mutation Upload($file: Upload!, $title: String, $pipeline: Boolean!) {

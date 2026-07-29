@@ -1,8 +1,8 @@
 # doc-ray — Database ERD & Data Dictionary
 
-**Schema version `1.54.0`** (SemVer) · 149 migrations applied
+**Schema version `1.54.0`** (SemVer) · 149 committed migrations define the repository target schema
 
-> Generated from the live schema by `scripts/gen_data_dictionary.py`. Do not edit by hand — re-run the generator.
+> Generated from a database whose migration ledger exactly matches `db/migrations/`. This describes the schema expected after all committed migrations; it does not prove a deployment is current. Run `make prod-check` for deployed migration lockstep. Do not edit by hand.
 
 ## 1. Overview
 
@@ -356,8 +356,6 @@ format metadata) are decomposed to their own relations (4NF); blobs live in obje
 | `document_id` | uuid |  | FK→documents, UQ |  |  |
 | `ordinal` | integer |  | UQ |  |  |
 | `page_number` | integer |  |  |  |  |
-| `page_width` | double precision | yes |  |  |  |
-| `page_height` | double precision | yes |  |  |  |
 | `char_start` | integer |  |  |  |  |
 | `char_end` | integer |  |  |  |  |
 | `bbox_x0` | double precision |  |  |  |  |
@@ -365,6 +363,8 @@ format metadata) are decomposed to their own relations (4NF); blobs live in obje
 | `bbox_x1` | double precision |  |  |  |  |
 | `bbox_y1` | double precision |  |  |  |  |
 | `text` | text |  |  | `''::text` |  |
+| `page_width` | double precision | yes |  |  |  |
+| `page_height` | double precision | yes |  |  |  |
 
 - **Primary key:** (id)
 - **Unique:** UNIQUE (document_id, ordinal)

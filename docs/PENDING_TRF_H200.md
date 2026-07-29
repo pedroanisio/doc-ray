@@ -28,6 +28,10 @@ rather than chunked or downgraded. They carry the tag **`pending-trf-h200`**.
 > **Current state:** these documents are **unannotated** (their prior
 > `en_core_web_sm` runs were removed during the migration and the worker image
 > no longer ships `en_core_web_sm`). They stay unannotated until the H200 run.
+>
+> **Measured 2026-07-29:** 46 Documents still carry `pending-trf-h200`. Recheck
+> the configured database instead of copying this count:
+> `python scripts/check_gpu_exit_readiness.py --env-file .env --json`.
 
 ## Work-list
 
@@ -92,7 +96,13 @@ several workers fit.
      AND a.layer = 'spacy' AND a.tool LIKE '%trf%';
    ```
 
-5. Confirm none remain:
+5. Confirm none remain. The supported pre-retirement gate is:
+
+   ```bash
+   python scripts/check_gpu_exit_readiness.py --env-file .env --json
+   ```
+
+   It must exit 0 with `status: ready`. The equivalent SQL is:
 
    ```sql
    SELECT count(*) FROM document_tags dt JOIN tags t ON t.id = dt.tag_id

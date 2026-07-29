@@ -52,8 +52,5 @@ ENV-WORKER.md
 
 # Local lab experiments (POCs, scratch models, benchmark output) — never shipped.
 experiments/
-<<<<<<< HEAD
 docs/the-delegation-of-doubt.md
-=======
 .doc-quarantine/
->>>>>>> 212e966fb69ed5a9df0cb5d52daf2263e56349de

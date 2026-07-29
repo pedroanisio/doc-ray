@@ -10,6 +10,10 @@ disclaimer:
 
 # Diretrizes de Design 2027
 
+> Companion artifact: [print PDF](diretrizes-de-design-2027.pdf). The Markdown
+> source and released PDF are bound by the checked
+> [SHA-256 manifest](diretrizes-de-design-2027.pdf.sha256).
+
 ### Princípios, padrões e sistemas para produtos digitais
 
 **Edição em Português (Brasil)**

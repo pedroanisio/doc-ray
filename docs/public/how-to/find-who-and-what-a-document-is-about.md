@@ -11,9 +11,9 @@ doc_type: "how-to"
 audience: ["end-user", "integrator"]
 surfaces: ["mcp", "api"]
 classification: "public"
-applies_to: "1.41.0"
+applies_to: "1.54.0"
 owner: "documentation-maintainer"
-last_reviewed: "2026-07-25"
+last_reviewed: "2026-07-29"
 status: "current"
 ---
 
@@ -93,5 +93,5 @@ Result:
 
 - [Correct an entity](/docs/how-to/correct-an-entity)
 - [Seed canonical entities](/docs/how-to/seed-canonical-entities)
-- Concept: [Canonical Entity](/docs/concepts/canonical-entities), [Entity Mention](/docs/concepts/entity-mentions)
+- Concept: [Canonical Entity](/docs/concepts/entities-and-canonicalization), [Entity Mention](/docs/concepts/entity-mentions)
 - Reference: [MCP server](/docs/reference/mcp), [GraphQL API](/docs/reference/api)

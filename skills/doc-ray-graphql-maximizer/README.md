@@ -7,7 +7,7 @@ This work is subject to the methodological caveats and commitments described in 
 
 ↑ Back to the [root README](../../README.md).
 
-Version: `0.2.1`
+Version: `0.3.0`
 
 Repo-local skill for helping AI agents extract maximum value from Doc-Ray's
 GraphQL API. It teaches agents to inspect the live schema, query the corpus with
@@ -47,5 +47,5 @@ python3 skills/doc-ray-graphql-maximizer/scripts/check_doc_ray_drift.py
 
 The checker verifies the skill package metadata and its assumptions against
 Doc-Ray's core GraphQL structure: `schema.py`, `query.py`, `mutation.py`, type
-modules, FastAPI mount code, auth/RLS boundary files, README, CHANGELOG, and the
-live Strawberry schema.
+modules, FastAPI mount code, auth/RLS boundary files, README, CHANGELOG, and
+exhaustive root-operation coverage against the live Strawberry schema.

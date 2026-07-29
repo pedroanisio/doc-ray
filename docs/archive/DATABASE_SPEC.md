@@ -12,14 +12,14 @@ disclaimer:
 
 > **Historical** — this specification describes the v0 schema (migrations
 > 001–012). The current, generated and test-gated truth is
-> [docs/DATABASE.md](DATABASE.md).
+> [docs/DATABASE.md](../DATABASE.md).
 
 **Status:** documents the foundational migrations 001–012 (§7) — the core
 document/NLP-annotation model this spec's invariants and design principles
 were derived from. The schema has since grown well past 012 (canonical-entity
 registry, job queue, RBAC, backups, and more); **the complete, current
 migration set and generated ERD/data dictionary live in
-[`DATABASE.md`](DATABASE.md)**, re-derived from the live schema on every run
+[`DATABASE.md`](../DATABASE.md)**, re-derived from the live schema on every run
 — treat that document as the source of truth for "what migrations exist
 today." Engine: PostgreSQL 16 + pgvector (`pgvector/pgvector:pg16`). Every
 layer is covered by TDD integration tests.
@@ -32,7 +32,7 @@ additive migration under these same principles, not a revision of them).
 
 ## 1. Purpose
 
-doc-ray is a **living library and knowledge base** (see [PURPOSE.md](../PURPOSE.md)).
+doc-ray is a **living library and knowledge base** (see [PURPOSE.md](../../PURPOSE.md)).
 At the data layer — the scope of this spec — it is a **document store and NLP
 annotation corpus**: it ingests source documents (today: PDFs), extracts their
 text, and decomposes them into a
@@ -168,7 +168,7 @@ relations (this is the 4NF core).
 
 ### 3.8 Entity canonicalization (post-foundational addition; migrations 021–023, 025)
 
-A shared registry (design: [`canonicalization_pipeline.md`](canonicalization_pipeline.md))
+A shared registry (design: [`canonicalization_pipeline.md`](../canonicalization_pipeline.md))
 turning divergent mention surfaces into one canonical spine, layered on top of
 the `entity_mention`/`entity_link` stand-off model from §3 without changing it.
 

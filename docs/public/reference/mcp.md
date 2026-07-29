@@ -11,9 +11,9 @@ doc_type: "reference"
 audience: ["integrator", "developer"]
 surfaces: ["mcp"]
 classification: "public"
-applies_to: "1.53.1"
+applies_to: "1.54.0"
 owner: "documentation-maintainer"
-last_reviewed: "2026-07-27"
+last_reviewed: "2026-07-29"
 status: "current"
 ---
 
@@ -60,6 +60,7 @@ The default MCP surface is **read-only**. Write tools are registered only when `
 | `list_lenses` | List Collections marked as entity-resolution scopes. | `limit`, `after` |
 | `corpus_manifest` | Return the shard map for splitting the Corpus into N parts. | `shard_count` |
 | `corpus_shard` | Read one disjoint slice of the Corpus for map-reduce. | `shard_index`, `shard_count`, `limit`, `after` |
+| `corpus_stats` | Return maintained Corpus totals and their refresh time. | none |
 | `entity_frequency` | Return raw named-entity frequencies. | `document_id`, `entity_type`, `limit` |
 | `entity_profiles` | Return frequencies reconciled to one row per entity, with `typeConsistency`. | `document_id`, `entity_type`, `limit` |
 | `lexeme_kwic` | Keyword-in-context concordance for a Lexeme. | `uid`, `document_id`, `limit` |

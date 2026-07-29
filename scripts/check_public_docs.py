@@ -1,27 +1,14 @@
 #!/usr/bin/env python3
-"""Gate the public reference docs against their live sources (D-034 spirit).
+"""Gate public documentation against live code, version, and link contracts.
 
-docs/documentation-governance.md requires published reference to "match its
-generated source"; docs/public/reference/ drifted five releases behind within
-a day of landing because nothing checked it. This gate makes the highest-value
-subset of that promise mechanical:
+Checks:
 
-  * ``api.md``      — completeness: every Query/Mutation field in the live
-                      Strawberry schema must be named (backticked) in the doc.
-  * ``mcp.md``      — completeness: every MCP tool registered in a ``TOOLS``
-                      tuple under ``src/doc_ray/entrypoints/mcp/`` must be
-                      named (backticked) in the doc.
-  * ``config.md``   — no phantoms: every ``### `KEY``` heading must exist in
-                      ``config/env.registry.yaml``. Completeness is *not*
-                      checked: the doc is a curated public subset by contract.
-  * ``cli.md``      — no phantoms: every ``## `name``` heading must exist as
-                      ``src/doc_ray/entrypoints/<name>.py``.
-
-Phantom detection for api.md/mcp.md prose is deliberately out of scope (a
-backticked word in prose is not reliably an operation name); completeness is
-the direction that lies to users by omission.
-
-Exit code 0 when every check passes, 1 otherwise.
+* every GraphQL Query/Mutation root field is named in ``reference/api.md``;
+* every registered MCP tool is named in ``reference/mcp.md``;
+* documented config keys and CLI commands have live implementations;
+* every non-release page marked current targets the canonical app version;
+* every versioned release note agrees with its filename; and
+* every relative link and published ``/docs/`` route resolves offline.
 """
 
 from __future__ import annotations
@@ -31,10 +18,38 @@ import re
 import sys
 from pathlib import Path
 
+import check_doc_links
+
 _ROOT = Path(__file__).resolve().parent.parent
-_REF = _ROOT / "docs" / "public" / "reference"
+_PUBLIC = _ROOT / "docs" / "public"
+_REF = _PUBLIC / "reference"
+_VERSION_FILE_RE = re.compile(r"^(\d+\.\d+\.\d+)\.md$")
 
 sys.path.insert(0, str(_ROOT / "src"))
+
+
+def frontmatter(text: str) -> dict[str, str]:
+    """Parse the scalar fields this gate needs from YAML frontmatter."""
+    if not text.startswith("---\n"):
+        return {}
+    closing = text.find("\n---\n", 4)
+    if closing < 0:
+        return {}
+    block = text[4:closing]
+    values: dict[str, str] = {}
+    for line in block.splitlines():
+        match = re.match(r"^([a-zA-Z_][a-zA-Z0-9_-]*):\s*(.*?)\s*$", line)
+        if match:
+            values[match.group(1)] = match.group(2).strip("\"'")
+    return values
+
+
+def _canonical_version(root: Path = _ROOT) -> str:
+    text = (root / "src" / "doc_ray" / "__init__.py").read_text(encoding="utf-8")
+    match = re.search(r'^__version__\s*=\s*["\']([^"\']+)["\']', text, re.MULTILINE)
+    if match is None:
+        raise RuntimeError("cannot read doc_ray.__version__")
+    return match.group(1)
 
 
 def _schema_operations() -> set[str]:
@@ -45,31 +60,30 @@ def _schema_operations() -> set[str]:
     for type_name in ("Query", "Mutation"):
         match = re.search(rf"^type {type_name}[^{{]*\{{(.*?)^\}}", sdl, re.MULTILINE | re.DOTALL)
         if match is None:
-            raise SystemExit(f"fatal: no `type {type_name}` block in the schema SDL")
+            raise RuntimeError(f"no `type {type_name}` block in the schema SDL")
         ops.update(
             re.findall(r"^\s{2}([a-zA-Z_][a-zA-Z0-9_]*)\s*[(:]", match.group(1), re.MULTILINE)
         )
     return ops
 
 
-def _mcp_tools() -> set[str]:
+def _mcp_tools(root: Path = _ROOT) -> set[str]:
     tools: set[str] = set()
-    for path in sorted((_ROOT / "src" / "doc_ray" / "entrypoints" / "mcp").glob("*.py")):
+    for path in sorted((root / "src" / "doc_ray" / "entrypoints" / "mcp").glob("*.py")):
         tree = ast.parse(path.read_text(encoding="utf-8"))
         for node in ast.walk(tree):
-            targets = []
+            targets: list[str] = []
+            value: ast.expr | None = None
             if isinstance(node, ast.Assign):
-                targets = [t.id for t in node.targets if isinstance(t, ast.Name)]
+                targets = [target.id for target in node.targets if isinstance(target, ast.Name)]
                 value = node.value
             elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
                 targets = [node.target.id]
                 value = node.value
-            else:
-                continue
             if "TOOLS" in targets and isinstance(value, (ast.Tuple, ast.List)):
-                tools.update(el.id for el in value.elts if isinstance(el, ast.Name))
+                tools.update(element.id for element in value.elts if isinstance(element, ast.Name))
     if not tools:
-        raise SystemExit("fatal: no TOOLS tuples found under entrypoints/mcp/")
+        raise RuntimeError("no TOOLS tuples found under entrypoints/mcp/")
     return tools
 
 
@@ -77,59 +91,108 @@ def _backticked(text: str) -> set[str]:
     return set(re.findall(r"`([A-Za-z_][A-Za-z0-9_]*)`", text))
 
 
-def main() -> int:
+def reference_surface_problems(root: Path = _ROOT) -> list[str]:
+    """Return API/MCP completeness and config/CLI phantom diagnostics."""
+    reference = root / "docs" / "public" / "reference"
     problems: list[str] = []
-
-    api_text = (_REF / "api.md").read_text(encoding="utf-8")
+    api_text = (reference / "api.md").read_text(encoding="utf-8")
     missing_ops = sorted(_schema_operations() - _backticked(api_text))
     if missing_ops:
         problems.append(
-            "  - docs/public/reference/api.md: schema operations undocumented: "
-            + ", ".join(missing_ops)
+            f"reference/api.md: undocumented schema operations: {', '.join(missing_ops)}"
         )
 
-    mcp_text = (_REF / "mcp.md").read_text(encoding="utf-8")
-    missing_tools = sorted(_mcp_tools() - _backticked(mcp_text))
+    mcp_text = (reference / "mcp.md").read_text(encoding="utf-8")
+    missing_tools = sorted(_mcp_tools(root) - _backticked(mcp_text))
     if missing_tools:
-        problems.append(
-            "  - docs/public/reference/mcp.md: registered MCP tools undocumented: "
-            + ", ".join(missing_tools)
-        )
+        problems.append(f"reference/mcp.md: undocumented MCP tools: {', '.join(missing_tools)}")
 
     registry_keys = set(
         re.findall(
             r"^- key: ([A-Z0-9_]+)",
-            (_ROOT / "config" / "env.registry.yaml").read_text(encoding="utf-8"),
+            (root / "config" / "env.registry.yaml").read_text(encoding="utf-8"),
             re.MULTILINE,
         )
     )
-    config_text = (_REF / "config.md").read_text(encoding="utf-8")
+    config_text = (reference / "config.md").read_text(encoding="utf-8")
     documented_keys = set(re.findall(r"^### `([A-Z0-9_]+)`", config_text, re.MULTILINE))
     phantom_keys = sorted(documented_keys - registry_keys)
     if phantom_keys:
-        problems.append(
-            "  - docs/public/reference/config.md: keys not in config/env.registry.yaml: "
-            + ", ".join(phantom_keys)
-        )
+        problems.append(f"reference/config.md: unknown config keys: {', '.join(phantom_keys)}")
 
-    cli_text = (_REF / "cli.md").read_text(encoding="utf-8")
+    cli_text = (reference / "cli.md").read_text(encoding="utf-8")
     documented_cmds = set(re.findall(r"^## `([a-z0-9_]+)`", cli_text, re.MULTILINE))
-    entrypoints = {p.stem for p in (_ROOT / "src" / "doc_ray" / "entrypoints").glob("*.py")}
+    entrypoints = {path.stem for path in (root / "src" / "doc_ray" / "entrypoints").glob("*.py")}
     phantom_cmds = sorted(documented_cmds - entrypoints)
     if phantom_cmds:
         problems.append(
-            "  - docs/public/reference/cli.md: commands with no entrypoint module: "
-            + ", ".join(phantom_cmds)
+            f"reference/cli.md: commands without entrypoints: {', '.join(phantom_cmds)}"
         )
+    return problems
 
+
+def public_metadata_problems(root: Path = _ROOT) -> list[str]:
+    """Return current non-release pages whose version metadata is stale."""
+    canonical = _canonical_version(root)
+    public = root / "docs" / "public"
+    problems: list[str] = []
+    for path in sorted(public.rglob("*.md")):
+        if "release-notes" in path.relative_to(public).parts:
+            continue
+        metadata = frontmatter(path.read_text(encoding="utf-8"))
+        if metadata.get("status") == "current" and metadata.get("applies_to") != canonical:
+            problems.append(
+                f"{path.relative_to(root)}: current page applies_to "
+                f"{metadata.get('applies_to') or 'missing'}, expected {canonical}"
+            )
+    return problems
+
+
+def release_note_identity_problems(root: Path = _ROOT) -> list[str]:
+    """Return versioned release notes whose metadata/title identity is inconsistent."""
+    notes = root / "docs" / "public" / "release-notes"
+    problems: list[str] = []
+    for path in sorted(notes.glob("*.md")):
+        match = _VERSION_FILE_RE.fullmatch(path.name)
+        if match is None:
+            continue
+        version = match.group(1)
+        text = path.read_text(encoding="utf-8")
+        metadata = frontmatter(text)
+        heading = re.search(r"^#\s+(.+)$", text, re.MULTILINE)
+        if metadata.get("applies_to") != version:
+            problems.append(
+                f"{path.relative_to(root)}: applies_to "
+                f"{metadata.get('applies_to') or 'missing'}, expected {version}"
+            )
+        if version not in metadata.get("title", ""):
+            problems.append(f"{path.relative_to(root)}: frontmatter title omits {version}")
+        if heading is None or version not in heading.group(1):
+            problems.append(f"{path.relative_to(root)}: H1 omits {version}")
+    return problems
+
+
+def public_link_problems(root: Path = _ROOT) -> list[str]:
+    """Return unresolved relative links and ``/docs/`` routes in public pages."""
+    paths = sorted((root / "docs" / "public").rglob("*.md"))
+    return check_doc_links.find_link_problems(root, paths)
+
+
+def main() -> int:
+    """Run the complete public documentation gate."""
+    problems = [
+        *reference_surface_problems(),
+        *public_metadata_problems(),
+        *release_note_identity_problems(),
+        *public_link_problems(),
+    ]
     if problems:
-        print("public reference docs drift from live sources:", file=sys.stderr)
-        print("\n".join(problems), file=sys.stderr)
+        print("public documentation drift:", file=sys.stderr)
+        print("\n".join(f"  - {problem}" for problem in problems), file=sys.stderr)
         return 1
-
     print(
-        "public docs OK: api.md covers the GraphQL surface, mcp.md covers all "
-        "registered tools, config.md/cli.md have no phantoms"
+        "public docs OK: live API/MCP surfaces, version metadata, release identities, "
+        "and links are in sync"
     )
     return 0
 
