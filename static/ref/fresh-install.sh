@@ -1,12 +1,25 @@
 #!/usr/bin/env bash
 #
-# Bootstrap a fresh DigitalOcean H200 GPU Droplet into a doc-ray GPU worker host.
+# Bootstrap any fresh DigitalOcean droplet into a doc-ray host.
 #
-# This host runs WORKERS ONLY. The corpus (managed PostgreSQL), the blobs
-# (Spaces) and the serving tier (api/webapp/mcp) live elsewhere; nothing durable
-# is kept here, because the box exists to be destroyed when the queue drains.
-# It therefore never runs migrations — the always-on tier owns the schema, and a
-# machine you intend to delete must not be the one that changes it.
+# One script, two shapes, decided by what the hardware actually is:
+#
+#   * GPU droplet  — an NVIDIA card is visible. Provisions the GPU lane
+#     (container toolkit, CDI spec) and proves a container can reserve the card.
+#     This host runs WORKERS ONLY and exists to be destroyed when the queue
+#     drains.
+#   * Plain droplet — no card. Provisions everything else and stops before the
+#     GPU lane rather than failing. Useful for a serving tier, an admin box, or
+#     anything else that needs the same base.
+#
+# Detection is automatic; override with REQUIRE_GPU=1 (fail if no card, for when
+# you are certain you paid for one) or REQUIRE_GPU=0 (never provision the GPU
+# lane even if a card is present).
+#
+# Nothing durable is kept on either shape: the corpus (managed PostgreSQL) and
+# the blobs (Spaces) live elsewhere. Neither shape runs migrations — the
+# always-on tier owns the schema, and a machine you intend to delete must not be
+# the one that changes it.
 #
 # Run as root on a first boot:
 #
@@ -41,31 +54,82 @@ DOCRAY_REPO="${DOCRAY_REPO:-https://github.com/pedroanisio/doc-ray.git}"
 # nothing. Defaults to the droplet hostname.
 DOCRAY_WORKER_HOST="${DOCRAY_WORKER_HOST:-$(hostname)}"
 INSTALL_GH="${INSTALL_GH:-1}"
+# auto = provision the GPU lane iff a card is visible; 1 = require one; 0 = never.
+REQUIRE_GPU="${REQUIRE_GPU:-auto}"
 # Image used only to prove the CDI GPU reservation resolves. Must be a full
-# patch version — see the verification step below.
+# patch version — see the verification step below. The container's userspace is
+# independent of the host release, so a 24.04-based probe is correct on 22.04.
 CUDA_PROBE_IMAGE="${CUDA_PROBE_IMAGE:-nvidia/cuda:13.0.1-base-ubuntu24.04}"
 
 export DEBIAN_FRONTEND=noninteractive
 
 log()  { printf '\n=== %s\n' "$*"; }
+warn() { printf '\nWARN: %s\n' "$*" >&2; }
 die()  { printf '\nFATAL: %s\n' "$*" >&2; exit "${2:-2}"; }
 
-as_operator() { runuser -u "$OPERATOR_USER" -- "$@"; }
+# Run as the operator with a REAL home directory.
+#
+# `runuser -u USER --` drops privileges but does NOT reset the environment (only
+# `-l` does that, and `-l` picks the user's login shell rather than bash). HOME
+# therefore stays /root, and `bash -lc` does not fix it — a login shell sources
+# profile files but never sets HOME itself. Every installer that writes to ~ then
+# aims at root's home: oh-my-zsh dies outright with "cd: can't cd to /root", and
+# `git config --global` would quietly try to write /root/.gitconfig.
+#
+# Setting the three login variables explicitly keeps bash semantics AND the
+# non-interactive guarantee — unlike `su -l`, which opens an interactive shell
+# and silently drops everything after it back to root.
+#
+# $operator_home is resolved from passwd before the first call below.
+as_operator() {
+  [[ -n "${operator_home:-}" ]] || die "internal: as_operator called before operator_home"
+  runuser -u "$OPERATOR_USER" -- \
+    env HOME="$operator_home" USER="$OPERATOR_USER" LOGNAME="$OPERATOR_USER" "$@"
+}
 
-# Runs a command in the operator's login shell so installers see a real HOME.
-# runuser keeps this a non-interactive child of THIS script — unlike `su -l`,
-# which opens an interactive shell and silently drops everything after it back
-# to root, which is how the previous version installed the operator's toolchain
-# into /root.
-as_operator_sh() { runuser -u "$OPERATOR_USER" -- bash -lc "$1"; }
+as_operator_sh() { as_operator bash -lc "$1"; }
 
 [[ $EUID -eq 0 ]] || die "run as root" 1
 [[ -n "$SSH_PUBKEY" ]] || die "set SSH_PUBKEY='ssh-ed25519 AAAA... you@host' before running" 1
+[[ "$REQUIRE_GPU" =~ ^(auto|0|1)$ ]] || die "REQUIRE_GPU must be auto, 0, or 1" 1
+
+# ------------------------------------------------------- what is this host? ---
+# Decided BEFORE anything is installed, so every later step can branch on it and
+# the handoff text describes the machine you actually have.
+log "Host shape"
+if [[ "$REQUIRE_GPU" == "0" ]]; then
+  HAS_GPU=0
+  echo "GPU lane disabled by REQUIRE_GPU=0"
+elif nvidia-smi -L >/dev/null 2>&1; then
+  HAS_GPU=1
+  nvidia-smi -L
+else
+  HAS_GPU=0
+  # A driver that is present but broken looks identical to no card at all, and
+  # only one of those is worth stopping for — so say which we found.
+  if command -v nvidia-smi >/dev/null 2>&1; then
+    detail="nvidia-smi is installed but lists no GPU (driver/library mismatch?)"
+  else
+    detail="no nvidia-smi on this host"
+  fi
+  if [[ "$REQUIRE_GPU" == "1" ]]; then
+    die "REQUIRE_GPU=1 but no NVIDIA GPU is visible — $detail.
+     The driver ships with DigitalOcean's AI/ML-ready image; this script does not
+     install one, because a driver/CUDA mismatch is worse than a clear stop.
+     Rebuild the droplet from a GPU image, then re-run." 1
+  fi
+  echo "CPU-only host — $detail; the GPU lane will be skipped"
+fi
 
 # ------------------------------------------------------------- base packages --
 log "Base packages"
 apt-get update -y
-apt-get upgrade -y
+# Deliberately NOT `apt-get upgrade`. On a GPU image the NVIDIA driver ships as
+# apt packages: an unattended upgrade can install newer driver userspace against
+# the running kernel module and turn a working card into
+# "Failed to initialize NVML: Driver/library version mismatch" — a host this
+# script would then refuse, for a fault it introduced. A box you intend to
+# destroy does not need a distro upgrade. Patch deliberately if you must.
 apt-get install -y \
   acl apt-transport-https autoconf autopoint automake btop ca-certificates \
   chrony curl direnv dnsutils dstat ffmpeg fio git gnupg gnupg-agent htop jq \
@@ -77,6 +141,12 @@ apt-get install -y \
 # -------------------------------------------------------------------- ufw ----
 # Outbound stays open: the worker reaches managed Postgres and Spaces from here.
 # Inbound is SSH only — this host serves no traffic.
+#
+# Caveat worth knowing: Docker programs its own iptables rules and BYPASSES ufw,
+# so any container that publishes a port is reachable from the internet even
+# while `ufw status` reads "deny incoming". That is safe here only because the
+# worker overlay publishes nothing. Do not treat this rule set as protection for
+# a host that runs the serving tier.
 log "Firewall (inbound: SSH only)"
 ufw default deny incoming
 ufw default allow outgoing
@@ -123,13 +193,27 @@ if [[ ! -f "$operator_home/.ssh/id_ed25519" ]]; then
 fi
 
 # ----------------------------------------------------------------- docker ----
-log "Docker engine"
-install -m 0755 -d /etc/apt/keyrings
-if [[ ! -f /etc/apt/keyrings/docker.asc ]]; then
-  curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
-  chmod a+r /etc/apt/keyrings/docker.asc
-fi
-tee /etc/apt/sources.list.d/docker.sources >/dev/null <<EOF
+# ADOPT a working Docker; only install one when there isn't one.
+#
+# DigitalOcean's AI/ML-ready images ship Docker ALREADY WIRED TO THE GPU. The
+# previous version of this script installed docker-ce unconditionally, which
+# apt resolves by REMOVING docker.io/containerd/runc — and the replacement then
+# inherits the image's /etc/docker/daemon.json, which names an nvidia runtime the
+# new engine cannot resolve, so dockerd refuses to start. That turns a working
+# host into a broken one, in the name of an upgrade nobody asked for.
+#
+# The only thing docker-ce buys us over the distro package is Compose v2, and
+# that is a standalone CLI plugin we can add on its own.
+docker_works() { docker info >/dev/null 2>&1; }
+compose_works() { docker compose version >/dev/null 2>&1; }
+
+add_docker_apt_repo() {
+  install -m 0755 -d /etc/apt/keyrings
+  if [[ ! -f /etc/apt/keyrings/docker.asc ]]; then
+    curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+    chmod a+r /etc/apt/keyrings/docker.asc
+  fi
+  tee /etc/apt/sources.list.d/docker.sources >/dev/null <<EOF
 Types: deb
 URIs: https://download.docker.com/linux/ubuntu
 Suites: $(. /etc/os-release && echo "${UBUNTU_CODENAME:-$VERSION_CODENAME}")
@@ -137,12 +221,62 @@ Components: stable
 Architectures: $(dpkg --print-architecture)
 Signed-By: /etc/apt/keyrings/docker.asc
 EOF
-apt-get update -y
-apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+  apt-get update -y
+}
+
+# Recover a dockerd that installed but will not start. Both causes are config
+# the engine INHERITED from a predecessor, not the engine itself, so both fixes
+# are "move the stale file aside and let the package default apply".
+recover_docker() {
+  warn "docker failed to start — trying the two known causes"
+  if [[ -f /etc/docker/daemon.json ]]; then
+    local backup="/etc/docker/daemon.json.pre-docker-ce.$$"
+    warn "moving /etc/docker/daemon.json aside to $backup (it may name a runtime this engine lacks)"
+    mv /etc/docker/daemon.json "$backup"
+    systemctl restart docker && return 0
+  fi
+  if [[ -f /etc/containerd/config.toml ]]; then
+    local backup="/etc/containerd/config.toml.pre-containerd-io.$$"
+    warn "regenerating /etc/containerd/config.toml (old copy at $backup)"
+    mv /etc/containerd/config.toml "$backup"
+    containerd config default > /etc/containerd/config.toml
+    systemctl restart containerd
+    systemctl restart docker && return 0
+  fi
+  return 1
+}
+
+log "Docker engine"
+if docker_works; then
+  echo "docker already working (image-provided) — keeping it, not replacing it"
+  if ! compose_works; then
+    echo "adding Compose v2 only"
+    add_docker_apt_repo
+    apt-get install -y docker-compose-plugin
+    compose_works || die "docker-compose-plugin installed but 'docker compose' does not resolve.
+     This CLI does not scan /usr/libexec/docker/cli-plugins. Re-run with
+     FORCE_DOCKER_CE=1 to swap in docker-ce instead."
+  fi
+elif [[ "${FORCE_DOCKER_CE:-0}" == "1" ]] || ! command -v docker >/dev/null 2>&1; then
+  add_docker_apt_repo
+  apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+  systemctl enable --now docker || recover_docker || die "docker will not start. Diagnose with:
+       systemctl status docker.service --no-pager -l
+       journalctl -xeu docker.service --no-pager -n 60
+       systemctl status containerd.service --no-pager -l"
+else
+  die "docker is installed but 'docker info' fails, and this script will not
+     replace a broken engine blind — that is how a working GPU host gets wrecked.
+     Diagnose first:
+       systemctl status docker.service --no-pager -l
+       journalctl -xeu docker.service --no-pager -n 60
+     Then re-run, or force the swap with FORCE_DOCKER_CE=1."
+fi
 usermod -aG docker "$OPERATOR_USER"
 # The group only takes effect on a NEW login, so every docker call below runs as
 # root (this script) or through a fresh runuser login shell.
 systemctl enable --now docker
+docker_works || die "docker is enabled but 'docker info' still fails"
 
 # -------------------------------------------------------- operator toolchain --
 log "Operator shell + toolchain"
@@ -190,34 +324,50 @@ else
   as_operator git clone "$DOCRAY_REPO" "$APPS_DIR/doc-ray"
 fi
 
-# ------------------------------------------------------------ GPU readiness --
-# THE step the previous version omitted. Without the NVIDIA driver, the container
-# toolkit and a CDI spec, `--device nvidia.com/gpu=all` does not resolve and the
-# worker runs CPU-only WITHOUT ERROR — spacy.prefer_gpu() is a no-op when it sees
-# no card. You would pay GPU rates for CPU throughput and only notice it in the
-# job durations.
-log "GPU readiness (driver, container toolkit, CDI)"
-if ! nvidia-smi -L >/dev/null 2>&1; then
-  die "no NVIDIA GPU visible (nvidia-smi -L failed).
-     The driver ships with DigitalOcean's AI/ML-ready image; this script does not
-     install one, because a driver/CUDA mismatch is worse than a clear stop.
-     Rebuild the droplet from a GPU image, then re-run."
-fi
-# provision_host.py owns the rest and is idempotent: nvidia-container-toolkit,
-# /etc/cdi/nvidia.yaml, docker's CDI feature, the scratch volume, rpcbind
-# lockdown. Stdlib-only, so it runs before any virtualenv exists.
-python3 "$APPS_DIR/doc-ray/scripts/provision_host.py" --no-sudo
+# Persist the worker identity for every future login shell. Without this, an
+# operator who later runs `make gpu-worker-up` from a fresh session gets the
+# compose default (empty) and GPU hours stop being attributable to a machine —
+# a silent loss, since nothing fails when the field is blank.
+printf 'export DOCRAY_WORKER_HOST=%q\n' "$DOCRAY_WORKER_HOST" \
+  > /etc/profile.d/docray-worker-host.sh
+chmod 0644 /etc/profile.d/docray-worker-host.sh
 
-log "Verifying the container runtime can actually see the GPU"
-# Pin a FULL patch version: nvidia/cuda publishes no `13.0` rolling tag, so a
-# major.minor reference fails to resolve and this check dies on a host whose GPU
-# is in fact fine — a false negative that stops a good provision.
-docker run --rm --device nvidia.com/gpu=all "$CUDA_PROBE_IMAGE" nvidia-smi -L \
-  || die "CDI GPU reservation failed — the worker would silently run on CPU"
+# ---------------------------------------------------------- host convergence --
+# provision_host.py is idempotent and stdlib-only, so it runs before any
+# virtualenv exists. On a CPU-only box the GPU lane and the DOSCRATCH volume are
+# skipped rather than failing; on a GPU box both are required, because a GPU
+# host without its model cache thrashes the root disk.
+log "Host convergence (docker, volumes, rpcbind lockdown)"
+provision_args=(--no-sudo)
+if [[ "$HAS_GPU" -eq 0 ]]; then
+  provision_args+=(--no-gpu --no-scratch)
+fi
+python3 "$APPS_DIR/doc-ray/scripts/provision_host.py" "${provision_args[@]}"
+
+# ------------------------------------------------------------ GPU readiness --
+# Without the container toolkit and a CDI spec, `--device nvidia.com/gpu=all`
+# does not resolve and the worker runs CPU-only WITHOUT ERROR —
+# spacy.prefer_gpu() is a no-op when it sees no card. You would pay GPU rates for
+# CPU throughput and only notice it in the job durations. provision_host.py has
+# installed the toolkit and generated the spec by now; this proves it works.
+if [[ "$HAS_GPU" -eq 1 ]]; then
+  log "Verifying the container runtime can actually see the GPU"
+  # Pin a FULL patch version: nvidia/cuda publishes no `13.0` rolling tag, so a
+  # major.minor reference fails to resolve and this check dies on a host whose
+  # GPU is in fact fine — a false negative that stops a good provision.
+  docker run --rm --device nvidia.com/gpu=all "$CUDA_PROBE_IMAGE" nvidia-smi -L \
+    || die "CDI GPU reservation failed — the worker would silently run on CPU"
+fi
 
 # ------------------------------------------------------------------ handoff --
 log "Host ready"
-host_ip="$(hostname -I | awk '{print $1}')"
+# Prefer the address DO says is public: on a droplet inside a VPC the first
+# entry from `hostname -I` is the PRIVATE interface, and an scp line pointing at
+# it fails from anywhere outside the VPC.
+host_ip="$(curl -fsS --max-time 2 \
+  http://169.254.169.254/metadata/v1/interfaces/public/0/ipv4/address 2>/dev/null \
+  || hostname -I | awk '{print $1}')"
+
 cat <<EOF
 
 This host is provisioned. It is NOT yet processing, because it still needs the
@@ -229,18 +379,25 @@ credentials that must never live in a repo:
   2. Confirm the database trusts this host (VPC membership, or its IP in the
      managed cluster's Trusted Sources) — otherwise the worker starts and then
      fails to connect.
+EOF
+
+if [[ "$HAS_GPU" -eq 1 ]]; then
+cat <<EOF
 
   3. Start the GPU worker pool (workers only; migrations belong to the always-on
      tier, never to a droplet you plan to destroy):
 
          cd $APPS_DIR/doc-ray
-         DOCRAY_WORKERS=6 DOCRAY_WORKER_HOST=$DOCRAY_WORKER_HOST make gpu-worker-up
+         DOCRAY_WORKERS=6 make gpu-worker-up
+
+     DOCRAY_WORKER_HOST=$DOCRAY_WORKER_HOST is exported for you from
+     /etc/profile.d/docray-worker-host.sh, so GPU hours stay attributable.
 
      Use gpu-worker-up, NOT gpu-up: only the former layers
      docker-compose.gpuworker.yml, which pins WORKER_ONLY_KINDS to the GPU lane
      and scales the data + serving tiers to zero. Without it this host claims
      user-facing fast-lane jobs — work that would then run on a machine you
-     intend to destroy.
+     intend to destroy, and it would publish ports that ufw does not filter.
 
      Size DOCRAY_WORKERS by the SMALLEST of: VRAM / ~6 GB per trf worker, the
      host's vCPU count, and the managed cluster's spare backends (2 connections
@@ -253,3 +410,18 @@ credentials that must never live in a repo:
          doctl compute droplet delete <name>
 
 EOF
+else
+cat <<EOF
+
+  3. This is a CPU-only host: the GPU lane was skipped, so do NOT run
+     gpu-worker-up here. Bring up whichever tier this box is for, e.g.
+
+         cd $APPS_DIR/doc-ray
+         make prod-up
+
+     GPU-bound job kinds (annotate, reannotate, visual_extract, semantic_embed,
+     visual_embed) will run on CPU here if a worker claims them — correct, but
+     slow enough to matter. Pin the lane deliberately rather than by accident.
+
+EOF
+fi

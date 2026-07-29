@@ -23,6 +23,14 @@ class FakeSystem:
     def __init__(self, *, gpu=True, toolkit=True):
         self.gpu = gpu
         self.toolkit = toolkit
+        #: Models a dockerd that installs but refuses to start — the real
+        #: failure seen when a leftover daemon.json names a runtime the new
+        #: engine cannot resolve.
+        self.docker_start_fails = False
+        self.journal = (
+            "dockerd[900]: failed to start daemon: error initializing graphdriver: "
+            "exec: nvidia-container-runtime: no such file or directory\n"
+        )
         self.active = {"docker": "inactive", "rpcbind.socket": "active", "rpcbind": "active"}
         self.enabled = {"docker": "disabled"}
         self.groups = {"pals": {"pals"}}
@@ -76,9 +84,18 @@ class FakeSystem:
         if c[:2] == ["systemctl", "is-enabled"]:
             return ph.RunResult(0, self.enabled.get(c[2], "disabled") + "\n")
         if c[:2] == ["systemctl", "enable"]:
-            for unit in [u for u in c[2:] if u != "--now"]:
+            units = [u for u in c[2:] if u != "--now"]
+            if self.docker_start_fails and "docker" in units:
+                return ph.RunResult(
+                    1,
+                    err="Job for docker.service failed because the control "
+                    "process exited with error code.\n",
+                )
+            for unit in units:
                 self.active[unit], self.enabled[unit] = "active", "enabled"
             return ok
+        if c[:2] == ["journalctl", "-u"]:
+            return ph.RunResult(0, self.journal)
         if c[:2] == ["systemctl", "disable"]:
             for unit in [u for u in c[2:] if u != "--now"]:
                 self.active[unit], self.enabled[unit] = "inactive", "disabled"
@@ -219,6 +236,77 @@ def test_apply_then_check_is_clean_and_idempotent():
 def test_missing_gpu_makes_whole_run_fail():
     results = ph.converge(FakeSystem(gpu=False), cfg())
     assert ph.exit_code(results) == 2
+
+
+# -- CPU-only hosts ------------------------------------------------------
+# The same script provisions every droplet, not only the ephemeral GPU box, so
+# the GPU lane and the scratch volume must be opt-out rather than preconditions.
+
+
+def test_gpu_steps_are_skipped_on_a_cpu_only_host():
+    sys_ = FakeSystem(gpu=False, toolkit=False)
+    c = cfg(gpu=False)
+    for step in (ph.GpuPresent(), ph.NvidiaCdi()):
+        res = ph.run_step(step, sys_, c)
+        assert res.outcome is ph.Outcome.OK, step.name
+        assert "no-gpu" in res.detail
+    # Skipping must not silently write a CDI spec or touch daemon.json.
+    assert "/etc/cdi/nvidia.yaml" not in sys_.files
+    assert "/etc/docker/daemon.json" not in sys_.files
+
+
+def test_scratch_volume_is_skipped_when_no_volume_is_expected():
+    sys_ = FakeSystem()
+    sys_.labels.clear()  # nothing attached
+    res = ph.run_step(ph.ScratchVolume(), sys_, cfg(scratch=False))
+    assert res.outcome is ph.Outcome.OK
+    assert "no-scratch" in res.detail
+    assert "LABEL=DOSCRATCH" not in sys_.files["/etc/fstab"]
+
+
+def test_cpu_only_host_converges_cleanly_without_gpu_or_volume():
+    """A plain droplet: no card, no DOSCRATCH — still a ready doc-ray host."""
+    sys_ = FakeSystem(gpu=False, toolkit=False)
+    sys_.labels.clear()
+    c = cfg(gpu=False, scratch=False)
+
+    assert ph.exit_code(ph.converge(sys_, c)) == 0
+    assert sys_.active["docker"] == "active"
+    assert "docker" in sys_.groups["pals"]
+    # Idempotent on the second pass, exactly like the GPU path.
+    assert all(r.outcome is ph.Outcome.OK for r in ph.converge(sys_, c))
+
+
+def test_gpu_host_still_fails_closed_when_the_card_is_missing():
+    """--no-gpu is opt-in: the default must keep catching a GPU-less GPU host."""
+    assert ph.exit_code(ph.converge(FakeSystem(gpu=False), cfg(gpu=True))) == 2
+
+
+@pytest.mark.parametrize(
+    ("argv", "expect_gpu", "expect_scratch"),
+    [
+        ([], True, True),
+        (["--no-gpu"], False, True),
+        (["--no-scratch"], True, False),
+        (["--no-gpu", "--no-scratch"], False, False),
+    ],
+)
+def test_cli_flags_map_to_config(argv, expect_gpu, expect_scratch):
+    built = ph.build_config(ph._parser().parse_args(argv))
+    assert built.gpu is expect_gpu
+    assert built.scratch is expect_scratch
+
+
+def test_docker_start_failure_reports_the_journal():
+    """A bare 'exit code 1' is unactionable; the reason lives in the journal."""
+    sys_ = FakeSystem()
+    sys_.docker_start_fails = True
+
+    res = ph.run_step(ph.DockerService(), sys_, cfg())
+
+    assert res.outcome is ph.Outcome.FAILED
+    assert "daemon.json" in res.detail or "journal" in res.detail
+    assert "nvidia-container-runtime: no such file" in res.detail
 
 
 @pytest.mark.parametrize(

@@ -1,16 +1,20 @@
 #!/usr/bin/env python3
-"""Idempotently converge an ephemeral GPU host to a doc-ray processing node.
+"""Idempotently converge a droplet to a doc-ray host.
 
-This box is spun up on demand (cost-aware), used to run the GPU NLP workers,
-then destroyed. Nothing durable lives here — the corpus, object store, and DB
-live off-box (managed Postgres / DigitalOcean Spaces). Every respawn therefore
-starts from a clean image and must be re-converged before it can process.
+The GPU box is the demanding case: spun up on demand (cost-aware), used to run
+the GPU NLP workers, then destroyed. Nothing durable lives here — the corpus,
+object store, and DB live off-box (managed Postgres / DigitalOcean Spaces). Every
+respawn therefore starts from a clean image and must be re-converged before it
+can process. A CPU-only droplet is the same host minus the card and the cache
+volume: pass --no-gpu --no-scratch and the GPU lane is skipped rather than
+failing, so one provisioner serves every machine.
 
 Each step is a check -> reconfigure pair: it probes current state and, unless
 running with --check, applies the minimum change to reach the desired state.
 Re-running on an already-converged host is a no-op. Steps:
 
-    gpu-present       an NVIDIA GPU is visible (precondition; not fixable)
+    gpu-present       an NVIDIA GPU is visible (precondition; not fixable —
+                      skipped entirely under --no-gpu)
     docker-service    dockerd is active and enabled at boot
     docker-group      the operator user can run docker without sudo
     nvidia-cdi        nvidia-container-toolkit + /etc/cdi/nvidia.yaml + docker
@@ -25,7 +29,8 @@ Re-running on an already-converged host is a no-op. Steps:
 Stdlib only: this runs before any project virtualenv exists.
 
 Usage:
-    sudo python3 scripts/provision_host.py            # converge (default)
+    sudo python3 scripts/provision_host.py            # converge a GPU host
+    sudo python3 scripts/provision_host.py --no-gpu --no-scratch   # plain droplet
     python3 scripts/provision_host.py --check         # report drift, change nothing
     sudo python3 scripts/provision_host.py --swap-gib 8 --json
 
@@ -47,7 +52,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Protocol
+from typing import Any, Protocol
 
 
 @dataclass(frozen=True)
@@ -139,6 +144,13 @@ class Config:
     harden_rpcbind: bool = True
     force_cdi: bool = False
     swap_gib: int = 0
+    #: Whether this host is expected to have an NVIDIA card. Defaults to True so
+    #: a GPU box still fails closed when the card is missing; a CPU-only droplet
+    #: opts out with --no-gpu and skips the GPU lane instead of failing.
+    gpu: bool = True
+    #: Whether a DOSCRATCH volume is expected. Only the GPU host needs one (model
+    #: and HF caches); a plain droplet opts out with --no-scratch.
+    scratch: bool = True
 
 
 class Step:
@@ -170,6 +182,8 @@ class GpuPresent(Step):
 
     def probe(self, sys: System, cfg: Config) -> tuple[bool, str]:
         """Confirm nvidia-smi lists at least one GPU."""
+        if not cfg.gpu:
+            return True, "skipped (--no-gpu)"
         res = sys.run(["nvidia-smi", "-L"])
         if res.ok and res.out.strip().startswith("GPU 0"):
             return True, res.out.strip().splitlines()[0]
@@ -193,8 +207,27 @@ class DockerService(Step):
         """Enable and start docker in one systemctl call."""
         res = sys.run(["systemctl", "enable", "--now", "docker"])
         if not res.ok:
-            raise RuntimeError(res.err.strip() or "systemctl enable --now docker failed")
+            raise RuntimeError(self._why_it_failed(sys, cfg, res))
         return "enabled and started docker"
+
+    def _why_it_failed(self, sys: System, cfg: Config, res: RunResult) -> str:
+        """Explain a refused start: systemd's own message says only 'error code'.
+
+        The cause is almost always config the engine inherited rather than the
+        engine itself — most often a ``daemon.json`` left behind by a previously
+        installed Docker that names a runtime the new one cannot resolve. Quote
+        the journal so the operator does not have to go find it.
+        """
+        parts = [res.err.strip() or "systemctl enable --now docker failed"]
+        if sys.read_text(cfg.daemon_json) is not None:
+            parts.append(
+                f"{cfg.daemon_json} exists and is a common cause — move it aside and "
+                "retry; this script rewrites the CDI feature into a fresh one"
+            )
+        journal = sys.run(["journalctl", "-u", "docker", "-n", "20", "--no-pager"]).out.strip()
+        if journal:
+            parts.append("journal tail:\n" + journal)
+        return "; ".join(parts)
 
 
 class DockerGroup(Step):
@@ -241,6 +274,8 @@ class NvidiaCdi(Step):
 
     def probe(self, sys: System, cfg: Config) -> tuple[bool, str]:
         """Verify toolkit, a non-empty CDI spec, and docker's CDI feature."""
+        if not cfg.gpu:
+            return True, "skipped (--no-gpu)"
         if not self._toolkit(sys):
             return False, "nvidia-container-toolkit (nvidia-ctk) not installed"
         if cfg.force_cdi:
@@ -276,7 +311,7 @@ class NvidiaCdi(Step):
 
     def _enable_cdi(self, sys: System, cfg: Config) -> bool:
         raw = sys.read_text(cfg.daemon_json)
-        data: dict = {}
+        data: dict[str, Any] = {}
         if raw:
             try:
                 data = json.loads(raw)
@@ -310,6 +345,8 @@ class ScratchVolume(Step):
 
     def probe(self, sys: System, cfg: Config) -> tuple[bool, str]:
         """Converged only when mounted AND pinned in fstab (survives reboot)."""
+        if not cfg.scratch:
+            return True, "skipped (--no-scratch)"
         if self._mounted(sys, cfg) and self._in_fstab(sys, cfg):
             return True, f"{cfg.mount_point} mounted with fstab entry"
         if self._mounted(sys, cfg):
@@ -507,6 +544,8 @@ def build_config(args: argparse.Namespace) -> Config:
         harden_rpcbind=not args.no_harden_rpcbind,
         force_cdi=args.force_cdi,
         swap_gib=args.swap_gib,
+        gpu=not args.no_gpu,
+        scratch=not args.no_scratch,
     )
 
 
@@ -528,6 +567,14 @@ def _parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--swap-gib", type=int, default=0, help="Create a swap file of N GiB (0 = none)."
+    )
+    parser.add_argument(
+        "--no-gpu",
+        action="store_true",
+        help="CPU-only host: skip the GPU precondition and the NVIDIA CDI lane.",
+    )
+    parser.add_argument(
+        "--no-scratch", action="store_true", help="Do not expect a DOSCRATCH volume."
     )
     parser.add_argument(
         "--no-sudo", action="store_true", help="Do not re-exec under sudo when not root."
