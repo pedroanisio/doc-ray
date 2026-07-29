@@ -75,6 +75,7 @@ def caption_document_images(
     vlm: VisionLanguageModel,
     image_ocr: ImageOcr | None = None,
     threshold: float = AUTO_COMMIT_THRESHOLD,
+    resume: bool = True,
 ) -> dict[str, Any]:
     """Caption + ground + gate every image of a document. Idempotent per model.
 
@@ -83,12 +84,30 @@ def caption_document_images(
     lets a faithful caption of a figure's own labels ground against those labels
     (crucial for figures on image-only/scanned pages, whose extracted page text
     is sparse), while a hallucinated label the OCR never read stays ungrounded.
+
+    Each image commits in its OWN transaction, so a failure part-way through a
+    document keeps every caption already paid for. ``resume`` (the default) then
+    skips images this model has already captioned, making a retry cost only the
+    remainder: captions are billed per request by hosted endpoints, and a
+    document-wide rollback re-buys the whole book on every attempt. Pass
+    ``resume=False`` for a genuine re-caption (new threshold, changed OCR
+    evidence, same model id) — that re-runs every image and replaces its rows.
     """
     model = vlm.model_id
     images = conn.execute(
         "SELECT id, object_key, page_number FROM document_image WHERE document_id = %s ORDER BY id",
         (document_id,),
     ).fetchall()
+    already_captioned: set[str] = set()
+    if resume:
+        already_captioned = {
+            str(row["document_image_id"])
+            for row in conn.execute(
+                "SELECT vc.document_image_id FROM visual_caption vc "
+                "WHERE vc.document_id = %s AND vc.model = %s",
+                (document_id, model),
+            ).fetchall()
+        }
     # Figure-local evidence: sentences on the SAME page as each image (via span
     # geometry), so grounding compares a caption against its figure's own prose,
     # not the whole document (proposal §5.4). Pages without geometry/sentences get
@@ -105,29 +124,38 @@ def caption_document_images(
         page_evidence[page] = f"{page_evidence.get(page, '')} {row['text']}".strip()
 
     committed = review = rejected = 0
-    with conn.transaction():
-        # Replace prior output for this model, INCLUDING the review queue, so a
-        # re-caption is idempotent and never leaves orphaned pending reviews.
-        conn.execute(
-            "DELETE FROM visual_caption WHERE document_id = %s AND model = %s",
-            (document_id, model),
-        )
-        conn.execute("DELETE FROM visual_review WHERE document_id = %s", (document_id,))
-        for index, image in enumerate(images):
-            report_progress(index, len(images) or 1, "Captioning images")
-            crop_bytes = store.get(str(image["object_key"]))
-            # Grounding evidence = the figure's page prose PLUS a deterministic OCR
-            # of the crop itself. OCR corroborates labels a faithful caption
-            # transcribes even when the page has little extractable text; it is
-            # NOT shown to the VLM, so it cannot be gamed.
-            page_text = page_evidence.get(int(image["page_number"]), "")
-            ocr_text = image_ocr.ocr_image(crop_bytes) if image_ocr is not None else ""
-            evidence_text = f"{page_text} {ocr_text}".strip()
-            # The VLM captions from the image ALONE — it is never shown the
-            # grounding evidence, so grounding cannot be gamed by echoing it.
-            output = vlm.caption_image(crop_bytes, "")
-            decision = gate_caption(output, evidence_text, threshold=threshold)
-            grounded = _grounded_against(decision)
+    skipped = 0
+    for index, image in enumerate(images):
+        report_progress(index, len(images) or 1, "Captioning images")
+        image_id = str(image["id"])
+        if image_id in already_captioned:
+            skipped += 1
+            continue
+        crop_bytes = store.get(str(image["object_key"]))
+        # Grounding evidence = the figure's page prose PLUS a deterministic OCR
+        # of the crop itself. OCR corroborates labels a faithful caption
+        # transcribes even when the page has little extractable text; it is
+        # NOT shown to the VLM, so it cannot be gamed.
+        page_text = page_evidence.get(int(image["page_number"]), "")
+        ocr_text = image_ocr.ocr_image(crop_bytes) if image_ocr is not None else ""
+        evidence_text = f"{page_text} {ocr_text}".strip()
+        # The VLM captions from the image ALONE — it is never shown the
+        # grounding evidence, so grounding cannot be gamed by echoing it.
+        # Billed work happens HERE, outside the write transaction, so the caption
+        # it produces is committed below before the next request can fail.
+        output = vlm.caption_image(crop_bytes, "")
+        decision = gate_caption(output, evidence_text, threshold=threshold)
+        grounded = _grounded_against(decision)
+        # Per-IMAGE transaction. Replacing prior output is scoped to this image
+        # (visual_caption is UNIQUE on document_image_id+model), so a re-caption
+        # stays idempotent and never leaves orphaned pending reviews, while a
+        # failure on a later image cannot roll this one back.
+        with conn.transaction():
+            conn.execute(
+                "DELETE FROM visual_caption WHERE document_image_id = %s AND model = %s",
+                (image_id, model),
+            )
+            conn.execute("DELETE FROM visual_review WHERE document_image_id = %s", (image_id,))
             conn.execute(
                 "INSERT INTO visual_caption "
                 "(id, document_image_id, document_id, caption, analysis, "
@@ -135,7 +163,7 @@ def caption_document_images(
                 "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
                 (
                     new_ulid_str(),
-                    str(image["id"]),
+                    image_id,
                     document_id,
                     output.caption,
                     json.dumps(output.analysis),
@@ -146,27 +174,34 @@ def caption_document_images(
                     decision.status,
                 ),
             )
-            if decision.status == STATUS_COMMITTED:
-                committed += 1
-            elif decision.status == STATUS_REVIEW:
-                review += 1
+            if decision.status == STATUS_REVIEW:
                 conn.execute(
                     "INSERT INTO visual_review (id, document_image_id, document_id, proposed, "
                     "grounding_score, grounding_evidence, status) "
                     "VALUES (%s, %s, %s, %s, %s, %s, 'pending')",
                     (
                         new_ulid_str(),
-                        str(image["id"]),
+                        image_id,
                         document_id,
                         json.dumps({"caption": output.caption, "analysis": output.analysis}),
                         decision.grounding.score,
                         json.dumps(grounded),
                     ),
                 )
-            else:
-                rejected += 1
+        if decision.status == STATUS_COMMITTED:
+            committed += 1
+        elif decision.status == STATUS_REVIEW:
+            review += 1
+        else:
+            rejected += 1
 
     return cast(
         "dict[str, Any]",
-        {"model": model, "committed": committed, "review": review, "rejected": rejected},
+        {
+            "model": model,
+            "committed": committed,
+            "review": review,
+            "rejected": rejected,
+            "skipped": skipped,
+        },
     )
