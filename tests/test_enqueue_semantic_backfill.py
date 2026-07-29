@@ -2,7 +2,43 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import enqueue_semantic_backfill as cli
+import pytest
+
+
+class _Conn:
+    """Async psycopg-shaped double recording the statements it is given."""
+
+    def __init__(self, visible: int) -> None:
+        self.visible = visible
+        self.statements: list[str] = []
+
+    async def execute(self, sql: str, params: Any = None) -> _Conn:
+        self.statements.append(sql)
+        return self
+
+    async def fetchone(self) -> tuple[int]:
+        return (self.visible,)
+
+    async def close(self) -> None:
+        return None
+
+
+@pytest.mark.asyncio
+async def test_backfill_assumes_the_bypassrls_batch_role() -> None:
+    """Under forced RLS the app role sees no documents, so the CLI must SET ROLE."""
+    conn = _Conn(580)
+    await cli._prepare_session(conn)
+    assert conn.statements[0] == f"SET ROLE {cli.BATCH_ROLE}"
+
+
+@pytest.mark.asyncio
+async def test_invisible_corpus_raises_instead_of_enqueueing_nothing() -> None:
+    """Zero visible documents must fail loudly, not report a successful no-op."""
+    with pytest.raises(cli.CorpusInvisible):
+        await cli._prepare_session(_Conn(0))
 
 
 def test_missing_database_url_exits_two(monkeypatch, capsys) -> None:
