@@ -24,6 +24,8 @@ _READ_TOOL_NAMES = {
     "get_collection",
     # Lens Registry (Block B): the scopes read side
     "list_lenses",
+    # corpus sizing: totals, each carrying the guarantee behind it
+    "corpus_stats",
     "corpus_manifest",
     "corpus_shard",
     "entity_frequency",

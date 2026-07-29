@@ -35,6 +35,19 @@ services:
     # more than 2 buys nothing there — raise DOCRAY_CAPTION_WORKERS only with a
     # horizontally scaling backend (DOCRAY_VLM_BACKEND=vllm against a hosted
     # serverless endpoint).
+    #
+    # On DigitalOcean serverless inference the ceiling is NOT our account quota
+    # (Tier 5: 4500 RPM / 3.5M TPM — 12 lanes drew under 8% of TPM). It is DO's
+    # shared per-model admission control, which answers 429 "Platform overloaded"
+    # with our own rate-limit headers untouched. Measured on nemotron-nano-12b-v2-vl
+    # (2026-07-28), goodput per 20 min window:
+    #     4 lanes -> 7.1 img/min, 0 throttled
+    #     6 lanes -> 6.5 img/min, 0 throttled   <- knee
+    #     8 lanes -> 3.9 img/min, 97 throttled
+    #    12 lanes -> 6.3 img/min, ~97% throttled, median latency 60s (vs 5s)
+    # Past the knee throughput INVERTS: lanes sit in 429 backoff and re-run
+    # documents that rolled back, so 12 lanes captioned less than 4. Re-measure
+    # before raising — DO's shared capacity is not a published number.
     deploy:
       replicas: ${DOCRAY_CAPTION_WORKERS:-2}
     environment:

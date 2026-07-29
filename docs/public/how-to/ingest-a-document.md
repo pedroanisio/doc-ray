@@ -19,13 +19,13 @@ status: "current"
 
 # Ingest a document
 
-Add a PDF, EPUB, TXT, MD, or DOCX file to the Corpus and run it through the ingestion pipeline so its text, sentences, entities, and canonical identities become queryable.
+Add a PDF, EPUB, HTML, Markdown, plain-text, DOCX, PPTX, or SVG file to the Corpus and run it through the ingestion pipeline so its text, sentences, entities, and canonical identities become queryable.
 
 ## Prerequisites
 
 - **Corpus browser:** a signed-in account (Member or higher).
 - **GraphQL API:** a bearer token with the `write` scope. Ingesting enqueues a Job under your own identity; the document lands in your Corpus.
-- **Supported formats:** PDF, EPUB, TXT, MD, DOCX. An unsupported extension is rejected before upload.
+- **Supported formats:** `.pdf`, `.epub`, `.html`, `.htm`, `.md`, `.markdown`, `.txt`, `.text`, `.docx`, `.pptx`, `.svg`. An unsupported extension is rejected before upload.
 - Ingestion returns a **Job**, not a finished document. There is no synchronous result; poll the Job until it reports `succeeded`.
 
 ## Ingest through the Corpus browser

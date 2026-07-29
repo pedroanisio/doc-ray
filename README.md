@@ -145,6 +145,9 @@ has a dedicated `/jobs/events` location with response buffering disabled; add
 
 Other query/mutation surface: `documents(docType:, status:, tags:)` /
 `document` / `documentShares` / `documentMetadataHistory` /
+`corpusStats` (corpus-wide totals, each returned with the read guarantee behind
+it — one live count, two pipeline rollups and one debounced scalar, so check
+`guarantees` before quoting a figure) /
 `searchSentences(match: SUBSTRING | PHRASE)` / `searchSentencePage` /
 `semanticSearchSentences` / `fullTextSearch(mode: TERMS | PHRASE)` /
 `corpusManifest(shardCount:)` / `corpusShard(shardIndex:, shardCount:)`

@@ -489,7 +489,43 @@ a `translate()`-folded column keeps the previous predicate, because reducing an
 OR to one branch would drop true matches rather than merely widening the
 candidate set. Terms under three characters are also excluded — pg_trgm cannot
 extract a trigram from them — which is the one case the fix cannot help, and
-already the cheap one because the candidate cap fills immediately. The adapter scans
+already the cheap one because the candidate cap fills immediately.
+
+**Routing the ordered surfaces (BL-188, D-036).** `term_frequency` could adopt
+the helper directly, because its bounded scan is a count and an arbitrary capped
+subset still yields an honest floor. `searchSentences` could not: it orders by
+(document title, sentence ordinal, id) with keyset pagination, and the helper
+applies its `LIMIT` *before* any ordering, so capping an unordered set and
+sorting the survivors returns a different page than sorting the whole match set
+and taking the first one — silently, and only for queries that matched a lot.
+
+The gate is completeness. The probe asks for `cap + 1` rows; at or under the cap
+the helper enumerated the entire match set, so ordering it in the outer query is
+identical to ordering the table, and the page is exact. Past the cap the subset
+is arbitrary and the query falls back to the previous predicate. This buys the
+index exactly where the cost was measured: a *rare* phrase is the expensive
+class, because the scan must read the whole relation to prove that few rows
+match, and those are the queries whose complete match set fits under a cap.
+
+The restriction is applied as `s.id = ANY(...)` rather than by re-running the
+pattern inside the definer, and that is deliberate. Plain equality is leakproof
+where the pattern operators are not, so the primary key stays reachable to an
+ordinary RLS-subject caller: the definer pays for the one thing RLS forbids —
+turning a pattern into a bounded set of ids — and hands back something the
+normal, RLS-enforced query indexes by itself.
+`test_sentence_search_index_usage_db.py` asserts that as a plan.
+
+An *empty* probe falls back rather than restricting to nothing, because empty is
+ambiguous: it means "no sentence matches" or it means "this connection resolves
+no readable documents". The second is what an RLS-exempt caller produces — one
+that the old predicate showed every row — so restricting on it would turn "may
+read everything" into "may read nothing" for indexable terms only. The helper's
+patterns are a superset in any case (a multi-word term is split into words, and
+short, confusable and fold-matched words are dropped), so the original predicate
+is always re-applied outside it; on the substring path, which has no verifier,
+that is what keeps the answer exact.
+
+The adapter scans
 keyset batches, verifies in `domain/phrase_profile.py`, and stops after 2,001
 candidates or a full output page. Its debug log records candidates scanned,
 verified rows, emitted rows, and whether the cap was reached.

@@ -26,7 +26,7 @@ This work is subject to the methodological caveats and commitments described in 
 ## Overview
 
 doc-ray is a living library and knowledge base (see [PURPOSE.md](../PURPOSE.md)).
-Mechanically: you give it a file — PDF, EPUB, TXT, Markdown, or DOCX — and it extracts the text and
+Mechanically: you give it a file — PDF, EPUB, HTML, Markdown, plain text, DOCX, PPTX, or SVG — and it extracts the text and
 metadata into a PostgreSQL corpus (full text, sentences, a 20-layer
 linguistic annotation graph, entity canonicalization, semantic enrichment),
 stores the original bytes content-addressed in MinIO/S3, and exposes the

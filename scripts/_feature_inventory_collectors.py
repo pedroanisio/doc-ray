@@ -249,7 +249,8 @@ def collect_ingestion_formats() -> CollectorResult:
     result = CollectorResult("formats", "runtime:extractor-dispatch-table")
     extraction = importlib.import_module("doc_ray.adapters.extraction")
     extractors = extraction._EXTRACTORS  # noqa: SLF001 - the dispatch table is the source of truth
-    content_types = extraction._CONTENT_TYPES  # noqa: SLF001 - ditto
+    # The Content-Type map lives in domain.document_formats (BL-193); read it
+    # through the public accessor so this collector cannot pin a private name.
     for ext, fn in sorted(extractors.items()):
         source_file, source_line = locate(fn)
         result.features.append(
@@ -261,7 +262,7 @@ def collect_ingestion_formats() -> CollectorResult:
                 description=first_line(fn.__doc__),
                 source_file=source_file,
                 source_line=source_line,
-                signature=content_types.get(ext, ""),
+                signature=extraction.content_type_for_extension(ext),
                 signals=["runtime-registry"],
                 probes=[f'"{ext}"', fn.__name__],
             )

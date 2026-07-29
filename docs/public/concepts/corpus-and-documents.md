@@ -23,7 +23,7 @@ This page defines the two foundational nouns in Doc-Ray — the Corpus and the D
 
 ## Definition
 
-A **Document** is a single ingested file — PDF, EPUB, TXT, MD, or DOCX — together with everything Doc-Ray derives from it: its extracted text, its Sentences, its Annotations, the Entity Mentions found inside it, and its metadata. The original bytes are retained; the derived material is what makes the document searchable and analyzable.
+A **Document** is a single ingested file — PDF, EPUB, HTML, Markdown, plain text, DOCX, PPTX, or SVG — together with everything Doc-Ray derives from it: its extracted text, its Sentences, its Annotations, the Entity Mentions found inside it, and its metadata. The original bytes are retained; the derived material is what makes the document searchable and analyzable.
 
 A **Corpus** is the set of Documents visible to you. It is not a single global pool: a Corpus is scoped to a principal. You see the Documents you own and the Documents shared with you; an Administrator sees all. There is no tier that grants corpus-wide read.
 
@@ -54,7 +54,7 @@ This concept applies whenever a result, count, or listing looks incomplete. A mi
 - The Corpus is owner-scoped. No access tier grants corpus-wide read; visibility is owner plus shared plus Administrator.
 - A Document is retrieved as cited slices, never as a single whole-document dump. Reading it means reading its Sentences by range or sequentially.
 - Document status is not lifecycle state. A successful extraction does not make a document `Active`, and an `Active` document may have failed extraction.
-- Supported inputs are PDF, EPUB, TXT, MD, and DOCX. Other formats are not ingested.
+- Supported inputs are PDF, EPUB, HTML, Markdown, plain text, DOCX, PPTX, and SVG. Other formats are not ingested.
 
 ## Related how-tos and reference
 

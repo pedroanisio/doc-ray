@@ -16,7 +16,7 @@
 </style>
 
 <h1>Upload a document</h1>
-<p class="hint">EPUB, PDF, TXT, MD, or DOCX. The file is ingested by the background
+<p class="hint">{{ format_label }}. The file is ingested by the background
 worker; with the pipeline enabled it is annotated and canonicalized automatically.</p>
 <p class="lede">
   Annotate builds sentences, lexemes, and entity mentions. Canonicalize links
@@ -30,7 +30,7 @@ worker; with the pipeline enabled it is annotated and canonicalized automaticall
   <div class="field">
     <label for="upload-file">file</label>
     <input id="upload-file" type="file" name="file"
-           accept=".epub,.pdf,.txt,.md,.docx">
+           accept="{{ accept_attribute }}">
   </div>
   <div class="field">
     <label for="upload-ref">or a reference — the server fetches it for you</label>

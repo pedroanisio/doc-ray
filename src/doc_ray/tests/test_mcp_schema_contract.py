@@ -118,6 +118,7 @@ _READ_CALLS = [
     lambda: corpus.list_collections(),
     lambda: corpus.get_collection(_DOC),
     lambda: corpus.list_lenses(),
+    lambda: corpus.corpus_stats(),
     lambda: corpus.corpus_manifest(4),
     lambda: corpus.corpus_shard(0, 4),
     lambda: corpus.entity_frequency(),

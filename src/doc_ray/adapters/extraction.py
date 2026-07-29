@@ -62,6 +62,7 @@ from doc_ray.adapters.extraction_pdf import (
 from doc_ray.adapters.extraction_svg import (
     extract_svg as extract_svg,
 )
+from doc_ray.domain.document_formats import content_type_for
 
 # Dispatch table keyed by lowercase file extension. Any of these formats ingests.
 _EXTRACTORS = {
@@ -76,20 +77,6 @@ _EXTRACTORS = {
     ".svg": extract_svg,
     ".pptx": extract_pptx,
     ".docx": extract_docx,
-}
-
-_CONTENT_TYPES = {
-    ".pdf": "application/pdf",
-    ".txt": "text/plain",
-    ".text": "text/plain",
-    ".md": "text/plain",
-    ".markdown": "text/plain",
-    ".html": "text/html",
-    ".htm": "text/html",
-    ".epub": "application/epub+zip",
-    ".svg": "image/svg+xml",
-    ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-    ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
 }
 
 
@@ -110,10 +97,7 @@ def is_supported_extension(extension: str) -> bool:
 
 def content_type_for_extension(extension: str) -> str:
     """Return the persisted source Content-Type for a supported extension."""
-    try:
-        return _CONTENT_TYPES[extension.lower()]
-    except KeyError as exc:
-        raise ValueError(f"unsupported document type: {extension!r}") from exc
+    return content_type_for(extension)
 
 
 def extract(data: bytes, filename: str, extension: str) -> Extracted:

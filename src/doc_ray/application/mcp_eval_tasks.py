@@ -254,21 +254,25 @@ _COLLECTIONS = EvalTask(
 _MAP = EvalTask(
     id="coverage-corpus-map",
     kind="coverage",
-    prompt="Shard the corpus for a map-reduce sweep.",
-    grounded_in="reachability: corpus_manifest / corpus_shard",
+    prompt="Size the corpus, then shard it for a map-reduce sweep.",
+    grounded_in="reachability: corpus_stats / corpus_manifest / corpus_shard",
     # shard_count=1 (all documents in one shard) keeps the payload deterministic
     # across independent seedings: sharding is hashtext(id) mod N over random per-
     # seed uuids, so a wider split would move documents between shards run to run.
     steps=(
+        # Sizing comes first because that is the real order of work: corpus_stats
+        # says how big the sweep is (and with what guarantee) before it is split.
+        Step(corpus.corpus_stats, lambda ctx: {}),
         Step(corpus.corpus_manifest, lambda ctx: {"shard_count": 1}),
         Step(corpus.corpus_shard, lambda ctx: {"shard_index": 0, "shard_count": 1, "limit": 5}),
     ),
     assertions=(
+        _ok("corpus_stats"),
         _ok("corpus_manifest"),
         _ok("corpus_shard"),
-        _within(TaskBudget(max_calls=3, max_chars=20_000)),
+        _within(TaskBudget(max_calls=4, max_chars=20_000)),
     ),
-    budget=TaskBudget(max_calls=3, max_chars=20_000),
+    budget=TaskBudget(max_calls=4, max_chars=20_000),
 )
 
 _ENTITIES = EvalTask(

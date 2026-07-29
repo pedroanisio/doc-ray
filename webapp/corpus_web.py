@@ -13,6 +13,7 @@ from types import ModuleType
 
 from flask import abort, current_app, redirect, request, url_for
 
+from doc_ray.domain.document_formats import ACCEPT_ATTRIBUTE, format_label
 from doc_ray.domain.read_consistency import CORPUS_STAT_GUARANTEES, assess
 from doc_ray.entrypoints.api.context import MAX_BATCH_IDS
 
@@ -279,8 +280,19 @@ def documents_bulk_action():
 
 
 def upload_form():
-    """Render the document upload form (EPUB, PDF, TXT, MD, DOCX)."""
-    return _core.render_template("upload.html", error=request.args.get("error"))
+    """Render the document upload form.
+
+    The accepted-format list is read from ``domain.document_formats`` rather
+    than typed into the template: a hand-copied list drifts behind the
+    extractor registry, and a narrower ``accept`` attribute hides working
+    formats (HTML, SVG, PPTX) from the operator.
+    """
+    return _core.render_template(
+        "upload.html",
+        error=request.args.get("error"),
+        accept_attribute=ACCEPT_ATTRIBUTE,
+        format_label=format_label(conjunction="or"),
+    )
 
 
 def upload_submit():

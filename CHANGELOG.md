@@ -55,6 +55,44 @@ doc-ray carries **one global version** covering both the application package
 
 ### Changed
 
+- **`searchSentences` uses the index-backed helper in both match modes (#51).**
+  BL-187 routed only `termFrequency`, whose bounded scan is a count and can
+  accept an arbitrary capped subset. The two search paths could not: they order
+  by (document title, sentence ordinal, id) with keyset pagination, and
+  `docray_readable_sentence_ids` applies its `LIMIT` *before* any ordering, so
+  capping an unordered set and sorting the survivors returns a different page
+  than sorting the whole match set and taking the first one.
+
+  They are now routed under a **completeness gate**. The probe asks the helper
+  for `cap + 1` rows. At or under the cap the helper enumerated the complete
+  match set, the cap never bit, and ordering it outside is identical to ordering
+  the table — the page is exact and the index did the work. Past the cap the
+  subset is arbitrary, and the query falls back to the previous predicate
+  unchanged. No result changes: the same rows come back in the same order, which
+  is asserted by paging the same corpus both ways and comparing row for row.
+
+  This buys the index where the #47 evaluation measured the cost. A *rare*
+  phrase is the expensive class — the scan must read the whole relation to prove
+  few rows match (`Model Context Protocol` removed 1,974,077 rows by filter in
+  5,167 ms to return 358) — and those are exactly the queries whose complete
+  match set fits under a cap. The non-selective classes that fall back are
+  already the cheap case (`of it`: 54 ms p50).
+
+  The restriction is applied as `s.id = ANY(...)`, not by re-running the pattern
+  inside the definer. Plain equality is leakproof where the pattern operators are
+  not, so the primary key stays reachable to an ordinary RLS-subject caller: the
+  helper pays for the one thing RLS forbids and hands back something the normal,
+  RLS-enforced query can index by itself.
+
+  An **empty** probe falls back rather than restricting to nothing. Empty is
+  ambiguous — "no sentence matches" or "this connection resolves no readable
+  documents" — and the second is what an RLS-exempt caller produces, one the old
+  predicate showed every row. Restricting on it would turn "may read everything"
+  into "may read nothing", silently and only for indexable terms.
+
+  Recorded as decision **D-036** (`proposed`); backlog **BL-188**. No schema
+  change, so the version is unmoved.
+
 - **`termFrequency`'s bounded sentence scan uses the index-backed helper.**
   Behaviour is unchanged — the same `surface_word_v1` verification runs over the
   same kind of candidate superset — but candidates are found through the index

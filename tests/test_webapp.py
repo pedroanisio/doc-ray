@@ -2575,9 +2575,7 @@ def test_search_discloses_literal_substring_semantics(client):
     assert "stemmed full-text search" in normalized
 
 
-def test_keyword_search_whole_phrase_toggle_is_opt_in_and_preserved_by_paging(
-    client, monkeypatch
-):
+def test_keyword_search_whole_phrase_toggle_is_opt_in_and_preserved_by_paging(client, monkeypatch):
     captured = {}
 
     def phrase_q(sql, params=()):
@@ -4176,3 +4174,13 @@ def test_upload_form_no_longer_marks_the_file_input_required(client):
 
     assert 'type="file" name="file"' in html
     assert 'name="file" required' not in html
+
+
+def test_upload_form_accepts_every_format_the_server_accepts(client):
+    """A hand-typed accept list hid HTML, SVG and PPTX, which have shipped extractors."""
+    from doc_ray.domain.document_formats import SUPPORTED_EXTENSIONS
+
+    html = client.get("/upload").get_data(as_text=True)
+
+    for extension in SUPPORTED_EXTENSIONS:
+        assert extension in html, f"{extension} is ingestible but the form omits it"

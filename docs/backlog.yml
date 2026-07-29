@@ -107,10 +107,10 @@ disclaimer: |
 
 metadata:
   schema_version:   "1.0.0"
-  generated_by:     "Claude Sonnet 5 via Claude Code (merge of Claude Opus 4.8 backlog + OpenAI Codex improvement-proposal candidates); BL-181/BL-182/BL-183 by OpenAI GPT-5 via Codex"
-  generated_on:     "2026-07-27"
+  generated_by:     "Claude Sonnet 5 via Claude Code (merge of Claude Opus 4.8 backlog + OpenAI Codex improvement-proposal candidates); BL-181/BL-182/BL-183/BL-184 by OpenAI GPT-5 via Codex; BL-188/BL-189..BL-193 by Claude Opus 5 via Claude Code"
+  generated_on:     "2026-07-29"
   system_of_record: "docs/backlog.yml"
-  total_items:      186
+  total_items:      193
 
 items:
 
@@ -6644,6 +6644,62 @@ items:
     source:       "GitHub issue #46 (2026-07-27); strict TDD implementation by OpenAI Codex after operator approval."
     tags:         ["term-frequency", "phrase-retrieval", "occurrence-counts", "graphql", "mcp", "tdd"]
 
+  - id:          "BL-184"
+    title:        "Reusable issue-to-verified-change operator"
+    summary:      "Turn a manual objective or GitHub label event into a durable strict-TDD repository run with deterministic gates, resumable evidence, and explicit write approvals."
+    description: |
+      The first reusable capability from the Agentic AI corpus proposal is now
+      implemented as a provider-neutral domain/application loop. A schema-v1
+      JSON manifest fixes the stage order at baseline, plan, red, prove-red,
+      implementation, green, regression, regression-green, surface alignment,
+      validation, and delivery. Agent actions modify local files; command exits,
+      never model assertions, prove the gates. A mismatched repairable gate feeds
+      bounded evidence back into the loop and exhausts honestly.
+
+      FileRunStore provides atomic revisioned JSON checkpoints, source-event
+      deduplication, persisted active attempt IDs, and mode-0600 append/fsync JSONL
+      evidence. SubprocessExecutor uses argument arrays with shell=False and an
+      explicit inherited-environment allowlist. Commit, external-write, and deploy
+      risks require a manifest declaration and approval at the active boundary.
+      The CLI supports init, manual and GitHub-event start, run/resume, status,
+      evidence, and approve; the Python Executor/RunStore ports allow other
+      durable stores and drivers.
+
+      The committed Doc-Ray manifest uses the isolated Docker suite and all static
+      gates. Repository execution is intentionally not added to corpus GraphQL,
+      webapp, SDK, or MCP surfaces because those tenant-data interfaces are not an
+      arbitrary-process control plane.
+    category:     "tooling"
+    type:         "feature"
+    status:       "done"
+    complexity:   "M"
+    priority:     "medium"
+    rationale:    "A durable goal/action/evidence loop unloads repetitive prompt-response supervision while keeping test truth and consequential writes outside the model's authority."
+    acceptance_criteria:
+      - "A manual objective or matching GitHub issues:labeled payload starts one source-idempotent durable run."
+      - "Configuration rejects shell strings, invalid stage ordering, an unproven red phase, green gates that do not expect zero, and consequential risks without approval boundaries."
+      - "Agent actions and deterministic gates execute the complete strict-TDD sequence; repair loops use observed evidence and fail after a bounded attempt count."
+      - "Interrupted work resumes with its persisted attempt identity; manifest drift and concurrent stale checkpoint writes are rejected."
+      - "State and evidence are durable, private, bounded, redacted, and inspectable through the CLI."
+      - "Commit, external-write, and deploy actions pause until the exact active risk is approved."
+      - "Architecture, usage, configuration, examples, changelog, migration guidance, release notes, CLI reference, and backlog describe one aligned contract and the intentional GraphQL/SDK/MCP boundary."
+      - "Focused tests, full regression suite, Ruff, mypy, D-015, version, read-path, surface-parity, environment, and public-doc gates pass."
+    dependencies: []
+    references:
+      - ".github/change-operator.json"
+      - "src/doc_ray/domain/change_operator.py"
+      - "src/doc_ray/domain/change_operator_state.py"
+      - "src/doc_ray/ports/change_operator.py"
+      - "src/doc_ray/adapters/change_operator_local.py"
+      - "src/doc_ray/application/change_operator.py"
+      - "src/doc_ray/entrypoints/change_operator.py"
+      - "src/doc_ray/tests/test_change_operator.py"
+      - "src/doc_ray/tests/test_change_operator_cli.py"
+      - "docs/public/how-to/automate-a-verified-change.md"
+    owner:        "shared"
+    source:       "User-selected Agentic AI capability #1 (2026-07-28); strict-TDD implementation by OpenAI Codex."
+    tags:         ["agentic-ai", "strict-tdd", "durability", "evidence", "approvals", "automation"]
+
   - id:          "BL-185"
     title:       "Bound dimension values that live inside a unique btree"
     summary:     "An overlong extracted author name aborted ingest at the persist step; authors/tags are now bounded and collection names rejected."
@@ -6832,3 +6888,238 @@ items:
     owner:        "shared"
     source:       "Measured during GitHub issue #47 (P8 evaluation); strict-TDD fix by Claude Opus 5 via Claude Code."
     tags:         ["retrieval", "postgres", "rls", "index", "performance", "security"]
+
+  - id:          "BL-188"
+    title:       "Route both sentence-search surfaces through the indexed candidate helper"
+    summary:     "Completeness gating lets the keyset-paginated search paths use docray_readable_sentence_ids without moving a page."
+    description: |
+      BL-187 restored index-backed candidate selection but routed only
+      `term_frequency`, whose bounded scan is a count and can accept an
+      arbitrary capped subset. `search_sentences` and `search_phrase_sentences`
+      were left on the old predicate because they order by (document title,
+      sentence ordinal, id) with keyset pagination, and
+      `docray_readable_sentence_ids` applies its LIMIT before any ordering:
+      capping an unordered set and sorting the survivors returns a different
+      page than sorting the whole match set and taking the first one.
+
+      Resolved by completeness gating. The probe asks the helper for `cap + 1`
+      rows. At or under the cap the helper enumerated the complete match set,
+      the cap never bit, and ordering that set outside is identical to ordering
+      the table — so the page is exact and the index did the work. Past the cap
+      the set was truncated, and the query falls back to the pre-existing
+      predicate unchanged.
+
+      This puts the index where the measurement said the cost was. D-035
+      records that the rare phrase is the expensive class — the scan must read
+      the whole relation to prove few rows match (`Model Context Protocol`:
+      1,974,077 rows removed by filter, 5,167 ms, to return 358) — and those
+      are exactly the queries whose complete match set fits under a cap. The
+      non-selective classes that truncate are already the cheap case (`of it`:
+      54 ms p50), because the candidate cap fills immediately and LIMIT stops
+      the scan.
+
+      The helper's patterns are a superset of the original predicate: it splits
+      a multi-word term into words and drops those that are short, confusable
+      or fold-matched. The original predicate therefore stays in the outer
+      query — load-bearing on the substring path, which has no verifier — and
+      the restriction is applied as `s.id = ANY(...)`. Plain equality is
+      leakproof where the pattern operators are not, so the primary key stays
+      reachable to an ordinary RLS-subject caller: the definer helper pays for
+      the one thing RLS forbids and hands back something the normal query can
+      index by itself.
+
+      An empty probe falls back rather than restricting to nothing. Empty is
+      ambiguous — "no sentence matches" or "this connection resolves no
+      readable documents" — and the second is what an RLS-exempt caller
+      produces, one the old predicate showed every row. Restricting on it would
+      turn "may read everything" into "may read nothing", silently and only for
+      indexable terms.
+    category:     "persistence"
+    type:         "bug"       
+    status:       "done"
+    complexity:   "M"
+    priority:     "high"
+    rationale:    "The two paths BL-187 deferred are the ones the #47 evaluation actually measured, so the gate recorded for #48 stays priced against an unindexed candidate scan until they are routed."
+    acceptance_criteria:
+      - "A probe asks the helper for cap + 1 rows, and a result at or under the cap is treated as the complete match set."
+      - "A routed page returns the same rows in the same order as the pre-existing predicate, across page boundaries and at page sizes that do not divide the result."
+      - "A truncated probe, an unusable term, and an empty probe all fall back to the pre-existing predicate."
+      - "The original predicate is re-applied outside the helper, so the superset never widens a substring answer."
+      - "An id-restricted page reaches an index under plain RLS, with no definer involved."
+      - "A stranger still sees nothing and an RLS-exempt caller still sees what it always saw, through both match modes."
+      - "Landing checklist green; no schema change, so the version stays 1.54.0."
+    dependencies: ["BL-187"]
+    references:
+      - "src/doc_ray/adapters/sentence_search_sql.py"
+      - "src/doc_ray/adapters/persistence_sentence_search.py"
+      - "src/doc_ray/tests/test_sentence_search_routing.py"
+      - "src/doc_ray/tests/test_sentence_search_paging_db.py"
+      - "src/doc_ray/tests/test_sentence_search_index_usage_db.py"
+      - "src/doc_ray/tests/test_sentence_search_matching_db.py"
+    owner:        "shared"
+    source:       "GitHub issue #51 'Not covered'; strict-TDD implementation by Claude Opus 5 via Claude Code."
+    tags:         ["retrieval", "postgres", "rls", "index", "pagination", "performance"]
+
+  - id:          "BL-189"
+    title:        "Intake preparation: pre-ingestion quality gate and manifest"
+    summary:      "Nothing tells an operator whether a directory of documents is ingestible without ingesting it: encrypted PDFs, image-only scans with no text layer, spoofed extensions, and already-ingested duplicates are all discovered by the worker, after the blob is stored."
+    description: |
+      A `docray-prep scan` CLI walks a staging directory and writes an intake
+      manifest: one record per file with a quality verdict (`ok` / `degraded` /
+      `reject`) and coded reasons. No network, no writes, no database unless
+      `--check-corpus` is passed — in which case the same SHA-256 the ingest
+      core dedupes on answers "already in the corpus" before a byte is uploaded.
+      The extension gate calls `extraction.is_supported_extension` so the tool
+      and the worker cannot disagree about what ingests.
+    category:     "extraction"
+    type:         "feature"
+    status:       "ready"
+    complexity:   "M"
+    priority:     "medium"
+    rationale:    "Triage before storage is cheaper than failure after it, and the image-only-PDF check is the one that stops a scan entering the corpus and producing an empty sentence table."
+    acceptance_criteria:
+      - "docray-prep scan emits a schema-validated intake manifest with a per-file quality verdict and coded reasons, performing no network I/O and no writes."
+      - "The extension gate calls extraction.is_supported_extension rather than carrying its own list."
+      - "--check-corpus reports already-ingested files by content hash before upload."
+      - "Fixtures cover an encrypted PDF, an image-only PDF, a truncated DOCX, an invalid EPUB container, a non-UTF-8 text file, and an extension/magic mismatch."
+    dependencies: []
+    references:
+      - "docs/proposals/intake-preparation-tool.md"
+      - "src/doc_ray/adapters/extraction.py"
+      - "src/doc_ray/application/pipeline.py"
+    owner:        "shared"
+    source:       "Specification 2026-07-29: docs/proposals/intake-preparation-tool.md, slice 1."
+    tags:         ["ingest", "quality", "cli", "tdd"]
+
+  - id:          "BL-190"
+    title:        "Deterministic filename normalization with reversible apply"
+    summary:      "Document filenames arrive arbitrary and nothing normalizes them; any rename done by hand is irreversible and destroys the original name, which is often the only surviving clue to where a document came from."
+    description: |
+      Filename normalization as a pure, idempotent function over verified
+      fields, applied through a separate `apply` step that journals every
+      rename against content hashes, with `revert` to undo it. Collision
+      breaking uses the content hash, not a counter: a counter makes the output
+      depend on directory iteration order, so two runs over the same directory
+      disagree. `documents.original_filename` continues to record the
+      pre-normalization name.
+    category:     "extraction"
+    type:         "feature"
+    status:       "ready"
+    complexity:   "M"
+    priority:     "medium"
+    rationale:    "A name derived deterministically from verified fields is reviewable and a rename journalled against content hashes is reversible; neither property survives doing it by hand."
+    acceptance_criteria:
+      - "normalize_name is idempotent, breaks collisions with the content hash rather than a counter, and bounds the encoded filename to 200 bytes at a separator boundary."
+      - "Reserved device names, leading dots and leading hyphens are re-derived, and extension aliases (.markdown/.htm/.text) canonicalize to a still-allowlisted extension."
+      - "apply refuses to run against a manifest whose recorded content hashes no longer match disk, and revert restores every original name from the journal."
+      - "A file with no corroborated metadata is renamed from its own normalized stem only — no field is invented to fill the template."
+    dependencies: ["BL-189"]
+    references:
+      - "docs/proposals/intake-preparation-tool.md"
+    owner:        "shared"
+    source:       "Specification 2026-07-29: docs/proposals/intake-preparation-tool.md, slice 2."
+    tags:         ["ingest", "filenames", "reversibility", "tdd"]
+
+  - id:          "BL-191"
+    title:        "Metadata enrichment from Crossref, Open Library and DataCite with per-field provenance"
+    summary:      "Bibliographic metadata is derived from filenames and document content only; no external authority is consulted, and the single title suggestion that exists ('derived from the original filename') is a restatement of the filename rather than a fact about the work."
+    description: |
+      Identifier extraction (DOI, ISBN-10/13 with checksum validation, arXiv id)
+      from embedded metadata, filename, and bounded first-pages text, routed to
+      three key-free public providers: Crossref for DOIs, Open Library for
+      ISBNs, DataCite for DOIs Crossref does not hold. Every field carries a
+      corroboration status (identifier-exact / corroborated / single-source /
+      conflicted / absent) and provider-level provenance; conflicts are recorded
+      as variants and never auto-resolved. Politeness is enforced in a shared
+      HTTP layer — per-provider token buckets at or below published rates, an
+      on-disk response cache, backoff honouring Retry-After, and a per-run
+      request ceiling. Open Library's 1 rps unidentified / 3 rps identified
+      limit is the binding constraint and is why the cache is a requirement.
+      OpenAlex and Google Books are second-tier and disabled by default: both
+      now require an API key (OpenAlex since 2026-02-13, when its mailto polite
+      pool was discontinued).
+    category:     "extraction"
+    type:         "feature"
+    status:       "ready"
+    complexity:   "L"
+    priority:     "medium"
+    rationale:    "Three key-free public providers can resolve an identifier to authoritative bibliographic fields, but the value is only realisable if every field carries its source and disagreements stay visible — an unsourced enriched field is indistinguishable from a hallucination."
+    acceptance_criteria:
+      - "DOI, ISBN-13 and arXiv identifiers are extracted and validated (ISBN checksums, DOI shape) before any provider is called; an invalid candidate is recorded as rejected and never sent."
+      - "Every enriched field carries a corroboration status and provider-level provenance; a value with neither fails manifest schema validation."
+      - "Conflicting provider values are recorded as variants, excluded from the proposed filename, and never auto-resolved."
+      - "Per-provider limiters are configured at or below published rates, and a second run over the same directory issues zero provider requests."
+      - "A provider failure degrades one field set and never fails the file or the run; skipped providers are reported with their reason."
+      - "No test performs live network I/O — adapters are tested against httpx.MockTransport, as the arXiv source already is."
+    dependencies: ["BL-189"]
+    references:
+      - "docs/proposals/intake-preparation-tool.md"
+      - "src/doc_ray/adapters/document_source_arxiv.py"
+      - "src/doc_ray/ports/document_source.py"
+    owner:        "shared"
+    source:       "Specification 2026-07-29: docs/proposals/intake-preparation-tool.md, slice 3; provider facts verified against live vendor documentation 2026-07-29."
+    tags:         ["ingest", "metadata", "providers", "provenance", "tdd"]
+
+  - id:          "BL-192"
+    title:        "Widen the metadata-suggestion contract beyond title/tags/duplicate"
+    summary:      "MetadataSuggestionVerifier accepts only title, tags and duplicate, so enriched author, publication year, publisher, language and identifier fields have no route into the existing AI-suggest to human-decide workflow and would need a second review surface."
+    description: |
+      The BL-061 suggestion path is the review surface enrichment output should
+      land on. Its field allowlist
+      (`document_metadata_suggest.py`) admits only three fields, and its
+      `source` column does not distinguish which provider proposed a value.
+      Widening the allowlist needs a per-field value validator (a year is not a
+      free string), a `source` convention that names the provider, a migration
+      for existing stored source values, and the provider shown in the webapp
+      review column.
+    category:     "persistence"
+    type:         "feature"
+    status:       "ready"
+    complexity:   "M"
+    priority:     "medium"
+    rationale:    "Enrichment output must land on the review surface that already exists rather than growing a second one, and a reviewer cannot judge a suggested value without knowing which authority proposed it."
+    acceptance_criteria:
+      - "The suggestible field set covers author, publication_year, publisher, language and identifiers, each with its own value validator."
+      - "source distinguishes provider-derived suggestions (provider:crossref) from verified-deterministic ones, and the webapp review surface shows it."
+      - "A migration handles existing stored source values without loss."
+      - "An enriched value never overwrites a curated value; it is offered as a suggestion."
+    dependencies: ["BL-191"]
+    references:
+      - "src/doc_ray/application/document_metadata_suggest.py"
+      - "src/doc_ray/adapters/document_metadata_suggestion_store.py"
+      - "docs/proposals/intake-preparation-tool.md"
+    owner:        "shared"
+    source:       "Specification 2026-07-29: docs/proposals/intake-preparation-tool.md, slice 4."
+    tags:         ["curation", "metadata", "verification", "migration"]
+
+  - id:          "BL-193"
+    title:        "The supported-format list was re-typed on eight surfaces and every copy drifted"
+    summary:      "HTML, SVG and PPTX have shipped extractors, but the upload form's accept attribute offered five extensions and the project overview, tutorial, user manual, landing page and three public docs all named five formats — so working capability was invisible and the browser hint was narrower than the server allowlist."
+    description: |
+      The extension allowlist lived only in `adapters/extraction.py`, whose
+      import pulls PyMuPDF, pypdf and python-docx into the process. Surfaces
+      that only need to *name* the formats could not afford that import, so each
+      re-typed the list and each copy drifted behind the registry. Fixed by
+      moving the allowlist and the Content-Type map to a dependency-free
+      `domain/document_formats.py`, asserting the extractor registry against it,
+      and rendering the upload form's accept attribute and hint from it.
+    category:     "extraction"
+    type:         "tech-debt"
+    status:       "done"
+    complexity:   "S"
+    priority:     "medium"
+    rationale:    "A hand-copied allowlist cannot be kept honest; the fix is one definition every surface reads, not eight corrected copies that will drift again at the next format."
+    acceptance_criteria:
+      - "The extractor registry, the allowlist and the Content-Type map are asserted to be the same set of extensions."
+      - "The upload form's accept attribute is rendered from the allowlist and covers every ingestible extension."
+      - "The prose format list is derived from the allowlist rather than typed, so it cannot fall behind the registry."
+    dependencies: []
+    references:
+      - "src/doc_ray/domain/document_formats.py"
+      - "src/doc_ray/adapters/extraction.py"
+      - "src/doc_ray/tests/test_document_formats.py"
+      - "webapp/corpus_web.py"
+      - "webapp/templates/upload.html"
+    owner:        "shared"
+    source:       "Found 2026-07-29 while specifying the intake-preparation tool (BL-189): the spec's format table did not match any user-facing surface. Completed the same session, test-first."
+    tags:         ["extraction", "docs", "drift", "webapp", "tech-debt"]

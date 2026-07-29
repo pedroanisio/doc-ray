@@ -19,9 +19,10 @@ Exposes the doc-ray corpus to agentic AI over the **Model Context Protocol
 (MCP)**, authenticating each caller to a doc-ray principal so Postgres RLS scopes
 what they can read.
 
-**Status: live in production and verified end-to-end.** The server ships **33
-read tools** (19 from `entrypoints/mcp/corpus.py` — incl. `read_document_sentences`,
-`corpus_manifest`, `corpus_shard`, `get_job`, `list_collections`, `get_collection`,
+**Status: live in production and verified end-to-end.** The server ships **34
+read tools** (20 from `entrypoints/mcp/corpus.py` — incl. `read_document_sentences`,
+`corpus_stats`, `corpus_manifest`, `corpus_shard`, `get_job`, `list_collections`,
+`get_collection`,
 `entity_mention_corrections`, and the 5 Prism visual tools — + 9 structure tools from
 `entrypoints/mcp/structure.py` (`read_document_outline`, `entity_profiles`,
 `term_frequency`, `document_classification`, the SLP Block D `entity_projection`, the

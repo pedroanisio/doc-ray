@@ -141,6 +141,15 @@ class ReadRepository(Protocol):
         """Return visible-document counts for every deterministic corpus shard."""
         ...
 
+    async def corpus_stats(self, conn: psycopg.AsyncConnection[Row]) -> Row:
+        """Return corpus-wide totals plus the timestamp behind the lexeme scalar.
+
+        The totals come off three different read paths (live count, per-document
+        rollups, debounced tenant scalar), so the timestamp travels with them —
+        a caller cannot otherwise tell a current figure from a stale one.
+        """
+        ...
+
     async def list_sentences(
         self,
         conn: psycopg.AsyncConnection[Row],

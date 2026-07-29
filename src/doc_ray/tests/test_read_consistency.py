@@ -29,9 +29,7 @@ from doc_ray.domain.read_consistency import (
 )
 
 _NOW = datetime(2026, 7, 28, 12, 0, tzinfo=timezone.utc)
-_MIGRATION = (
-    Path(__file__).resolve().parents[3] / "db" / "migrations" / "095_corpus_stats.sql"
-)
+_MIGRATION = Path(__file__).resolve().parents[3] / "db" / "migrations" / "095_corpus_stats.sql"
 
 
 # --- the declaration itself -------------------------------------------------
@@ -101,18 +99,14 @@ def test_an_exact_figure_is_never_stale_and_carries_no_age():
 
 
 def test_a_debounced_value_inside_its_window_reports_its_age():
-    freshness = assess(
-        guarantee_for("lexemes"), computed_at=_NOW - timedelta(minutes=4), now=_NOW
-    )
+    freshness = assess(guarantee_for("lexemes"), computed_at=_NOW - timedelta(minutes=4), now=_NOW)
     assert freshness.age_seconds == 240
     assert freshness.stale is False
     assert "4 minutes ago" in freshness.label
 
 
 def test_a_debounced_value_past_its_window_is_reported_stale():
-    freshness = assess(
-        guarantee_for("lexemes"), computed_at=_NOW - timedelta(minutes=31), now=_NOW
-    )
+    freshness = assess(guarantee_for("lexemes"), computed_at=_NOW - timedelta(minutes=31), now=_NOW)
     assert freshness.stale is True
     assert "31 minutes ago" in freshness.label
 
@@ -133,9 +127,7 @@ def test_a_never_computed_debounced_value_is_stale_not_fresh():
 
 def test_a_computed_at_in_the_future_clamps_to_zero_age():
     """Clock skew between the app tier and the database must not print a negative age."""
-    freshness = assess(
-        guarantee_for("lexemes"), computed_at=_NOW + timedelta(minutes=5), now=_NOW
-    )
+    freshness = assess(guarantee_for("lexemes"), computed_at=_NOW + timedelta(minutes=5), now=_NOW)
     assert freshness.age_seconds == 0
     assert freshness.stale is False
 
@@ -151,9 +143,7 @@ def test_a_naive_timestamp_is_read_as_utc():
 
 
 def test_ages_under_a_minute_read_as_seconds():
-    freshness = assess(
-        guarantee_for("lexemes"), computed_at=_NOW - timedelta(seconds=12), now=_NOW
-    )
+    freshness = assess(guarantee_for("lexemes"), computed_at=_NOW - timedelta(seconds=12), now=_NOW)
     assert "12 seconds ago" in freshness.label
 
 

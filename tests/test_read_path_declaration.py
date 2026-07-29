@@ -19,11 +19,20 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 from doc_ray.domain.read_consistency import CORPUS_STAT_GUARANTEES, guarantee_for
+from tests.test_webapp import _norm, fake_q, fake_q1
 from webapp import app as webapp
 
-from tests.test_webapp import _norm, fake_q, fake_q1
 
-_NOW = datetime.now(timezone.utc)
+def _ago(**delta: float) -> datetime:
+    """A timestamp *delta* before **now**, evaluated at call time.
+
+    Freshness is measured against the wall clock when the row is read, so a
+    module-level ``_NOW`` silently ages as the suite runs: the same row that
+    reads as 120 s old in an isolated run reads as 133 s old behind a full
+    suite, and the age assertion fails on suite duration rather than on
+    behaviour. Recomputing per call keeps the offset exact.
+    """
+    return datetime.now(timezone.utc) - timedelta(**delta)
 
 
 @pytest.fixture
@@ -41,7 +50,7 @@ def _totals(monkeypatch, **overrides):
         "sents": 15200,
         "lexemes": 30013,
         "occ": 283809,
-        "lexemes_computed_at": _NOW - timedelta(minutes=2),
+        "lexemes_computed_at": _ago(minutes=2),
     }
     row.update(overrides)
 
@@ -82,20 +91,20 @@ def test_every_figure_carries_its_guarantee(client, monkeypatch):
 
 
 def test_the_debounced_figure_shows_when_it_was_computed(client, monkeypatch):
-    _totals(monkeypatch, lexemes_computed_at=_NOW - timedelta(minutes=2))
+    _totals(monkeypatch, lexemes_computed_at=_ago(minutes=2))
     html = client.get("/corpus").get_data(as_text=True)
     assert "computed 2 minutes ago" in html
 
 
 def test_a_figure_past_its_window_is_marked_stale(client, monkeypatch):
-    _totals(monkeypatch, lexemes_computed_at=_NOW - timedelta(minutes=45))
+    _totals(monkeypatch, lexemes_computed_at=_ago(minutes=45))
     html = client.get("/corpus").get_data(as_text=True)
     assert 'data-stale="true"' in html
     assert "computed 45 minutes ago" in html
 
 
 def test_a_figure_inside_its_window_is_not_marked_stale(client, monkeypatch):
-    _totals(monkeypatch, lexemes_computed_at=_NOW - timedelta(minutes=3))
+    _totals(monkeypatch, lexemes_computed_at=_ago(minutes=3))
     html = client.get("/corpus").get_data(as_text=True)
     assert 'data-stale="true"' not in html
 
@@ -135,7 +144,7 @@ def test_the_api_exposes_the_same_declaration():
             "sents": 15200,
             "lexemes": 30013,
             "occ": 283809,
-            "lexemes_computed_at": _NOW - timedelta(minutes=2),
+            "lexemes_computed_at": _ago(minutes=2),
         }
     )
     assert stats.documents == 5
@@ -159,7 +168,7 @@ def test_the_api_marks_a_lagging_scalar_stale():
             "sents": 1,
             "lexemes": 1,
             "occ": 1,
-            "lexemes_computed_at": _NOW - timedelta(hours=2),
+            "lexemes_computed_at": _ago(hours=2),
         }
     )
     lexemes = next(g for g in stats.guarantees if g.figure == "lexemes")
@@ -200,7 +209,7 @@ def test_the_mcp_tool_returns_the_totals_with_their_guarantees(monkeypatch):
                     "figure": "lexemes",
                     "guarantee": "debounced",
                     "stalenessBoundSeconds": 600,
-                    "computedAt": _NOW.isoformat(),
+                    "computedAt": _ago().isoformat(),
                     "ageSeconds": 0,
                     "stale": False,
                     "label": "computed 0 seconds ago",

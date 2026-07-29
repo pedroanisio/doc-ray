@@ -428,6 +428,7 @@ def test_tools_tuple_is_the_read_tools():
         "list_collections",
         "get_collection",
         "list_lenses",
+        "corpus_stats",
         "corpus_manifest",
         "corpus_shard",
         "entity_frequency",

@@ -42,8 +42,7 @@ def test_every_declared_control_is_covered_by_the_stylesheet():
 def test_guard_flags_a_control_below_the_minimum_on_touch(tmp_path):
     css = tmp_path / "s.css"
     css.write_text(
-        ":root { --tap-min: 48px; }\n"
-        "button, .btn { min-height: 2.4rem; }\n",
+        ":root { --tap-min: 48px; }\nbutton, .btn { min-height: 2.4rem; }\n",
         encoding="utf-8",
     )
     found = guard.find_violations(stylesheet=css, controls=("button",))
@@ -178,8 +177,7 @@ def test_comments_do_not_confuse_the_parser(tmp_path):
 def test_main_exits_zero_on_a_clean_stylesheet(tmp_path, capsys):
     css = tmp_path / "s.css"
     css.write_text(
-        ":root { --tap-min: 48px; }\n"
-        "@media (pointer: coarse) { button { min-height: 48px; } }\n",
+        ":root { --tap-min: 48px; }\n@media (pointer: coarse) { button { min-height: 48px; } }\n",
         encoding="utf-8",
     )
     assert guard.main(["--stylesheet", str(css), "--control", "button"]) == 0

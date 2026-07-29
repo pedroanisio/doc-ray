@@ -4,8 +4,8 @@ disclaimer:
     No information within this document should be taken for granted.
     Any statement or premise not backed by a real logical definition
     or verifiable reference may be invalid, erroneous, or a hallucination.
-  generated_by: "Claude Sonnet 5 via Claude Code (merge of Claude Opus 4.8 backlog + OpenAI Codex improvement-proposal candidates); retrieval-wave updates by OpenAI GPT-5 via Codex"
-  date: "2026-07-27"
+  generated_by: "Claude Sonnet 5 via Claude Code (merge of Claude Opus 4.8 backlog + OpenAI Codex improvement-proposal candidates); retrieval-wave and BL-184 updates by OpenAI GPT-5 via Codex"
+  date: "2026-07-28"
 ---
 
 # Backlog
@@ -560,9 +560,16 @@ this corrects the record for shipped BL-175/BL-164 behavior without changing it.
 | BL-181 | surface_word_v1 shared word-boundary phrase profile | nlp | feature | done | S | high | shared |
 | BL-182 | Sentence search opt-in phrase mode with verified occurrence citations | api | feature | done | M | high | shared |
 | BL-183 | term_frequency verified phrase-occurrence counts | api | feature | done | M | high | shared |
+| BL-184 | Reusable issue-to-verified-change operator | tooling | feature | done | M | medium | shared |
 | BL-185 | Bound dimension values that live inside a unique btree | persistence | bug | done | S | high | shared |
 | BL-186 | Phrase-retrieval evaluation harness and the stage-2 go/no-go record | testing | feature | done | M | high | shared |
 | BL-187 | Restore index-backed sentence-text search under row-level security | persistence | bug | done | M | high | shared |
+| BL-188 | Route both sentence-search surfaces through the indexed candidate helper | persistence | bug | done | M | high | shared |
+| BL-189 | Intake preparation: pre-ingestion quality gate and manifest | extraction | feature | ready | M | medium | shared |
+| BL-190 | Deterministic filename normalization with reversible apply | extraction | feature | ready | M | medium | shared |
+| BL-191 | Metadata enrichment from Crossref, Open Library and DataCite with per-field provenance | extraction | feature | ready | L | medium | shared |
+| BL-192 | Widen the metadata-suggestion contract beyond title/tags/duplicate | persistence | feature | ready | M | medium | shared |
+| BL-193 | The supported-format list was re-typed on eight surfaces and every copy drifted | extraction | tech-debt | done | S | medium | shared |
 
 See [`backlog.yml`](backlog.yml) for each item's full description, rationale,
 acceptance criteria, dependencies, related decisions (`D-###`), and references.

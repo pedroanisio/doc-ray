@@ -65,7 +65,8 @@ Replace `<RELATIVE_PATH_TO_DISCLAIMER>` with the correct path for the file's dep
 
 doc-ray is a living library and knowledge base (see `PURPOSE.md` for the product
 identity and its Today/Becoming boundary). Concretely, it ingests documents
-(PDF/EPUB/TXT/MD/DOCX) into a PostgreSQL-backed corpus (full text, sentences, a
+(PDF/EPUB/HTML/Markdown/TXT/DOCX/PPTX/SVG — the registry lives in
+`domain/document_formats.py`) into a PostgreSQL-backed corpus (full text, sentences, a
 20-layer linguistic annotation graph, entity canonicalization to shared
 identities, semantic enrichment, and the Substrate·Lens·Projection entity fabric —
 genre classification, lens-scoped projections, cross-lens allusion edges, and

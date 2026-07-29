@@ -268,7 +268,8 @@ occurrence, annotation, canonicalization, domain seeding, POS codes.
 
 ### 4.2 Upload (`/upload`)
 
-Drag in (or pick) an EPUB, PDF, TXT, MD, or DOCX — optionally with an explicit
+Drag in (or pick) a PDF, EPUB, HTML, Markdown, plain-text, DOCX, PPTX or SVG
+file — optionally with an explicit
 title — and submit. By default the **full pipeline** checkbox is on: the file is
 ingested, then automatically annotated, semantically enriched, and canonicalized,
 with no further clicks. Untick it to ingest only. Uploads are capped in size

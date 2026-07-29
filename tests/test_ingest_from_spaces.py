@@ -220,9 +220,7 @@ def test_ingest_one_delegates_finalization_to_the_shared_pipeline_step(monkeypat
     # intake path that diverged from finalize_new_document (BL-162). Routing
     # through the shared step is what keeps the two obligations inseparable.
     _stub_download(monkeypatch)
-    monkeypatch.setattr(
-        loader, "ingest_object", lambda *_a, **_k: _FakeResult("ingested", "doc-1")
-    )
+    monkeypatch.setattr(loader, "ingest_object", lambda *_a, **_k: _FakeResult("ingested", "doc-1"))
     calls: list[tuple[Any, ...]] = []
     monkeypatch.setattr(
         loader,
@@ -262,9 +260,7 @@ def test_ingest_one_does_not_chain_a_duplicate(monkeypatch) -> None:
 
 def test_ingest_one_skips_chaining_when_pipeline_disabled(monkeypatch) -> None:
     _stub_download(monkeypatch)
-    monkeypatch.setattr(
-        loader, "ingest_object", lambda *_a, **_k: _FakeResult("ingested", "doc-1")
-    )
+    monkeypatch.setattr(loader, "ingest_object", lambda *_a, **_k: _FakeResult("ingested", "doc-1"))
     monkeypatch.setattr(
         loader,
         "finalize_new_document",

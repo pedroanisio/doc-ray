@@ -34,6 +34,13 @@ repos:
         pass_filenames: false
         always_run: true
 
+      - id: touch-targets
+        name: controls meet the platform touch-target minimum — D-036
+        entry: python scripts/check_touch_targets.py
+        language: system
+        pass_filenames: false
+        always_run: true
+
       - id: doc-ray-graphql-skill-drift
         name: Doc-Ray GraphQL skill drift gate
         entry: python3 skills/doc-ray-graphql-maximizer/scripts/check_doc_ray_drift.py

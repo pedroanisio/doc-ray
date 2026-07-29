@@ -55,7 +55,7 @@ source_schema:         "db/migrations"
 # by scripts/check_version_consistency.py.
 source_schema_version: "1.54.0"
 target_engine:         "PostgreSQL 16"
-total_decisions:       34
+total_decisions:       35
 
 decisions:
 
@@ -2202,3 +2202,154 @@ decisions:
             command:     "python scripts/eval_phrase_retrieval.py --prod --explain --role docray_api --principal <admin-uuid> --report docs/eval/phrase-retrieval-<date>.md"
             expect:
               exit:      0
+  - id: D-036
+    title: A capped candidate helper may drive an ordered page only when its result is complete
+    version_introduced: 1.54.0
+    category: performance
+    decision: '`docray_readable_sentence_ids` applies its LIMIT before any ordering, so a
+
+      surface that orders by (document title, sentence ordinal, id) with keyset
+
+      pagination may use it only under a completeness gate. The probe asks for
+
+      `cap + 1` rows. At or under the cap the helper enumerated the complete match
+
+      set, the cap never bit, and ordering that set in the outer query is identical
+
+      to ordering the table — the page is exact and the index did the work. Past the
+
+      cap the subset is arbitrary and the query falls back to the pre-existing
+
+      predicate, unchanged.
+
+
+      Three outcomes collapse to one instruction, `page the way you always did`: the
+
+      term cannot drive the index, the helper truncated, or the helper returned
+
+      nothing. The last is included because an empty result is ambiguous — it means
+
+      `no sentence matches` or `this connection resolves no readable documents`, and
+
+      the second is what an RLS-exempt caller produces, one the old predicate showed
+
+      every row. Restricting on it would turn `may read everything` into `may read
+
+      nothing`, silently and only for indexable terms.
+
+
+      The helper''s patterns are a superset — it splits a multi-word term into words
+
+      and drops those that are short, confusable or fold-matched — so the original
+
+      predicate is re-applied in the outer query. That is load-bearing on the
+
+      substring path, which has no verifier behind it.
+
+      '
+    rationale: 'BL-187 restored index-backed candidate selection but routed only
+
+      `term_frequency`, whose bounded scan is a count and can accept an arbitrary
+
+      capped subset. The two search paths could not, and were left measuring an
+
+      unindexed scan — which is what the #47 evaluation recorded and what D-035
+
+      priced the #48 decision against.
+
+
+      Completeness gating buys the index exactly where D-035 measured the cost. A
+
+      rare phrase is the expensive class: the scan must read the whole relation to
+
+      prove that few rows match, and `Model Context Protocol` removed 1,974,077 rows
+
+      by filter in 5,167 ms to return 358. Those are the queries whose complete match
+
+      set fits under a cap. The non-selective classes that truncate are already the
+
+      cheap case — `of it` completes in 54 ms p50 because a non-selective predicate
+
+      fills the candidate cap immediately and LIMIT stops the scan. The queries that
+
+      gain are the ones measured as broken; the queries that fall back are the ones
+
+      measured as fine.
+
+
+      The restriction is applied as `s.id = ANY(...)` rather than by re-running the
+
+      pattern inside the definer. Plain equality is leakproof where `textlike` and
+
+      `texticlike` are not, so the primary key stays reachable to an ordinary
+
+      RLS-subject caller: the definer helper pays for the one thing RLS forbids —
+
+      turning a pattern into a bounded set of ids — and hands back something the
+
+      normal, RLS-enforced query can index on its own. That asymmetry is the whole
+
+      design, and it is asserted as a plan rather than as a timing, because every
+
+      behavioural test here passes just as well against a full scan.
+
+
+      The alternative of raising the cap until every class fits was rejected: the cap
+
+      bounds request work, and trading that for coverage is an operator decision with
+
+      a measured cost, not an adapter default.
+
+      '
+    decision_status: proposed
+    decision_date: '2026-07-28'
+    owner:
+    - pedroanisio@faz.ai
+    scope_path:
+    - src/doc_ray/adapters/sentence_search_sql.py
+    - src/doc_ray/adapters/persistence_sentence_search.py
+    claims:
+    - claim_id: D-036.k1
+      claim_text: A routed page returns the same rows in the same order as the pre-existing
+        predicate, across page boundaries.
+      auditable: true
+      status: populated
+      declared_checks_count: 2
+      checks:
+      - check_id: D-036.k1.c1
+        description: Routed and fallback pagination agree row for row, in both match modes,
+          at page sizes that do not divide the result.
+        check_kind: shell
+        severity: error
+        context: ci
+        side_effects: reads
+        command: pytest src/doc_ray/tests/test_sentence_search_paging_db.py
+        expect:
+          exit: 0
+      - check_id: D-036.k1.c2
+        description: The probe asks for cap + 1, and a truncated, unusable or empty probe leaves
+          the historical query untouched.
+        check_kind: shell
+        severity: error
+        context: ci
+        side_effects: reads
+        command: pytest src/doc_ray/tests/test_sentence_search_routing.py
+        expect:
+          exit: 0
+    - claim_id: D-036.k2
+      claim_text: An id-restricted page reaches an index under plain RLS, with no definer involved,
+        because equality is leakproof.
+      auditable: true
+      status: populated
+      declared_checks_count: 1
+      checks:
+      - check_id: D-036.k2.c1
+        description: The plan for an id-restricted page is not a sequential scan for an RLS-subject
+          caller.
+        check_kind: shell
+        severity: error
+        context: ci
+        side_effects: reads
+        command: pytest src/doc_ray/tests/test_sentence_search_index_usage_db.py
+        expect:
+          exit: 0
