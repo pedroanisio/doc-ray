@@ -473,7 +473,9 @@ def test_enqueue_chain_head_is_a_no_op_for_an_empty_chain(monkeypatch):
 
 def test_default_pipeline_chain_is_the_documented_post_ingest_order():
     # The upload mutation and the operator bulk loaders both enqueue this exact
-    # chain; the GPU tiers and the frontier resolver stay off it (D-018).
+    # chain. semantic_embed is ON it: every document must be semantically
+    # reachable, so text embedding is a product guarantee, not an opt-in. The
+    # GPU tiers and the frontier resolver stay off it (D-018).
     from doc_ray.domain.jobs import DEFAULT_PIPELINE_CHAIN
 
     assert DEFAULT_PIPELINE_CHAIN == (
@@ -481,5 +483,23 @@ def test_default_pipeline_chain_is_the_documented_post_ingest_order():
         "score_mentions",
         "semantic_enrich",
         "canonicalize",
+        "semantic_embed",
         "visual_extract",
+    )
+
+
+def test_every_ingested_document_becomes_semantically_reachable():
+    """The corpus-wide semantic-reachability guarantee, pinned as a contract.
+
+    Coverage was 9% of the corpus while embedding was opt-in — a document only
+    became searchable if someone remembered to ask. Chaining it is what makes
+    "every document is reachable by meaning" true by construction rather than
+    by operator diligence, so this asserts the guarantee itself, not the order.
+    """
+    from doc_ray.domain.jobs import DEFAULT_PIPELINE_CHAIN, KIND_ANNOTATE, KIND_SEMANTIC_EMBED
+
+    assert KIND_SEMANTIC_EMBED in DEFAULT_PIPELINE_CHAIN
+    # Embedding consumes sentences, so it can never precede annotation.
+    assert DEFAULT_PIPELINE_CHAIN.index(KIND_SEMANTIC_EMBED) > DEFAULT_PIPELINE_CHAIN.index(
+        KIND_ANNOTATE
     )

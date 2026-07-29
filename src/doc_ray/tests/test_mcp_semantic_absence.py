@@ -88,7 +88,10 @@ async def test_the_message_refuses_the_reading_that_nothing_was_similar(monkeypa
 
     message = str(excinfo.value).lower()
     assert "no similarity floor" in message  # why the empty set cannot mean "not similar"
-    assert "opt-in" in message  # why it is empty, in terms the caller can act on
+    # Why it is empty, in terms the caller can act on. Embedding is no longer
+    # opt-in — it is chained into every ingest — so an absent document now means
+    # its chained job is unfinished or failed, not that nobody asked for it.
+    assert "chained embed job" in message
 
 
 @pytest.mark.asyncio

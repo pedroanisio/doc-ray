@@ -54,8 +54,11 @@ KIND_VISUAL_EMBED = "visual_embed"
 KIND_VISUAL_CAPTION = "visual_caption"
 # NLP Layer 20: embed a document's sentences with a learned sentence encoder
 # (sentence-transformers) into the `embedding` table — the sole writer after the
-# hard cutover from hash-BoW. Heavy, worker-only dependency; never auto-chained —
-# model cost stays an explicit request, mirroring KIND_VISUAL_EMBED (D-018).
+# hard cutover from hash-BoW. Heavy, worker-only dependency, but **chained by
+# default**: see DEFAULT_PIPELINE_CHAIN. It is deliberately NOT covered by the
+# D-018 cost carve-out that keeps KIND_VISUAL_EMBED and the frontier resolver
+# opt-in — this encoder runs on CPU, calls no paid API, and is what makes a
+# document findable by meaning at all.
 KIND_SEMANTIC_EMBED = "semantic_embed"
 # Block A: re-apply the durable human NER-correction log onto a document's
 # current ML mentions (entity_mention is worker-owned; docray_api can only
@@ -87,11 +90,22 @@ KIND_REFRESH_LENS_ROLLUP = "refresh_lens_rollup"
 KIND_SCORE_MENTIONS = "score_mentions"
 
 # The default post-ingest pipeline: Stage-1 annotation, deterministic semantic
-# enrichment, then deterministic canonicalization, then Prism Tier-1 visual
-# feature extraction. The deterministic visual tier is appended at the tail so
-# entity-linking is never delayed (proposal §5.1); it is CPU-only (no model).
-# The frontier resolver and the GPU visual tiers are never chained — model cost
-# stays an explicit request (D-018).
+# enrichment, then deterministic canonicalization, then Layer-20 sentence
+# embedding, then Prism Tier-1 visual feature extraction. The deterministic
+# visual tier is appended at the tail so entity-linking is never delayed
+# (proposal §5.1); it is CPU-only (no model). The frontier resolver and the GPU
+# visual tiers are still never chained — model cost stays an explicit request
+# (D-018).
+#
+# KIND_SEMANTIC_EMBED closes the text pipeline, before the visual tail. It was
+# previously withheld under the same D-018 cost argument, which measurement did
+# not support: the encoder runs on CPU (no GPU, no paid API) at roughly a minute
+# per document — 0.9 h of a measured 80.8 h month, against 23.8 h for annotate,
+# which is chained. The cost of withholding it was far larger: embedding was
+# reachable only by explicit request, so just 58 of 637 documents (9%) were
+# semantically searchable, and the product requires that every document be
+# reachable by meaning. Making it a chain step is what makes that guarantee true
+# by construction rather than by operator diligence.
 #
 # It lives here, not in the GraphQL entrypoint, because it is the pipeline every
 # ingest path owes a document: the API upload mutation and the operator bulk
@@ -101,6 +115,7 @@ DEFAULT_PIPELINE_CHAIN: tuple[str, ...] = (
     KIND_SCORE_MENTIONS,
     KIND_SEMANTIC_ENRICH,
     KIND_CANONICALIZE,
+    KIND_SEMANTIC_EMBED,
     KIND_VISUAL_EXTRACT,
 )
 

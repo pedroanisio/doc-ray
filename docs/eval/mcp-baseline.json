@@ -10,22 +10,22 @@
   "mode": "scripted",
   "surface": {
     "read_only": {
-      "tool_count": 34,
-      "tools_list_chars": 47055,
-      "tools_list_est_tokens": 11763,
       "instructions_chars": 2915,
-      "resources_count": 3,
+      "prompts_count": 4,
       "resource_templates_count": 5,
-      "prompts_count": 4
+      "resources_count": 3,
+      "tool_count": 34,
+      "tools_list_chars": 47153,
+      "tools_list_est_tokens": 11788
     },
     "write_enabled": {
-      "tool_count": 66,
-      "tools_list_chars": 79973,
-      "tools_list_est_tokens": 19993,
       "instructions_chars": 2915,
-      "resources_count": 3,
+      "prompts_count": 4,
       "resource_templates_count": 5,
-      "prompts_count": 4
+      "resources_count": 3,
+      "tool_count": 66,
+      "tools_list_chars": 80071,
+      "tools_list_est_tokens": 20017
     }
   },
   "tasks": [
@@ -57,7 +57,7 @@
     {
       "assertions": [
         {
-          "detail": "hits at ordinals 20–21 vs expected [18,23]",
+          "detail": "hits at ordinals 20\u201321 vs expected [18,23]",
           "name": "hit_in_range",
           "passed": true
         },

@@ -30,8 +30,11 @@ class SemanticMutations:
     async def embed_document_sentences(self, info: Info, document_id: strawberry.ID) -> Job:
         """Enqueue a learned sentence-embedding (NLP Layer 20) run; returns the job.
 
-        Heavy, worker-only: requires the sentence-transformers stack. The job is
-        never auto-chained — embedding cost stays an explicit request. Once it
+        Heavy, worker-only: requires the sentence-transformers stack. Embedding
+        is part of ``DEFAULT_PIPELINE_CHAIN``, so every ingested document is
+        embedded automatically and this mutation is a **re-embed / repair** path,
+        not the way documents normally become searchable — reach for it after an
+        encoder change, or for a document whose chained job failed. Once it
         completes, ``semanticSearchSentences`` can retrieve against the vectors.
         """
         ctx = info.context

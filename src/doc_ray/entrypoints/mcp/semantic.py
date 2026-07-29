@@ -40,8 +40,9 @@ def _no_vectors_message(document_id: str | None) -> str:
         f"No embedded sentences in scope: {scope} has no sentence vectors for the "
         f"active embedding model. This ranking applies no similarity floor, so this "
         f"is NOT a finding that nothing was semantically similar — nothing was "
-        f"searched. Embeddings are opt-in per document (never auto-chained after "
-        f"ingest), and a model cutover leaves prior-model vectors invisible here."
+        f"searched. Ingested documents are embedded automatically, so this "
+        f"normally means the document's chained embed job has not finished or "
+        f"failed; a model cutover also leaves prior-model vectors invisible here."
     )
 
 
@@ -57,12 +58,14 @@ async def semantic_search_sentences(
     document, ordinal, and a similarity score; pass ``document_id`` to scope to
     one document.
 
-    **Embeddings are opt-in per document and are never auto-chained** — a
-    document is searchable here only after ``embed_document_sentences`` has run
-    for it. Because the ranking applies no similarity floor, an empty result can
-    only mean "nothing in this scope is embedded", never "nothing was similar";
-    that case therefore fails with kind ``not_found`` naming the document to
-    embed, instead of returning ``[]`` for you to misread as an answer.
+    **Every ingested document is embedded automatically** — embedding is part of
+    the default post-ingest chain, so the whole corpus is reachable here. A
+    document can still be temporarily absent while its chained embed job is
+    queued or if that job failed. Because the ranking applies no similarity
+    floor, an empty result can only mean "nothing in this scope is embedded",
+    never "nothing was similar"; that case therefore fails with kind
+    ``not_found`` naming the document, instead of returning ``[]`` for you to
+    misread as an answer.
 
     Requires the semantic stack on the API host; without it the call fails with
     kind ``unsupported`` — do not retry, fall back to ``search_sentences``.
