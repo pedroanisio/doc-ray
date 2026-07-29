@@ -57,6 +57,15 @@ _FAMILIES: Final[tuple[tuple[str, tuple[str, ...]], ...]] = (
     ("SVG", (".svg",)),
 )
 
+#: Human-facing format families backed by at least one registered extension.
+#: Documentation gates import this tuple so prose cannot maintain a separate
+#: hand-written inventory from the executable extension allowlist.
+SUPPORTED_FORMAT_NAMES: Final[tuple[str, ...]] = tuple(
+    name
+    for name, extensions in _FAMILIES
+    if any(extension in SUPPORTED_EXTENSIONS for extension in extensions)
+)
+
 
 def format_label(*, conjunction: str = "and") -> str:
     """Return the human-readable format list, derived from the allowlist.
@@ -69,11 +78,7 @@ def format_label(*, conjunction: str = "and") -> str:
         PPTX, and SVG"`` — covering every family whose extensions are
         supported, so the sentence cannot fall behind the registry.
     """
-    names = [
-        name
-        for name, extensions in _FAMILIES
-        if any(extension in SUPPORTED_EXTENSIONS for extension in extensions)
-    ]
+    names = SUPPORTED_FORMAT_NAMES
     if len(names) == 1:
         return names[0]
     return f"{', '.join(names[:-1])}, {conjunction} {names[-1]}"

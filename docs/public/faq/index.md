@@ -39,8 +39,8 @@ is built on.
 ### What file types can I ingest?
 
 Doc-Ray ingests PDF, EPUB, HTML (`.html`, `.htm`), Markdown (`.md`,
-`.markdown`), plain text (`.txt`, `.text`), Word (`.docx`), PowerPoint
-(`.pptx`), and SVG (`.svg`) documents. Each ingested document is extracted to
+`.markdown`), plain text (`.txt`, `.text`), DOCX (`.docx`), PPTX (`.pptx`),
+and SVG (`.svg`) documents. Each ingested document is extracted to
 text, split into sentences, annotated, and made searchable.
 
 See [How-To: Ingest a document](../how-to/ingest-a-document.md).

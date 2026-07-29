@@ -217,6 +217,61 @@ def _alias_to_table(sql: str, known_tables: set[str]) -> dict[str, str]:
     return amap
 
 
+def _matching_paren(sql: str, opening: int) -> int:
+    """Return the close matching *opening*, ignoring parentheses in quotes."""
+    depth = 0
+    quote: str | None = None
+    index = opening
+    while index < len(sql):
+        char = sql[index]
+        if quote is not None:
+            if char == quote and index + 1 < len(sql) and sql[index + 1] == quote:
+                index += 2
+                continue
+            if char == quote:
+                quote = None
+        elif char in {"'", '"'}:
+            quote = char
+        elif char == "(":
+            depth += 1
+        elif char == ")":
+            depth -= 1
+            if depth == 0:
+                return index
+        index += 1
+    raise ValueError("unbalanced CTE parentheses")
+
+
+def _sql_scopes(sql: str) -> list[str]:
+    """Split CTE bodies from their outer statement for alias resolution."""
+    with_match = re.match(r"\s*WITH\b(?:\s+RECURSIVE\b)?", sql, re.IGNORECASE)
+    if with_match is None:
+        return [sql]
+
+    bodies: list[str] = []
+    position = with_match.end()
+    while True:
+        header = re.match(
+            r"\s*[a-z_][a-z0-9_]*(?:\s*\([^)]*\))?\s+AS\s+"
+            r"(?:(?:NOT\s+)?MATERIALIZED\s+)?\(",
+            sql[position:],
+            re.IGNORECASE,
+        )
+        if header is None:
+            return [sql]
+        opening = position + header.end() - 1
+        try:
+            closing = _matching_paren(sql, opening)
+        except ValueError:
+            return [sql]
+        bodies.extend(_sql_scopes(sql[opening + 1 : closing]))
+        position = closing + 1
+        comma = re.match(r"\s*,", sql[position:])
+        if comma is None:
+            return [*bodies, *_sql_scopes(sql[position:])]
+        position += comma.end()
+
+
 def _qualified_column_failures(
     sources: dict[str, list[str]], columns: dict[str, set[str]]
 ) -> tuple[list[str], int]:
@@ -226,14 +281,17 @@ def _qualified_column_failures(
     checked = 0
     for filename, literals in sources.items():
         for sql in literals:
-            aliases = _alias_to_table(sql, known)
-            for alias, column in re.findall(r"\b([a-z_][a-z0-9_]*)\.([a-z_][a-z0-9_]*)\b", sql):
-                table = aliases.get(alias)
-                if table is None:
-                    continue
-                checked += 1
-                if column not in columns[table]:
-                    failures.append(f"{filename}: {alias}.{column} not in {table}")
+            for scope in _sql_scopes(sql):
+                aliases = _alias_to_table(scope, known)
+                for alias, column in re.findall(
+                    r"\b([a-z_][a-z0-9_]*)\.([a-z_][a-z0-9_]*)\b", scope
+                ):
+                    table = aliases.get(alias)
+                    if table is None:
+                        continue
+                    checked += 1
+                    if column not in columns[table]:
+                        failures.append(f"{filename}: {alias}.{column} not in {table}")
     return sorted(set(failures)), checked
 
 
@@ -261,6 +319,36 @@ def test_all_webapp_sql_qualified_columns_exist_in_schema():
     assert not failures, f"webapp SQL drifted from migrations: {failures}"
     assert len(sources) >= 14, "the webapp SQL inventory shrank without updating this guard"
     assert checked >= 300, f"only {checked} webapp alias.column refs checked — scanner regressed"
+
+
+def test_all_script_sql_qualified_columns_exist_in_schema():
+    """Operational scripts must not name columns absent from migrations."""
+    sources = _sql_literals_in(_ROOT / "scripts")
+
+    failures, checked = _qualified_column_failures(sources, _schema_columns())
+
+    assert not failures, f"script SQL drifted from migrations: {failures}"
+    assert len(sources) >= 20, "the script SQL inventory shrank without updating this guard"
+    assert checked >= 175, f"only {checked} script alias.column refs checked — scanner regressed"
+
+
+def test_qualified_column_guard_resolves_reused_cte_alias_per_scope():
+    """A CTE alias must not hide or misbind a same-named base-table alias."""
+    sources = {
+        "cte.py": [
+            """
+            WITH document_rollup AS (
+                SELECT d.removed_title FROM documents d
+            )
+            SELECT d.expected_sentences FROM document_rollup d
+            """
+        ]
+    }
+
+    failures, checked = _qualified_column_failures(sources, _schema_columns())
+
+    assert checked == 1
+    assert failures == ["cte.py: d.removed_title not in documents"]
 
 
 def test_qualified_column_guard_rejects_a_removed_schema_column():

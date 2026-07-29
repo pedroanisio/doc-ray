@@ -30,6 +30,7 @@ from doc_ray.entrypoints.mcp import (  # noqa: F401
     semantic,
     server,
     structure,
+    tool_meta,
 )
 
 _GRAPHQL_SCHEMA = build_schema(build_strawberry_schema(debug=True).as_str())
@@ -184,6 +185,29 @@ _WRITE_CALLS = [
     lambda: mutations.set_document_default_lens(_DOC, lens_id=_DOC),
     lambda: mutations.set_document_default_lens(_DOC),
 ]
+
+# These three tools compose calls to the primitive corpus/semantic tools and do
+# not embed GraphQL documents of their own. They are the only registered tools
+# intentionally absent from the transport-capture cases above.
+_DELEGATING_TOOLS = frozenset({"briefing_pack", "document_evidence", "entity_dossier"})
+
+
+def test_schema_contract_covers_every_graphql_emitting_mcp_tool() -> None:
+    """A newly registered primitive tool cannot bypass GraphQL validation."""
+    live = set(tool_meta.TOOL_META)
+    exercised = {
+        name
+        for call in _READ_CALLS + _WRITE_CALLS
+        for name in call.__code__.co_names
+        if name in live
+    }
+
+    assert live >= _DELEGATING_TOOLS, "the explicit delegate exemption contains stale tool names"
+    assert exercised <= live
+    assert live - exercised <= _DELEGATING_TOOLS, (
+        "registered MCP tools lack a schema-contract case: "
+        f"{sorted(live - exercised - _DELEGATING_TOOLS)}"
+    )
 
 
 @pytest.mark.parametrize("call", _READ_CALLS + _WRITE_CALLS)

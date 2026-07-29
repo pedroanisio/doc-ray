@@ -44,3 +44,17 @@ def test_the_prose_label_names_every_distinct_format() -> None:
 
     for name in ("PDF", "EPUB", "HTML", "Markdown", "DOCX", "PPTX", "SVG"):
         assert name in label
+
+
+def test_supported_format_names_are_a_public_registry_surface() -> None:
+    """Documentation guards must derive format names instead of copying them."""
+    assert formats.SUPPORTED_FORMAT_NAMES == (
+        "PDF",
+        "EPUB",
+        "HTML",
+        "Markdown",
+        "plain text",
+        "DOCX",
+        "PPTX",
+        "SVG",
+    )

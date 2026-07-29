@@ -30,6 +30,34 @@ def test_public_routes_and_relative_links_resolve() -> None:
     assert not problems, "public link drift:\n" + "\n".join(problems)
 
 
+def test_supported_format_claims_match_the_live_registry() -> None:
+    problems = public_docs.format_registry_problems(ROOT)
+    assert not problems, "supported-format documentation drift:\n" + "\n".join(problems)
+
+
+def test_supported_format_claim_rejects_a_phantom_extension() -> None:
+    problems = public_docs.format_claim_problems(
+        "Supported formats: PDF and `.odt`.",
+        source="synthetic.md",
+        supported_names=("PDF",),
+        supported_extensions=frozenset({".pdf"}),
+    )
+    assert problems == ["synthetic.md: advertises unsupported extension .odt"]
+
+
+def test_public_graphql_examples_validate_against_the_live_schema() -> None:
+    problems = public_docs.graphql_example_problems(ROOT)
+    assert not problems, "public GraphQL example drift:\n" + "\n".join(problems)
+
+
+def test_graphql_example_guard_rejects_an_invalid_argument_type() -> None:
+    problems = public_docs.graphql_example_problems(
+        ROOT,
+        text='```graphql\nquery Broken { documents(limit: "ten") { id } }\n```',
+    )
+    assert any("Int cannot represent" in problem for problem in problems)
+
+
 def test_public_docs_gate_is_wired_into_local_and_ci_checks() -> None:
     command = "scripts/check_public_docs.py"
     for relative in ("Makefile", ".pre-commit-config.yaml", ".github/workflows/ci.yml"):

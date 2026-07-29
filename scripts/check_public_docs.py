@@ -4,7 +4,9 @@
 Checks:
 
 * every GraphQL Query/Mutation root field is named in ``reference/api.md``;
+* every fenced GraphQL example validates against the live schema;
 * every registered MCP tool is named in ``reference/mcp.md``;
+* every supported-format claim matches the central format registry;
 * documented config keys and CLI commands have live implementations;
 * every non-release page marked current targets the canonical app version;
 * every versioned release note agrees with its filename; and
@@ -19,11 +21,20 @@ import sys
 from pathlib import Path
 
 import check_doc_links
+from graphql import GraphQLError, parse, validate
+from graphql import build_schema as build_graphql_schema
 
 _ROOT = Path(__file__).resolve().parent.parent
 _PUBLIC = _ROOT / "docs" / "public"
 _REF = _PUBLIC / "reference"
 _VERSION_FILE_RE = re.compile(r"^(\d+\.\d+\.\d+)\.md$")
+_FORMAT_CLAIM_PATHS = (
+    "README.md",
+    "docs/public/how-to/ingest-a-document.md",
+    "docs/public/troubleshooting/unsupported-document-type.md",
+    "docs/public/concepts/corpus-and-documents.md",
+    "docs/public/faq/index.md",
+)
 
 sys.path.insert(0, str(_ROOT / "src"))
 
@@ -91,6 +102,83 @@ def _backticked(text: str) -> set[str]:
     return set(re.findall(r"`([A-Za-z_][A-Za-z0-9_]*)`", text))
 
 
+def format_claim_problems(
+    text: str,
+    *,
+    source: str,
+    supported_names: tuple[str, ...],
+    supported_extensions: frozenset[str],
+) -> list[str]:
+    """Return missing format names and extensions falsely advertised as supported."""
+    normalized = re.sub(r"[-‐‑–—\s]+", " ", text.casefold())
+    problems = [
+        f"{source}: omits supported format {name}"
+        for name in supported_names
+        if re.sub(r"[-‐‑–—\s]+", " ", name.casefold()) not in normalized
+    ]
+    claim_paragraphs = [
+        paragraph
+        for paragraph in re.split(r"\n\s*\n", text)
+        if re.search(r"\b(?:support(?:ed|s)?|ingest(?:s|ed|ion)?|inputs?)\b", paragraph, re.I)
+    ]
+    claimed_extensions = set(
+        re.findall(r"`(\.[a-z0-9]+)`", "\n".join(claim_paragraphs), re.IGNORECASE)
+    )
+    problems.extend(
+        f"{source}: advertises unsupported extension {extension}"
+        for extension in sorted(claimed_extensions - supported_extensions)
+    )
+    return problems
+
+
+def format_registry_problems(root: Path = _ROOT) -> list[str]:
+    """Return prose format claims that disagree with the live format registry."""
+    from doc_ray.domain.document_formats import (  # noqa: PLC0415
+        SUPPORTED_EXTENSIONS,
+        SUPPORTED_FORMAT_NAMES,
+    )
+
+    problems: list[str] = []
+    for relative in _FORMAT_CLAIM_PATHS:
+        problems.extend(
+            format_claim_problems(
+                (root / relative).read_text(encoding="utf-8"),
+                source=relative,
+                supported_names=SUPPORTED_FORMAT_NAMES,
+                supported_extensions=SUPPORTED_EXTENSIONS,
+            )
+        )
+    return problems
+
+
+def graphql_example_problems(root: Path = _ROOT, *, text: str | None = None) -> list[str]:
+    """Return parse/schema diagnostics for fenced public GraphQL examples."""
+    from doc_ray.entrypoints.api.schema import build_schema  # noqa: PLC0415
+
+    supplied_text = text is not None
+    api_text = (
+        text
+        if text is not None
+        else (root / "docs" / "public" / "reference" / "api.md").read_text(encoding="utf-8")
+    )
+    blocks = re.findall(r"```graphql\s*\n(.*?)```", api_text, re.IGNORECASE | re.DOTALL)
+    problems: list[str] = []
+    if not supplied_text and len(blocks) < 6:
+        problems.append(f"reference/api.md: only {len(blocks)} GraphQL examples found")
+    schema = build_graphql_schema(build_schema(debug=True).as_str())
+    for index, block in enumerate(blocks, start=1):
+        try:
+            document = parse(block)
+        except GraphQLError as exc:
+            problems.append(f"reference/api.md GraphQL example {index}: {exc.message}")
+            continue
+        problems.extend(
+            f"reference/api.md GraphQL example {index}: {error.message}"
+            for error in validate(schema, document)
+        )
+    return problems
+
+
 def reference_surface_problems(root: Path = _ROOT) -> list[str]:
     """Return API/MCP completeness and config/CLI phantom diagnostics."""
     reference = root / "docs" / "public" / "reference"
@@ -128,6 +216,7 @@ def reference_surface_problems(root: Path = _ROOT) -> list[str]:
         problems.append(
             f"reference/cli.md: commands without entrypoints: {', '.join(phantom_cmds)}"
         )
+    problems.extend(graphql_example_problems(root))
     return problems
 
 
@@ -182,6 +271,7 @@ def main() -> int:
     """Run the complete public documentation gate."""
     problems = [
         *reference_surface_problems(),
+        *format_registry_problems(),
         *public_metadata_problems(),
         *release_note_identity_problems(),
         *public_link_problems(),
@@ -191,8 +281,8 @@ def main() -> int:
         print("\n".join(f"  - {problem}" for problem in problems), file=sys.stderr)
         return 1
     print(
-        "public docs OK: live API/MCP surfaces, version metadata, release identities, "
-        "and links are in sync"
+        "public docs OK: live API/MCP surfaces and examples, supported formats, "
+        "version metadata, release identities, and links are in sync"
     )
     return 0
 

@@ -658,8 +658,9 @@ override.
 
 ## Extending
 
-- **New file types**: add an extractor to `src/doc_ray/adapters/extraction.py`
-  and register it in `_EXTRACTORS` (e.g. `.docx`, `.html`, `.txt`).
+- **Supported file types**: PDF, EPUB, HTML, Markdown, plain text, DOCX, PPTX,
+  and SVG. To add another, implement an extractor in
+  `src/doc_ray/adapters/extraction.py` and register its extension in `_EXTRACTORS`.
 - **Semantic / RAG search**: add `CREATE EXTENSION vector;` plus a
   `document_chunks(document_id, chunk_text, embedding vector(N))` table with an
   HNSW index — no migration off Postgres.
