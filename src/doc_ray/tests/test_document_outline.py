@@ -17,10 +17,24 @@ from __future__ import annotations
 
 from doc_ray.domain.document_outline import (
     build_heading_outline,
+    headings_outside_fences,
     parse_heading_lines,
     plan_uniform_buckets,
     select_headings,
 )
+
+
+def _candidates(text: str) -> list[tuple[str, int]]:
+    """Every heading-or-fence line of *text*, as the SQL prefilter returns them."""
+    rows: list[tuple[str, int]] = []
+    offset = 0
+    for line in text.split("\n"):
+        stripped = line.rstrip("\r")
+        if parse_heading_lines(stripped) or stripped[:3] in ("```", "~~~"):
+            rows.append((stripped, offset))
+        offset += len(line) + 1
+    return rows
+
 
 # --------------------------------------------------------------------------
 # 1. Heading detection over the stored text.
@@ -218,3 +232,76 @@ def test_an_empty_document_yields_no_buckets():
 
 def test_a_single_sentence_document_yields_a_single_bucket():
     assert plan_uniform_buckets(total_sentences=1, max_entries=10) == [(0, 0)]
+
+
+# --------------------------------------------------------------------------
+# 5. Code blocks are not structure.
+#
+# A leading ``#`` is a Python or shell comment at least as often as it is a
+# heading, and code reaches full_text from two directions: EPUB/HTML <pre>
+# blocks and .md documents stored verbatim. Detecting one line at a time cannot
+# tell them apart. Measured on *Agentic Architectural Patterns* the confusion
+# produced 1,278 "headings" across 4,897 sentences and presented
+# ``# --- Initialize the LLM ---`` as a chapter title, which in turn made the
+# document unnavigable and got it written off as unusable for evidence.
+# --------------------------------------------------------------------------
+
+
+def test_a_comment_inside_a_fenced_block_is_not_a_heading():
+    text = "# Real Chapter\n```python\n# Initialize the LLM\nllm = build()\n```\nProse.\n"
+    assert headings_outside_fences(_candidates(text)) == [(1, "Real Chapter", 0)]
+
+
+def test_headings_resume_after_the_block_closes():
+    text = "# One\n```\n# not a heading\n```\n## Two\n"
+    assert [(level, title) for level, title, _ in headings_outside_fences(_candidates(text))] == [
+        (1, "One"),
+        (2, "Two"),
+    ]
+
+
+def test_offsets_survive_fence_filtering_so_headings_still_map_onto_spans():
+    # The offset is what joins a heading to its sentence; dropping fenced lines
+    # must not shift the ones that remain.
+    text = "# One\n```\n# comment\n```\n## Two\n"
+    (_, _, first), (_, _, second) = headings_outside_fences(_candidates(text))
+    assert first == text.index("# One")
+    assert second == text.index("## Two")
+
+
+def test_a_tilde_fence_is_honoured_as_well_as_backticks():
+    text = "~~~\n# comment\n~~~\n# Real\n"
+    assert headings_outside_fences(_candidates(text)) == [(1, "Real", text.index("# Real"))]
+
+
+def test_a_backtick_fence_is_not_closed_by_a_tilde_line():
+    # Mismatched delimiters would reopen heading detection inside a code block.
+    text = "```\n# comment\n~~~\n# still code\n```\n# Real\n"
+    assert headings_outside_fences(_candidates(text)) == [(1, "Real", text.index("# Real"))]
+
+
+def test_a_longer_fence_is_not_closed_by_a_shorter_one():
+    text = "````\n```\n# comment\n````\n# Real\n"
+    assert headings_outside_fences(_candidates(text)) == [(1, "Real", text.index("# Real"))]
+
+
+def test_a_delimiter_carrying_an_info_string_cannot_close_a_block():
+    # ```` ```python ```` inside an open block is content per CommonMark; treating
+    # it as a close would expose the rest of the sample to heading detection.
+    text = "```\n# comment\n```python\n# still code\n```\n# Real\n"
+    assert headings_outside_fences(_candidates(text)) == [(1, "Real", text.index("# Real"))]
+
+
+def test_an_unterminated_block_suppresses_every_later_heading():
+    # Failing closed matters: a truncated scan must not resurrect comment lines
+    # as chapter titles. Fewer honest headings beats a confident wrong outline.
+    text = "# One\n```\n# comment\n# another comment\n"
+    assert headings_outside_fences(_candidates(text)) == [(1, "One", 0)]
+
+
+def test_a_document_with_no_fences_is_unchanged():
+    text = "# Book One\nprose\n## Chapter Two\n"
+    assert headings_outside_fences(_candidates(text)) == [
+        (1, "Book One", 0),
+        (2, "Chapter Two", text.index("## Chapter Two")),
+    ]

@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 
 from doc_ray.adapters import persistence_read as read
+from doc_ray.adapters.sentence_search_sql import HELPER_FUNCTION
 
 
 class _Cursor:
@@ -16,11 +17,26 @@ class _Cursor:
 
 
 class _Conn:
-    def __init__(self, batches: list[list[dict]]) -> None:
+    """Answers page statements from *batches*, and the BL-188 probe separately.
+
+    The indexed-candidate probe is a real statement these paths now issue, but
+    it is not a page, so it is kept out of ``calls`` and out of the batch queue:
+    the contracts below are about batching, ordering and row shape, and would
+    otherwise all have to restate the routing decision to say anything.
+    ``candidates`` empty is the "fall back to the old predicate" answer, which
+    is what every assertion here was written against.
+    """
+
+    def __init__(self, batches: list[list[dict]], *, candidates: list[dict] | None = None) -> None:
         self.batches = list(batches)
+        self.candidates = list(candidates or [])
         self.calls: list[tuple[str, dict]] = []
+        self.probe_calls: list[tuple[str, dict]] = []
 
     async def execute(self, sql: str, params: dict) -> _Cursor:
+        if HELPER_FUNCTION in sql:
+            self.probe_calls.append((sql, params))
+            return _Cursor(list(self.candidates))
         self.calls.append((sql, params))
         return _Cursor(self.batches.pop(0) if self.batches else [])
 

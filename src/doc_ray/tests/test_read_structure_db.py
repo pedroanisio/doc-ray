@@ -29,6 +29,22 @@ _WITH_HEADINGS = (
     "Duncan Idaho returned. The ghola remembered everything.\n"
 )
 
+#: A technical book: real headings around fenced code whose comment lines are
+#: syntactically indistinguishable from ATX headings. Measured on *Agentic
+#: Architectural Patterns*, treating those comments as structure produced 1,278
+#: "headings" across 4,897 sentences and made the document unnavigable.
+_WITH_CODE_BLOCK = (
+    "# Agent Self-Defense\n"
+    "The pattern separates instructions from untrusted data. It hardens one agent.\n"
+    "```python\n"
+    "# --- Initialize the LLM ---\n"
+    "# Compare results against a defined tolerance\n"
+    "agent = build()\n"
+    "```\n"
+    "## Agent Mesh Defense\n"
+    "A firewall agent intercepts lateral movement. It checks the access policy list.\n"
+)
+
 #: A novel as the PDF extractor actually leaves it — no heading survived.
 _NO_HEADINGS = (
     "Paul walked the sand. The spice flowed around him. "
@@ -75,6 +91,38 @@ def test_headings_become_ordinal_ranges_that_cover_the_document(pg):
 
             # The offsets are real positions in the stored text, not indexes.
             assert entries[1]["char_start"] == _WITH_HEADINGS.index("## Chapter Two")
+        finally:
+            await aconn.close()
+
+    asyncio.run(check())
+
+
+def test_comment_lines_in_fenced_code_do_not_become_headings(pg):
+    # End-to-end regression for the pollution that made a real corpus document
+    # unusable: the SQL prefilter must return fence delimiters alongside heading
+    # candidates, and the domain walk must drop everything between them. Proving
+    # this needs a database because the fence lines only reach the filter through
+    # that SQL.
+    doc_id = _seed(pg, _WITH_CODE_BLOCK)
+
+    async def check():
+        aconn = await _aconn()
+        try:
+            outline = await structure_read.document_outline(aconn, doc_id)
+            assert outline["source"] == "headings"
+            titles = [e["title"] for e in outline["entries"]]
+            assert titles == ["Agent Self-Defense", "Agent Mesh Defense"]
+            assert "--- Initialize the LLM ---" not in titles
+            assert "Compare results against a defined tolerance" not in titles
+
+            # Still a usable map: contiguous and reaching the last sentence.
+            assert outline["entries"][0]["ordinal_start"] == 0
+            assert outline["entries"][-1]["ordinal_end"] == outline["total_sentences"] - 1
+
+            # The surviving offsets are still true positions in the stored text.
+            assert outline["entries"][1]["char_start"] == _WITH_CODE_BLOCK.index(
+                "## Agent Mesh Defense"
+            )
         finally:
             await aconn.close()
 

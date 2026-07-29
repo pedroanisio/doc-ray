@@ -112,6 +112,70 @@ def test_html_emits_markdown_headings_and_list_items():
     ]
 
 
+def test_html_fences_preformatted_blocks_so_comments_are_not_headings():
+    # Regression: an unfenced <pre> put ``# Initialize the LLM`` into full_text as
+    # a syntactically valid ATX heading. On *Agentic Architectural Patterns* that
+    # yielded 1,278 "headings" across 4,897 sentences and made the outline
+    # unusable, which got the document written off as unfit for evidence.
+    html = (
+        b"<html><body><h1>Patterns</h1>"
+        b"<pre># Initialize the LLM\nllm = build()</pre>"
+        b"<p>After.</p></body></html>"
+    )
+
+    e = extract(html, "code-html", ".html")
+
+    assert e.full_text.splitlines() == [
+        "# Patterns",
+        "```",
+        "# Initialize the LLM",
+        "llm = build()",
+        "```",
+        "After.",
+    ]
+
+
+def test_a_code_sample_containing_a_fence_gets_a_longer_fence():
+    # A book about Markdown or agents will show fenced blocks inside its own code
+    # samples. A fixed three-backtick fence would close early and leak the
+    # remainder back into heading detection.
+    html = b"<html><body><pre>```\n# inner comment\n```</pre></body></html>"
+
+    e = extract(html, "nested-fence", ".html")
+
+    lines = e.full_text.splitlines()
+    assert lines[0] == "````" and lines[-1] == "````"
+    assert "# inner comment" in lines
+
+
+def test_markup_inside_a_code_block_is_sample_text_not_structure():
+    html = b"<html><body><pre><h1>not a real heading</h1></pre></body></html>"
+
+    e = extract(html, "markup-in-code", ".html")
+
+    assert "# not a real heading" not in e.full_text
+    assert "not a real heading" in e.full_text
+
+
+def test_an_unclosed_preformatted_block_still_emits_its_content():
+    # Buffering code until </pre> means a malformed document could drop it
+    # entirely. Losing text is a worse failure than the noise fencing prevents.
+    html = b"<html><body><h1>Title</h1><pre>agent = build()"
+
+    e = extract(html, "unclosed-pre", ".html")
+
+    assert "agent = build()" in e.full_text
+    assert e.full_text.splitlines() == ["# Title", "```", "agent = build()", "```"]
+
+
+def test_an_empty_preformatted_block_emits_no_fence():
+    html = b"<html><body><h1>Title</h1><pre>   </pre><p>Body.</p></body></html>"
+
+    e = extract(html, "empty-pre", ".html")
+
+    assert e.full_text.splitlines() == ["# Title", "Body."]
+
+
 def _minimal_svg() -> bytes:
     return b"""<?xml version="1.0" encoding="UTF-8"?>
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 100">
@@ -454,4 +518,32 @@ def test_epub_emits_markdown_headings_and_list_items():
         "Opening.",
         "- Step one",
         "- Step two",
+    ]
+
+
+def test_epub_fences_code_blocks_so_they_do_not_pollute_the_outline():
+    # The path that actually broke: a technical EPUB whose code samples are full
+    # of ``#`` comment lines. Every one of them became a chapter title.
+    data = _epub_with_documents(
+        {
+            "OEBPS/ch1.xhtml": (
+                '<html xmlns="http://www.w3.org/1999/xhtml"><body>'
+                "<h1>Agent Self-Defense</h1>"
+                "<pre># --- Initialize the LLM ---\nagent = build()</pre>"
+                "<p>The pattern hardens an agent.</p>"
+                "</body></html>"
+            )
+        },
+        spine=("OEBPS/ch1.xhtml",),
+    )
+
+    e = extract(data, "code-book", ".epub")
+
+    assert e.full_text.splitlines() == [
+        "# Agent Self-Defense",
+        "```",
+        "# --- Initialize the LLM ---",
+        "agent = build()",
+        "```",
+        "The pattern hardens an agent.",
     ]

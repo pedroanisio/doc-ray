@@ -217,6 +217,50 @@ def test_cost_based_choice_is_not_asserted_here_and_why(seeded):
     )
 
 
+#: How a routed page reads once the helper has supplied a complete candidate
+#: set: the pattern still decides the hit, but an id equality can carry the
+#: lookup. This one runs as the *API* role, under RLS, with no definer.
+RESTRICTED_PAGE_SQL = (
+    "SELECT s.id FROM sentences s "
+    "WHERE s.text ILIKE %(p1)s AND s.id = ANY(%(ids)s::ulid[]) LIMIT 200"
+)
+
+
+def test_an_id_restricted_page_reaches_an_index_under_plain_rls(seeded):
+    """Why completeness gating works at all, stated as a plan (BL-187, #51).
+
+    The defect is specific to *non-leakproof* quals: `texticlike` may not be
+    evaluated ahead of the security qual, so RLS buries the trigram index. Plain
+    equality is leakproof, so `s.id = ANY(...)` is under no such restriction and
+    the primary key stays reachable to an ordinary RLS-subject caller.
+
+    That asymmetry is the whole design. The definer helper pays for the one
+    thing RLS forbids — turning a pattern into a bounded set of ids — and hands
+    back something the normal, RLS-enforced query can index on its own. If this
+    ever fails, the page has lost its index and routing is buying nothing.
+    """
+    conn = _as_api(seeded["principal"])
+    try:
+        ids = [
+            row["id"]
+            for row in conn.execute(
+                "SELECT id FROM sentences WHERE document_id = %s LIMIT 50", (seeded["doc"],)
+            ).fetchall()
+        ]
+        assert ids, "the fixture document is unreadable to its own principal"
+        conn.execute("SET enable_seqscan = off")
+        node = _scan_node(
+            conn.execute(
+                "EXPLAIN " + RESTRICTED_PAGE_SQL, {"p1": f"%{PROBE_TERM}%", "ids": ids}
+            ).fetchall()
+        )
+    finally:
+        conn.close()
+
+    assert "Seq Scan" not in node, f"the id-restricted page fell back to a scan: {node!r}"
+    assert "Index" in node or "Bitmap" in node
+
+
 def test_a_term_too_short_for_a_trigram_is_documented_as_a_scan(seeded):
     """`of`, `it` cannot be indexed — pg_trgm needs three characters.
 

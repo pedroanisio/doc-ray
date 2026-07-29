@@ -20,9 +20,9 @@ from __future__ import annotations
 import asyncio
 
 import psycopg
-from psycopg.rows import dict_row
 
 from doc_ray.adapters import persistence_read as read
+from doc_ray.tests._mutations_common import _aconn_as
 
 _TEXT = (
     "Hick’s law bounds decision time. "
@@ -31,19 +31,30 @@ _TEXT = (
     "A 100% increase — see the “scale” note — was recorded."
 )
 
+#: Distinctive so no other suite's fixture can contribute a hit.
+ADMIN_PID = "00000000-0000-0000-0000-0000000000f8"
+
 
 async def _aconn() -> psycopg.AsyncConnection:
-    import _itdb
+    """A connection scoped the way every production reader is: role + principal.
 
-    return await psycopg.AsyncConnection.connect(
-        _itdb.DB_URL, row_factory=dict_row, autocommit=True
-    )
+    This used to connect unscoped, which worked only because the owner role is
+    exempt from RLS and therefore saw the whole table. Since BL-188 candidate
+    selection runs inside `docray_readable_sentence_ids`, which applies
+    `docray_readable_documents()` *explicitly* rather than leaning on the
+    policy, an unscoped connection resolves no readable documents and every
+    assertion here would pass or fail for reasons that have nothing to do with
+    the matching rule under test. The API, the webapp and MCP all carry a
+    principal; the fixture now does too.
+    """
+    return await _aconn_as(ADMIN_PID)
 
 
 def _seed(pg) -> str:
     import _itdb
 
     conn, created = pg
+    _itdb.ensure_admin_principal(conn, ADMIN_PID, "test-sentence-matching")
     doc_id = _itdb.make_doc(conn, _TEXT)
     created.append(doc_id)
     return doc_id
