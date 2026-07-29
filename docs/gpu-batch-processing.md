@@ -4,8 +4,8 @@ disclaimer:
     No information within this document should be taken for granted.
     Any statement or premise not backed by a real logical definition
     or verifiable reference may be invalid, erroneous, or a hallucination.
-  generated_by: "Claude Opus 4.8 (1M context) via Claude Code"
-  date: "2026-07-15"
+  generated_by: "Claude Opus 5 (1M context) via Claude Code"
+  date: "2026-07-29"
 ---
 
 # Ephemeral GPU Batch Processing (H200)
@@ -136,11 +136,17 @@ Without `--owner`, a loaded document is **unowned** — under migration 102 that
 means admin-only, not "visible to everyone". Pass `--owner <login-email>` at load
 time, or move them afterwards with `scripts/assign_document_owner.py`.
 
-Confirm the queue depth you're about to burn GPU on:
+Confirm the queue depth you're about to burn GPU on. **`SET ROLE docray_batch`
+is not optional here.** `jobs` is under FORCE row-level security (migration 106)
+and the login role `docray` holds no `BYPASSRLS` attribute — membership does not
+confer it, only `SET ROLE` does. Query without it and every count comes back
+**0** no matter how deep the queue is: measured on 2026-07-29, the bare query
+reported `0` against a real depth of `391`.
 
 ```bash
 psql "$DATABASE_URL" -Atc \
-  "SELECT status, count(*) FROM jobs WHERE status IN ('queued','running') GROUP BY status;"
+  "SET ROLE docray_batch;
+   SELECT status, count(*) FROM jobs WHERE status IN ('queued','running') GROUP BY status;"
 ```
 
 ### Phase 2 — Spin up the H200
@@ -182,11 +188,18 @@ been empty for a few consecutive checks, drain gracefully, then **destroy**.
 ```bash
 # Wait for the queue to stay empty across 3 checks (guards against a job briefly
 # between states), then tear down. Destroying stops billing.
+#
+# The SET ROLE is load-bearing, for the same reason as in Phase 1: without it RLS
+# hides every row and `depth` is 0 on the first check. This loop would then reach
+# an empty-streak of 3 and DELETE the droplet three minutes after you created it,
+# with the whole batch still queued — the work survives (the reaper releases it),
+# but the machine you are paying for does not.
 empty=0
 until [ "$empty" -ge 3 ]; do
   sleep 60
   depth=$(psql "$DATABASE_URL" -Atc \
-    "SELECT count(*) FROM jobs WHERE status IN ('queued','running');")
+    "SET ROLE docray_batch;
+     SELECT count(*) FROM jobs WHERE status IN ('queued','running');")
   if [ "$depth" = "0" ]; then empty=$((empty+1)); else empty=0; fi
   echo "queue depth=$depth  empty-streak=$empty"
 done
@@ -229,3 +242,22 @@ GPU tier becomes routine.
 - **Ingestion is CPU-bound; annotation is GPU-bound.** The H200 accelerates the
   `annotate` (trf) stage; PDF extraction still runs on the droplet's CPUs, so
   size `N` against both GPU and vCPU headroom.
+- **Read cost attribution as `docray_batch`.** `job_telemetry` is under the same
+  FORCE-RLS regime, so the bare query returns an empty table and reads as "the
+  telemetry writer is broken" when it is working perfectly. What the invoice
+  question actually looks like — GPU host-seconds per kind, and the speedup that
+  justifies the card:
+
+  ```bash
+  psql "$DATABASE_URL" -c \
+    "SET ROLE docray_batch;
+     SELECT host, device, kind, count(*) AS jobs,
+            round(avg(duration_ms)/1000.0, 1) AS avg_s,
+            round(sum(duration_ms)/1000.0, 1) AS host_seconds
+     FROM job_telemetry
+     WHERE finished_at > now() - interval '24 hours'
+     GROUP BY 1,2,3 ORDER BY host_seconds DESC;"
+  ```
+
+  `DOCRAY_WORKER_HOST` is what makes the `host` column an invoice line rather
+  than a container id, so set it per machine before the first job lands.

@@ -8,6 +8,7 @@ from doc_ray.application.job_handlers import HANDLERS
 from doc_ray.domain.jobs import (
     DEFAULT_PIPELINE_CHAIN,
     KIND_ANNOTATE,
+    KIND_CANONICALIZE,
     KIND_SCORE_MENTIONS,
     LONG_RUNNING_JOB_KINDS,
     Job,
@@ -125,8 +126,20 @@ def test_score_job_requires_a_document():
         raise AssertionError("missing document_id was accepted")
 
 
-def test_score_job_is_registered_immediately_after_annotation_and_stays_on_fast_lane():
-    annotate_index = DEFAULT_PIPELINE_CHAIN.index(KIND_ANNOTATE)
-    assert DEFAULT_PIPELINE_CHAIN[annotate_index + 1] == KIND_SCORE_MENTIONS
+def test_score_job_runs_after_every_mention_minting_step_and_stays_on_fast_lane():
+    """Scoring must follow annotation AND canonicalization, not just annotation.
+
+    This test previously pinned score_mentions to ``annotate + 1``. That position
+    is what made 131,172 mentions unscorable: canonicalization's registry scan
+    mints a ``term``-layer entity_mention per matched form, and at position 2 the
+    scorer ran before those rows existed, so their confidence stayed NULL for good
+    (measured 2026-07-29 across 624 documents — 100% of that layer). The invariant
+    is "after everything that creates mentions", not "immediately after annotate".
+    """
+    scoring_index = DEFAULT_PIPELINE_CHAIN.index(KIND_SCORE_MENTIONS)
+    for minting_step in (KIND_ANNOTATE, KIND_CANONICALIZE):
+        assert DEFAULT_PIPELINE_CHAIN.index(minting_step) < scoring_index
     assert HANDLERS[KIND_SCORE_MENTIONS] is application.handle_score_mentions
+    # Still a fast-lane job: it is deterministic arithmetic over existing facts,
+    # so it must not be routed to the GPU pool.
     assert KIND_SCORE_MENTIONS not in LONG_RUNNING_JOB_KINDS

@@ -19,6 +19,11 @@ from doc_ray.domain import sentences as sent_mod
 from doc_ray.domain.jobs import DEFAULT_PIPELINE_CHAIN
 from doc_ray.domain.progress import report_progress
 
+#: Recorded on a document whose bytes stored fine but yielded no readable text.
+#: Shared with the repair path (``application.retry_extract``) so the corpus has
+#: one spelling of this failure and the retry can recognise what it is fixing.
+NO_EXTRACTABLE_TEXT = "no extractable text — scanned/image-only file? OCR required before ingest"
+
 
 @dataclass
 class IngestResult:
@@ -142,9 +147,7 @@ def ingest_bytes(
         # A file with nothing to read must fail loudly, not become an empty
         # document that "succeeds" through the whole pipeline (live incident:
         # a 368-page scanned PDF with zero text layer).
-        return record_failure(
-            "no extractable text — scanned/image-only file? OCR required before ingest"
-        )
+        return record_failure(NO_EXTRACTABLE_TEXT)
 
     report_progress(3, 5, "Storing original blob")
     uri = store.put(key, data, extracted.content_type)

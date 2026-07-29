@@ -118,6 +118,27 @@ def test_app_base_image_is_pinned_to_an_immutable_digest():
     assert _PINNED_PYTHON_BASE_IMAGE in images
 
 
+def test_runtime_image_ships_the_ocr_engine_the_extractor_depends_on():
+    """The worker must be able to read a scan, not just advise OCR.
+
+    Tesseract was installed only in ``docker/test/Dockerfile``, so OCR passed in
+    CI and was impossible in production: every image-only PDF landed as
+    ``status='failed'`` recommending a remedy no deployed image could perform.
+    The runtime image must install the engine and at least one language pack,
+    before it drops privileges (apt needs root).
+    """
+    lines = [
+        line.strip().rstrip("\\").strip()
+        for line in _DOCKERFILE.read_text(encoding="utf-8").splitlines()
+    ]
+    assert "tesseract-ocr" in lines, "runtime image installs no OCR engine"
+    assert any(line.startswith("tesseract-ocr-") for line in lines), "no OCR language pack"
+
+    install_at = lines.index("tesseract-ocr")
+    user_at = max(i for i, line in enumerate(lines) if line.startswith("USER "))
+    assert install_at < user_at, "apt install must run before the image drops root"
+
+
 def test_dockerfile_drops_root_before_the_entrypoint():
     """BL-112: parsing untrusted uploads (PDF/EPUB/DOCX) must not run as root.
 

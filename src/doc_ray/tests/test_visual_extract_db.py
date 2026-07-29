@@ -175,3 +175,182 @@ def test_visual_extract_writes_features_and_replaces(pg: Any) -> None:
         _count(conn, "SELECT count(*) n FROM document_image WHERE document_id=%s", doc_id)
         == again["images"]
     )
+
+
+# --- EPUB containers (regression) --------------------------------------------
+#
+# Tier-1 gated on _is_pdf and returned {"skipped": "not-pdf"} with the job marked
+# succeeded, so 283 EPUBs (43% of the corpus, measured 2026-07-29) had an entirely
+# empty visual layer and nothing recorded an error. One sampled book held 141
+# rasters — 68% of its own bytes — against zero document_image rows.
+
+
+def _epub_with_one_figure() -> bytes:
+    """A minimal but real EPUB: container, OPF spine, one chapter, one raster."""
+    import zipfile
+
+    buf = BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        zf.writestr(
+            "META-INF/container.xml",
+            '<?xml version="1.0"?><container version="1.0" '
+            'xmlns="urn:oasis:names:tc:opendocument:xmlns:container"><rootfiles>'
+            '<rootfile full-path="OEBPS/content.opf" '
+            'media-type="application/oebps-package+xml"/></rootfiles></container>',
+        )
+        zf.writestr(
+            "OEBPS/content.opf",
+            '<?xml version="1.0"?><package xmlns="http://www.idpf.org/2007/opf" version="3.0">'
+            '<manifest><item id="c1" href="c1.xhtml" media-type="application/xhtml+xml"/>'
+            '</manifest><spine><itemref idref="c1"/></spine></package>',
+        )
+        zf.writestr("OEBPS/c1.xhtml", '<html><body><img src="fig1.png"/></body></html>')
+        zf.writestr("OEBPS/fig1.png", _busy_png())
+    return buf.getvalue()
+
+
+def _make_epub_document(conn: Any, created: list[str], store_key: str) -> tuple[str, Any, bytes]:
+    epub = _epub_with_one_figure()
+    store = _FakeStore({store_key: epub})
+    doc_id = db.insert_document(
+        conn,
+        title="epub-vis",
+        doc_type="epub",
+        source_uri=f"s3://{_BUCKET}/{store_key}",
+        content_sha256=hashlib.sha256(epub).hexdigest(),
+        byte_size=len(epub),
+        page_count=None,
+        full_text="",
+        status="extracted",
+        sentences=[],
+    )
+    created.append(doc_id)
+    return doc_id, store, epub
+
+
+def test_epub_embedded_rasters_are_extracted_and_featurized(pg: Any) -> None:
+    from doc_ray.adapters.epub_image_source_zip import ZipEpubImageSource
+
+    conn, created = pg
+    doc_id, store, _ = _make_epub_document(conn, created, "originals/it-visual.epub")
+
+    result = extract_document_visuals(
+        conn,
+        store,
+        doc_id,
+        renderer=PyMuPDFRenderer(),
+        image_source=PyMuPDFImageSource(),
+        epub_image_source=ZipEpubImageSource(),
+    )
+
+    assert result["images"] == 1
+    assert result["embedded_rasters"] == 1
+    assert result["container"] == "epub"
+    assert store.puts, "the crop must be stored content-addressed"
+    # Every image row gets its Tier-1 features, exactly as on the PDF path.
+    assert _count(conn, "SELECT count(*) n FROM document_image WHERE document_id=%s", doc_id) == 1
+    assert (
+        _count(conn, "SELECT count(*) n FROM image_tier1_features WHERE document_id=%s", doc_id)
+        == 1
+    )
+
+
+def test_epub_images_carry_spine_position_and_no_invented_geometry(pg: Any) -> None:
+    """Reflowable text has no page box, so bbox must be NULL rather than fabricated."""
+    from doc_ray.adapters.epub_image_source_zip import ZipEpubImageSource
+
+    conn, created = pg
+    doc_id, store, _ = _make_epub_document(conn, created, "originals/it-geom.epub")
+
+    extract_document_visuals(
+        conn,
+        store,
+        doc_id,
+        renderer=PyMuPDFRenderer(),
+        image_source=PyMuPDFImageSource(),
+        epub_image_source=ZipEpubImageSource(),
+    )
+
+    row = conn.execute(
+        "SELECT page_number, source, xref, bbox_x0, bbox_y0, bbox_x1, bbox_y1, "
+        "width_px, height_px, detector FROM document_image WHERE document_id=%s",
+        (doc_id,),
+    ).fetchone()
+    assert row["page_number"] == 1  # spine index of the referencing chapter
+    assert row["source"] == "embedded-raster"
+    assert row["xref"] is None  # a PDF concept
+    assert (row["bbox_x0"], row["bbox_y0"], row["bbox_x1"], row["bbox_y1"]) == (
+        None,
+        None,
+        None,
+        None,
+    )
+    assert row["width_px"] > 0 and row["height_px"] > 0
+    assert row["detector"] == "doc-ray/epub-embedded-raster"
+
+
+def test_epub_re_extraction_replaces_rather_than_accumulates(pg: Any) -> None:
+    from doc_ray.adapters.epub_image_source_zip import ZipEpubImageSource
+
+    conn, created = pg
+    doc_id, store, _ = _make_epub_document(conn, created, "originals/it-idem.epub")
+    kwargs: dict[str, Any] = {
+        "renderer": PyMuPDFRenderer(),
+        "image_source": PyMuPDFImageSource(),
+        "epub_image_source": ZipEpubImageSource(),
+    }
+
+    first = extract_document_visuals(conn, store, doc_id, **kwargs)
+    second = extract_document_visuals(conn, store, doc_id, **kwargs)
+
+    assert first["images"] == second["images"] == 1
+    assert _count(conn, "SELECT count(*) n FROM document_image WHERE document_id=%s", doc_id) == 1
+
+
+def test_an_unopenable_format_records_which_format_it_skipped(pg: Any) -> None:
+    """The silent-success failure mode: a skip must name the format.
+
+    While every non-PDF returned the bare string "not-pdf", an operator reading
+    jobs.result could not tell "this document has no images" from "this pipeline
+    cannot open this document at all" — which is how 43% of the corpus came to look
+    image-free with nobody noticing.
+    """
+    conn, created = pg
+    doc_id = db.insert_document(
+        conn,
+        title="plain-text",
+        doc_type="txt",
+        source_uri=f"s3://{_BUCKET}/originals/it-plain.txt",
+        content_sha256=hashlib.sha256(b"hello").hexdigest(),
+        byte_size=5,
+        page_count=None,
+        full_text="hello",
+        status="extracted",
+        sentences=[],
+    )
+    created.append(doc_id)
+
+    result = extract_document_visuals(
+        conn,
+        _FakeStore({"originals/it-plain.txt": b"hello"}),
+        doc_id,
+        renderer=PyMuPDFRenderer(),
+        image_source=PyMuPDFImageSource(),
+    )
+
+    assert result["skipped"] == "unsupported-format"
+    assert result["doc_type"] == "txt"
+    assert result["images"] == 0
+
+
+def test_epub_without_a_wired_source_is_reported_not_silently_empty(pg: Any) -> None:
+    # Defence in depth: if a caller forgets to wire the adapter, the result must say
+    # so rather than look like a book with no pictures.
+    conn, created = pg
+    doc_id, store, _ = _make_epub_document(conn, created, "originals/it-nosrc.epub")
+
+    result = extract_document_visuals(
+        conn, store, doc_id, renderer=PyMuPDFRenderer(), image_source=PyMuPDFImageSource()
+    )
+
+    assert result["skipped"] == "no-epub-image-source"

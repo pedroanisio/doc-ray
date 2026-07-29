@@ -499,7 +499,9 @@ def test_home_renders_file_type_preview_fallback_and_status(client, monkeypatch)
     assert "DOCX" in html
     assert "HTML" in html
     assert "Preview pending" in html
-    assert "Preview failed" in html
+    # Not "Preview failed": nothing tried to preview it. What failed was reading
+    # the text out of a file that is stored and intact.
+    assert "Text extraction failed" in html
     assert f"/doc/{pending_id}/page/1.png" not in html
     assert f"/doc/{failed_id}/page/1.png" not in html
 
@@ -4079,6 +4081,63 @@ def test_failed_document_shows_the_reason_it_failed(monkeypatch):
 
     assert "no extractable text" in html
     assert "OCR required before ingest" in html
+
+
+def test_failed_document_offers_the_retry_that_can_actually_recover_it(monkeypatch):
+    """The failure box must offer the repair, not declare the document unfixable.
+
+    It used to end with "fix the source file and ingest the corrected version" —
+    the only advice available when nothing in the product could re-read stored
+    bytes. Altering a file so its hash changes is not a remedy for an extractor
+    that has since learned to OCR.
+    """
+    client = _failed_doc_client(monkeypatch, "no extractable text")
+
+    html = client.get(f"/doc/{DOC_ID}").get_data(as_text=True)
+
+    assert 'name="step" value="retry_extract"' in html
+    assert "Retry extraction" in html
+    assert "Fix the source file" not in html
+
+
+def test_healthy_document_does_not_offer_extraction_retry(client):
+    """A document with text has nothing to repair; retrying would be destructive."""
+    html = client.get(f"/doc/{DOC_ID}").get_data(as_text=True)
+
+    assert 'name="step" value="retry_extract"' not in html
+
+
+def test_retry_extract_posts_the_repair_mutation(monkeypatch):
+    calls = []
+
+    def fake_gql(query, variables=None):
+        calls.append((query, variables))
+        return {"retryDocumentExtraction": {"id": "job-1"}}
+
+    client = _failed_doc_client(monkeypatch, "no extractable text")
+    monkeypatch.setattr(webapp, "gql", fake_gql)
+    token = _csrf_token_from(client.get(f"/doc/{DOC_ID}").get_data(as_text=True))
+
+    resp = client.post(
+        f"/doc/{DOC_ID}/reprocess",
+        data={"step": "retry_extract", "csrf_token": token},
+    )
+
+    assert resp.status_code == 302
+    assert "retryDocumentExtraction" in calls[0][0]
+    assert "reprocess_queued=retry_extract" in resp.headers["Location"]
+
+
+def test_retry_extract_is_refused_for_a_document_that_is_not_failed(client):
+    token = _csrf_token_from(client.get(f"/doc/{DOC_ID}").get_data(as_text=True))
+
+    resp = client.post(
+        f"/doc/{DOC_ID}/reprocess",
+        data={"step": "retry_extract", "csrf_token": token},
+    )
+
+    assert resp.status_code == 302
+    assert "reprocess_error" in resp.headers["Location"]
 
 
 def test_failed_document_without_a_recorded_reason_still_explains_itself(monkeypatch):

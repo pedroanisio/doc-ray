@@ -172,6 +172,19 @@ services:
       DOCRAY_STRIPE_PORTAL_RETURN_URL: ${DOCRAY_STRIPE_PORTAL_RETURN_URL:-}
       DOCRAY_STRIPE_API_BASE: ${DOCRAY_STRIPE_API_BASE:-https://api.stripe.com/v1}
       DOCRAY_BILLING_ENFORCEMENT_ENABLED: ${DOCRAY_BILLING_ENFORCEMENT_ENABLED:-false}
+      # The read path builds its OWN encoder (semantic_query._query_text_encoder,
+      # visual_query's OpenClip factory) to embed the query text. A query encoded
+      # by a different model than the stored vectors returns nonsense ranked
+      # confidently, so the API must be pinned from the same variables as the
+      # workers that wrote them — not left on independent code defaults.
+      # logging_setup reads these from the process env; without a pass-through the
+      # registry documents a knob that no containerised deployment can actually turn.
+      DOCRAY_LOG_LEVEL: ${DOCRAY_LOG_LEVEL:-INFO}
+      DOCRAY_LOG_FORMAT: ${DOCRAY_LOG_FORMAT:-}
+      DOCRAY_SEMANTIC_MODEL: ${DOCRAY_SEMANTIC_MODEL:-sentence-transformers/all-mpnet-base-v2}
+      DOCRAY_SEMANTIC_DEVICE: ${DOCRAY_SEMANTIC_DEVICE:-auto}
+      DOCRAY_VISION_MODEL: ${DOCRAY_VISION_MODEL:-ViT-L-14}
+      DOCRAY_VISION_PRETRAINED: ${DOCRAY_VISION_PRETRAINED:-openai}
     ports:
       - "${API_PORT:-8000}:8000"
     # /readyz is 503 unless BOTH Postgres and the object store answer, so a
@@ -385,6 +398,25 @@ services:
       # Tier-2 vision embedding loads OpenCLIP and may process hundreds of images.
       WORKER_JOB_TIMEOUT_VISUAL_EMBED_SECONDS: ${WORKER_JOB_TIMEOUT_VISUAL_EMBED_SECONDS:-14400}
       DOCRAY_RESOLVER_TIMEOUT_SECONDS: ${DOCRAY_RESOLVER_TIMEOUT_SECONDS:-60}
+      # Encoder identity, passed through EXPLICITLY. The adapters read these from
+      # the process env, so without these lines an operator's env-file pin is
+      # inert: the container falls back to the code default and nothing errors.
+      # That is the dangerous shape of this bug — semantic_embed/visual_embed
+      # write vectors into a corpus shared with the query path, so a pin that
+      # silently does not apply produces embeddings that are simply wrong rather
+      # than absent. Defaults here MIRROR the code defaults
+      # (text_encoder_sentence_transformers.DEFAULT_MODEL_NAME,
+      # job_handlers vision fallbacks, visual_embed._DEFAULT_BATCH_SIZE), so
+      # passing them through changes no behaviour — it only makes the pin real.
+      # logging_setup reads these from the process env; without a pass-through the
+      # registry documents a knob that no containerised deployment can actually turn.
+      DOCRAY_LOG_LEVEL: ${DOCRAY_LOG_LEVEL:-INFO}
+      DOCRAY_LOG_FORMAT: ${DOCRAY_LOG_FORMAT:-}
+      DOCRAY_SEMANTIC_MODEL: ${DOCRAY_SEMANTIC_MODEL:-sentence-transformers/all-mpnet-base-v2}
+      DOCRAY_SEMANTIC_DEVICE: ${DOCRAY_SEMANTIC_DEVICE:-auto}
+      DOCRAY_VISION_MODEL: ${DOCRAY_VISION_MODEL:-ViT-L-14}
+      DOCRAY_VISION_PRETRAINED: ${DOCRAY_VISION_PRETRAINED:-openai}
+      DOCRAY_VISION_BATCH_SIZE: ${DOCRAY_VISION_BATCH_SIZE:-16}
     entrypoint: ["python", "-m", "doc_ray.entrypoints.worker"]
 
   # Short-job lane: a reserved worker that never claims the hours-long spaCy
@@ -418,6 +450,18 @@ services:
       # overlay accelerates), not here.
       WORKER_EXCLUDE_KINDS: ${WORKER_FAST_EXCLUDE_KINDS:-annotate,reannotate,visual_extract,semantic_embed,visual_embed}
       DOCRAY_RESOLVER_TIMEOUT_SECONDS: ${DOCRAY_RESOLVER_TIMEOUT_SECONDS:-60}
+      # Same encoder pins as the heavy pool: the exclude list above is a default,
+      # not a guarantee, and a deployment that routes an embed kind here must not
+      # silently use a different encoder than the pool that wrote the rest.
+      # logging_setup reads these from the process env; without a pass-through the
+      # registry documents a knob that no containerised deployment can actually turn.
+      DOCRAY_LOG_LEVEL: ${DOCRAY_LOG_LEVEL:-INFO}
+      DOCRAY_LOG_FORMAT: ${DOCRAY_LOG_FORMAT:-}
+      DOCRAY_SEMANTIC_MODEL: ${DOCRAY_SEMANTIC_MODEL:-sentence-transformers/all-mpnet-base-v2}
+      DOCRAY_SEMANTIC_DEVICE: ${DOCRAY_SEMANTIC_DEVICE:-auto}
+      DOCRAY_VISION_MODEL: ${DOCRAY_VISION_MODEL:-ViT-L-14}
+      DOCRAY_VISION_PRETRAINED: ${DOCRAY_VISION_PRETRAINED:-openai}
+      DOCRAY_VISION_BATCH_SIZE: ${DOCRAY_VISION_BATCH_SIZE:-16}
     entrypoint: ["python", "-m", "doc_ray.entrypoints.worker"]
 
   # Scheduled backup trigger + retention pruning. The worker performs the

@@ -229,6 +229,7 @@ Every content mutation returns a Job unless noted. Poll the returned Job with th
 | `ingestDocument` | Ingest a Document from an upload **or** a remote reference (exactly one of `file`/`ref`); chains the pipeline when `pipeline` is true. | `file`, `ref`, `title`, `pipeline` |
 | `reextractDocument` | Re-run text extraction for one Document. | `documentId` |
 | `reextractDocuments` | Re-run extraction across Documents. | `onlyMissingGeometry` |
+| `retryDocumentExtraction` | Re-read a **failed** Document's stored original with the current extractor (OCR included) and, on success, promote it and run the full pipeline. The only recovery path: re-uploading identical bytes is deduped by content hash and fails again. | `documentId` |
 | `updateDocumentMetadata` | Edit a Document's title, description, tags, or authors. | `documentId`, `title`, `description`, `tags`, `authors` |
 | `bulkTagDocuments` | Merge tags into several Documents. | `documentIds`, `tags` |
 | `suggestDocumentMetadata` | Generate metadata suggestions for a Document. | `documentId` |

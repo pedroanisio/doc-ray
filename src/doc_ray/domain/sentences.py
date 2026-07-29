@@ -24,6 +24,28 @@ _CLOSERS = ")]}\"'”’»"
 _OPENERS = "([{\"'“‘«¿¡"
 _WS = " \t\r\n\f\v"
 
+#: Hard ceiling on one emitted unit's length, in characters.
+#:
+#: Not every run of text contains a sentence terminator. A book index, a table
+#: of contents, or a dumped table is comma- and newline-separated prose-free
+#: text, so the scan below finds no boundary and emits the whole run as ONE
+#: "sentence": measured 2026-07-29, one document produced a single 30,321-char
+#: row holding its entire index. That row is not merely ugly — it is silently
+#: lossy downstream. Layer 20 embeds one vector per sentence with
+#: all-mpnet-base-v2, whose window is 384 wordpiece tokens (roughly 1,500
+#: characters of English prose, and an approximation — tokenization is
+#: content-dependent); everything past it is truncated away, so ~29,000
+#: characters of that row were unrepresented in semantic search while still
+#: appearing to have an embedding.
+#:
+#: The cap is therefore set at the encoder's window rather than at a round
+#: number: a unit that fits is embedded in full, and a run that does not
+#: contain a sentence boundary is split at whitespace instead of being stored
+#: whole. Genuine long sentences are rare above this length (2 of 8,680 in the
+#: measured document), and splitting one is strictly better than embedding only
+#: its first third.
+MAX_SENTENCE_CHARS = 1500
+
 # Lowercased abbreviations (trailing dot stripped) that do NOT end a sentence.
 _ABBREV = {
     # English titles / common
@@ -136,15 +158,56 @@ def _is_false_boundary(text: str, i: int) -> bool:
     return bool(_ACRONYM.fullmatch(token.lower()))  # "U.S", "e.g", "a.m"
 
 
-def _emit(out: list[Sentence], text: str, start: int, end: int) -> None:
+def _last_whitespace(text: str, start: int, end: int) -> int:
+    """Index of the last whitespace char in ``text[start:end]``, or -1."""
+    for i in range(end - 1, start - 1, -1):
+        if text[i] in _WS:
+            return i
+    return -1
+
+
+def _append(out: list[Sentence], text: str, start: int, end: int) -> None:
+    """Append one unit for ``text[start:end]``, trimming surrounding whitespace."""
     raw = text[start:end]
     stripped = raw.strip()
     if not stripped:
         return
-    lead = len(raw) - len(raw.lstrip())
-    cs = start + lead
+    cs = start + (len(raw) - len(raw.lstrip()))
+    out.append(Sentence(" ".join(stripped.split()), cs, cs + len(stripped)))
+
+
+def _emit(out: list[Sentence], text: str, start: int, end: int) -> None:
+    """Emit ``text[start:end]`` as one unit, or as several if it exceeds the cap.
+
+    A segment over :data:`MAX_SENTENCE_CHARS` contained no sentence boundary for
+    that many characters — an index, a contents list, a table dump — so it is
+    not one sentence and must not be stored as one. It is split at the last
+    whitespace before the cap (falling back to a hard cut when a single token is
+    itself longer than the cap), which keeps the offset contract exact for every
+    piece: each piece's offsets still address its own raw span.
+    """
+    raw = text[start:end]
+    stripped = raw.strip()
+    if not stripped:
+        return
+    cs = start + (len(raw) - len(raw.lstrip()))
     ce = cs + len(stripped)
-    out.append(Sentence(" ".join(stripped.split()), cs, ce))
+    if len(stripped) <= MAX_SENTENCE_CHARS:
+        out.append(Sentence(" ".join(stripped.split()), cs, ce))
+        return
+    pos = cs
+    while pos < ce:
+        limit = pos + MAX_SENTENCE_CHARS
+        if limit >= ce:
+            _append(out, text, pos, ce)
+            return
+        cut = _last_whitespace(text, pos + 1, limit)
+        if cut <= pos:  # one unbroken token longer than the cap
+            cut = limit
+        _append(out, text, pos, cut)
+        pos = cut
+        while pos < ce and text[pos] in _WS:  # next piece starts on content
+            pos += 1
 
 
 def split_sentences(text: str) -> list[Sentence]:

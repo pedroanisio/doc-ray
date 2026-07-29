@@ -195,6 +195,7 @@ BILLING_GUARDED_MUTATIONS = {
     "reannotate": "mutation.reannotate",
     "reextract_document": "mutation.reextract",
     "reextract_documents": "mutation.reextract_documents",
+    "retry_document_extraction": "mutation.retry_extract",
     "reject_projection": "mutation.reject_projection",
     "remove_document_from_collection": "mutation.remove_document_from_collection",
     "restore_backup": "mutation.restore",

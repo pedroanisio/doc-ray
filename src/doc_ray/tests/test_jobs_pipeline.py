@@ -480,12 +480,43 @@ def test_default_pipeline_chain_is_the_documented_post_ingest_order():
 
     assert DEFAULT_PIPELINE_CHAIN == (
         "annotate",
-        "score_mentions",
         "semantic_enrich",
         "canonicalize",
+        "score_mentions",
         "semantic_embed",
         "visual_extract",
     )
+
+
+def test_scoring_runs_after_canonicalize_so_minted_mentions_are_scored():
+    """Regression: canonicalize MINTS mentions, so scoring must not precede it.
+
+    Canonicalization's registry scan writes a ``term``-layer annotation with one
+    ``entity_mention`` per matched form. With ``score_mentions`` at position 2
+    those rows did not exist when the scorer ran, so their confidence stayed NULL
+    permanently — measured 2026-07-29 as 131,172 unscored term mentions across
+    624 documents, 100% of that layer, while every spaCy mention on the same
+    documents was scored. Nothing failed; the confidence column just silently
+    lied by omission to every surface that ranks or triages on it.
+
+    This asserts the ordering rather than the counts, because the ordering is the
+    invariant: any mention-minting step placed before the scorer reintroduces the
+    bug, and the only way to be safe is for scoring to come last among them.
+    """
+    from doc_ray.domain.jobs import (
+        DEFAULT_PIPELINE_CHAIN,
+        KIND_ANNOTATE,
+        KIND_CANONICALIZE,
+        KIND_SCORE_MENTIONS,
+    )
+
+    scoring = DEFAULT_PIPELINE_CHAIN.index(KIND_SCORE_MENTIONS)
+    # Every step that creates entity_mention rows must precede the scorer.
+    for minting_step in (KIND_ANNOTATE, KIND_CANONICALIZE):
+        assert DEFAULT_PIPELINE_CHAIN.index(minting_step) < scoring, (
+            f"{minting_step} mints entity_mention rows but runs after "
+            f"{KIND_SCORE_MENTIONS}; those mentions can never be scored"
+        )
 
 
 def test_every_ingested_document_becomes_semantically_reachable():

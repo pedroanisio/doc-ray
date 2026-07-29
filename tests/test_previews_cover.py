@@ -35,8 +35,28 @@ def test_non_pdf_image_preview_carries_no_srcset() -> None:
     assert preview["srcset"] is None
 
 
-def test_pending_and_failed_previews_stay_icons_without_a_cover_request() -> None:
-    for status in ("pending", "failed"):
-        preview = _preview("pdf", status=status)
-        assert preview["kind"] == "icon"
-        assert preview["src"] is None
+def test_pending_previews_stay_icons_without_a_cover_request() -> None:
+    """Nothing to render yet: a pending row exists before its bytes do."""
+    preview = _preview("pdf", status="pending")
+    assert preview["kind"] == "icon"
+    assert preview["src"] is None
+
+
+def test_a_failed_pdf_still_shows_its_first_page() -> None:
+    """ "Preview failed" was never true — no preview had been attempted.
+
+    The state was derived from ``status`` alone, so a scanned PDF whose *text*
+    extraction failed rendered as a grey box claiming its preview had failed,
+    while its bytes sat intact in the store and rendered fine. Showing the page
+    is what lets a reader confirm the diagnosis.
+    """
+    preview = _preview("pdf", status="failed")
+    assert preview["kind"] == "image"
+    assert "/cover.webp?w=160" in preview["src"]
+    assert "failed" in preview["status_label"].lower()
+
+
+def test_a_failed_non_pdf_says_what_actually_failed() -> None:
+    preview = _preview("docx", status="failed")
+    assert preview["kind"] == "icon"
+    assert preview["status_label"] == "Text extraction failed"

@@ -884,7 +884,8 @@ an optional NLTK path for sentences and grammatical chunking).
 | `ANTHROPIC_API_KEY` | unset | Required for the `anthropic` resolver backend |
 | `DOCRAY_OLLAMA_HOST` / `DOCRAY_OLLAMA_MODEL` | `http://localhost:11434` / `qwen2.5` | Local resolver and VLM backend |
 | `DOCRAY_VISION_MODEL` / `DOCRAY_VISION_PRETRAINED` | `ViT-L-14` / `openai` | Tier-2 cross-modal encoder |
-| `DOCRAY_PDF_OCR_LANGUAGE` / `DOCRAY_VLM_OCR_LANGUAGE` | `eng` | OCR language for scanned pages and image crops |
+| `DOCRAY_PDF_OCR` | `1` | OCR a PDF that extracts to zero text; `0` records the failure instead |
+| `DOCRAY_PDF_OCR_LANGUAGE` / `DOCRAY_VLM_OCR_LANGUAGE` | `eng` | OCR language for scanned pages and image crops (image ships `eng`, `por`) |
 
 The canonical registry is `config/env.registry.yaml`; see
 [`environment-configuration.md`](environment-configuration.md).

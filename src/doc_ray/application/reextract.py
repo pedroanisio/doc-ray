@@ -28,7 +28,7 @@ from doc_ray.application import reannotate
 from doc_ray.application.integrity import verify_bytes
 from doc_ray.config import Config
 from doc_ray.domain import sentences as sent_mod
-from doc_ray.domain.jobs import KIND_REEXTRACT
+from doc_ray.domain.jobs import KIND_REEXTRACT, Job
 from doc_ray.domain.progress import report_progress
 from doc_ray.ports.object_store import ObjectStore
 
@@ -143,6 +143,18 @@ def backfill_document_geometry_from_store(
     ext = Path(original).suffix or f".{row.get('doc_type') or 'pdf'}"
     filename = Path(original).stem or "document"
     return backfill_document_geometry(conn, doc_id, data, filename, ext)
+
+
+def handle_reextract(
+    conn: psycopg.Connection[Any], store: ObjectStore | None, job: Job
+) -> dict[str, Any]:
+    """Backfill page/bbox geometry by re-reading a document's original blob."""
+    if job.document_id is None:
+        raise RuntimeError("reextract requires a document_id")
+    if store is None:
+        raise RuntimeError("reextract requires an object store")
+    report_progress(0, 1, "Re-extracting document geometry")
+    return backfill_document_geometry_from_store(conn, store, job.document_id)
 
 
 def enqueue_reextract_jobs(

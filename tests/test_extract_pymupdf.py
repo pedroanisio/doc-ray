@@ -10,6 +10,7 @@ from __future__ import annotations
 import pytest
 
 from doc_ray.adapters import extraction as extract
+from doc_ray.adapters import extraction_pdf as extract_pdf_mod
 from doc_ray.domain import progress as domain_progress
 
 fitz = pytest.importorskip("fitz", reason="PyMuPDF not installed")
@@ -152,8 +153,25 @@ def test_pdf_heading_thresholds_are_loaded_from_environment(monkeypatch):
     assert thresholds.bold_max_words == 4
 
 
-def test_image_only_pdf_ocr_is_disabled_by_default(monkeypatch):
+def test_image_only_pdf_is_ocred_by_default(monkeypatch):
+    """A scan must ingest out of the box.
+
+    OCR used to require ``DOCRAY_PDF_OCR``, and unset is what every deployment
+    ran: a scanned PDF became ``status='failed'`` advising OCR that the product
+    would not perform. The pass only fires when the layout extractor read *no*
+    text, so the alternative to running it is a failed ingest, not a cheap one.
+    """
     monkeypatch.delenv("DOCRAY_PDF_OCR", raising=False)
+
+    ex = extract.extract_pdf_pymupdf(_make_image_only_pdf(), fallback_title="scan")
+
+    assert "SCANNED OCR TEXT" in ex.full_text
+    assert ex.extractor == "pymupdf+ocr"
+    assert ex.metadata["ocr_applied"] is True
+
+
+def test_image_only_pdf_ocr_can_be_switched_off(monkeypatch):
+    monkeypatch.setenv("DOCRAY_PDF_OCR", "0")
 
     ex = extract.extract_pdf_pymupdf(_make_image_only_pdf(), fallback_title="scan")
 
@@ -162,11 +180,50 @@ def test_image_only_pdf_ocr_is_disabled_by_default(monkeypatch):
     assert ex.metadata["ocr_applied"] is False
 
 
-def test_image_only_pdf_uses_opt_in_ocr(monkeypatch):
+def test_ocr_language_is_configurable(monkeypatch):
     monkeypatch.setenv("DOCRAY_PDF_OCR", "1")
+    monkeypatch.setenv("DOCRAY_PDF_OCR_LANGUAGE", "eng")
 
     ex = extract.extract_pdf_pymupdf(_make_image_only_pdf(), fallback_title="scan")
 
-    assert "SCANNED OCR TEXT" in ex.full_text
-    assert ex.extractor == "pymupdf+ocr"
-    assert ex.metadata["ocr_applied"] is True
+    assert ex.metadata["ocr_language"] == "eng"
+
+
+def test_a_failing_ocr_pass_is_reported_not_swallowed(monkeypatch):
+    """A missing Tesseract must name itself, not masquerade as an unreadable file.
+
+    ``extract_pdf`` catches everything from the PyMuPDF path and retries with
+    pypdf. For an image-only PDF that fallback also reads zero characters, so a
+    broken OCR install surfaced as "no extractable text — OCR required": advice
+    to do the very thing that had just failed, with no trace of the real fault.
+    """
+
+    def boom(*_args, **kwargs):
+        if kwargs.get("ocr"):
+            raise RuntimeError("tesseract not found")
+        return []
+
+    monkeypatch.delenv("DOCRAY_PDF_OCR", raising=False)
+    monkeypatch.setattr(extract_pdf_mod, "_blocks_from_pages", boom)
+
+    with pytest.raises(extract.OcrUnavailableError) as excinfo:
+        extract.extract(_make_image_only_pdf(), filename="scan", extension=".pdf")
+
+    assert "tesseract not found" in str(excinfo.value)
+    assert "Tesseract installed" in str(excinfo.value)
+
+
+def test_tessdata_prefix_is_discovered_when_unset(tmp_path, monkeypatch):
+    """PyMuPDF's OCR needs TESSDATA_PREFIX; the image must not have to hardcode it."""
+    tessdata = tmp_path / "usr" / "share" / "tesseract-ocr" / "5" / "tessdata"
+    tessdata.mkdir(parents=True)
+    monkeypatch.setattr(
+        extract_pdf_mod, "_TESSDATA_GLOBS", (str(tmp_path / "usr/share/tesseract-ocr/*/tessdata"),)
+    )
+
+    env: dict[str, str] = {}
+    assert extract_pdf_mod.ensure_tessdata_prefix(env) == str(tessdata)
+    assert env["TESSDATA_PREFIX"] == str(tessdata)
+
+    configured = {"TESSDATA_PREFIX": "/operator/choice"}
+    assert extract_pdf_mod.ensure_tessdata_prefix(configured) == "/operator/choice"

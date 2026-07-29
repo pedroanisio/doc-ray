@@ -155,7 +155,8 @@ arguments and return fields before composing a request.
 - Sharing: `shareDocument`, `setDocumentVisibility`, `revokeDocumentShare`.
 - Visual review: `decideVisualCaptions`.
 - Ingestion, processing, metadata, and lifecycle: `ingestDocument`,
-  `reannotate`, `reextractDocument`, `cancelJob`, `reextractDocuments`,
+  `reannotate`, `reextractDocument`, `retryDocumentExtraction`, `cancelJob`,
+  `reextractDocuments`,
   `deleteDocument`, `archiveDocument`, `restoreDocument`,
   `bulkArchiveDocuments`, `bulkTagDocuments`, `updateDocumentMetadata`,
   `annotateDocument`, `semanticEnrichDocument`, `suggestDocumentMetadata`,

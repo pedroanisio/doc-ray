@@ -51,6 +51,13 @@ def test_graphql_exposes_reextract_backfill_surface():
     assert "reextractDocuments(" in sdl
 
 
+def test_graphql_exposes_the_failed_ingest_repair_mutation():
+    """A failed document needs a way back; re-uploading the same bytes is not one."""
+    sdl = build_schema().as_str()
+
+    assert "retryDocumentExtraction(" in sdl
+
+
 def test_graphql_exposes_document_lifecycle_surface():
     sdl = build_schema().as_str()
 
