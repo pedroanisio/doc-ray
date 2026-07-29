@@ -23,6 +23,19 @@ doc-ray carries **one global version** covering both the application package
 
 ### Fixed
 
+- **The semantic backfill CLI no longer reports a silent no-op as success.**
+  `scripts/enqueue_semantic_backfill.py` connected as the application role,
+  which does not hold `BYPASSRLS`. Against the forced row-level security on
+  `documents`/`sentences` (migration 106) its corpus selection matched **zero
+  rows**, so the command printed `enqueued 0 job(s)` and exited `0` — a result
+  indistinguishable from "the backfill is already complete". Measured on the
+  production cluster, the same query returned **0** rows as `docray` and **580**
+  as `docray_batch`.
+
+  This is an operator-wide batch task, not a per-caller read, so it now assumes
+  `docray_batch` and asserts the corpus is visible before enqueueing, exiting
+  `2` with `CorpusInvisible` when it is not. Both behaviours are pinned by tests.
+
 - **Sentence-text search can reach its index again (#51).** `sentences.text` has
   carried a GIN trigram index since migration 002. Migration 018 put an RLS
   policy on the table, and PostgreSQL will not evaluate a non-leakproof qual
@@ -54,6 +67,27 @@ doc-ray carries **one global version** covering both the application package
   case, because a non-selective predicate fills the candidate cap immediately.
 
 ### Changed
+
+- **Sentence embedding is part of every ingest; it is no longer opt-in.**
+  `semantic_embed` now sits in `DEFAULT_PIPELINE_CHAIN`, after `canonicalize`
+  and before the visual tail, so a document becomes reachable by meaning as a
+  consequence of being ingested rather than of someone remembering to ask.
+
+  The step had been withheld under the in-code D-018 cost argument that keeps
+  the frontier resolver and the GPU visual tiers off the chain. Measurement did
+  not support extending it here: the encoder runs on CPU with no paid API call,
+  at roughly a minute per document — **0.9 h of a measured 80.8 h month**,
+  against 23.8 h for `annotate`, which was already chained. The cost of
+  withholding it was far larger than the cost of running it: only **58 of 637
+  documents (9%)** carried active-model vectors, so `semanticSearchSentences`
+  and its MCP tool answered for a small fraction of the corpus.
+
+  The GraphQL `embedDocumentSentences` mutation and the MCP tool keep their
+  behaviour but are now documented as the re-embed/repair path, and the MCP
+  absence message no longer explains emptiness as "embeddings are opt-in" — it
+  points at an unfinished or failed chained job. `visual_embed` and the frontier
+  resolver remain opt-in: they cost GPU or paid API calls, which is what the
+  D-018 carve-out is actually for.
 
 - **`searchSentences` uses the index-backed helper in both match modes (#51).**
   BL-187 routed only `termFrequency`, whose bounded scan is a count and can

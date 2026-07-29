@@ -29,9 +29,19 @@ rather than chunked or downgraded. They carry the tag **`pending-trf-h200`**.
 > `en_core_web_sm` runs were removed during the migration and the worker image
 > no longer ships `en_core_web_sm`). They stay unannotated until the H200 run.
 >
-> **Measured 2026-07-29:** 46 Documents still carry `pending-trf-h200`. Recheck
-> the configured database instead of copying this count:
-> `python scripts/check_gpu_exit_readiness.py --env-file .env --json`.
+> **Re-measured 2026-07-29 (supersedes the 46 previously recorded here):**
+> **0** Documents carry `pending-trf-h200`, against a corpus of **658** documents
+> of which **636** hold a `spacy/en_core_web_trf@3.8.14` annotation. On that
+> evidence this file has met its `retire-when` condition.
+>
+> ⚠ **Do not measure this with `check_gpu_exit_readiness.py` alone.** That script
+> connects as `docray`, which is subject to forced RLS on `documents` and
+> `document_tags` (migration 106) and therefore counts **0 rows regardless of the
+> truth** — it reports `ready` for an invisible corpus exactly as it does for a
+> discharged one. The counts above were taken via `SET ROLE docray_batch`
+> (`BYPASSRLS`). See
+> [GPU_EXIT_PLAN.md § The readiness gate is fail-open](GPU_EXIT_PLAN.md#the-readiness-gate-is-fail-open).
+> Retire this file only once that gate fails closed.
 
 ## Work-list
 
