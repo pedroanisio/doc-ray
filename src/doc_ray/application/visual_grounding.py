@@ -106,6 +106,17 @@ def _is_proper(token: str, index: int) -> bool:
         return True
     if sum(1 for c in token if c.isupper()) > 1:  # e.g. A330, iPhone
         return True
+    # A single character is never a distinctive label. Degenerate VLM output is
+    # dense in bare "A", and treating each one as a named entity is what let
+    # token soup clear the specificity gate and auto-commit with a 0.98 score
+    # (BL-195, seven such captions found committed on 2026-07-29).
+    if len(token) < 2:
+        return False
+    # A capitalised stopword is still a stopword. "The", "In" and "As" appear
+    # mid-caption in degenerate output and match any document's prose, so
+    # counting them as entities makes noise look grounded.
+    if token.lower() in _STOPWORDS:
+        return False
     return index > 0  # a capitalized word that isn't the first token
 
 

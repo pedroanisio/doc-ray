@@ -23,6 +23,45 @@ doc-ray carries **one global version** covering both the application package
 
 ### Fixed
 
+- **The caption grounding gate scored token soup as near-perfectly grounded
+  (BL-195).** `_is_proper` returned `index > 0` for *any* token containing an
+  uppercase letter, so a bare `"A"` mid-caption counted as a named entity.
+  Degenerate VLM output — dense in `A`, `The`, `In`, `as` — therefore cleared the
+  two-distinct-specific-terms gate *and* matched almost any document, because
+  those tokens occur everywhere.
+
+  The gate is the PALS verification layer for Tier-3 captions, so this did not
+  merely mis-score: **ten captions that were pure token soup had been committed**
+  — promoted to trusted, reader-visible output — with grounding scores up to
+  1.00, including one caption that was eighty consecutive dashes at 0.89.
+
+  A single character is now never a distinctive label, and a capitalised stopword
+  is still a stopword. The change is surgical: re-scoring the 1,200
+  highest-scoring captions moves three verdicts, all of them plainly degenerate.
+  Real acronyms, numerals and multi-letter proper nouns are unaffected, which the
+  tests pin explicitly.
+
+- **VLM reasoning scaffolding reached the human review queue (BL-196).** The
+  Tier-3 model emits its `<think>` block, leaked tool-call JSON and
+  chat-template sentinels (`<|im_end|>`, and a degraded `[im_end]` form) inline
+  with the caption, and all of it was persisted verbatim: 386 of 6,122 rows on
+  the production corpus. Two consequences, both bad — an operator was asked to
+  adjudicate strings carrying no information, and the grounding metric scored the
+  scaffolding *as if it were the caption*, dragging sound captions down.
+
+  Captions are now sanitised before they are grounded, so the recorded score
+  describes the caption; and structurally invalid output is rejected by rule
+  rather than queued for a person. Invalidity is a **content** test, not a length
+  one: a character floor drawn from the corpus distribution would have rejected
+  legitimate short captions such as "a diagram of an aircraft".
+
+  `scripts/repair_caption_scaffolding.py` repairs rows written before the fix —
+  in place, never deleted, since a rejected caption is still the audit trail for
+  a paid-for API call. Applied to production: 268 recovered into readable prose,
+  133 rejected as scaffolding-only, 3 committed rows demoted for failing the
+  corrected specificity gate. Scaffolding-bearing rows fell from 386 to 5, with
+  zero false positives measured across 2,000 clean captions.
+
 - **The semantic backfill CLI no longer reports a silent no-op as success.**
   `scripts/enqueue_semantic_backfill.py` connected as the application role,
   which does not hold `BYPASSRLS`. Against the forced row-level security on

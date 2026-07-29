@@ -107,10 +107,10 @@ disclaimer: |
 
 metadata:
   schema_version:   "1.0.0"
-  generated_by:     "Claude Sonnet 5 via Claude Code (merge of Claude Opus 4.8 backlog + OpenAI Codex improvement-proposal candidates); BL-181/BL-182/BL-183/BL-184 by OpenAI GPT-5 via Codex; BL-188/BL-189..BL-193 by Claude Opus 5 via Claude Code"
+  generated_by:     "Claude Sonnet 5 via Claude Code (merge of Claude Opus 4.8 backlog + OpenAI Codex improvement-proposal candidates); BL-181/BL-182/BL-183/BL-184 by OpenAI GPT-5 via Codex; BL-188/BL-189..BL-193 by Claude Opus 5 via Claude Code; BL-194..BL-200 by Claude Opus 5 (1M context) via Claude Code, applying TC-DXP-001.product-surfaces.tc-v0.3"
   generated_on:     "2026-07-29"
   system_of_record: "docs/backlog.yml"
-  total_items:      193
+  total_items:      200
 
 items:
 
@@ -7123,3 +7123,266 @@ items:
     owner:        "shared"
     source:       "Found 2026-07-29 while specifying the intake-preparation tool (BL-189): the spec's format table did not match any user-facing surface. Completed the same session, test-first."
     tags:         ["extraction", "docs", "drift", "webapp", "tech-debt"]
+  - id:          "BL-194"
+    title:        "The caption review queue cannot be worked: 5,851 proposals, 25 per page, no bulk selection"
+    summary:      "visualReview paginates 25 items at a time with a checkbox per item and no select-all, no range select and no keyboard path, so clearing the 5,851 pending caption proposals means 234 sequential pages of individual clicks. The queue is not reviewable by construction, and it grows with every captioned document."
+    description: |
+      webapp/templates/review.html renders each proposal as an <article> with a
+      single unlabelled checkbox and one shared Approve/Reject pair per page;
+      webapp/review_web.py fixes PAGE_SIZE = 25 and the GraphQL query hard-codes
+      limit: 25. There is no select-all, no shift-range selection, no keyboard
+      affordance, and no way to act on the queue as a set.
+
+      Measured 2026-07-29 on the production corpus: 6,122 caption rows, of which
+      5,851 are status='review'. At PAGE_SIZE 25 that is 234 pages.
+
+      TC-DXP-001 CLM-DXP-DX-CHOICE-PARALYSIS names this shape directly: too many
+      options presented at once with no cue as to which matters. CLM-S5 holds that
+      decision time rises logarithmically with option count, and CLM-S4 that users
+      arrive with expectations built from every other product they use — bulk
+      selection is the established convention for any inbox-shaped surface.
+      Note this is a workflow defect, not a styling one: a visually perfect page
+      still leaves 5,851 individual decisions.
+    category:     "webapp"
+    type:         "tech-debt"
+    status:       "ready"
+    complexity:   "M"
+    priority:     "critical"
+    rationale:    "The human-verification gate is the control that makes untrusted VLM output safe to use. A gate no operator can physically work is not a control; it is an unbounded queue that silently converts into permanent non-adoption."
+    acceptance_criteria:
+      - "The visual lane offers select-all-on-page and select-all-matching-filter, with the selected count shown before the action is taken."
+      - "A destructive bulk action states how many items it will affect and is reversible or confirmable before it commits."
+      - "PAGE_SIZE is configurable rather than a literal, and the visual lane's GraphQL limit is driven by the same value instead of a hard-coded 25."
+      - "An operator can clear a 1,000-item band without more than 20 interactions."
+    dependencies: ["BL-200"]
+    references:
+      - "webapp/templates/review.html (visual lane, per-item checkbox)"
+      - "webapp/review_web.py:17 PAGE_SIZE = 25; :45 visualReview(limit: 25)"
+      - "TC-DXP-001.product-surfaces.tc-v0.3 CLM-DXP-DX-CHOICE-PARALYSIS, CLM-S4, CLM-S5"
+      - "Session finding 2026-07-29: 6,122 visual_caption rows, 5,851 status='review'"
+    owner:        "unassigned"
+    source:       "Session finding 2026-07-29 (operator review of /review visual lane); measured against the production corpus"
+    tags:         ["review-queue", "ux", "visual-caption", "pals-gate"]
+  - id:          "BL-195"
+    title:        "The caption grounding gate never opens: no proposal scores above 80% against a 0.8 auto-commit threshold"
+    summary:      "Grounding scores across the review queue top out in the 60-80% band and 43% fall below 20%, while the auto-commit threshold is 0.8 — so no caption can ever commit automatically and every proposal is routed to a human. Only 31 of 6,122 captions are committed."
+    description: |
+      Measured 2026-07-29, grounding_score distribution for status='review':
+        0-20%   2,525
+        20-40%  1,953
+        40-60%  1,005
+        60-80%    377
+        80-100%     0
+
+      With AUTO_COMMIT_THRESHOLD at 0.8 the commit path is unreachable by
+      construction. Corpus-wide only 31 captions are 'committed' against 5,851 in
+      'review' and 231 'rejected'.
+
+      Two hypotheses, and they lead to opposite work, so the calibration question
+      must be answered before any queue-clearing effort is spent:
+        (a) the captions really are poorly grounded, and the generator or its
+            prompt is the defect;
+        (b) the grounding scorer is miscalibrated and a 70%-scored caption is in
+            fact accurate, in which case the threshold is the defect.
+
+      Both backends are represented — qwen3-vl:32b-instruct (3,714) and
+      nemotron-nano-12b-v2-vl (2,408) — and both produce the same low band, so
+      this is not an artefact of the retired local Ollama path.
+    category:     "nlp"
+    type:         "bug"
+    status:       "done"
+    complexity:   "M"
+    priority:     "critical"
+    rationale:    "A verification gate whose pass condition is unreachable does not verify anything; it defers everything. Until the scorer is shown to be calibrated, neither the queue size nor the caption quality can be interpreted."
+    acceptance_criteria:
+      - "A sample of at least 30 captions is scored by hand across the 0-20, 20-40, 40-60 and 60-80 bands, and agreement between human judgement and grounding_score is reported."
+      - "The result explicitly attributes the low band to generator quality, scorer calibration, or both, with the evidence for the attribution."
+      - "If the scorer is miscalibrated, the threshold or the metric is corrected and the existing rows are re-scored rather than re-generated."
+      - "If the generator is at fault, the caption lane is paused before further proposals are enqueued."
+    dependencies: []
+    references:
+      - "Session finding 2026-07-29: grounding distribution over visual_caption where status='review'"
+      - "visual_caption.grounding_score / .status / .model columns"
+      - "docs/proposals/prism-visual-layer.md (AUTO_COMMIT_THRESHOLD=0.8)"
+    owner:        "unassigned"
+    source:       "Session finding 2026-07-29; measured directly against the production visual_caption table"
+    tags:         ["visual-caption", "pals-gate", "calibration"]
+  - id:          "BL-196"
+    title:        "Corrupted VLM output reaches the human queue instead of being rejected mechanically"
+    summary:      "About 6% of caption proposals carry leaked reasoning scaffolding — unstripped <think> blocks, <|im_start|>/<|im_end|> chat-template tokens, U+FFFD replacement characters and degenerate token runs — and are presented to a human as reviewable proposals rather than being rejected by rule."
+    description: |
+      Measured 2026-07-29 across 6,122 caption rows:
+        starts with '<th' (truncated <think>)        364  (5.9%)
+        contains <think> or </think>                 118  (1.9%)
+        contains <|im_start|> / <|im_end|>            26  (0.4%)
+        contains U+FFFD replacement character         48  (0.8%)
+        shorter than 40 characters                   317  (5.2%)
+        free of every leakage marker               5,737 (93.7%)
+
+      One observed caption is the entire string '<th a ,'. These are mechanically
+      detectable and carry no information; a human decision on them is wasted.
+
+      Two defects sit behind this. First, the adapter does not strip the model's
+      reasoning block or its chat-template sentinels before persisting the caption.
+      Second, nothing rejects structurally invalid output before it is queued for a
+      person. TC-DXP-001 CLM-S9 — be liberal in what the interface accepts and
+      conservative in what it emits — is violated at the emit step: raw model
+      scaffolding is rendered to the operator verbatim.
+    category:     "nlp"
+    type:         "bug"
+    status:       "done"
+    complexity:   "S"
+    priority:     "high"
+    rationale:    "Presenting structurally invalid model output as a reviewable proposal spends the scarcest resource in the system — operator attention — on items that can be rejected by a regular expression, and it destroys trust in every other item in the queue."
+    acceptance_criteria:
+      - "The caption adapter strips reasoning blocks and chat-template sentinels before persisting, and a test pins that behaviour for each known marker."
+      - "Structurally invalid captions are auto-rejected with a recorded reason rather than entering status='review'."
+      - "The existing 364+ corrupted rows are back-filled to 'rejected' with that reason, not silently deleted."
+      - "The rejection rule is asserted by a test using real captured malformed output, not a synthetic string."
+    dependencies: []
+    references:
+      - "Session finding 2026-07-29: leakage-marker counts over visual_caption"
+      - "src/doc_ray/adapters/vlm_ollama.py, src/doc_ray/adapters/vlm_vllm.py"
+      - "TC-DXP-001.product-surfaces.tc-v0.3 CLM-S9"
+    owner:        "unassigned"
+    source:       "Session finding 2026-07-29; operator screenshots of /review plus direct measurement of visual_caption.caption"
+    tags:         ["visual-caption", "data-quality", "pals-gate"]
+  - id:          "BL-197"
+    title:        "The review queue has no triage: no sort, no filter, and the worst proposals surface first"
+    summary:      "The visual lane returns proposals in storage order with no sort by grounding score, no filter by band, model or document, and no saved view — so an operator opening the queue meets the least useful items first and has no way to reach the items worth deciding on."
+    description: |
+      The lane offers a document_id scope and nothing else. There is no ordering by
+      grounding_score, no band filter, no model filter (the queue mixes
+      qwen3-vl:32b-instruct and nemotron-nano-12b-v2-vl output), and no way to
+      exclude the structurally invalid rows described in BL-196.
+
+      The operational consequence was observed directly: the first screen an
+      operator saw contained 45.5%, 18.3%, 0.0%, 30.7% and 1.4% items, three of
+      which were token soup. The reasonable conclusion drawn was that the whole
+      corpus is garbage, when in fact 93.7% is well-formed prose.
+
+      TC-DXP-001 CLM-DXP-DX-CANT-FIND holds that findability precedes usability and
+      that a system whose content cannot be found has failed; CLM-T4 constrains
+      breadth by what a user can visually scan, not by what fits in a page.
+    category:     "webapp"
+    type:         "feature"
+    status:       "ready"
+    complexity:   "M"
+    priority:     "high"
+    rationale:    "Ordering determines what an operator believes about the corpus. An unordered queue over a skewed distribution produces a false impression of the whole from an unrepresentative head, and that misjudgement is expensive to reverse."
+    acceptance_criteria:
+      - "The visual lane can be sorted by grounding_score ascending and descending, and the active sort is visible."
+      - "The lane can be filtered by grounding band, by model, and by document, and filters compose."
+      - "The default view is ordered so the items most likely to be approved appear first."
+      - "The filter state is reflected in the URL so a view can be shared and resumed."
+    dependencies: ["BL-196"]
+    references:
+      - "webapp/review_web.py:142 _visual_lane (document_id + cursor only)"
+      - "webapp/review_web.py:45 visualReview(documentId, status, limit, after)"
+      - "TC-DXP-001.product-surfaces.tc-v0.3 CLM-DXP-DX-CANT-FIND, CLM-T4"
+    owner:        "unassigned"
+    source:       "Session finding 2026-07-29 (operator screenshots showing unordered low-grounding head)"
+    tags:         ["review-queue", "ux", "visual-caption"]
+  - id:          "BL-198"
+    title:        "Caption proposals render as undifferentiated walls of text with no visual hierarchy"
+    summary:      "Each proposal renders the full caption as a single unstyled paragraph with no truncation, no emphasis on the decision-relevant part and no separation between the model's prose and its leaked scaffolding, so proposals cannot be compared by scanning."
+    description: |
+      review.html emits `<p>{{ item.caption }}</p>` with no length cap, no
+      structure and no distinction between a 40-character fragment and a
+      600-character description. Adjacent proposals are separated only by a 1px
+      top border, and the grounding pill sits below the text rather than beside the
+      decision control.
+
+      TC-DXP-001 CLM-S7 requires content chunked into visually distinct groups with
+      a clear information hierarchy. The decision an operator is making is
+      'is this caption true of that image' — so the image, the caption and the
+      score are the decision unit, and they are currently spread across three
+      loosely related blocks with the image behind a link to another page.
+    category:     "webapp"
+    type:         "tech-debt"
+    status:       "ready"
+    complexity:   "S"
+    priority:     "medium"
+    rationale:    "The operator's task is comparison under repetition. Without visual hierarchy every item costs full reading effort, which multiplies directly by queue depth."
+    acceptance_criteria:
+      - "Long captions are clamped with an affordance to expand, so proposals occupy comparable vertical space."
+      - "The grounding score, the caption and the image thumbnail form one visually bounded decision unit."
+      - "The image is visible in the queue rather than only reachable via a link to another page."
+      - "Proposal boundaries are unambiguous at a glance when scrolling."
+    dependencies: []
+    references:
+      - "webapp/templates/review.html (visual lane markup and .review-item styles)"
+      - "TC-DXP-001.product-surfaces.tc-v0.3 CLM-S7"
+    owner:        "unassigned"
+    source:       "Session finding 2026-07-29 (operator screenshots of /review visual lane)"
+    tags:         ["review-queue", "ux", "visual-caption"]
+  - id:          "BL-199"
+    title:        "The review queue discloses a count but never progress, remaining effort, or scale"
+    summary:      "The lane tab shows a raw pending count and nothing else: no page position, no total pages, no indication that the count is five thousand rather than fifty, and no sense of whether a session made progress."
+    description: |
+      The operator sees 'Visual captions 5851' and a page of 25. There is no
+      'page N of 234', no per-session decided count, and no indication that the
+      queue grows as documents are captioned. An operator cannot tell whether an
+      hour of work moved the number.
+
+      TC-DXP-001 CLM-S10 holds that people judge an experience by its emotional
+      peak and its ending; a queue that gives no evidence of progress has no
+      ending to design. The absence of scale disclosure is also what allows the
+      queue to reach 5,851 unnoticed.
+    category:     "webapp"
+    type:         "feature"
+    status:       "ready"
+    complexity:   "XS"
+    priority:     "medium"
+    rationale:    "Unbounded work with no progress signal is abandoned. The count alone communicates volume but not tractability, which is the thing an operator needs in order to start at all."
+    acceptance_criteria:
+      - "The lane shows page position and total pages for the active filter."
+      - "The number of items decided in the current session is visible."
+      - "The queue surfaces its growth rate or its oldest pending item, so an unattended backlog is visible before it reaches five figures."
+    dependencies: ["BL-197"]
+    references:
+      - "webapp/templates/review.html (lane tabs and pending counts)"
+      - "webapp/review_web.py:53 _pending_counts"
+      - "TC-DXP-001.product-surfaces.tc-v0.3 CLM-S10"
+    owner:        "unassigned"
+    source:       "Session finding 2026-07-29 (operator screenshots of /review lane tabs)"
+    tags:         ["review-queue", "ux"]
+  - id:          "BL-200"
+    title:        "Decide whether visual captions require per-item human approval at all"
+    summary:      "Captions are retrieval and enrichment aids, not facts asserted into the trusted graph, yet they are gated by per-item human approval — the strictest control the system has. If their use is bounded to ranking, the review queue and every UX defect filed against it cease to exist."
+    description: |
+      This is the prior question behind BL-194 and BL-197: building a better queue
+      for a queue that should not exist is the expensive way to avoid the decision.
+
+      ports/text_encoder.py already documents the alternative posture for a
+      different model output: embeddings are 'safe by use, not by verification',
+      because a ranking signal never asserts a fact into the trusted graph and so
+      needs no verification gate. Captions may or may not qualify for the same
+      treatment, and that turns on where caption text is actually consumed.
+
+      PALS's Law requires that untrusted model output be verified before it is
+      trusted. It does not require that verification be a human decision per item —
+      bounding the use is also a verification strategy, and is the one that scales.
+
+      The decision is the operator's; this item is the analysis that informs it, not
+      a proposal to weaken the gate.
+    category:     "docs"
+    type:         "research"
+    status:       "done"
+    complexity:   "M"
+    priority:     "high"
+    rationale:    "Every other item in this group assumes a human-adjudicated queue is the right control. If it is not, that work is wasted, so the question must be answered before the UX work is scheduled."
+    acceptance_criteria:
+      - "Every consumer of visual_caption.caption is enumerated, distinguishing ranking/retrieval use from any path that presents the text as an assertion."
+      - "The finding states whether captions can be bounded to ranking-only use, with the evidence."
+      - "If they can, a decision is drafted for engineering_decisions.yml recording the posture and its limits, mirroring the text_encoder precedent."
+      - "If they cannot, the residual assertion paths are named and the human gate is kept for those paths only."
+    dependencies: []
+    references:
+      - "src/doc_ray/ports/text_encoder.py (safe-by-use precedent)"
+      - "src/doc_ray/ports/vlm.py, src/doc_ray/ports/verification.py"
+      - "CLAUDE.md — PALS's Law (LLM output verification requirement)"
+      - "Session finding 2026-07-29: 5,851 pending, 31 committed corpus-wide"
+    owner:        "unassigned"
+    source:       "Session finding 2026-07-29; arises from the observation that the commit path is unreachable (BL-195) while the queue grows unboundedly"
+    tags:         ["visual-caption", "pals-gate", "architecture"]

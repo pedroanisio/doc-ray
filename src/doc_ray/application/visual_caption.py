@@ -22,6 +22,7 @@ import psycopg
 
 from doc_ray.application.resolution import AUTO_COMMIT_THRESHOLD
 from doc_ray.application.visual_grounding import GroundingResult, grounding_score
+from doc_ray.domain.caption_text import is_structurally_invalid, sanitize_caption
 from doc_ray.domain.progress import report_progress
 from doc_ray.domain.ulid import new_ulid_str
 from doc_ray.ports.image_ocr import ImageOcr
@@ -35,10 +36,15 @@ STATUS_REJECTED = "rejected"
 
 @dataclass(frozen=True)
 class CaptionDecision:
-    """The gated verdict for one VLM caption."""
+    """The gated verdict for one VLM caption.
+
+    ``caption`` is the sanitised text — the same string that was grounded, so a
+    caller persists what was actually scored rather than the raw model output.
+    """
 
     status: str
     grounding: GroundingResult
+    caption: str = ""
 
 
 def gate_caption(
@@ -46,16 +52,28 @@ def gate_caption(
 ) -> CaptionDecision:
     """Verify + ground a VLM caption and decide commit / review / reject (pure).
 
-    Empty/malformed captions are rejected outright. Otherwise the specificity-
-    weighted grounding score decides: at/above ``threshold`` and specific enough
-    -> committed; anything else -> review (never trusted on the low path).
+    The caption is sanitised first: a reasoning-capable VLM emits its
+    deliberation and chat-template sentinels inline, and scoring that scaffolding
+    as if it were the caption drags an otherwise sound caption's grounding toward
+    zero. Sanitising before grounding means the score describes the caption.
+
+    Structurally invalid captions — empty, or too short to be a caption at all
+    once scaffolding is removed — are rejected outright rather than queued, so a
+    human is never asked to adjudicate token soup (BL-196). That is a judgement
+    about the *string*, not about whether the caption is true; truth is what
+    grounding measures, and a well-formed caption that grounds poorly still goes
+    to review.
+
+    Otherwise the specificity-weighted grounding score decides: at/above
+    ``threshold`` and specific enough -> committed; anything else -> review
+    (never trusted on the low path).
     """
-    caption = (output.caption or "").strip()
-    if not caption:
-        return CaptionDecision(STATUS_REJECTED, grounding_score("", evidence_text))
+    caption = sanitize_caption(output.caption)
+    if is_structurally_invalid(caption):
+        return CaptionDecision(STATUS_REJECTED, grounding_score("", evidence_text), caption)
     grounding = grounding_score(caption, evidence_text)
     committed = grounding.score >= threshold and not grounding.insufficient_specificity
-    return CaptionDecision(STATUS_COMMITTED if committed else STATUS_REVIEW, grounding)
+    return CaptionDecision(STATUS_COMMITTED if committed else STATUS_REVIEW, grounding, caption)
 
 
 def _grounded_against(decision: CaptionDecision) -> dict[str, Any]:
@@ -165,7 +183,7 @@ def caption_document_images(
                     new_ulid_str(),
                     image_id,
                     document_id,
-                    output.caption,
+                    decision.caption,
                     json.dumps(output.analysis),
                     model,
                     vlm.model_version,
@@ -183,7 +201,7 @@ def caption_document_images(
                         new_ulid_str(),
                         image_id,
                         document_id,
-                        json.dumps({"caption": output.caption, "analysis": output.analysis}),
+                        json.dumps({"caption": decision.caption, "analysis": output.analysis}),
                         decision.grounding.score,
                         json.dumps(grounded),
                     ),
