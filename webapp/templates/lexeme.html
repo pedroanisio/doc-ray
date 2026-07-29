@@ -1,4 +1,6 @@
 {% extends "base.html" %}
+{% set back_url = url_for('lexemes') %}
+{% set back_label = 'Lexicon' %}
 {% block title %}{{ lex.lemma }} · doc·ray{% endblock %}
 {% block body %}
 <p class="kicker"><a href="{{ url_for('lexemes') }}">← Lexicon</a></p>

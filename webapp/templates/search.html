@@ -4,8 +4,9 @@
 <p class="kicker">Corpus retrieval</p>
 <h1><span class="accent">Search</span> the corpus</h1>
 <form class="filters" method="get">
-  <input type="text" name="q" value="{{ term }}" style="min-width:min(24rem,70vw)"
-         placeholder="find a passage across every document…" autofocus>
+  <label for="search-q">Passage</label>
+  <input id="search-q" type="text" name="q" value="{{ term }}" style="min-width:min(24rem,70vw)"
+         placeholder="e.g. the ministry of truth" autofocus>
   <fieldset class="seg" aria-label="Search mode">
     <label><input type="radio" name="mode" value="keyword"{% if mode == 'keyword' %} checked{% endif %}> Keyword</label>
     <label><input type="radio" name="mode" value="semantic"{% if mode == 'semantic' %} checked{% endif %}> Semantic</label>

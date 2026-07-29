@@ -33,7 +33,8 @@ snapshot; it is <strong>destructive</strong>.</p>
   <form method="post" action="{{ url_for('backups_create') }}">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <div class="field">
-      <input type="text" name="note" placeholder="note (optional) — e.g. before re-ingest">
+      <label for="backup-note">Note (optional)</label>
+      <input id="backup-note" type="text" name="note" placeholder="e.g. before re-ingest">
       <button>Create backup</button>
     </div>
     <div class="hint">Runs in the background worker; follow the job for progress.</div>

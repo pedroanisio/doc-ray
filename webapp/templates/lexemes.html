@@ -10,12 +10,15 @@
 </p>
 
 <form class="filters" method="get">
-  <input type="text" name="q" value="{{ term }}" placeholder="lemma contains…" autofocus>
-  <select name="pos">
+  <label for="lex-q">Lemma</label>
+  <input id="lex-q" type="text" name="q" value="{{ term }}" placeholder="e.g. say" autofocus>
+  <label for="lex-pos">Part of speech</label>
+  <select id="lex-pos" name="pos">
     <option value="">any part of speech</option>
     {% for p in poses %}<option value="{{ p }}" {{ 'selected' if p==pos }}>{{ p }}</option>{% endfor %}
   </select>
-  <select name="lang">
+  <label for="lex-lang">Language</label>
+  <select id="lex-lang" name="lang">
     <option value="">any language</option>
     {% for l in langs %}<option value="{{ l }}" {{ 'selected' if l==lang }}>{{ l }}</option>{% endfor %}
   </select>

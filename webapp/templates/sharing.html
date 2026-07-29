@@ -1,4 +1,6 @@
 {% extends "base.html" %}
+{% set back_url = url_for('document', doc_id=doc.id) %}
+{% set back_label = doc.title or 'Document' %}
 {% block title %}Share · doc·ray{% endblock %}
 {% block body %}
 <p class="kicker"><a href="{{ url_for('document', doc_id=doc.id) }}">← {{ doc.title or 'Document' }}</a></p>

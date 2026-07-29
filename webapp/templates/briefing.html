@@ -9,8 +9,10 @@
 </p>
 <form class="filters" method="post" action="{{ url_for('briefing') }}">
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-  <input type="text" name="topic" value="{{ topic }}" style="min-width:min(28rem,70vw)"
-         placeholder="topic to ground in your corpus…" autofocus>
+  <label for="briefing-topic">Topic</label>
+  <input id="briefing-topic" type="text" name="topic" value="{{ topic }}"
+         style="min-width:min(28rem,70vw)"
+         placeholder="e.g. surveillance and language" autofocus>
   <button type="submit">Gather evidence</button>
 </form>
 

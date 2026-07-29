@@ -49,12 +49,28 @@
 {% block body %}
 <div class="work-head">
   <h1>The <span class="accent">Corpus</span></h1>
+  {# These four numbers do not carry the same promise. Three read paths sit under
+     them — a live count, two pipeline rollups, and one debounced scalar — so each
+     figure declares its guarantee rather than borrowing credibility from the one
+     beside it. The declaration is doc_ray.domain.read_consistency; the same one
+     the corpusStats GraphQL field and the MCP tool answer with. #}
   <p class="stat-rail">
-    <span><b>{{ "{:,}".format(totals.docs) }}</b> documents</span>
-    <span><b>{{ "{:,}".format(totals.sents) }}</b> sentences</span>
-    <span><b>{{ "{:,}".format(totals.lexemes) }}</b>
-      {% call terms.explain("A lexeme is one normalized vocabulary identity, such as the lemma 'say' across forms like said and says.") %}lexemes{% endcall %}</span>
-    <span><b>{{ "{:,}".format(totals.occ) }}</b> occurrences</span>
+    {% set f = stat_freshness %}
+    <span data-figure="documents" data-guarantee="{{ f.documents.guarantee.value }}"
+          title="{{ f.documents.label }} — read from the corpus on every request">
+      <b>{{ "{:,}".format(totals.docs) }}</b> documents</span>
+    <span data-figure="sentences" data-guarantee="{{ f.sentences.guarantee.value }}"
+          title="{{ f.sentences.label }}">
+      <b>{{ "{:,}".format(totals.sents) }}</b> sentences</span>
+    <span data-figure="lexemes" data-guarantee="{{ f.lexemes.guarantee.value }}"
+          {% if f.lexemes.stale %}data-stale="true"{% endif %}
+          title="Recomputed at most every {{ (f.lexemes.staleness_bound_seconds // 60) }} minutes, so this figure can lag the other three.">
+      <b>{{ "{:,}".format(totals.lexemes) }}</b>
+      {% call terms.explain("A lexeme is one normalized vocabulary identity, such as the lemma 'say' across forms like said and says.") %}lexemes{% endcall %}
+      <span class="stat-rail__as-of">{{ f.lexemes.label }}</span></span>
+    <span data-figure="occurrences" data-guarantee="{{ f.occurrences.guarantee.value }}"
+          title="{{ f.occurrences.label }}">
+      <b>{{ "{:,}".format(totals.occ) }}</b> occurrences</span>
   </p>
 </div>
 

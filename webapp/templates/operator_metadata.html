@@ -1,4 +1,6 @@
 {% extends "base.html" %}
+{% set back_url = url_for('operator_health') %}
+{% set back_label = 'Operator health' %}
 {% block title %}Operator correction · doc·ray{% endblock %}
 {% block body %}
 <p class="kicker"><a href="{{ url_for('operator_health') }}">← Operator health</a></p>

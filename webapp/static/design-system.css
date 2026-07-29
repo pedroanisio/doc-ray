@@ -28,6 +28,19 @@
   --space-7: 48px;
   --space-8: 64px;
 
+  /* Minimum touch target. A tap target is the area that activates a control,
+     which is NOT the control's drawn representation — where a control must stay
+     visually small, the active area is grown around it instead (see the
+     coarse-pointer layer at the end of this file). 48px is the larger of the two
+     vendor minimums (Android 48 dp, iOS 44 pt) so one value satisfies both.
+     Enforced by scripts/check_touch_targets.py; vendor-sourced, so re-check it
+     there against current guidance rather than editing this value in place. */
+  --tap-min: 48px;
+
+  /* Height of the thumb-region navigation bar, reserved by `main` so a
+     fixed bar never covers page content. */
+  --bottom-nav-h: 56px;
+
   /* Core surfaces + brand. */
   --color-bg: #f5f7fa;
   --color-surface: #ffffff;
@@ -725,6 +738,22 @@ main:has(.work-head) { padding-top: var(--space-5); }
   font-variant-numeric: tabular-nums;
 }
 
+/* Read-path guarantee. Four totals sit on one rail and they do not all promise
+   the same thing; the debounced one says when it was last computed instead of
+   borrowing the credibility of the exact counts beside it. Past its declared
+   window the note goes warm — the number is still shown, because a lagging
+   figure is not an error, but it stops reading as current. */
+.stat-rail__as-of {
+  margin-left: .35rem;
+  color: var(--ink-faint);
+  font-size: .92em;
+  font-weight: 400;
+  letter-spacing: .02em;
+  text-transform: none;
+  opacity: .85;
+}
+.stat-rail [data-stale="true"] .stat-rail__as-of { color: var(--warn); opacity: 1; }
+
 .hint, .muted { margin-top: .2rem; color: var(--ink-faint); font-size: .82rem; }
 .notice, .errbox, .error {
   margin: var(--space-3) 0;
@@ -1236,3 +1265,141 @@ a.is-loading, button.is-loading, input.is-loading[type="submit"] { opacity: .72;
   background: var(--panel); border: 1px solid var(--line); border-radius: 999px; padding: .05rem .5rem;
 }
 .doc-group__sum { margin-left: auto; color: var(--ink-faint); font-size: .72rem; }
+
+/* ── Thumb-region navigation ───────────────────────────────────────────────
+   On a phone the binding constraint is reach, not screen area: about half of
+   users drive the device one-handed and the reachable region is the bottom of
+   the screen. The recurring destinations therefore sit in a bottom bar, and a
+   page's back affordance sits beside them, instead of both living in a masthead
+   that a thumb has to stretch to the top edge to reach.
+
+   Hidden by default: under a fine pointer the masthead nav is already the right
+   control, and a fixed bar would only spend vertical space. */
+.bottom-nav { display: none; }
+.bottom-nav a, .bottom-nav__more {
+  flex: 1 1 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: .1rem;
+  min-width: 0;
+  padding: .3rem .2rem;
+  border-radius: var(--r-sm);
+  color: var(--ink-soft);
+  font-family: var(--sans);
+  font-size: .72rem;
+  font-weight: 500;
+  text-decoration: none;
+  cursor: pointer;
+}
+.bottom-nav a.on { color: var(--accent); background: var(--accent-wash); }
+.bottom-nav__t { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+.bottom-nav__back { color: var(--ink); }
+
+/* ── Coarse-pointer control layer ──────────────────────────────────────────
+   Sizing is scoped to the input device in use, not to the viewport. Target
+   acquisition time is a function of distance and size, and a finger is
+   imprecise where a mouse is precise — so the compact sizing above stays
+   correct under a mouse, and everything a user can activate grows to
+   --tap-min once the primary pointer is coarse.
+
+   Deliberately NOT keyed to a width breakpoint: a narrow desktop window is
+   still driven by a mouse, and a large tablet is still driven by a thumb.
+   Width is a fact about the viewport, never about the hand.
+
+   Last in the file so it wins over the width-based layout rules above at equal
+   specificity. Enforced by scripts/check_touch_targets.py. */
+@media (pointer: coarse) {
+  button, .btn,
+  input:not([type]),
+  input[type=text], input[type=file], input[type=email], input[type=password],
+  input[type=search], input[type=number], input[type=tel], input[type=url],
+  select, textarea {
+    min-height: var(--tap-min);
+  }
+
+  /* Navigation, paging and segmented controls: the drawn chip may stay small
+     on a mouse, but on touch these are primary targets. */
+  header nav a, .nav-link-button, .pager a, .seg a, .seg label, .footer-nav a, a.pill {
+    min-height: var(--tap-min);
+    display: inline-flex;
+    align-items: center;
+  }
+  .footer-nav a, .seg a, .seg label { display: flex; }
+
+  /* Icon buttons are square, so both axes bound the target. */
+  .nav-burger, .toggle {
+    min-width: var(--tap-min);
+    min-height: var(--tap-min);
+    width: var(--tap-min);
+    height: var(--tap-min);
+  }
+  .toggle span { width: calc(var(--tap-min) / 2); height: var(--tap-min); }
+
+  /* A disclosure heading is the control for the section it opens. */
+  summary { min-height: var(--tap-min); display: flex; align-items: center; }
+
+  /* Tick boxes must stay tick-box sized to read as one, so the ACTIVE area is
+     grown around the ink instead: 21.6px drawn + 13.2px of overlay on every
+     side = a 48px target that changes nothing visually. */
+  input[type=checkbox], input[type=radio] {
+    position: relative;
+    width: 1.35rem;
+    height: 1.35rem;
+  }
+  input[type=checkbox]::after, input[type=radio]::after {
+    content: "";
+    position: absolute;
+    inset: -13.2px;
+  }
+
+  /* Adjacent targets need ample spacing or the enlarged areas above start
+     overlapping, which trades a small-target miss for an ambiguous hit. Row
+     padding keeps a table row taller than one tap target. */
+  th, td { padding: .85rem .6rem; }
+  .seg { gap: .25rem; }
+  .doc-compact__row { padding: .7rem .85rem; }
+}
+
+/* Thumb-region navigation, active only where there is a thumb. */
+@media (pointer: coarse) {
+  .bottom-nav {
+    display: flex;
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 60;
+    gap: .15rem;
+    align-items: stretch;
+    padding: .25rem .4rem;
+    /* Clear the home indicator: a gesture bar must never sit on a tap target. */
+    padding-bottom: calc(.25rem + env(safe-area-inset-bottom, 0px));
+    background: color-mix(in srgb, var(--panel) 96%, transparent);
+    border-top: 1px solid var(--line);
+    box-shadow: 0 -1px 3px rgba(16, 24, 40, .06);
+  }
+  .bottom-nav a, .bottom-nav__more { min-height: var(--tap-min); }
+
+  /* Reserve the bar's own height so a fixed bar never covers the last line of
+     the page, and the footer stays reachable by scrolling. */
+  main { padding-bottom: calc(var(--bottom-nav-h) + var(--space-5)); }
+  .site-footer { margin-bottom: var(--bottom-nav-h); }
+
+  /* The long tail opens upward from the bar rather than downward from the
+     masthead, so the whole menu lands in the region the thumb can cover. */
+  header .nav-cb:checked ~ nav {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: calc(var(--bottom-nav-h) + env(safe-area-inset-bottom, 0px));
+    z-index: 59;
+    max-height: 60vh;
+    overflow-y: auto;
+    padding: .4rem .6rem .6rem;
+    background: var(--panel);
+    border-top: 1px solid var(--line);
+    box-shadow: var(--shadow-lg);
+  }
+}

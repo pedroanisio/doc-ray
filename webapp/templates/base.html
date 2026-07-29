@@ -83,6 +83,27 @@
     </button>
   </header>
   <main>{% block body %}{% endblock %}</main>
+  {# One-handed reach: on a touch device the reachable region is the bottom of
+     the screen, so the recurring destinations and the back affordance live here
+     rather than in the masthead. Hidden entirely under a fine pointer, where the
+     masthead nav is already the right control. Pages declare their parent with
+     `{% set back_url %}` / `{% set back_label %}` at template top level. #}
+  {% if show_app_nav %}
+  <nav class="bottom-nav" aria-label="Primary">
+    {% if back_url %}
+    <a class="bottom-nav__back" href="{{ back_url }}"><span aria-hidden="true">←</span>
+      <span class="bottom-nav__t">{{ back_label or 'Back' }}</span></a>
+    {% endif %}
+    <a href="{{ url_for('documents') }}" class="{{ 'on' if request.endpoint in ['documents','document','seeding','seeding_action'] }}">
+      <span aria-hidden="true">▤</span><span class="bottom-nav__t">Corpus</span></a>
+    <a href="{{ url_for('search') }}" class="{{ 'on' if request.endpoint == 'search' }}">
+      <span aria-hidden="true">⌕</span><span class="bottom-nav__t">Search</span></a>
+    <a href="{{ url_for('upload_form') }}" class="{{ 'on' if request.endpoint in ['upload_form','upload_submit','job_status'] }}">
+      <span aria-hidden="true">＋</span><span class="bottom-nav__t">Upload</span></a>
+    <label for="nav-open" class="bottom-nav__more">
+      <span aria-hidden="true">☰</span><span class="bottom-nav__t">More</span></label>
+  </nav>
+  {% endif %}
   <footer class="site-footer">
     <div class="footer-top">
       <div class="footer-brand">

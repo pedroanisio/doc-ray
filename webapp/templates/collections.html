@@ -1,4 +1,6 @@
 {% extends "base.html" %}
+{% set back_url = url_for('documents') %}
+{% set back_label = 'Corpus' %}
 {% block title %}Collections · doc·ray{% endblock %}
 {% block body %}
 <p class="kicker"><a href="{{ url_for('documents') }}">← Corpus</a></p>

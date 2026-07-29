@@ -1,4 +1,6 @@
 {% extends "base.html" %}
+{% set back_url = url_for('document', doc_id=doc.id) %}
+{% set back_label = doc.title or 'Document' %}
 {% import "_terms.html" as terms %}
 {% block title %}Domain seeding · {{ doc.title }} · doc·ray{% endblock %}
 {% block body %}
@@ -57,7 +59,8 @@
     {% for r in rows %}
     <tr>
       <td>{% if r.status in ('pending', 'approved', 'rejected') and r.qid %}
-        <input type="checkbox" name="sid" value="{{ r.id }}">{% endif %}</td>
+        <input type="checkbox" name="sid" value="{{ r.id }}"
+               aria-label="Select {{ r.term }}">{% endif %}</td>
       <td class="term">{{ r.term }}</td>
       <td class="n">{{ r.occurrences }}</td>
       <td><span class="src">{{ r.source }}</span></td>
