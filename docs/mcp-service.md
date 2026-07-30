@@ -803,9 +803,27 @@ becoming false attestation or a false flood warning.
 //     "parts": [{"part": "shared", "uses": 12}, {"part": "buffers", "uses": 70}]}]
 ```
 
+**`totalUses` is a maintained scalar, not a live sum.** The `share` a term
+represents divides its `uses` by `corpus_stats.total_lexeme_uses`, a per-tenant
+rollup column maintained by the refresh functions — never a
+`SUM(uses) FROM lexeme_stats` on the request path. That aggregate is what the tool
+used to do, and forced RLS evaluates the policy per row across the whole table:
+2.0 s as `docray_batch` (BYPASSRLS) against 22.9 s on the real `docray_api` path
+(production corpus, 2026-07-30, 444,294 rows), so every call exceeded the 15 s
+statement timeout and returned a typed `timeout` error — single ordinary words
+included. If you are running against a database older than schema 1.56.0, or one
+where the rollup has never been refreshed, `totalUses` reads `0` and `share` is
+therefore meaningless; `uses` itself stays exact, because it is an indexed
+per-lemma lookup rather than a corpus-wide aggregate. Operators repair the scalar
+with `SELECT docray_backfill_total_lexeme_uses();` (see §3.6).
+
 **The denominator is nullable by design.** `totalSentences` comes from the
 maintained `corpus_stats` rollup, not a live count over the large `sentences` fact
-table. If the scan measures positive hits while that rollup is missing or stale,
+table. The `uses`/`share` denominator is maintained the same way, reading
+`corpus_stats.total_lexeme_uses` rather than summing `uses` over `lexeme_stats`
+per request — under forced RLS that sum was evaluated per row across the whole
+table and exceeded the API statement timeout, so the tool failed for every term.
+If the scan measures positive hits while that rollup is missing or stale,
 the response keeps the measured hit count and absolute hit-band verdict but returns
 `totalSentences: null` with an explicit note:
 

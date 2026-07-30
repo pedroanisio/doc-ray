@@ -22,6 +22,13 @@ status: "current"
 What changed in each version, newest first. Each entry states who a change affects
 and any action required.
 
+- **[1.57.0](1.57.0.md)** — corpus totals are kept current incrementally instead
+  of being rebuilt from the whole corpus, deleting a document now reduces them,
+  and a word's share is measured against a real total again on installations
+  where 1.56.0 left it empty (**migration required**, no configuration change).
+- **[1.56.0](1.56.0.md)** — term-frequency lookups no longer time out, and a
+  document can no longer be left half-processed by a passing hardware shortage
+  (**migration required**, no configuration change).
 - **[1.55.0](1.55.0.md)** — image descriptions now appear on documents as soon
   as they are generated, labelled as machine proposals, and anyone reading a
   document can withdraw one that is wrong

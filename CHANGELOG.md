@@ -93,6 +93,110 @@ doc-ray carries **one global version** covering both the application package
      original and renders its first-page cover; non-PDFs say "Text extraction
      failed", which is what actually happened.
 
+## [1.57.0]
+
+### Fixed
+
+- **The tenant rollups are maintained by deltas instead of being rebuilt from
+  the whole corpus.** `docray_refresh_stats_for_document()` debounced on a
+  ten-minute window and then ran `DELETE FROM lexeme_stats` followed by a
+  `GROUP BY` over the 72.7M-row / 16 GB `lexeme_occurrences` table, plus a
+  second full pass of the same table for `corpus_stats.n_distinct_lexemes`.
+  During ingest that happened six times an hour, forever. The writes were worse
+  than the reads — read from `pg_stat_user_tables` on the production cluster
+  (2026-07-30) minutes after autovacuum had run on both tables:
+
+  | table | live rows | dead rows | dead % |
+  | --- | --- | --- | --- |
+  | `entity_frequency_stats` | 633,294 | 56,394,549 | 98.9 |
+  | `lexeme_stats` | 453,662 | 43,021,819 | 99.0 |
+
+  A full rewrite of ~1.1M rows every ten minutes outruns autovacuum
+  permanently, so every reader scanned ~9 GB of dead tuples to reach ~1M live
+  rows while the rebuild and the vacuum it provoked held CPU on an 8-vCPU
+  cluster sitting at a 5–9 load average.
+
+  Migration 154 snapshots each document's contribution in
+  `document_lexeme_stats` / `document_entity_frequency_stats`, then applies only
+  the difference to the tenant rollup. Refresh cost falls from O(corpus) to
+  O(document) — ~5,600 distinct lexemes for one document against 72.7M
+  occurrences scanned before — and a key whose count did not move is not
+  written at all, so the dead-tuple flood stops at its source. `corpus_stats`
+  now derives `n_distinct_lexemes` and `total_lexeme_uses` from `lexeme_stats`
+  rather than re-scanning the fact table.
+
+- **A rollup refresh no longer serves readers stale counts.** The ten-minute
+  debounce existed only to amortise the full rebuild; with the delta path there
+  is nothing to amortise, so it is gone and the rollups are current as of the
+  last document change.
+
+- **`corpus_stats` is stamped after the rollups it summarises.**
+  `total_lexeme_uses` (1.56.0) is a `SUM` over `lexeme_stats`, but
+  `docray_refresh_stats_for_document` refreshed `corpus_stats` first — so the
+  denominator carried the previous cycle's numbers.
+
+- **Deleting a document withdraws its contribution to the rollups.** Nothing
+  did this before: correctness relied on the next full rebuild, which no longer
+  happens on the hot path. A `BEFORE DELETE` trigger on `documents` now
+  subtracts the document's snapshot.
+
+- **The `total_lexeme_uses` backfill actually writes now.** Migration 152 ended
+  with a plain `UPDATE corpus_stats`, which wrote nothing and raised nothing
+  while doing so: the table carries `FORCE ROW LEVEL SECURITY` with a single
+  `p_read` SELECT policy and no UPDATE policy, and the migration runner connects
+  as `docray`, which is not `BYPASSRLS` — so the statement matched zero rows and
+  reported success. Confirmed on production the moment 152 applied: the column
+  existed and was `NULL` for the only tenant, against a true value of 72,681,387
+  over 453,662 `lexeme_stats` rows. Because `_TERM_FREQ_SQL` coalesces the scalar
+  to `0`, `term_frequency` would have reported every term's share against a zero
+  denominator rather than failing — the "maintained scalar nobody maintains"
+  case, disguised as a clean deploy. Migration 156 adds
+  `docray_backfill_total_lexeme_uses()`, `SECURITY DEFINER` owned by
+  `docray_batch`, which is the mechanism the other tenant rollups already rely
+  on. Safe to re-run after a restore.
+
+## [1.56.0]
+
+### Fixed
+
+- **`term_frequency` is served from a maintained denominator instead of a live
+  aggregate.** The tool computed each term's share against a live
+  `SUM(uses) FROM lexeme_stats` on every call — the read-path fact-table
+  aggregate D-024 forbids. Forced RLS made it not merely slow but unusable,
+  because the policy is evaluated per row across the whole table. Measured on
+  the production corpus (2026-07-30, 444,294 `lexeme_stats` rows):
+
+  | path | time |
+  | --- | --- |
+  | `docray_batch` (BYPASSRLS) | 2.0 s |
+  | `docray_api` + principal context — the real API path | 22.9 s |
+
+  Against the API's 15 s statement timeout every call failed, including single
+  ordinary words, so agents abandoned the tool. Migration 152 adds
+  `corpus_stats.total_lexeme_uses`, maintained by the existing refresh
+  functions, and the denominator is now read from that scalar on the tenant
+  rollup — the same fix migration 142 applied to the sentence denominator.
+  Additive — one nullable column and a redefinition of the refresh functions —
+  so a rolling deploy reads old rows unchanged, a `NULL` meaning only "not yet
+  refreshed".
+
+- **Retry scheduling distinguishes contention from a deterministic fault.** A
+  saturated GPU spent a job's entire three-attempt budget inside fifteen
+  seconds, because the schedule was 5s then 10s regardless of cause. 55
+  documents were left permanently unprocessed by one transient burst: `annotate`
+  heads the pipeline chain, so each terminal failure also meant no enrichment,
+  no embedding and no visual tier were ever enqueued, and nothing re-enqueues a
+  failed job. Exhausted GPUs, refused model endpoints and 429/503 responses now
+  wait 30 then 60 minutes; a missing table or a bad argument keeps the short
+  schedule, since no delay would help it.
+
+- **A stalled document is reported as an error rather than as pending work.**
+  Health described a document whose pipeline had died as `document-unannotated`
+  — "annotation never ran" — which reads as a stage still queued when the queue
+  is in fact empty and nothing leads back to it. `corpus_health` now emits
+  `pipeline-stalled` naming the kinds that spent every attempt without a later
+  success.
+
 ## [1.55.0]
 
 ### Changed

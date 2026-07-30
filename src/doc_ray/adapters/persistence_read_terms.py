@@ -41,10 +41,17 @@ _logger = logging.getLogger("doc_ray.retrieval")
 #: search on the surface term would hit them all. The scalar subquery is the share
 #: denominator, evaluated once. Touches only the bounded lexeme registry + the
 #: lexeme_stats rollup; ``lexeme_occurrences`` is never read (D-024).
+#: The share denominator is READ, never derived. Deriving it was
+#: `SUM(uses) FROM lexeme_stats` on every call — a read-path fact-table
+#: aggregate (D-024) over 444k rows, and forced RLS evaluates the policy per
+#: row: 2.0 s as BYPASSRLS but 22.9 s on the real `docray_api` path, against a
+#: 15 s statement_timeout. Every term_frequency call failed, single ordinary
+#: words included (BL-204). Migration 152 maintains the scalar on corpus_stats,
+#: exactly as migration 142 did for the sentence denominator.
 _TERM_FREQ_SQL = """
 SELECT k.key AS key,
        COALESCE(SUM(ls.uses), 0)::bigint AS uses,
-       (SELECT COALESCE(SUM(uses), 0)::bigint FROM lexeme_stats) AS total_uses
+       (SELECT COALESCE(SUM(total_lexeme_uses), 0)::bigint FROM corpus_stats) AS total_uses
 FROM unnest(%(keys)s::text[]) AS k(key)
 LEFT JOIN lexemes l ON l.lemma = k.key
 LEFT JOIN lexeme_stats ls ON ls.lexeme_uid = l.uid

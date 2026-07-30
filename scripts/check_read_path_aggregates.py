@@ -53,9 +53,28 @@ _READ_PATHS: tuple[str, ...] = (
     "src/doc_ray/adapters/persistence_entity_surface_read.py",
 )
 
-#: Large append-mostly fact tables that must not be aggregated on a read path.
+#: Tables that must not be aggregated on a read path.
+#:
+#: `lexeme_stats` is here despite being a rollup. Rollups are safe to READ, which
+#: is why it was omitted — but it is a rollup by row *shape* and a fact table by
+#: *cardinality*: one row per lexeme per tenant, 444,294 on the production corpus.
+#: Summing across all of them is the same read-path scan the rule exists to stop,
+#: and forced RLS makes it far worse than the row count suggests: the same
+#: `SUM(uses) FROM lexeme_stats` measured 2.0 s as BYPASSRLS and 22.9 s on the
+#: real `docray_api` path, blowing the 15 s statement timeout on every
+#: `term_frequency` call (BL-204). Reading ONE tenant's row stays fine; only the
+#: unbounded aggregate is caught.
 _FACT_TABLES: frozenset[str] = frozenset(
-    {"lexeme_occurrences", "spans", "tokens", "entity_mention", "chunk", "embedding", "sentences"}
+    {
+        "lexeme_occurrences",
+        "spans",
+        "tokens",
+        "entity_mention",
+        "chunk",
+        "embedding",
+        "sentences",
+        "lexeme_stats",
+    }
 )
 
 #: Aggregate signals in a SQL literal (lowercased, whitespace-collapsed).
@@ -76,6 +95,16 @@ _AGG_PATTERNS: tuple[str, ...] = (
 #: normalized SQL contains the fragment. These are genuinely bounded to a single
 #: key (O(result)), or tracked debt handled by a different layer. Keep it short.
 _ALLOWLIST: tuple[dict[str, str], ...] = (
+    {
+        "file": "src/doc_ray/adapters/persistence_read_terms.py",
+        "contains": "left join lexeme_stats ls on ls.lexeme_uid = l.uid",
+        "reason": (
+            "term_frequency per-term counts: the SUM is driven by unnest(keys) and "
+            "grouped per key, so it touches only the requested lemmas' rows "
+            "(O(batch)), never the table. The unbounded denominator that DID scan "
+            "it now reads corpus_stats.total_lexeme_uses (BL-204)."
+        ),
+    },
     {
         "file": "webapp/corpus_web.py",
         "contains": "count(*) n from lexeme_occurrences where lexeme_uid = %s",

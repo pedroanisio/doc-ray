@@ -1,6 +1,6 @@
 # doc-ray — Database ERD & Data Dictionary
 
-**Schema version `1.55.0`** (SemVer) · 151 committed migrations define the repository target schema
+**Schema version `1.57.0`** (SemVer) · 156 committed migrations define the repository target schema
 
 > Generated from a database whose migration ledger exactly matches `db/migrations/`. This describes the schema expected after all committed migrations; it does not prove a deployment is current. Run `make prod-check` for deployed migration lockstep. Do not edit by hand.
 
@@ -2538,3 +2538,8 @@ owner's bypass.
 | 149 | `149_schema_version_1_54_0.sql` | advance the schema SemVer to 1.54.0 for the index-backed sentence search |
 | 150 | `150_caption_retraction.sql` | add visual_caption.retracted_at / retracted_by / retraction_reason and a partial index over them: the Tier-3 flow inverts to approve-on-write, so a retraction becomes the human verification event and has to carry the same who/when/why audit trail the pre-publication approval used to |
 | 151 | `151_schema_version_1_55_0.sql` | advance the schema SemVer to 1.55.0 for caption retraction |
+| 152 | `152_corpus_stats_total_lexeme_uses.sql` | add corpus_stats.total_lexeme_uses and maintain it in the refresh functions: term_frequency derived its share denominator as a live SUM(uses) over lexeme_stats, which forced RLS evaluates per row across 444k rows — 22.9 s on the real API path against a 15 s statement timeout, so every call failed. The same fix migration 142 applied to the sentence denominator, and additive, so a rolling deploy reads old rows unchanged |
+| 153 | `153_schema_version_1_56_0.sql` | advance the schema SemVer to 1.56.0 for the maintained term-frequency denominator |
+| 154 | `154_incremental_corpus_rollups.sql` | maintain the tenant rollups by delta instead of rebuilding them: docray_refresh_stats_for_document deleted and regrouped lexeme_stats over the 72.7M-row lexeme_occurrences table six times an hour, leaving both rollups ~99% dead tuples. Per-document snapshots in document_lexeme_stats / document_entity_frequency_stats now carry only the difference into the tenant rollup, a BEFORE DELETE trigger withdraws a deleted document's contribution, and corpus_stats is stamped after the rollups it summarises |
+| 155 | `155_schema_version_1_57_0.sql` | advance the schema SemVer to 1.57.0 for the incremental corpus rollups |
+| 156 | `156_backfill_total_lexeme_uses.sql` | backfill corpus_stats.total_lexeme_uses through a SECURITY DEFINER function owned by docray_batch: migration 152 ended with a bare UPDATE, which wrote nothing and raised nothing because corpus_stats has FORCE ROW LEVEL SECURITY with no UPDATE policy and the migration role is not BYPASSRLS, so the column shipped NULL against a true 72,681,387. docray_backfill_total_lexeme_uses() is re-runnable after a restore |

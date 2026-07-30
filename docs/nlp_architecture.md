@@ -417,6 +417,29 @@ them is the most common source of "why didn't this match?".
 | `lexemeKwic` | `persistence_read.py::lexeme_kwic` | exact lexeme-id lookup over `lexeme_occurrences`, with a ±45-character window |
 | `termFrequency` (pre-flight) | `persistence_read_terms.py` + `domain/term_frequency.py` | exact lexeme-rollup measurement for one lexeme; whitespace phrases retain a rarest-component saturation ceiling; multi-word/unindexable terms fetch a cap-bounded candidate superset and report `surface_word_v1` verified sentence/occurrence counts |
 
+`termFrequency` has **two** denominators, and both are maintained scalars on the
+`corpus_stats` tenant rollup rather than live aggregates. `share` divides a term's
+`uses` by `corpus_stats.total_lexeme_uses`; the sentence scan divides by
+`corpus_stats.n_sentences`. Neither is derived on the request path, and the reason
+is not merely speed. `total_lexeme_uses` *was* computed as
+`SUM(uses) FROM lexeme_stats` per call, and forced RLS evaluates that policy once
+per row: measured on the production corpus (2026-07-30, 444,294 `lexeme_stats`
+rows) the identical statement took 2.0 s as `docray_batch` (BYPASSRLS) and 22.9 s
+on the real `docray_api` principal path, so every `term_frequency` call exceeded
+the 15 s statement timeout — ordinary single words included. Migration 152 moved
+it to the rollup (`BL-204`), and `lexeme_stats` is now in the D-024 checker's fact
+table set: it is a rollup by row shape but a fact table by cardinality, which is
+why the guard had not caught it. Per-term counts still join `lexeme_stats` on the
+indexed lemma, because that is bounded by the batch, not by the table.
+
+> A maintained scalar is only as good as the code that maintains it. Migration
+> 152's own backfill wrote nothing — `corpus_stats` has `FORCE ROW LEVEL SECURITY`
+> and no UPDATE policy, so a bare `UPDATE` from the non-`BYPASSRLS` migration role
+> matched zero rows and still reported success, leaving the column `NULL` in
+> production. Migration 156 does the backfill through
+> `docray_backfill_total_lexeme_uses()`, `SECURITY DEFINER` owned by
+> `docray_batch`, which is how every other tenant rollup already writes.
+
 The sentence scan reads its denominator from `corpus_stats.n_sentences`, which is
 maintained from `document_stats` at the batch boundary rather than counted from the
 `sentences` fact table on the request path (D-025). A positive scan paired with a
@@ -425,6 +448,15 @@ zero-sentence corpus: GraphQL and MCP return `totalSentences: null` plus an expl
 note while preserving the absolute, bounded verified-sentence `floodRisk` band. Migration 146
 repairs the full-refresh path and backfills existing tenants; `prod-check` verifies
 the rollup against its maintained document-level inputs without scanning fact tables.
+
+The `uses`/`share` denominator follows the same rule and for the same reason. It
+reads `corpus_stats.total_lexeme_uses`, maintained by the refresh functions
+(migration 152), rather than summing `uses` over `lexeme_stats` on the request
+path. The live sum was not merely slow: forced RLS evaluates the policy per row,
+so the aggregate cost scaled with the whole table under the API's own role —
+22.9 s against a 15 s statement timeout on a 444k-row corpus, which failed every
+call including single ordinary words. A `NULL` there means "not yet refreshed"
+and is reported as an absent denominator, never as a zero-use corpus.
 
 **Language-aware full-text search.** Migration `016_fts_language_aware.sql`
 replaced the original generated `fts` column (hardcoded to the `english` config)

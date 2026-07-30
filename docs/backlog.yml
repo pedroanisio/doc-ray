@@ -110,7 +110,7 @@ metadata:
   generated_by:     "Claude Sonnet 5 via Claude Code (merge of Claude Opus 4.8 backlog + OpenAI Codex improvement-proposal candidates); BL-181/BL-182/BL-183/BL-184 by OpenAI GPT-5 via Codex; BL-188/BL-189..BL-193 by Claude Opus 5 via Claude Code; BL-194..BL-200 by Claude Opus 5 (1M context) via Claude Code, applying TC-DXP-001.product-surfaces.tc-v0.3; BL-201 recorded retroactively from commit 8c97413; BL-203 by Claude Opus 5 (1M context) via Claude Code"
   generated_on:     "2026-07-29"
   system_of_record: "docs/backlog.yml"
-  total_items:      203
+  total_items:      205
 
 items:
 
@@ -7505,3 +7505,77 @@ items:
     owner:        "unassigned"
     source:       "Session 2026-07-30, isolating the Layer 9/14 merge in a clean worktree. Left for the operator because the resolution turns on whether ENV-PROD.md should be tracked at all: it documents the live host's public IP and managed-cluster endpoints, so untracking the symlink and dropping the two links is one answer and publishing a redacted ENVIRONMENT.md is another, and that is a privacy call rather than a mechanical fix."
     tags:         ["docs", "ci", "tech-debt"]
+
+  - id:          "BL-204"
+    title:       "term_frequency's share denominator was a live aggregate over lexeme_stats"
+    summary:      "total_uses was computed as SUM(uses) over the whole lexeme_stats table on every call; forced RLS made that 22.9s against a 15s statement timeout, so every term_frequency call failed."
+    description: >-
+      `_TERM_FREQ_SQL` derived its share denominator as a live
+      `SUM(uses) FROM lexeme_stats` scalar subquery on every request. That is the
+      read-path fact-table aggregate D-024 forbids, and forced RLS turns it from
+      slow into unusable because the policy is evaluated per row across the whole
+      table. Measured on the production corpus (2026-07-30, 444,294 lexeme_stats
+      rows): 2.0 s as `docray_batch` (BYPASSRLS) versus 22.9 s on the real
+      `docray_api` + principal path. Against the API's 15 s statement_timeout every
+      call failed — single ordinary words included — and an agent abandoned the
+      tool for full_text_search. The fix is the one migration 142 already applied
+      to the sentence denominator: maintain the scalar on the `corpus_stats` tenant
+      rollup and read it, never derive it per call. The D-024 checker missed this
+      because `lexeme_stats` is a rollup by row shape but a fact table by
+      cardinality; it is now in `_FACT_TABLES`.
+    category:     "persistence"
+    type:         "bug"
+    status:       "done"
+    complexity:   "S"
+    priority:     "critical"
+    rationale:    "A retrieval tool that times out on every call is worse than an absent one: agents route around it silently and the corpus looks unsearchable rather than misconfigured."
+    acceptance_criteria:
+      - "term_frequency returns within the API statement budget for ordinary single words on the docray_api path, not only under BYPASSRLS."
+      - "The denominator is read from corpus_stats.total_lexeme_uses and maintained by docray_refresh_corpus_stats, so it cannot silently go NULL for a tenant."
+      - "Per-term counts still read lexeme_stats through the indexed per-lemma join — only the unbounded denominator moves."
+      - "check_read_path_aggregates.py fails if a read path aggregates lexeme_stats again."
+    references:
+      - "db/migrations/152_corpus_stats_total_lexeme_uses.sql"
+      - "db/migrations/153_schema_version_1_56_0.sql"
+      - "src/doc_ray/adapters/persistence_read_terms.py"
+      - "scripts/check_read_path_aggregates.py"
+      - "src/doc_ray/tests/test_term_frequency_denominator.py"
+    owner:        "shared"
+    source:       "Operator session 2026-07-30. Found when term_frequency timed out on ordinary words; the RLS-vs-BYPASSRLS split was measured rather than assumed, which is what distinguished a slow query from a policy-amplified one. Shipped in 1.56.0."
+    tags:         ["persistence", "rls", "d-024", "retrieval", "performance"]
+
+  - id:          "BL-205"
+    title:       "semantic_search_sentences times out on any corpus-wide query"
+    summary:      "The unscoped vector search evaluates embedding's nested RLS policy per candidate row over 2.88M embeddings; broad queries exceed the statement timeout, and only passing document_id makes the tool usable."
+    description: >-
+      `semantic_search_sentences` runs an HNSW scan with
+      `hnsw.iterative_scan = 'relaxed_order'`, which keeps scanning the index until
+      LIMIT rows survive the post-index filters. Those filters include forced RLS on
+      `embedding`, whose policy resolves `span_id -> spans -> document_id ->
+      docray_readable_documents()` — a nested subquery evaluated per candidate row
+      across 2,877,694 `doc-ray/sbert-mpnet-768` vectors. A corpus-wide query
+      therefore exceeds the API statement budget and returns the typed `timeout`
+      error; scoping to a single `document_id` collapses the candidate set and
+      succeeds. Reproduced 2026-07-30 through the MCP tool, and independently on the
+      SQL path where even `SELECT count(*) FROM embedding` under `docray_api` +
+      principal exceeded 60 s while the same count as `docray_batch` returned
+      3,338,989 rows in 0.12 s. This is the same policy-amplification class as
+      BL-204, on the semantic path rather than the lexical one, and it is not fixed
+      by a maintained scalar because the cost is in per-row policy evaluation over
+      the candidate set rather than in a single aggregate.
+    category:     "persistence"
+    type:         "bug"
+    status:       "ready"
+    complexity:   "M"
+    priority:     "high"
+    rationale:    "Semantic search is the documented antidote to lexical flooding; if it only works document-scoped, the corpus-wide discovery path advertised in the tool description does not exist."
+    acceptance_criteria:
+      - "A corpus-wide semantic_search_sentences query returns within the API statement budget on the docray_api principal path."
+      - "The RLS-vs-BYPASSRLS cost split is measured and recorded, not assumed, before and after the fix."
+      - "Results stay RLS-correct: no sentence from a document the principal may not read is ever returned, and the fix does not silently under-return by dropping the iterative scan."
+    references:
+      - "src/doc_ray/adapters/persistence_semantic_read.py"
+      - "src/doc_ray/entrypoints/mcp/corpus.py"
+    owner:        "unassigned"
+    source:       "Agent feedback 2026-07-30: a broad multi-concept query timed out and scoping to a document_id fixed it. Verified end to end through the MCP tool and reproduced on the SQL path in the same session. Left ready rather than done because the candidate fixes (a materialised readable-document filter, a tenant-partitioned index, or pushing the ACL into the indexed predicate) trade correctness against latency differently and that is an architectural call."
+    tags:         ["persistence", "rls", "semantic-search", "performance"]

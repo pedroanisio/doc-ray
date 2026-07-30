@@ -11,7 +11,7 @@ doc_type: "concept"
 audience: ["end-user", "evaluator", "administrator"]
 surfaces: ["cli", "api", "config"]
 classification: "public"
-applies_to: "1.55.0"
+applies_to: "1.57.0"
 owner: "documentation-maintainer"
 last_reviewed: "2026-07-29"
 status: "current"
