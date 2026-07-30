@@ -1,405 +1,409 @@
-"""Derive constituency (Layer 9) and predicate-argument frames (Layer 14).
+"""Layers 9 (constituency) and 14 (SRL), derived from the dependency parse.
 
-Both layers are *projections of the dependency parse* (Layer 10), not the output
-of a constituency parser or a neural SRL model. That choice is the whole design:
-the parse is already computed, so these layers cost one pass over tokens and add
-no model, no download, and no GPU — but they can only assert what a dependency
-tree actually determines.
+WHY A DERIVATION AND NOT A PARSER. The capability matrix listed both layers as
+schema-only, on the grounds that they "require a dedicated parser/model rather than
+a safe deterministic fallback". That is correct about *gold* annotation — a Penn
+Treebank bracketing and a PropBank roleset are human-annotated targets, and a neural
+parser (benepar, AllenNLP SRL) approximates them with model output that would owe a
+verification queue under PALS's Law. It is not correct about the whole layer: a
+useful, checkable subset of both is recoverable from the parse the annotator already
+produced, by construction and with no model. This module is that subset.
 
-Two limits follow, and are deliberately visible in the output rather than papered
-over:
+DERIVATION FROM FIRST PRINCIPLES.
 
-* Labels are restricted to :data:`PHRASE_LABELS` — the set a UD relation can
-  justify. There is no gold Penn Treebank tag set here, so no ``NNP``/``VBD``
-  preterminals are invented.
-* A frame is named by its predicate LEMMA (``found``), never a PropBank roleset
-  (``found.01``). The roleset index encodes a sense distinction that needs the
-  PropBank frame files and Layer 15 (WSD, still schema-only); emitting it would
-  assert a sense nothing determined.
+*Constituency.* A dependency tree already encodes phrase structure implicitly: the
+subtree rooted at a token is exactly the set of words that token governs, which is
+what a phrase *is*. So for each token, its projected phrase spans its subtree, and
+the phrase's label is a function of the token's UPOS (a nominal heads an NP, a verb
+a VP, and so on). Two adjustments make the output match conventional bracketing:
 
-The module is pure and framework-free: it reads only the token attributes any
-dependency parse exposes (``i``, ``idx``, ``text``, ``lemma_``, ``pos_``,
-``dep_``, ``head``) and never touches spaCy, psycopg, or a connection. Callers
-hand it sentences; the adapter turns the result into rows.
+1. A token whose only role is functional (determiner, case marker, punctuation,
+   auxiliary, copula, complementizer, coordinator) is a preterminal, not a phrase.
+   Projecting a unary node over each would add rows carrying no information.
+2. A nominal governing an ADP ``case`` marker is the object of a preposition, so its
+   projection is a PP, and the nominal alone remains an NP *inside* that PP. This is
+   the nesting that Layer 8 chunking cannot express and Layer 9 exists to record.
+
+The sentence root projects S over the whole sentence, plus a VP over the predicate —
+the root's subtree minus its subject and sentence-final punctuation — which yields
+the conventional ``S -> NP VP`` shape rather than a unary ``S -> VP`` chain.
+
+*Semantic roles.* PropBank's proto-roles are recoverable from UD relations because
+both encode the same argument structure: ``nsubj`` of an active verb is the
+proto-agent (ARG0), its ``obj`` the proto-patient (ARG1), and passivisation swaps
+which surface position carries which — ``nsubj:pass`` is the ARG1 and ``obl:agent``
+the ARG0. Modifiers (``ARGM-*``) come from adjunct relations, with the ``case``
+marker's lemma distinguishing locative from temporal.
+
+WHAT THIS DELIBERATELY DOES NOT DO. It assigns no PropBank roleset number: the
+``.01`` in ``found.01`` encodes a sense distinction requiring the PropBank frame
+files and word-sense disambiguation (Layer 15, still schema-only), so the frame is
+the bare lemma. Emitting ``.01`` would assert a sense that was never determined.
+Non-projective subtrees are recorded by their covering span, since a discontinuous
+constituent cannot be expressed as one ``(char_start, char_end)`` pair; the covering
+span keeps the tree well-formed and is a superset, never a wrong subset.
 """
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Sequence
-from dataclasses import dataclass, field
-from typing import Any, Protocol
+from dataclasses import dataclass
 
-
-class ParsedToken(Protocol):
-    """The token surface this derivation depends on — a structural subset of spaCy's."""
-
-    i: int
-    idx: int
-    text: str
-    lemma_: str
-    pos_: str
-    dep_: str
-
-    @property
-    def head(self) -> Any: ...
-
-
-#: Phrase labels the derivation is willing to assert.
-PHRASE_LABELS = ("S", "NP", "VP", "PP", "ADJP", "ADVP", "SBAR")
-
-#: UPOS -> phrase label for the head of a subtree.
-_LABEL_FOR_UPOS = {
+#: UPOS -> phrase label for a projecting head.
+_PHRASE_LABEL: dict[str, str] = {
+    "VERB": "VP",
+    "AUX": "VP",
     "NOUN": "NP",
     "PROPN": "NP",
     "PRON": "NP",
     "NUM": "NP",
-    "DET": "NP",
-    "VERB": "VP",
-    "AUX": "VP",
-    "ADP": "PP",
     "ADJ": "ADJP",
     "ADV": "ADVP",
     "SCONJ": "SBAR",
 }
 
-#: Parts of speech that head a phrase on their own. Anything else needs
-#: dependents before it is worth a node -- otherwise every determiner and
-#: preposition becomes a spurious one-word phrase.
-_CONTENT_UPOS = frozenset({"NOUN", "PROPN", "PRON", "NUM", "VERB", "ADJ", "ADV"})
+#: Relations that make a token a preterminal rather than a phrase head (adjustment 1).
+_FUNCTIONAL_DEPRELS = frozenset(
+    {
+        "det",
+        "case",
+        "punct",
+        "aux",
+        "aux:pass",
+        "cop",
+        "mark",
+        "cc",
+        "dep",
+        "expl",
+        "discourse",
+        "fixed",
+        "flat",
+        "goeswith",
+        "compound",
+        "nummod",
+        "amod",
+        "poss",
+        "predet",
+        "prt",
+    }
+)
 
-#: Dependency relations naming a clausal subject.
-_SUBJECT_DEPS = frozenset({"nsubj", "nsubjpass", "csubj"})
-_PASSIVE_SUBJECT_DEPS = frozenset({"nsubj:pass", "nsubjpass", "csubj:pass"})
-_OBJECT_DEPS = frozenset({"obj", "dobj"})
-_INDIRECT_OBJECT_DEPS = frozenset({"iobj", "dative"})
-_OBLIQUE_DEPS = frozenset({"obl", "nmod", "obl:agent", "obl:tmod"})
+#: A clausal dependent projects SBAR regardless of its own UPOS.
+_CLAUSAL_DEPRELS = frozenset({"ccomp", "xcomp", "advcl", "acl", "acl:relcl", "csubj"})
 
-#: Prepositions whose role is not in genuine doubt. ``in``/``on``/``at`` are
-#: absent on purpose: they are spatial or temporal depending on their object, and
-#: are resolved by :func:`_ambiguous_case_role` rather than assumed.
-_UNAMBIGUOUS_CASE_ROLES = {
-    "into": "ARGM-LOC",
-    "onto": "ARGM-LOC",
-    "near": "ARGM-LOC",
-    "under": "ARGM-LOC",
-    "above": "ARGM-LOC",
-    "below": "ARGM-LOC",
-    "beside": "ARGM-LOC",
-    "inside": "ARGM-LOC",
-    "outside": "ARGM-LOC",
-    "toward": "ARGM-LOC",
-    "towards": "ARGM-LOC",
-    "during": "ARGM-TMP",
-    "before": "ARGM-TMP",
-    "after": "ARGM-TMP",
-    "since": "ARGM-TMP",
-    "until": "ARGM-TMP",
-    "till": "ARGM-TMP",
-    "throughout": "ARGM-TMP",
-    "via": "ARGM-MNR",
-    "without": "ARGM-MNR",
+#: Subjects and sentence punctuation sit outside the VP (see the S -> NP VP note).
+_OUTSIDE_VP = frozenset({"nsubj", "nsubj:pass", "nsubjpass", "csubj", "expl", "punct"})
+
+#: UD relation -> PropBank-style role for an active predicate's dependents.
+_ROLE_BY_DEPREL: dict[str, str] = {
+    "nsubj": "ARG0",
+    "csubj": "ARG0",
+    "agent": "ARG0",
+    "obl:agent": "ARG0",
+    "nsubj:pass": "ARG1",
+    "nsubjpass": "ARG1",
+    "obj": "ARG1",
+    "dobj": "ARG1",
+    "ccomp": "ARG1",
+    "xcomp": "ARG1",
+    "attr": "ARG1",
+    "iobj": "ARG2",
+    "dative": "ARG2",
+    "advcl": "ARGM-ADV",
 }
 
-#: Case markers that read as location or time depending on what they govern.
-_AMBIGUOUS_CASE_MARKERS = frozenset({"in", "on", "at"})
-
-#: Entity types that settle an ambiguous case marker toward time.
-_TEMPORAL_ENT_TYPES = frozenset({"DATE", "TIME"})
-
-_NEGATION_LEMMAS = frozenset({"not", "n't", "never", "no"})
+#: Case-marker lemmas that make an oblique locative or temporal. Kept small and
+#: explicit: a marker outside these sets yields the unspecified ``ARGM`` rather than
+#: a guess, because "at" alone does not tell you whether a place or a time follows.
+_LOCATIVE_CASES = frozenset({"in", "on", "at", "into", "onto", "near", "inside", "outside", "from"})
+_TEMPORAL_CASES = frozenset({"after", "before", "during", "since", "until", "till"})
+_NEGATIONS = frozenset({"not", "never", "n't", "no"})
 
 
 @dataclass(frozen=True)
-class DerivedConstituent:
-    """One phrase-structure node, addressed by character offsets.
+class ParsedToken:
+    """One dependency-parsed token: the whole input contract for both derivations.
 
-    ``key`` is unique within a derivation and ``parent`` refers to another node's
-    ``key``; the adapter swaps both for storage ids. A discontinuous (non-projective)
-    subtree is recorded by its covering span, because one offset pair cannot express
-    a gap.
+    Attributes:
+        index: 0-based position within its sentence.
+        head_index: Index of the syntactic head; equal to ``index`` for the root.
+        deprel: Universal Dependencies relation to the head.
+        upos: Universal POS tag.
+        lemma: Dictionary form, used as the SRL frame name.
+        char_start: Start offset of the token in the document text.
+        char_end: End offset (exclusive) of the token in the document text.
     """
 
-    key: int
-    parent: int | None
+    index: int
+    head_index: int
+    deprel: str
+    upos: str
+    lemma: str
+    char_start: int
+    char_end: int
+
+
+@dataclass(frozen=True)
+class ConstituentNode:
+    """One phrase-structure node. ``key`` is stable within its sentence."""
+
+    key: str
+    parent_key: str | None
     label: str
     char_start: int
     char_end: int
 
 
 @dataclass(frozen=True)
-class DerivedArgument:
-    """One labelled argument of a frame (``ARG0``, ``ARGM-LOC``, ...)."""
+class SrlArgument:
+    """One labelled argument span of a predicate."""
 
     role: str
     char_start: int
     char_end: int
+    head_index: int
 
 
 @dataclass(frozen=True)
-class DerivedFrame:
-    """One predicate and the arguments its dependents license."""
+class SrlFrame:
+    """One predicate and its arguments."""
 
     predicate_index: int
-    lemma: str
+    frame: str
     char_start: int
     char_end: int
-    arguments: tuple[DerivedArgument, ...] = ()
+    arguments: tuple[SrlArgument, ...]
 
 
-@dataclass(frozen=True)
-class DerivedSyntax:
-    """Everything both derived layers produced for one document."""
-
-    constituents: tuple[DerivedConstituent, ...] = ()
-    frames: tuple[DerivedFrame, ...] = ()
-    #: Every distinct character span the layers need registered, in emission order.
-    spans: tuple[tuple[int, int], ...] = field(default=())
-
-
-def _extent(tokens: Sequence[ParsedToken]) -> tuple[int, int]:
-    """Return the character span covering *tokens*."""
-    return min(t.idx for t in tokens), max(t.idx + len(t.text) for t in tokens)
-
-
-def _children_of(tokens: Sequence[ParsedToken]) -> dict[int, list[ParsedToken]]:
-    """Map each token index to its dependents.
-
-    Built by scanning heads rather than reading ``token.children`` so the
-    derivation works against any parse that exposes ``head``, not only a live
-    spaCy ``Doc``.
-    """
-    children: dict[int, list[ParsedToken]] = {}
+def _children(tokens: list[ParsedToken]) -> dict[int, list[int]]:
+    kids: dict[int, list[int]] = {t.index: [] for t in tokens}
     for token in tokens:
-        head = token.head
-        if head is None or head.i == token.i:
-            continue
-        children.setdefault(head.i, []).append(token)
-    return children
+        if token.head_index != token.index and token.head_index in kids:
+            kids[token.head_index].append(token.index)
+    return kids
 
 
-def _subtree(
-    token: ParsedToken,
-    children: dict[int, list[ParsedToken]],
-    *,
-    exclude: frozenset[int] = frozenset(),
-) -> list[ParsedToken]:
-    """Return *token* and its descendants, skipping any subtree rooted in *exclude*."""
-    collected: list[ParsedToken] = []
-    stack = [token]
+def _subtree(index: int, kids: dict[int, list[int]]) -> list[int]:
+    """Indices of the subtree rooted at *index*, iteratively (no recursion limit)."""
+    out: list[int] = []
+    stack = [index]
+    seen: set[int] = set()
     while stack:
         current = stack.pop()
-        if current.i in exclude:
+        if current in seen:  # a malformed cycle must not hang the derivation
             continue
-        collected.append(current)
-        stack.extend(children.get(current.i, ()))
-    return collected
+        seen.add(current)
+        out.append(current)
+        stack.extend(kids.get(current, ()))
+    return out
 
 
-def _is_punct(token: ParsedToken) -> bool:
-    return token.pos_ == "PUNCT" or token.dep_ == "punct"
+def _span(indices: list[int], by_index: dict[int, ParsedToken]) -> tuple[int, int]:
+    starts = [by_index[i].char_start for i in indices]
+    ends = [by_index[i].char_end for i in indices]
+    return min(starts), max(ends)
 
 
-class _SentenceDerivation:
-    """Derives both layers for one sentence, sharing the child map between them."""
+def _root(tokens: list[ParsedToken]) -> ParsedToken:
+    for token in tokens:
+        if token.head_index == token.index or token.deprel.upper() == "ROOT":
+            return token
+    return tokens[0]
 
-    def __init__(self, tokens: Sequence[ParsedToken]) -> None:
-        self.tokens = tokens
-        self.children = _children_of(tokens)
-        self.constituents: list[DerivedConstituent] = []
-        self.frames: list[DerivedFrame] = []
-        self._next_key = 0
 
-    def _emit(self, parent: int | None, label: str, span: tuple[int, int]) -> int:
-        key = self._next_key
-        self._next_key += 1
-        self.constituents.append(
-            DerivedConstituent(
-                key=key, parent=parent, label=label, char_start=span[0], char_end=span[1]
-            )
-        )
-        return key
-
-    # -- Layer 9 ------------------------------------------------------------
-
-    def derive_constituents(self, key_offset: int) -> None:
-        """Project a phrase tree, one ``S`` per root.
-
-        A well-formed sentence has exactly one root, so this normally emits one
-        ``S``. A fragment (or a stub parse where tokens head themselves) has
-        several, and each becomes its own ``S`` rather than being forced under a
-        sentence node the parse never justified.
-        """
-        self._next_key = key_offset
-        roots = [t for t in self.tokens if not _is_punct(t) and t.head.i == t.i]
-        for root in roots:
-            # S is the sentence node, so it keeps the punctuation its subtree
-            # carries; only the phrase nodes below it are trimmed.
-            sentence_key = self._emit(None, "S", _extent(_subtree(root, self.children)))
-            self._descend_root(root, sentence_key)
-
-    def _descend_root(self, root: ParsedToken, parent_key: int) -> None:
-        """Place the root's phrase under ``S``, lifting subjects to sibling position."""
-        kids = [t for t in self.children.get(root.i, ()) if not _is_punct(t)]
-        subjects = [t for t in kids if t.dep_ in _SUBJECT_DEPS | _PASSIVE_SUBJECT_DEPS]
-        predicate_kids = [t for t in kids if t not in subjects]
-        for subject in subjects:
-            self._descend(subject, parent_key)
-        label = _LABEL_FOR_UPOS.get(root.pos_)
-        if label is None or not predicate_kids:
-            for kid in predicate_kids:
-                self._descend(kid, parent_key)
-            return
-        excluded = frozenset(t.i for t in subjects)
-        covered = [t for t in _subtree(root, self.children, exclude=excluded) if not _is_punct(t)]
-        phrase_key = self._emit(parent_key, label, _extent(covered or [root]))
-        for kid in predicate_kids:
-            self._descend(kid, phrase_key)
-
-    def _descend(self, token: ParsedToken, parent_key: int) -> None:
-        """Emit the phrase headed by *token*, then recurse into its dependents."""
-        kids = [t for t in self.children.get(token.i, ()) if not _is_punct(t)]
-        label = _LABEL_FOR_UPOS.get(token.pos_)
-        if label is None or (not kids and token.pos_ not in _CONTENT_UPOS):
-            # A bare function word is a leaf of the phrase above it, not a phrase
-            # of its own: the determiner in `a startup` belongs to that NP rather
-            # than heading one.
-            for kid in kids:
-                self._descend(kid, parent_key)
-            return
-        cases = [t for t in kids if t.dep_ == "case"]
-        covered = [t for t in _subtree(token, self.children) if not _is_punct(t)]
-        if cases and label == "NP":
-            # `in Berlin` is a PP that contains the NP -- the nesting a chunker
-            # flattens away, and the reason this layer exists at all.
-            phrase_key = self._emit(parent_key, "PP", _extent(covered or [token]))
-            excluded = frozenset(t.i for t in cases)
-            inner = [
-                t for t in _subtree(token, self.children, exclude=excluded) if not _is_punct(t)
-            ]
-            parent_key = self._emit(phrase_key, "NP", _extent(inner or [token]))
-            kids = [t for t in kids if t not in cases]
-        else:
-            parent_key = self._emit(parent_key, label, _extent(covered or [token]))
-        for kid in kids:
-            self._descend(kid, parent_key)
-
-    # -- Layer 14 -----------------------------------------------------------
-
-    def derive_frames(self) -> None:
-        """Emit one frame per verbal predicate that actually licenses an argument."""
-        for token in self.tokens:
-            if token.pos_ not in ("VERB", "AUX"):
-                continue
-            arguments = self._arguments_for(token)
-            if not arguments:
-                # A predicate with no arguments states nothing a reader could not
-                # get from the token itself, so it is not recorded as a frame.
-                continue
-            self.frames.append(
-                DerivedFrame(
-                    predicate_index=token.i,
-                    lemma=token.lemma_ or token.text.lower(),
-                    char_start=token.idx,
-                    char_end=token.idx + len(token.text),
-                    arguments=arguments,
-                )
-            )
-
-    def _arguments_for(self, predicate: ParsedToken) -> tuple[DerivedArgument, ...]:
-        kids = [t for t in self.children.get(predicate.i, ()) if not _is_punct(t)]
-        passive = any(t.dep_ in _PASSIVE_SUBJECT_DEPS for t in kids)
-        arguments: list[DerivedArgument] = []
-        for kid in kids:
-            role = self._role_for(kid, passive=passive)
-            if role is None:
-                continue
-            covered = [t for t in _subtree(kid, self.children) if not _is_punct(t)]
-            start, end = _extent(covered or [kid])
-            arguments.append(DerivedArgument(role=role, char_start=start, char_end=end))
-        return tuple(arguments)
-
-    def _role_for(self, token: ParsedToken, *, passive: bool) -> str | None:
-        """Map one dependent onto a role, or ``None`` when it licenses no argument."""
-        dep = token.dep_
-        if dep in _PASSIVE_SUBJECT_DEPS:
-            # The surface subject of a passive is the thing acted upon.
-            return "ARG1"
-        if dep in _SUBJECT_DEPS:
-            return "ARG1" if passive else "ARG0"
-        if dep in _OBJECT_DEPS:
-            return "ARG1"
-        if dep in _INDIRECT_OBJECT_DEPS:
-            return "ARG2"
-        if dep == "obl:agent":
-            return "ARG0"
-        if dep in _OBLIQUE_DEPS:
-            return self._oblique_role(token)
-        if dep == "neg":
-            return "ARGM-NEG"
-        if dep == "advmod":
-            lemma = (token.lemma_ or token.text).lower()
-            return "ARGM-NEG" if lemma in _NEGATION_LEMMAS else "ARGM-ADV"
+def _phrase_label(
+    token: ParsedToken, kids: dict[int, list[int]], by_index: dict[int, ParsedToken]
+) -> str | None:
+    """The label *token* projects, or ``None`` when it is a preterminal."""
+    if token.deprel in _CLAUSAL_DEPRELS:
+        if _has_complementizer(token, kids, by_index):
+            return "SBAR"
+        return _PHRASE_LABEL.get(token.upos)
+    if token.deprel in _FUNCTIONAL_DEPRELS:
         return None
-
-    def _oblique_role(self, token: ParsedToken) -> str:
-        """Label an oblique from its case marker, refusing to guess when ambiguous."""
-        cases = [t for t in self.children.get(token.i, ()) if t.dep_ == "case"]
-        if not cases:
-            return "ARGM"
-        marker = (cases[0].lemma_ or cases[0].text).lower()
-        if marker == "by":
-            return "ARG0"
-        settled = _UNAMBIGUOUS_CASE_ROLES.get(marker)
-        if settled:
-            return settled
-        if marker in _AMBIGUOUS_CASE_MARKERS:
-            return _ambiguous_case_role(token)
-        return "ARGM"
+    label = _PHRASE_LABEL.get(token.upos)
+    if label == "NP" and _has_case_marker(token, kids, by_index):
+        return "PP"  # adjustment 2: object of a preposition
+    return label
 
 
-def _ambiguous_case_role(token: ParsedToken) -> str:
-    """Resolve ``in``/``on``/``at`` from what they govern, not from a default.
+def _has_case_marker(
+    token: ParsedToken, kids: dict[int, list[int]], by_index: dict[int, ParsedToken]
+) -> bool:
+    return any(
+        by_index[k].deprel.startswith("case") and by_index[k].upos == "ADP"
+        for k in kids.get(token.index, ())
+    )
 
-    ``in Berlin`` is a location and ``in 1999`` is a time; the marker alone cannot
-    tell them apart. The entity type settles it when the parse carries one, and
-    when nothing settles it the unspecified ``ARGM`` is emitted rather than a
-    coin-flip between LOC and TMP.
+
+def _has_complementizer(
+    token: ParsedToken, kids: dict[int, list[int]], by_index: dict[int, ParsedToken]
+) -> bool:
+    return any(by_index[k].deprel == "mark" for k in kids.get(token.index, ()))
+
+
+def _case_lemma(
+    token: ParsedToken, kids: dict[int, list[int]], by_index: dict[int, ParsedToken]
+) -> str | None:
+    for k in kids.get(token.index, ()):
+        if by_index[k].deprel.startswith("case"):
+            return by_index[k].lemma.lower()
+    return None
+
+
+def derive_constituents(
+    tokens: list[ParsedToken], *, key_prefix: str = "c"
+) -> tuple[ConstituentNode, ...]:
+    """Project a phrase-structure tree from one sentence's dependency parse.
+
+    Args:
+        tokens: The sentence's parsed tokens, any order (``index`` is authoritative).
+        key_prefix: Prefix for the generated node keys, so a caller annotating many
+            sentences can keep keys unique across them.
+
+    Returns:
+        Nodes in document order, exactly one with ``parent_key is None`` (the S).
     """
-    ent_type = getattr(token, "ent_type_", "") or ""
-    if ent_type in _TEMPORAL_ENT_TYPES:
-        return "ARGM-TMP"
-    if ent_type:
+    if not tokens:
+        return ()
+    ordered = sorted(tokens, key=lambda t: t.index)
+    by_index = {t.index: t for t in ordered}
+    kids = _children(ordered)
+    root = _root(ordered)
+
+    sentence_span = _span([t.index for t in ordered], by_index)
+    s_key = f"{key_prefix}-s"
+    nodes: dict[int | str, ConstituentNode] = {}
+    # The S node is keyed separately from any token: the root token may also project
+    # a VP, and one token cannot own two nodes.
+    nodes[s_key] = ConstituentNode(s_key, None, "S", *sentence_span)
+
+    # The predicate VP: the root's subtree minus subjects and sentence punctuation.
+    vp_indices = [
+        i
+        for i in _subtree(root.index, kids)
+        if not (by_index[i].head_index == root.index and by_index[i].deprel in _OUTSIDE_VP)
+    ]
+    vp_key: str | None = None
+    if _PHRASE_LABEL.get(root.upos) == "VP" and len(vp_indices) < len(ordered):
+        vp_key = f"{key_prefix}-vp"
+        nodes[vp_key] = ConstituentNode(vp_key, s_key, "VP", *_span(vp_indices, by_index))
+
+    projected: dict[int, str] = {}
+    for token in ordered:
+        if token.index == root.index:
+            continue
+        label = _phrase_label(token, kids, by_index)
+        if label is None:
+            continue
+        key = f"{key_prefix}-{token.index}"
+        projected[token.index] = key
+        node_span = _span(_subtree(token.index, kids), by_index)
+        nodes[key] = ConstituentNode(key, None, label, *node_span)
+
+    # Parent = nearest ancestor that projected; else the VP when inside it, else S.
+    inside_vp = set(vp_indices)
+    resolved: list[ConstituentNode] = [nodes[s_key]]
+    if vp_key is not None:
+        resolved.append(nodes[vp_key])
+    for index, key in projected.items():
+        parent_key = _nearest_projected_ancestor(index, by_index, projected, root.index)
+        if parent_key is None:
+            parent_key = vp_key if (vp_key is not None and index in inside_vp) else s_key
+        node = nodes[key]
+        resolved.append(
+            ConstituentNode(node.key, parent_key, node.label, node.char_start, node.char_end)
+        )
+
+    # Adjustment 2's inner NP: a PP's nominal head is still an NP within it.
+    for index, key in projected.items():
+        if nodes[key].label != "PP":
+            continue
+        inner_indices = [
+            i
+            for i in _subtree(index, kids)
+            if not (by_index[i].head_index == index and by_index[i].deprel.startswith("case"))
+        ]
+        inner_key = f"{key_prefix}-{index}-np"
+        resolved.append(ConstituentNode(inner_key, key, "NP", *_span(inner_indices, by_index)))
+
+    return tuple(sorted(resolved, key=lambda n: (n.char_start, -n.char_end, n.label)))
+
+
+def _nearest_projected_ancestor(
+    index: int,
+    by_index: dict[int, ParsedToken],
+    projected: dict[int, str],
+    root_index: int,
+) -> str | None:
+    current = by_index[index].head_index
+    seen: set[int] = {index}
+    while current in by_index and current not in seen:
+        if current == root_index:
+            return None
+        if current in projected:
+            return projected[current]
+        seen.add(current)
+        current = by_index[current].head_index
+    return None
+
+
+def _modifier_role(
+    dependent: ParsedToken, kids: dict[int, list[int]], by_index: dict[int, ParsedToken]
+) -> str:
+    """Role for an adjunct: locative/temporal when its case marker says so."""
+    if dependent.deprel == "advmod" or dependent.upos == "PART":
+        if dependent.lemma.lower() in _NEGATIONS:
+            return "ARGM-NEG"
+        return "ARGM-MNR"
+    case = _case_lemma(dependent, kids, by_index)
+    if case in _LOCATIVE_CASES:
         return "ARGM-LOC"
-    if getattr(token, "like_num", False):
+    if case in _TEMPORAL_CASES:
         return "ARGM-TMP"
     return "ARGM"
 
 
-def derive(sentences: Iterable[Sequence[ParsedToken]]) -> DerivedSyntax:
-    """Derive both layers for a document, given its sentences' tokens.
+def derive_srl_frames(tokens: list[ParsedToken]) -> tuple[SrlFrame, ...]:
+    """Derive one predicate-argument frame per verbal predicate in the sentence.
 
-    Returns the nodes, the frames, and every character span the two layers need
-    registered — collected here so the caller can register them in the one bulk
-    call it already makes, rather than paying a round-trip per sentence.
+    Args:
+        tokens: The sentence's parsed tokens.
+
+    Returns:
+        Frames in predicate document order; a predicate with no arguments is still
+        returned, because the predicate itself is a finding.
     """
-    constituents: list[DerivedConstituent] = []
-    frames: list[DerivedFrame] = []
-    spans: list[tuple[int, int]] = []
-    for tokens in sentences:
-        usable = [t for t in tokens if t.text.strip()]
-        if not usable:
+    if not tokens:
+        return ()
+    ordered = sorted(tokens, key=lambda t: t.index)
+    by_index = {t.index: t for t in ordered}
+    kids = _children(ordered)
+
+    frames: list[SrlFrame] = []
+    for token in ordered:
+        # Auxiliaries are not predicates: "has left" is one frame, not two.
+        if token.upos != "VERB" or token.deprel in ("aux", "aux:pass", "cop"):
             continue
-        derivation = _SentenceDerivation(usable)
-        derivation.derive_constituents(len(constituents))
-        derivation.derive_frames()
-        constituents.extend(derivation.constituents)
-        frames.extend(derivation.frames)
-        spans.extend((node.char_start, node.char_end) for node in derivation.constituents)
-        spans.extend(
-            (argument.char_start, argument.char_end)
-            for frame in derivation.frames
-            for argument in frame.arguments
+        arguments: list[SrlArgument] = []
+        for child_index in sorted(kids.get(token.index, ())):
+            child = by_index[child_index]
+            if child.deprel in _FUNCTIONAL_DEPRELS and child.upos != "PART":
+                continue
+            role = _ROLE_BY_DEPREL.get(child.deprel)
+            if role is None:
+                if child.deprel.startswith("obl") or child.deprel in ("advmod", "nmod"):
+                    role = _modifier_role(child, kids, by_index)
+                else:
+                    continue
+            start, end = _span(_subtree(child_index, kids), by_index)
+            arguments.append(SrlArgument(role, start, end, child_index))
+        frames.append(
+            SrlFrame(
+                predicate_index=token.index,
+                frame=token.lemma.lower(),
+                char_start=token.char_start,
+                char_end=token.char_end,
+                arguments=tuple(arguments),
+            )
         )
-    return DerivedSyntax(
-        constituents=tuple(constituents), frames=tuple(frames), spans=tuple(spans)
-    )
+    return tuple(frames)
