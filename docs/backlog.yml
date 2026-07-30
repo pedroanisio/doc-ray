@@ -110,7 +110,7 @@ metadata:
   generated_by:     "Claude Sonnet 5 via Claude Code (merge of Claude Opus 4.8 backlog + OpenAI Codex improvement-proposal candidates); BL-181/BL-182/BL-183/BL-184 by OpenAI GPT-5 via Codex; BL-188/BL-189..BL-193 by Claude Opus 5 via Claude Code; BL-194..BL-200 by Claude Opus 5 (1M context) via Claude Code, applying TC-DXP-001.product-surfaces.tc-v0.3; BL-201 by Claude Opus 5 (1M context) via Claude Code"
   generated_on:     "2026-07-29"
   system_of_record: "docs/backlog.yml"
-  total_items:      201
+  total_items:      202
 
 items:
 
@@ -7427,3 +7427,35 @@ items:
     owner:        "shared"
     source:       "Operator request 2026-07-29 to close the Layer 9/14 gap under strict TDD. Deliberate limits: the SRL frame is the predicate LEMMA (found), never a roleset (found.01), because the roleset index encodes a sense needing the PropBank frame files and Layer 15 (WSD, still schema-only); a non-projective phrase is recorded by its covering span, a superset rather than a wrong subset. A future neural parser supersedes this by writing under a different tool version."
     tags:         ["nlp", "syntax", "srl", "constituency", "derived"]
+
+  - id:          "BL-202"
+    title:       "Tracked ENVIRONMENT.md symlink dangles in every clean checkout"
+    summary:      "ENVIRONMENT.md is a tracked symlink to the gitignored ENV-PROD.md, so it resolves only on the operator's box and reddens test_doc_links everywhere else."
+    description: >-
+      ENVIRONMENT.md is tracked as a symlink to ENV-PROD.md, and ENV-PROD.md is
+      gitignored (.gitignore:49). The link therefore resolves only in a working
+      copy where the operator has created ENV-PROD.md by hand — the box it was
+      authored on. In a fresh clone, a CI checkout, or any git worktree, it is a
+      dangling symlink, and tests/test_doc_links.py fails on two references:
+      docs/GPU_EXIT_PLAN.md -> ../ENV-PROD.md and
+      docs/environment-configuration.md -> ../ENVIRONMENT.md. Verified failing at
+      8c97413, so it predates the Layer 9/14 merge rather than being introduced
+      by it; it is invisible in day-to-day work precisely because the operator's
+      tree is the one place the symlink resolves.
+    category:     "docs"
+    type:         "bug"
+    status:       "ready"
+    complexity:   "XS"
+    priority:     "medium"
+    rationale:    "A green test suite on the operator's box and a red one everywhere else is the failure mode that makes CI untrustworthy."
+    acceptance_criteria:
+      - "tests/test_doc_links.py passes in a checkout that has never had ENV-PROD.md created by hand."
+      - "No production host detail (public IP, managed-cluster hostnames) becomes tracked as a side effect of the fix."
+    references:
+      - "tests/test_doc_links.py"
+      - ".gitignore"
+      - "docs/GPU_EXIT_PLAN.md"
+      - "docs/environment-configuration.md"
+    owner:        "unassigned"
+    source:       "Session 2026-07-30, isolating the Layer 9/14 merge in a clean worktree. Left for the operator because the resolution turns on whether ENV-PROD.md should be tracked at all: it documents the live host's public IP and managed-cluster endpoints, so untracking the symlink and dropping the two links is one answer and publishing a redacted ENVIRONMENT.md is another, and that is a privacy call rather than a mechanical fix."
+    tags:         ["docs", "ci", "tech-debt"]
