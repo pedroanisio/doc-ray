@@ -90,6 +90,7 @@ _WRITE_TOOL_NAMES = {
     "decide_seeds",
     "decide_document_metadata_suggestions",
     "decide_visual_captions",
+    "retract_visual_caption",
     "seed_approved",
     "create_collection",
     "add_document_to_collection",

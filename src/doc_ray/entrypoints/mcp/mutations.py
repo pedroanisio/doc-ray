@@ -325,6 +325,34 @@ async def decide_visual_captions(
     return updated
 
 
+async def retract_visual_caption(caption_id: str, reason: str) -> int:
+    """Retract a PUBLISHED caption that is wrong about the image it describes.
+
+    Captions are committed on write and shown in the reader labelled with their
+    model and grounding score, so this retraction — not an approval — is the
+    recorded human verification event. It is attributed to your principal,
+    timestamped, and keeps ``reason``; the row is never deleted, because it is
+    the audit trail for the model call and for the decision about it.
+
+    Retract when you can establish the caption is wrong about its image — you
+    have read the surrounding page, or fetched the image. Do NOT retract merely
+    because the grounding score is low: a low score means little of the caption's
+    specific content appears in the page text, which is common for a faithful
+    description of a figure whose page has little prose.
+
+    Returns the number of rows retracted: ``0`` when the caption does not exist
+    or was not committed, so a no-op is never reported as a success.
+    """
+    _require_nonempty(caption_id, "caption_id")
+    _require_nonempty(reason, "reason")
+    data = await gql(
+        "mutation($c:ID!,$r:String!){retractVisualCaption(captionId:$c,reason:$r)}",
+        {"c": caption_id, "r": reason},
+    )
+    retracted: int = data["retractVisualCaption"]
+    return retracted
+
+
 async def create_collection(
     name: str,
     description: str = "",
@@ -672,6 +700,7 @@ TOOLS: tuple[Any, ...] = (
     decide_seeds,
     decide_document_metadata_suggestions,
     decide_visual_captions,
+    retract_visual_caption,
     seed_approved,
     create_collection,
     add_document_to_collection,

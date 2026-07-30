@@ -59,6 +59,47 @@ doc-ray carries **one global version** covering both the application package
      original and renders its first-page cover; non-PDFs say "Text extraction
      failed", which is what actually happened.
 
+## [1.55.0]
+
+### Changed
+
+- **Visual captions are published on write and verified by retraction (BL-201).**
+  The pre-publication gate did not work at corpus scale and the honest
+  description of its behaviour is that captions were withheld from everyone
+  forever: of 6,122 proposals, **21 were ever committed**, while 5,851 sat in a
+  queue presented 25 at a time. A control no operator can exercise is not a
+  control.
+
+  A structurally valid caption now commits on write and appears in the reader,
+  labelled as a **model proposal** with its originating model and grounding
+  score — never as doc-ray's own assertion. A reader who can see the image
+  retracts one that is wrong.
+
+  This keeps PALS's Law by moving the human decision, not removing it, and the
+  new decision carries strictly more than the old one:
+
+  * the reviewer sees the image, the caption and the score together in the
+    reader, which is more context than the review queue ever offered;
+  * a retraction writes `retracted_by`, `retracted_at` and `retraction_reason`
+    (migration 150), so who/when/why is recorded — approval recorded only
+    who/when;
+  * the row is never deleted, since it is the audit trail for a paid-for model
+    call *and* for the human decision about it.
+
+  The trade is reversible per deployment. `DOCRAY_CAPTION_APPROVE_FLOOR`
+  (default `0.0`) sends captions below that grounding score to the review queue
+  instead of the reader; setting it to `1.0` restores a fully pre-publication
+  gate. Structurally invalid output is still rejected outright and never reaches
+  either surface (BL-196).
+
+### Added
+
+- **`retractVisualCaption(captionId, reason)`** on the GraphQL API, the
+  `retract_visual_caption` MCP write tool, and a retraction control on each
+  captioned image in the document reader. All three enforce attribution and a
+  non-empty reason, and all three return the number of rows retracted so a
+  no-op is never reported as success.
+
 ## [1.54.0]
 
 ### Fixed

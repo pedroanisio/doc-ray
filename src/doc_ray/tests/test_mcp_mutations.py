@@ -465,6 +465,7 @@ def test_tools_tuple_is_the_reprocessing_and_curation_writers() -> None:
         "decide_seeds",
         "decide_document_metadata_suggestions",
         "decide_visual_captions",
+        "retract_visual_caption",
         "seed_approved",
         "create_collection",
         "add_document_to_collection",
@@ -492,3 +493,30 @@ async def test_decide_visual_captions_forwards(monkeypatch: pytest.MonkeyPatch) 
     body = client.calls[0][1]
     assert "decideVisualCaptions" in body["query"]
     assert body["variables"] == {"a": ["01APPROVE"], "r": ["01REJECT"]}
+
+
+@pytest.mark.asyncio
+async def test_retract_visual_caption_forwards(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The tool forwards to the audited mutation and returns the row count."""
+    seen: dict[str, object] = {}
+
+    async def fake_gql(query: str, variables: dict | None = None) -> dict:
+        seen["query"] = query
+        seen["variables"] = variables
+        return {"retractVisualCaption": 1}
+
+    monkeypatch.setattr(mutations, "gql", fake_gql)
+    retracted = await mutations.retract_visual_caption("cap-1", "describes the wrong figure")
+
+    assert retracted == 1
+    assert "retractVisualCaption" in str(seen["query"])
+    assert seen["variables"] == {"c": "cap-1", "r": "describes the wrong figure"}
+
+
+@pytest.mark.asyncio
+async def test_retract_visual_caption_requires_a_reason() -> None:
+    """An unexplained retraction loses the signal that makes them useful."""
+    from doc_ray.entrypoints.mcp.errors import ToolCallError
+
+    with pytest.raises(ToolCallError, match="reason"):
+        await mutations.retract_visual_caption("cap-1", "   ")

@@ -36,6 +36,9 @@ _DESTRUCTIVE_WRITE_NAMES = {
     "decide_seeds",
     "decide_document_metadata_suggestions",
     "decide_visual_captions",
+    # A retraction replaces curated state (a published caption) and re-running
+    # it converges rather than repeating, so: destructive + idempotent.
+    "retract_visual_caption",
     "remove_document_from_collection",
     "update_collection",
     "delete_collection",

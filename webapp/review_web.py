@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from types import ModuleType
+from urllib.parse import quote_plus
 
 from flask import current_app, redirect, request, url_for
 
@@ -320,9 +321,54 @@ def review_action():
         return redirect(url_for("review", lane=lane, document_id=document_id, error=str(exc)))
 
 
+def _with(target: str, key: str, value: str) -> str:
+    """Append a query parameter to *target*, preserving its fragment and query."""
+    base, _, fragment = target.partition("#")
+    joiner = "&" if "?" in base else "?"
+    suffix = f"#{fragment}" if fragment else ""
+    return f"{base}{joiner}{key}={quote_plus(value)}{suffix}"
+
+
+_RETRACT_MUTATION = """
+mutation RetractCaption($captionId: ID!, $reason: String!) {
+  retractVisualCaption(captionId: $captionId, reason: $reason)
+}
+"""
+
+
+def retract_caption():
+    """Retract a published caption the reader can see is wrong (BL-201).
+
+    Captions are committed on write, so this is the recorded human verification
+    event: it is attributed, timestamped and keeps the reason. The redirect lands
+    back on the image the operator was looking at.
+    """
+    caption_id = (request.form.get("caption_id") or "").strip()
+    document_id = (request.form.get("document_id") or "").strip()
+    image_id = (request.form.get("image_id") or "").strip()
+    reason = (request.form.get("reason") or "").strip()
+    # Keep the reader in the gallery it was looking at. Redirecting to the bare
+    # document drops back to the text view, so the operator loses their place
+    # after every single retraction — verified by the browser suite, which saw
+    # the gallery go from 100 tiles to 0.
+    anchor = f"#image-{image_id}" if image_id else ""
+    target = f"/doc/{document_id}?view=images{anchor}" if document_id else "/"
+    if not caption_id or not reason:
+        return redirect(_with(target, "error", "a retraction needs a reason"))
+    try:
+        data = _core.gql(_RETRACT_MUTATION, {"captionId": caption_id, "reason": reason})
+        count = int(data.get("retractVisualCaption") or 0)
+    except Exception as exc:  # noqa: BLE001 - a failed write is a message, not a 500
+        current_app.logger.warning("caption retraction failed: %s", exc)
+        return redirect(_with(target, "error", str(exc)))
+    notice = "caption retracted" if count else "caption was not committed; nothing retracted"
+    return redirect(_with(target, "notice", notice))
+
+
 def register(app, core: ModuleType) -> None:
     """Attach the human-review routes to *app* with late-bound helpers."""
     global _core
     _core = core
     app.add_url_rule("/review", "review", review)
     app.add_url_rule("/review", "review_action", review_action, methods=["POST"])
+    app.add_url_rule("/captions/retract", "retract_caption", retract_caption, methods=["POST"])

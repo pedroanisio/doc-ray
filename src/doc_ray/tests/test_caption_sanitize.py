@@ -124,10 +124,14 @@ def test_gate_sanitises_before_grounding_so_scaffolding_cannot_score() -> None:
     assert dirty.grounding.score == pytest.approx(clean.grounding.score)
 
 
-def test_a_legitimate_low_grounding_caption_still_reaches_review() -> None:
-    """Rejection is for structural invalidity only — it must not swallow the gate."""
+def test_a_legitimate_low_grounding_caption_is_published_not_rejected() -> None:
+    """Rejection is for structural invalidity only, never for being ungrounded.
+
+    Under BL-201 a well-formed but poorly grounded caption publishes with its
+    score shown; only unusable strings are rejected outright.
+    """
     decision = gate_caption(VLMOutput(caption=_CLEAN), "an unrelated page of prose about tax law")
-    assert decision.status == "review"
+    assert decision.status == "committed"
 
 
 def test_the_decision_carries_the_sanitised_caption_for_persistence() -> None:

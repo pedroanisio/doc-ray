@@ -4,7 +4,10 @@ from __future__ import annotations
 
 import strawberry
 
-from doc_ray.adapters.persistence_visual_write import decide_visual_captions
+from doc_ray.adapters.persistence_visual_write import (
+    decide_visual_captions,
+    retract_visual_caption,
+)
 from doc_ray.entrypoints.api.context import MAX_BATCH_IDS
 from doc_ray.entrypoints.api.mutation_guards import (
     _audit_mutation_event,
@@ -56,3 +59,47 @@ class VisualReviewMutations:
             },
         )
         return decided
+
+    @strawberry.mutation
+    async def retract_visual_caption(
+        self,
+        info: Info,
+        caption_id: strawberry.ID,
+        reason: str,
+    ) -> int:
+        """Retract a published caption a reader can see is wrong.
+
+        Captions are committed on write and shown in the reader with their model
+        and grounding score (BL-201), so the recorded human verification event is
+        this retraction rather than an approval. It is attributed to the calling
+        principal, timestamped, and keeps the operator's ``reason`` — the row is
+        never deleted, because it is the audit trail for both the model call and
+        the human decision about it.
+
+        Returns the number of rows retracted: ``0`` when the caption does not
+        exist or was not committed, so a caller cannot read a no-op as success.
+        """
+        ctx = info.context
+        action = "mutation.retract_visual_caption"
+        await _require_write_audited(ctx, action=action)
+        principal_id = ctx.principal.principal_id
+        if principal_id is None:  # guarded above; keeps the adapter contract explicit
+            raise PermissionError("retracting a caption requires an authenticated principal")
+        retracted = await retract_visual_caption(
+            ctx.conn,
+            caption_id=str(caption_id),
+            principal_id=principal_id,
+            reason=reason,
+        )
+        await _audit_mutation_event(
+            ctx,
+            action=action,
+            target_type="visual_caption",
+            target_id=str(caption_id),
+            # A request that matched nothing still COMPLETED; "noop" is not an
+            # allowed audit outcome (only success/failure/denied). The
+            # rows_retracted detail is what distinguishes the two cases.
+            outcome="success",
+            details={"rows_retracted": retracted, "reason": reason.strip()[:200]},
+        )
+        return retracted

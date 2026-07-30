@@ -483,7 +483,31 @@
           <figure class="card visual-tile" id="image-{{ image.id }}">
             <a href="{{ url_for('document_page_image', doc_id=doc.id, page_number=image.pageNumber) }}"><img src="{{ url_for('document_image', doc_id=doc.id, image_id=image.id, ext='webp', w=320) }}" alt="{{ image.imageClass or 'Extracted image' }} from page {{ image.pageNumber }}" width="320" loading="lazy"></a>
             <figcaption><span class="pill">{{ image.imageClass or 'unclassified' }}</span> page {{ image.pageNumber }} · {{ image.widthPx }}×{{ image.heightPx }}</figcaption>
-            {% if image.caption %}<blockquote>{{ image.caption.caption }}</blockquote><p class="kicker">Committed caption · {{ image.caption.model }} · {{ '%.1f'|format(image.caption.groundingScore * 100) }}% grounded</p>{% else %}<p class="hint">No committed caption. Untrusted proposals, if any, remain in Review.</p>{% endif %}
+            {% if image.caption %}
+              {# The claim is labelled as a MODEL proposal with its grounding score,
+                 never as doc-ray's own assertion: captions are published on write
+                 and verified by retraction (BL-201), so a reader must be able to
+                 discount one without waiting for anybody. #}
+              <blockquote data-testid="caption-text">{{ image.caption.caption }}</blockquote>
+              <p class="kicker" data-testid="caption-provenance">
+                Model proposal · {{ image.caption.model }} ·
+                <span data-testid="caption-grounding">{{ '%.0f'|format(image.caption.groundingScore * 100) }}% grounded</span>
+              </p>
+              <details class="retract" data-testid="retract-details">
+                <summary>Retract this caption</summary>
+                <form method="post" action="{{ url_for('retract_caption') }}" data-testid="retract-form">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                  <input type="hidden" name="caption_id" value="{{ image.caption.id }}">
+                  <input type="hidden" name="document_id" value="{{ doc.id }}">
+                  <input type="hidden" name="image_id" value="{{ image.id }}">
+                  <label>Why is it wrong?
+                    <input type="text" name="reason" required maxlength="200"
+                           placeholder="describes the wrong figure" data-testid="retract-reason">
+                  </label>
+                  <button type="submit" data-testid="retract-submit">Retract</button>
+                </form>
+              </details>
+            {% else %}<p class="hint" data-testid="no-caption">No caption for this image.</p>{% endif %}
           </figure>
         {% endfor %}
         </div>

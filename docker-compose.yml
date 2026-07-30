@@ -85,6 +85,10 @@ services:
       S3_ACCESS_KEY: ${S3_ACCESS_KEY:-minioadmin}
       S3_SECRET_KEY: ${S3_SECRET_KEY:-minioadmin}
       S3_BUCKET: ${S3_BUCKET:-documents}
+      # The CLI extracts in-process, so it needs the same OCR knobs as the
+      # worker pools that handle ingest/retry_extract jobs.
+      DOCRAY_PDF_OCR: ${DOCRAY_PDF_OCR:-1}
+      DOCRAY_PDF_OCR_LANGUAGE: ${DOCRAY_PDF_OCR_LANGUAGE:-eng}
     volumes:
       - ./:/app:ro          # source + sample PDFs available under /data via /app
       - ./:/data:ro
@@ -417,6 +421,13 @@ services:
       DOCRAY_VISION_MODEL: ${DOCRAY_VISION_MODEL:-ViT-L-14}
       DOCRAY_VISION_PRETRAINED: ${DOCRAY_VISION_PRETRAINED:-openai}
       DOCRAY_VISION_BATCH_SIZE: ${DOCRAY_VISION_BATCH_SIZE:-16}
+      # OCR fallback for image-only PDFs. extraction_pdf reads these from the
+      # process env, so without the pass-through DOCRAY_PDF_OCR=0 in an env file
+      # is inert and every scan is OCRed regardless of what the operator set.
+      # Defaults mirror the code defaults (pdf_ocr_enabled_from_env,
+      # pdf_ocr_language_from_env); the runtime image ships eng + por.
+      DOCRAY_PDF_OCR: ${DOCRAY_PDF_OCR:-1}
+      DOCRAY_PDF_OCR_LANGUAGE: ${DOCRAY_PDF_OCR_LANGUAGE:-eng}
     entrypoint: ["python", "-m", "doc_ray.entrypoints.worker"]
 
   # Short-job lane: a reserved worker that never claims the hours-long spaCy
@@ -462,6 +473,11 @@ services:
       DOCRAY_VISION_MODEL: ${DOCRAY_VISION_MODEL:-ViT-L-14}
       DOCRAY_VISION_PRETRAINED: ${DOCRAY_VISION_PRETRAINED:-openai}
       DOCRAY_VISION_BATCH_SIZE: ${DOCRAY_VISION_BATCH_SIZE:-16}
+      # Same OCR knobs as the heavy pool: WORKER_EXCLUDE_KINDS is a default, not
+      # a guarantee, so this lane can claim an ingest and must read scans the
+      # same way rather than falling back to a different code default.
+      DOCRAY_PDF_OCR: ${DOCRAY_PDF_OCR:-1}
+      DOCRAY_PDF_OCR_LANGUAGE: ${DOCRAY_PDF_OCR_LANGUAGE:-eng}
     entrypoint: ["python", "-m", "doc_ray.entrypoints.worker"]
 
   # Scheduled backup trigger + retention pruning. The worker performs the

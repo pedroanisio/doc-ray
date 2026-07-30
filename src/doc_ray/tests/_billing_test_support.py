@@ -198,6 +198,7 @@ BILLING_GUARDED_MUTATIONS = {
     "retry_document_extraction": "mutation.retry_extract",
     "reject_projection": "mutation.reject_projection",
     "remove_document_from_collection": "mutation.remove_document_from_collection",
+    "retract_visual_caption": "mutation.retract_visual_caption",
     "restore_backup": "mutation.restore",
     "restore_document": "mutation.restore_document",
     "revoke_document_share": "mutation.revoke_document_share",

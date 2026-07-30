@@ -54,3 +54,4 @@ ENV-WORKER.md
 experiments/
 docs/the-delegation-of-doubt.md
 .doc-quarantine/
+.claude/settings.local.json

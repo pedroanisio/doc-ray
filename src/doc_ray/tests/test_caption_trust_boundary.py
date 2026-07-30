@@ -69,9 +69,24 @@ def test_the_assertion_path_is_the_reader_and_it_labels_provenance() -> None:
     fact the system verified itself.
     """
     template = (_ROOT / "webapp" / "templates" / "document.html").read_text(encoding="utf-8")
-    caption_lines = [line for line in template.splitlines() if "image.caption.caption" in line]
-    assert len(caption_lines) == 1, "caption text should surface on exactly one reader surface"
-    line = caption_lines[0]
-    assert "Committed caption" in line, "the reader must mark the text as a committed proposal"
-    assert "image.caption.model" in line, "the originating model must be shown"
-    assert "groundingScore" in line, "the grounding score must be shown alongside the claim"
+    lines = template.splitlines()
+    hits = [i for i, line in enumerate(lines) if "image.caption.caption" in line]
+    assert len(hits) == 1, "caption text should surface on exactly one reader surface"
+    # Provenance sits alongside the quote rather than on the same source line, so
+    # assert over the surrounding block.
+    block = "\n".join(lines[hits[0] : hits[0] + 8])
+    assert "Model proposal" in block, (
+        "the reader must mark the text as a MODEL proposal, never as doc-ray's "
+        "own assertion — captions publish on write and are verified by retraction"
+    )
+    assert "image.caption.model" in block, "the originating model must be shown"
+    assert "groundingScore" in block, "the grounding score must be shown alongside the claim"
+
+
+def test_the_reader_offers_a_retraction_for_every_published_caption() -> None:
+    """Publishing on write is only safe if withdrawing is always one click away."""
+    template = (_ROOT / "webapp" / "templates" / "document.html").read_text(encoding="utf-8")
+    assert 'data-testid="retract-form"' in template
+    assert "retract_caption" in template, "the form must post to the retraction route"
+    assert 'name="reason"' in template, "a retraction must capture why"
+    assert "required" in template, "the reason must not be optional"

@@ -1,20 +1,39 @@
-"""Prism Tier-3 orchestrator: grounded VLM captions with the PALS gate.
+"""Prism Tier-3 orchestrator: grounded VLM captions, verified by retraction.
 
-For each of a document's images it asks the VLM for a caption, grounds that
-caption against the document's own text (``visual_grounding``), and gates on the
-specificity-weighted score: at/above threshold the caption commits to
-``visual_caption`` with recorded confidence; below threshold it is written as a
-``review`` caption AND routed to the ``visual_review`` queue — it is NEVER
-exposed as trusted. Only ``status='committed'`` captions are trusted output.
+For each of a document's images it asks the VLM for a caption and grounds that
+caption against the document's own text (``visual_grounding``). A structurally
+valid caption is COMMITTED on write and appears in the reader, labelled with its
+model and its grounding score; a human who can see the image retracts one that is
+wrong, and the retraction is recorded against a principal.
 
 ⚠ ARCHITECTURAL CONTRACT (PALS's LAW) — LLM OUTPUT IS UNVERIFIED BY DEFAULT.
-The VLM caption is untrusted model output; this module is the mandatory
-verification layer. The grounding gate here is not optional post-processing.
+The VLM caption is untrusted model output and this module is still its mandatory
+verification layer. What changed (BL-201) is WHERE the human decision happens,
+not WHETHER one is required:
+
+* Verification was pre-publication and never happened. Of 6,122 proposals, 21
+  were ever committed; 5,851 sat in a queue at 25 items a page. A control no
+  operator can exercise is not a control, and the honest description of the old
+  behaviour is that captions were withheld from everyone forever.
+* Verification is now post-publication and situated. The reviewer sees the image,
+  the caption and the score together in the reader — strictly more context than
+  the review queue gave — and a retraction writes ``retracted_by`` /
+  ``retracted_at`` / ``retraction_reason`` (migration 150). The audit trail is a
+  superset of what approval recorded.
+* The claim is never presented as doc-ray's own. The reader marks it as a model
+  proposal and shows the grounding score beside it, so a reader can discount it
+  without waiting for anyone.
+
+This is a deliberate trade of pre-publication certainty for coverage, and it is
+reversible per deployment: raise ``DOCRAY_CAPTION_APPROVE_FLOOR`` and captions
+below that score go back to the review queue instead of the reader. Setting it to
+1.0 restores a fully pre-publication gate.
 """
 
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import dataclass
 from typing import Any, cast
 
@@ -28,6 +47,17 @@ from doc_ray.domain.ulid import new_ulid_str
 from doc_ray.ports.image_ocr import ImageOcr
 from doc_ray.ports.object_store import ObjectStore
 from doc_ray.ports.vlm import VisionLanguageModel, VLMOutput
+
+#: Env var setting the grounding score at/above which a caption is published
+#: to the reader without a pre-publication human decision.
+APPROVE_FLOOR_ENV = "DOCRAY_CAPTION_APPROVE_FLOOR"
+
+#: Approve everything structurally valid. The pre-publication gate did not
+#: work at corpus scale — 21 of 6,122 captions were ever committed — so the
+#: flow inverts: publish, show the grounding score beside the claim, and let a
+#: reader who can see the image retract it (BL-201). Raise this to send weak
+#: captions back to the review queue instead of the reader.
+DEFAULT_APPROVE_FLOOR = 0.0
 
 STATUS_COMMITTED = "committed"
 STATUS_REVIEW = "review"
@@ -47,8 +77,26 @@ class CaptionDecision:
     caption: str = ""
 
 
+def _approve_floor_from_env() -> float:
+    """Read the configured approval floor, failing closed on a malformed value."""
+    raw = os.environ.get(APPROVE_FLOOR_ENV, "").strip()
+    if not raw:
+        return DEFAULT_APPROVE_FLOOR
+    try:
+        value = float(raw)
+    except ValueError:
+        raise ValueError(f"{APPROVE_FLOOR_ENV} must be a number in [0, 1]; got {raw!r}") from None
+    if not 0.0 <= value <= 1.0:
+        raise ValueError(f"{APPROVE_FLOOR_ENV} must be in [0, 1]; got {value}")
+    return value
+
+
 def gate_caption(
-    output: VLMOutput, evidence_text: str, *, threshold: float = AUTO_COMMIT_THRESHOLD
+    output: VLMOutput,
+    evidence_text: str,
+    *,
+    threshold: float = AUTO_COMMIT_THRESHOLD,
+    approve_floor: float | None = None,
 ) -> CaptionDecision:
     """Verify + ground a VLM caption and decide commit / review / reject (pure).
 
@@ -64,16 +112,29 @@ def gate_caption(
     grounding measures, and a well-formed caption that grounds poorly still goes
     to review.
 
-    Otherwise the specificity-weighted grounding score decides: at/above
-    ``threshold`` and specific enough -> committed; anything else -> review
-    (never trusted on the low path).
+    Otherwise the caption is COMMITTED when its grounding score is at or above
+    ``approve_floor`` (default 0.0, i.e. everything structurally valid), and
+    queued for review only below it.
+
+    This inverts the original gate deliberately (BL-201). Withholding until a
+    human approved did not produce caution, it produced silence: 21 of 6,122
+    captions were ever committed while 5,851 sat in a queue no operator could
+    clear. Verification moves to the reader, which shows the grounding score
+    beside the claim and offers a retraction that is recorded against a
+    principal — so the audit trail is a superset of what approval recorded.
+
+    ``threshold`` is retained for callers that still want the old
+    specificity-gated commit decision; it no longer governs this path.
     """
+    floor = _approve_floor_from_env() if approve_floor is None else approve_floor
+    if not 0.0 <= floor <= 1.0:
+        raise ValueError(f"approve_floor must be in [0, 1]; got {floor}")
     caption = sanitize_caption(output.caption)
     if is_structurally_invalid(caption):
         return CaptionDecision(STATUS_REJECTED, grounding_score("", evidence_text), caption)
     grounding = grounding_score(caption, evidence_text)
-    committed = grounding.score >= threshold and not grounding.insufficient_specificity
-    return CaptionDecision(STATUS_COMMITTED if committed else STATUS_REVIEW, grounding, caption)
+    status = STATUS_COMMITTED if grounding.score >= floor else STATUS_REVIEW
+    return CaptionDecision(status, grounding, caption)
 
 
 def _grounded_against(decision: CaptionDecision) -> dict[str, Any]:

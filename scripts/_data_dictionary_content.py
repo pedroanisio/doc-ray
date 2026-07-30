@@ -397,6 +397,17 @@ MIGRATIONS = [
         "149_schema_version_1_54_0",
         "advance the schema SemVer to 1.54.0 for the index-backed sentence search",
     ),
+    (
+        "150_caption_retraction",
+        "add visual_caption.retracted_at / retracted_by / retraction_reason and a "
+        "partial index over them: the Tier-3 flow inverts to approve-on-write, so a "
+        "retraction becomes the human verification event and has to carry the same "
+        "who/when/why audit trail the pre-publication approval used to",
+    ),
+    (
+        "151_schema_version_1_55_0",
+        "advance the schema SemVer to 1.55.0 for caption retraction",
+    ),
 ]
 
 # ---------------------------------------------------------------------------

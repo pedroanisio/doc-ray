@@ -11,7 +11,7 @@ doc_type: "release-note"
 audience: ["end-user", "administrator", "developer", "integrator"]
 surfaces: ["webapp", "api", "mcp"]
 classification: "public"
-applies_to: "1.54.0"
+applies_to: "1.55.0"
 owner: "documentation-maintainer"
 last_reviewed: "2026-07-28"
 status: "current"
@@ -22,6 +22,10 @@ status: "current"
 What changed in each version, newest first. Each entry states who a change affects
 and any action required.
 
+- **[1.55.0](1.55.0.md)** — image descriptions now appear on documents as soon
+  as they are generated, labelled as machine proposals, and anyone reading a
+  document can withdraw one that is wrong
+  (**migration required**, no configuration change).
 - **[1.54.0](1.54.0.md)** — searching sentence text is much faster; searches
   that took seconds now use the text index that was already there
   (**migration required**, no configuration change).

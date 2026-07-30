@@ -23,9 +23,9 @@
       "prompts_count": 4,
       "resource_templates_count": 5,
       "resources_count": 3,
-      "tool_count": 66,
-      "tools_list_chars": 80071,
-      "tools_list_est_tokens": 20017
+      "tool_count": 67,
+      "tools_list_chars": 81695,
+      "tools_list_est_tokens": 20423
     }
   },
   "tasks": [

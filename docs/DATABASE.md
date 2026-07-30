@@ -1,6 +1,6 @@
 # doc-ray — Database ERD & Data Dictionary
 
-**Schema version `1.54.0`** (SemVer) · 149 committed migrations define the repository target schema
+**Schema version `1.55.0`** (SemVer) · 151 committed migrations define the repository target schema
 
 > Generated from a database whose migration ledger exactly matches `db/migrations/`. This describes the schema expected after all committed migrations; it does not prove a deployment is current. Run `make prod-check` for deployed migration lockstep. Do not edit by hand.
 
@@ -356,6 +356,8 @@ format metadata) are decomposed to their own relations (4NF); blobs live in obje
 | `document_id` | uuid |  | FK→documents, UQ |  |  |
 | `ordinal` | integer |  | UQ |  |  |
 | `page_number` | integer |  |  |  |  |
+| `page_width` | double precision | yes |  |  |  |
+| `page_height` | double precision | yes |  |  |  |
 | `char_start` | integer |  |  |  |  |
 | `char_end` | integer |  |  |  |  |
 | `bbox_x0` | double precision |  |  |  |  |
@@ -363,8 +365,6 @@ format metadata) are decomposed to their own relations (4NF); blobs live in obje
 | `bbox_x1` | double precision |  |  |  |  |
 | `bbox_y1` | double precision |  |  |  |  |
 | `text` | text |  |  | `''::text` |  |
-| `page_width` | double precision | yes |  |  |  |
-| `page_height` | double precision | yes |  |  |  |
 
 - **Primary key:** (id)
 - **Unique:** UNIQUE (document_id, ordinal)
@@ -2134,15 +2134,20 @@ low-confidence output.
 | `grounded_against` | jsonb |  |  | `'{}'::jsonb` |  |
 | `status` | text |  |  | `'review'::text` |  |
 | `created_at` | timestamp with time zone |  |  | `now()` |  |
+| `retracted_at` | timestamp with time zone | yes |  |  | When a human retracted this caption from the reader. NULL = never retracted. |
+| `retracted_by` | uuid | yes | FK→principals |  | Principal who retracted it — the human verification event under PALS. |
+| `retraction_reason` | text | yes |  |  | Operator-supplied reason, kept so a pattern of bad captions is visible. |
 
 - **Primary key:** (id)
 - **Unique:** UNIQUE (document_image_id, model)
 - **FK:** FOREIGN KEY (document_id) REFERENCES documents(id) ON DELETE CASCADE
 - **FK:** FOREIGN KEY (document_image_id) REFERENCES document_image(id) ON DELETE CASCADE
+- **FK:** FOREIGN KEY (retracted_by) REFERENCES principals(id)
 - **Check:** CHECK ((status = ANY (ARRAY['committed'::text, 'review'::text, 'rejected'::text])))
 - **Index** `idx_visual_caption_committed`: public.visual_caption USING btree (document_id) WHERE (status = 'committed'::text)
 - **Index** `idx_visual_caption_doc`: public.visual_caption USING btree (document_id)
 - **Index** `visual_caption_document_image_id_model_key`: public.visual_caption USING btree (document_image_id, model)
+- **Index** `visual_caption_retracted_idx`: public.visual_caption USING btree (retracted_at DESC) WHERE (retracted_at IS NOT NULL)
 - **RLS:** enabled — read/write policies via *document_id* (FORCED)
 
 #### `visual_review`
@@ -2531,3 +2536,5 @@ owner's bypass.
 | 147 | `147_schema_version_1_53_1.sql` | advance the schema SemVer to 1.53.1 for the honest sentence denominator |
 | 148 | `148_readable_sentence_ids.sql` | add the SECURITY DEFINER candidate helper that lets sentence-text search reach its trigram index again: RLS forbids a non-leakproof ILIKE ahead of its security qual, so the index has been unreachable since migration 018 |
 | 149 | `149_schema_version_1_54_0.sql` | advance the schema SemVer to 1.54.0 for the index-backed sentence search |
+| 150 | `150_caption_retraction.sql` | add visual_caption.retracted_at / retracted_by / retraction_reason and a partial index over them: the Tier-3 flow inverts to approve-on-write, so a retraction becomes the human verification event and has to carry the same who/when/why audit trail the pre-publication approval used to |
+| 151 | `151_schema_version_1_55_0.sql` | advance the schema SemVer to 1.55.0 for caption retraction |

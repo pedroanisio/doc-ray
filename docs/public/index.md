@@ -11,7 +11,7 @@ doc_type: "concept"
 audience: ["end-user", "administrator", "developer", "integrator", "operator", "evaluator"]
 surfaces: ["webapp", "api", "mcp", "cli", "config"]
 classification: "public"
-applies_to: "1.54.0"
+applies_to: "1.55.0"
 owner: "documentation-maintainer"
 last_reviewed: "2026-07-29"
 status: "current"

@@ -26,16 +26,33 @@ def test_grounded_specific_caption_commits() -> None:
     assert decision.grounding.score >= 0.8
 
 
-def test_generic_caption_routes_to_review() -> None:
+def test_generic_caption_is_published_and_left_to_retraction() -> None:
+    """Inverted by BL-201: a generic caption publishes with a visible low score.
+
+    Withholding it produced no review, only invisibility. It now appears in the
+    reader labelled with its grounding score, where a human who can see the image
+    retracts it if it is wrong.
+    """
     decision = gate_caption(VLMOutput(caption="a diagram of an aircraft"), _EVIDENCE, threshold=0.8)
-    assert decision.status == STATUS_REVIEW  # insufficient specificity, capped
+    assert decision.status == STATUS_COMMITTED
+    assert decision.grounding.insufficient_specificity is True
 
 
-def test_specific_but_unsupported_caption_routes_to_review() -> None:
+def test_generic_caption_routes_to_review_when_a_floor_is_set() -> None:
+    """Raising the floor restores the pre-publication queue for weak captions."""
+    decision = gate_caption(
+        VLMOutput(caption="a diagram of an aircraft"), _EVIDENCE, approve_floor=0.9
+    )
+    assert decision.status == STATUS_REVIEW
+
+
+def test_specific_but_unsupported_caption_is_published_with_its_low_score() -> None:
+    """Specific-but-ungrounded is exactly what a reader can adjudicate on sight."""
     decision = gate_caption(
         VLMOutput(caption="Boeing 747 refuelling at Denver gate 12"), _EVIDENCE, threshold=0.8
     )
-    assert decision.status == STATUS_REVIEW  # specific, but not in the evidence
+    assert decision.status == STATUS_COMMITTED
+    assert decision.grounding.score < 0.8  # visibly unsupported, and shown as such
 
 
 def test_empty_caption_is_rejected() -> None:

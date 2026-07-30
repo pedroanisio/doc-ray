@@ -182,7 +182,10 @@ below)
 original with the current extractor — the only recovery path, since ingest
 dedupes identical bytes) / `canonicalizeDocument(resolve:)` /
 `semanticEnrichDocument` / `embedDocumentSentences` / `embedCorpusSentences` / `updateDocumentMetadata` / `suggestDocumentMetadata`
-/ `decideDocumentMetadataSuggestions` / `decideVisualCaptions` / `shareDocument` /
+/ `decideDocumentMetadataSuggestions` / `decideVisualCaptions` /
+`retractVisualCaption` (withdraw a published caption a reader can see is wrong —
+the retraction, not a pre-publication approval, is the human verification event)
+/ `shareDocument` /
 `revokeDocumentShare` / `setDocumentVisibility` / `cancelJob` /
 `operations` / `operationSchedules` / `runOperation` /
 `createOperationSchedule` / `updateOperationSchedule` / `deleteOperationSchedule`

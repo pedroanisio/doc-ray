@@ -11,7 +11,7 @@ doc_type: "how-to"
 audience: ["integrator", "administrator"]
 surfaces: ["mcp", "config"]
 classification: "restricted"
-applies_to: "1.54.0"
+applies_to: "1.55.0"
 owner: "documentation-maintainer"
 last_reviewed: "2026-07-29"
 status: "current"

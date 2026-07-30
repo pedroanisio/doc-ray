@@ -30,7 +30,7 @@ Block F hyper-context readers `lens_entities` / `entity_relations` / `related_en
 and the Block E `allusions` reader) + 3
 composition-grounding tools from `entrypoints/mcp/compose.py`
 + 1 semantic-search tool + 1 mention-confidence review tool… see §3) always registered,
-plus **32 opt-in write tools**
+plus **33 opt-in write tools**
 (reprocessing + curation + full collection lifecycle + projection review
 `confirm_projection` / `reject_projection` + allusion curation `propose_allusion` /
 `confirm_allusion` / `reject_allusion`) registered only when
@@ -1041,6 +1041,7 @@ and engineering decision **D-030**.
 | `decide_seeds(approve_ids?, reject_ids?)` | `decideSeeds` | `Int` (rows updated) |
 | `decide_document_metadata_suggestions(approve_ids?, reject_ids?)` | `decideDocumentMetadataSuggestions` | `Int` |
 | `decide_visual_captions(approve_ids?, reject_ids?)` | `decideVisualCaptions` | `Int` (rows updated) |
+| `retract_visual_caption(caption_id, reason)` | `retractVisualCaption` | `Int` (rows retracted; `0` = not committed) |
 | `seed_approved(document_id)` | `seedApproved` | `Job` |
 | `create_collection(name, description="", kind="manual", rule?, doc_type?, status?, tags?)` | `createCollection` | `DocumentCollection` |
 | `add_document_to_collection(collection_id, document_id)` | `addDocumentToCollection` | `DocumentCollection` |

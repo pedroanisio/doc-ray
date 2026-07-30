@@ -53,6 +53,7 @@ _DESTRUCTIVE_NAMES = frozenset(
         "decide_seeds",
         "decide_document_metadata_suggestions",
         "decide_visual_captions",
+        "retract_visual_caption",
         "remove_document_from_collection",
         "update_collection",
         "delete_collection",

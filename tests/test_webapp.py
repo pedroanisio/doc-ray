@@ -2458,7 +2458,10 @@ def test_document_images_view_binds_visual_fields_and_committed_captions(client,
         assert field in captured["query"]
     assert f'src="/doc/{DOC_ID}/image/image-1.webp?w=320"' in html
     assert "Revenue rises from left to right." in html
-    assert "Committed caption" in html and "trusted-vlm" in html
+    # BL-201: the reader labels the text as a MODEL proposal, not a committed
+    # fact, and offers a retraction beside it.
+    assert "Model proposal" in html and "trusted-vlm" in html
+    assert 'data-testid="retract-form"' in html
     assert "Tier 1 covered" in html and "Tier 2 covered" in html
 
 
