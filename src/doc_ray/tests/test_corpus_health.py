@@ -216,3 +216,75 @@ def test_cli_json_output(pg, monkeypatch, capsys):
     assert rc in (0, 2)
     payload = json.loads(capsys.readouterr().out)
     assert set(payload) == {"totals", "documents", "jobs", "running_jobs", "issues"}
+
+
+# --- pipeline-stalled --------------------------------------------------------
+#
+# The 2026-07-30 incident: 55 documents whose `annotate` job spent all three
+# attempts against a saturated GPU. Because `annotate` heads the pipeline chain,
+# nothing downstream was ever enqueued, and nothing re-enqueues a failed job.
+# Health reported them only as "annotation never ran", which reads like a stage
+# still waiting its turn rather than one that has permanently stopped.
+
+
+def test_exhausted_stage_is_reported_as_stalled_not_merely_unannotated():
+    snap = _snapshot(
+        documents=[
+            {
+                "id": "d1",
+                "title": "stranded doc",
+                "language": "en",
+                "status": "extracted",
+                "sentences": 120,
+                "mentions": 0,
+                "links": 0,
+                "stalled_kinds": ["annotate"],
+            }
+        ]
+    )
+    issues = ch.find_issues(snap)
+    codes = {i["code"] for i in issues}
+    assert "pipeline-stalled" in codes, codes
+    stalled = next(i for i in issues if i["code"] == "pipeline-stalled")
+    assert stalled["severity"] == "error"
+    assert "annotate" in stalled["detail"]
+    assert stalled["document_id"] == "d1"
+
+
+def test_a_stalled_document_fails_the_exit_code():
+    """An operator running this in a check must be told, not merely warned."""
+    snap = _snapshot(
+        documents=[
+            {
+                "id": "d1",
+                "title": "stranded doc",
+                "language": "en",
+                "status": "extracted",
+                "sentences": 120,
+                "mentions": 0,
+                "links": 0,
+                "stalled_kinds": ["annotate", "semantic_embed"],
+            }
+        ]
+    )
+    assert ch.exit_code(ch.find_issues(snap)) == 2
+
+
+def test_absent_or_empty_stalled_kinds_changes_nothing():
+    """A retried-and-succeeded stage must not linger as an issue."""
+    for value in (None, []):
+        snap = _snapshot(
+            documents=[
+                {
+                    "id": "d1",
+                    "title": "healthy doc",
+                    "language": "en",
+                    "status": "extracted",
+                    "sentences": 10,
+                    "mentions": 5,
+                    "links": 1,
+                    "stalled_kinds": value,
+                }
+            ]
+        )
+        assert not [i for i in ch.find_issues(snap) if i["code"] == "pipeline-stalled"]

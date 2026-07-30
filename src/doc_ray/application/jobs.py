@@ -97,6 +97,15 @@ from doc_ray.domain.progress import (
     reset_progress_reporter,
     set_progress_reporter,
 )
+from doc_ray.domain.retry_policy import (
+    FailureClass,
+)
+from doc_ray.domain.retry_policy import (
+    backoff_seconds as retry_backoff,
+)
+from doc_ray.domain.retry_policy import (
+    classify as classify_failure,
+)
 from doc_ray.ports.object_store import ObjectStore
 
 _logger = logging.getLogger("doc_ray.jobs")
@@ -107,8 +116,6 @@ if TYPE_CHECKING:
     pass
 
 
-_BACKOFF_BASE_SECONDS = 5.0
-_BACKOFF_CAP_SECONDS = 300.0
 _DEFAULT_JOB_TIMEOUT_SECONDS = 3600.0
 
 
@@ -117,8 +124,25 @@ class JobExecutionTimeout(TimeoutError):
 
 
 def backoff_seconds(attempts: int) -> float:
-    """Return the exponential backoff (capped) for the *attempts*-th failure."""
-    return float(min(_BACKOFF_BASE_SECONDS * 2 ** max(0, attempts - 1), _BACKOFF_CAP_SECONDS))
+    """Return the exponential backoff (capped) for the *attempts*-th failure.
+
+    The schedule for a failure whose cause is unknown or deterministic. A failure
+    that names an exhausted shared resource gets the far longer schedule in
+    :mod:`doc_ray.domain.retry_policy` instead — see :func:`retry_delay_for`.
+    """
+    return retry_backoff(attempts, FailureClass.DETERMINISTIC)
+
+
+def retry_delay_for(exc: BaseException, *, attempts: int, max_attempts: int) -> float | None:
+    """Return the delay before retrying after *exc*, or ``None`` when terminal.
+
+    Classifying before scheduling is what keeps a busy GPU from consuming a job's
+    whole attempt budget in fifteen seconds; :mod:`doc_ray.domain.retry_policy`
+    documents the incident that made this necessary.
+    """
+    if attempts >= max_attempts:
+        return None
+    return retry_backoff(attempts, classify_failure(exc))
 
 
 def _timeout_value(raw: float | str | None) -> float | None:
@@ -437,13 +461,14 @@ def run_once(
                     request_id,
                 )
     except Exception as exc:  # the worker must survive any handler failure
-        retry = None if job.attempts >= job.max_attempts else backoff_seconds(job.attempts)
+        failure_class = classify_failure(exc)
+        retry = retry_delay_for(exc, attempts=job.attempts, max_attempts=job.max_attempts)
         # BL-115: repr(exc) in the DB column is easy to miss (an operator has to
         # think to query it); the full traceback + job context goes to the log
         # too, so a real crash during ingest leaves a durable, discoverable trace.
         _logger.error(
             "job %s (kind=%s, document_id=%s, worker=%s, request_id=%s) "
-            "failed on attempt %d/%d (%s): %s",
+            "failed on attempt %d/%d [%s] (%s): %s",
             job.id,
             job.kind,
             job.document_id,
@@ -451,6 +476,7 @@ def run_once(
             request_id,
             job.attempts,
             job.max_attempts,
+            failure_class.value,
             _retry_label(retry),
             exc,
             exc_info=exc,

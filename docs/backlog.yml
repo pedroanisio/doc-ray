@@ -107,10 +107,10 @@ disclaimer: |
 
 metadata:
   schema_version:   "1.0.0"
-  generated_by:     "Claude Sonnet 5 via Claude Code (merge of Claude Opus 4.8 backlog + OpenAI Codex improvement-proposal candidates); BL-181/BL-182/BL-183/BL-184 by OpenAI GPT-5 via Codex; BL-188/BL-189..BL-193 by Claude Opus 5 via Claude Code; BL-194..BL-200 by Claude Opus 5 (1M context) via Claude Code, applying TC-DXP-001.product-surfaces.tc-v0.3; BL-201 by Claude Opus 5 (1M context) via Claude Code"
+  generated_by:     "Claude Sonnet 5 via Claude Code (merge of Claude Opus 4.8 backlog + OpenAI Codex improvement-proposal candidates); BL-181/BL-182/BL-183/BL-184 by OpenAI GPT-5 via Codex; BL-188/BL-189..BL-193 by Claude Opus 5 via Claude Code; BL-194..BL-200 by Claude Opus 5 (1M context) via Claude Code, applying TC-DXP-001.product-surfaces.tc-v0.3; BL-201 recorded retroactively from commit 8c97413; BL-203 by Claude Opus 5 (1M context) via Claude Code"
   generated_on:     "2026-07-29"
   system_of_record: "docs/backlog.yml"
-  total_items:      202
+  total_items:      203
 
 items:
 
@@ -277,7 +277,7 @@ items:
       - "db/migrations/011_meaning_discourse.sql"
       - "db/migrations/012_embeddings.sql"
     owner:        "concurrent"
-    source:       "docs/nlp_annotation_layers.md §1 (complete set) vs db/migrations 008–012. Completed 2026-07-05 by auditing all 20 layers in docs/nlp_capability_matrix.md, adding a production semantic_enrichment writer/CLI for deterministic layers 17-20 (discourse, TimeML date/event rows, sentiment, hash-BoW embeddings), and leaving subword, constituency, SRL, WSD, and AMR explicitly schema-only because they require a dedicated tokenizer/parser/model/KB rather than a safe deterministic fallback. SUPERSEDED IN PART by BL-201 (2026-07-29): constituency (9) and SRL (14) are now derived deterministically from the dependency parse; subword, WSD, and AMR remain schema-only."
+    source:       "docs/nlp_annotation_layers.md §1 (complete set) vs db/migrations 008–012. Completed 2026-07-05 by auditing all 20 layers in docs/nlp_capability_matrix.md, adding a production semantic_enrichment writer/CLI for deterministic layers 17-20 (discourse, TimeML date/event rows, sentiment, hash-BoW embeddings), and leaving subword, constituency, SRL, WSD, and AMR explicitly schema-only because they require a dedicated tokenizer/parser/model/KB rather than a safe deterministic fallback. SUPERSEDED IN PART by BL-202 (2026-07-29): constituency (9) and SRL (14) are now derived deterministically from the dependency parse; subword, WSD, and AMR remain schema-only."
     tags:         ["nlp", "annotation-layers", "schema"]
 
   - id:          "BL-007"
@@ -7388,6 +7388,52 @@ items:
     tags:         ["visual-caption", "pals-gate", "architecture"]
 
   - id:          "BL-201"
+    title:        "Publish visual captions on write and verify them by retraction"
+    summary:      "The pre-publication gate withheld captions from everyone indefinitely — 21 of 6,122 proposals were ever committed — so the human decision moves from an unworkable queue to a retraction in the reader."
+    description: |
+      BL-200 asked whether visual captions require per-item human approval at
+      all. The measured answer was that the pre-publication gate did not work at
+      corpus scale: of 6,122 proposals, 21 were ever committed while 5,851 sat
+      in a queue presented 25 at a time. A control no operator can exercise is
+      not a control.
+
+      A structurally valid caption now commits on write and appears in the
+      reader, labelled as a MODEL PROPOSAL carrying its originating model and
+      grounding score — never as doc-ray's own assertion. A reader who can see
+      the image retracts one that is wrong.
+
+      This keeps PALS's Law by moving the human decision rather than removing
+      it, and the new decision carries strictly more than the old one: the
+      reviewer sees image, caption and score together, which is more context
+      than the review queue offered; a retraction writes `retracted_by`,
+      `retracted_at` and `retraction_reason` (migration 150), so who/when/why is
+      recorded where approval recorded only who/when; and the row is never
+      deleted, because it is the audit trail for a paid-for model call and for
+      the human decision about it.
+    category:     "nlp"
+    type:         "feature"
+    status:       "done"
+    complexity:   "L"
+    priority:     "critical"
+    rationale:    "A verification gate that is never passed is not a safety control; it is an unbounded queue that converts into permanent non-adoption while the corpus shows nothing."
+    acceptance_criteria:
+      - "A structurally valid caption is readable immediately, labelled with its model and grounding score."
+      - "Retraction records who, when, and why, and never deletes the row."
+      - "Structurally invalid output is still rejected outright and reaches neither surface (BL-196)."
+      - "The trade is reversible per deployment: DOCRAY_CAPTION_APPROVE_FLOOR=1.0 restores a fully pre-publication gate."
+    dependencies: ["BL-200", "BL-196"]
+    related_decisions: []
+    references:
+      - "db/migrations/150_caption_retraction.sql"
+      - "src/doc_ray/application/visual_caption.py"
+      - "src/doc_ray/entrypoints/api/mutation_visual_review.py (retractVisualCaption)"
+      - "src/doc_ray/tests/test_caption_approve_on_write.py, test_caption_retraction.py"
+      - "CLAUDE.md — PALS's Law (LLM output verification requirement)"
+    owner:        "unassigned"
+    source:       "Recorded retroactively from commit 8c97413 'feat: publish captions on write, verify them by retraction', which cited BL-201 across migrations 150/151, the CHANGELOG, the application layer and its tests without the backlog entry ever landing. Content sourced from that commit's own CHANGELOG entry and code, not inferred."
+    tags:         ["visual-caption", "pals-gate", "review-queue"]
+
+  - id:          "BL-202"
     title:        "Derive NLP Layers 9 (constituency) and 14 (SRL) from the dependency parse"
     summary:      "Both layers had schema since migrations 009/011 and no writer, reader, or API field; derive the deterministic subset instead of leaving them empty."
     description: |
@@ -7428,7 +7474,7 @@ items:
     source:       "Operator request 2026-07-29 to close the Layer 9/14 gap under strict TDD. Deliberate limits: the SRL frame is the predicate LEMMA (found), never a roleset (found.01), because the roleset index encodes a sense needing the PropBank frame files and Layer 15 (WSD, still schema-only); a non-projective phrase is recorded by its covering span, a superset rather than a wrong subset. A future neural parser supersedes this by writing under a different tool version."
     tags:         ["nlp", "syntax", "srl", "constituency", "derived"]
 
-  - id:          "BL-202"
+  - id:          "BL-203"
     title:       "Tracked ENVIRONMENT.md symlink dangles in every clean checkout"
     summary:      "ENVIRONMENT.md is a tracked symlink to the gitignored ENV-PROD.md, so it resolves only on the operator's box and reddens test_doc_links everywhere else."
     description: >-

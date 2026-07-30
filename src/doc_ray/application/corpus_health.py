@@ -47,7 +47,19 @@ SELECT d.id, d.title, d.language, d.status,
        (SELECT count(*) FROM entity_link el
           JOIN entity_mention em ON el.mention_id = em.id
           JOIN annotations a ON em.annotation_id = a.id
-         WHERE a.document_id = d.id) AS links
+         WHERE a.document_id = d.id) AS links,
+       -- Kinds that failed for good: every attempt spent, and no later run of the
+       -- same kind ever succeeded. Nothing re-enqueues a failed job, so each of
+       -- these is a pipeline stage that will stay undone until an operator acts.
+       (SELECT array_agg(DISTINCT j.kind ORDER BY j.kind)
+          FROM jobs j
+         WHERE j.document_id = d.id
+           AND j.status = 'failed'
+           AND j.attempts >= j.max_attempts
+           AND NOT EXISTS (SELECT 1 FROM jobs ok
+                            WHERE ok.document_id = j.document_id
+                              AND ok.kind = j.kind
+                              AND ok.status = 'succeeded')) AS stalled_kinds
   FROM documents d
  ORDER BY d.created_at
 """
@@ -98,6 +110,23 @@ def _document_issues(doc: dict[str, Any]) -> list[dict[str, Any]]:
     Returns:
         Issues found for this document (possibly empty).
     """
+    stalled = doc.get("stalled_kinds") or []
+    if stalled:
+        # Reported before the emptiness check below, and as an error rather than a
+        # warning: "annotation never ran" reads as a stage still queued, when in
+        # fact the queue is empty and no path leads back to this document.
+        return [
+            {
+                "code": "pipeline-stalled",
+                "severity": "error",
+                "document_id": doc["id"],
+                "detail": (
+                    f"'{doc['title']}' has exhausted every attempt at "
+                    f"{', '.join(stalled)} and no queued work remains — the chain "
+                    "stops here until the stage is re-enqueued"
+                ),
+            }
+        ]
     if doc["status"] == "extracted" and doc["sentences"] == 0:
         return [
             {
