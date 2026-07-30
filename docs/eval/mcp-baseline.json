@@ -4,8 +4,8 @@
     "passed": 17,
     "tasks": 17,
     "total_calls": 43,
-    "total_chars": 53844,
-    "total_est_tokens": 13461
+    "total_chars": 59222,
+    "total_est_tokens": 14806
   },
   "mode": "scripted",
   "surface": {
@@ -207,7 +207,7 @@
           "passed": true
         },
         {
-          "detail": "3/4 calls, 1147/30000 chars",
+          "detail": "3/4 calls, 2406/30000 chars",
           "name": "within_budget",
           "passed": true
         }
@@ -217,8 +217,8 @@
         "max_chars": 30000
       },
       "calls": 3,
-      "chars": 1147,
-      "est_tokens": 287,
+      "chars": 2406,
+      "est_tokens": 602,
       "grounded_in": "reachability: full_text_search / list_documents / get_document",
       "passed": true,
       "task_id": "coverage-document-discovery",
@@ -242,7 +242,7 @@
           "passed": true
         },
         {
-          "detail": "3/4 calls, 2033/20000 chars",
+          "detail": "3/4 calls, 5001/20000 chars",
           "name": "within_budget",
           "passed": true
         }
@@ -252,8 +252,8 @@
         "max_chars": 20000
       },
       "calls": 3,
-      "chars": 2033,
-      "est_tokens": 508,
+      "chars": 5001,
+      "est_tokens": 1250,
       "grounded_in": "reachability: list_collections / get_collection / list_lenses",
       "passed": true,
       "task_id": "coverage-collections-and-lenses",
@@ -277,7 +277,7 @@
           "passed": true
         },
         {
-          "detail": "3/4 calls, 1620/20000 chars",
+          "detail": "3/4 calls, 2771/20000 chars",
           "name": "within_budget",
           "passed": true
         }
@@ -287,8 +287,8 @@
         "max_chars": 20000
       },
       "calls": 3,
-      "chars": 1620,
-      "est_tokens": 405,
+      "chars": 2771,
+      "est_tokens": 693,
       "grounded_in": "reachability: corpus_stats / corpus_manifest / corpus_shard",
       "passed": true,
       "task_id": "coverage-corpus-map",
@@ -550,5 +550,5 @@
       "within_budget": true
     }
   ],
-  "wall_clock_seconds": 18.669
+  "wall_clock_seconds": 14.757
 }
