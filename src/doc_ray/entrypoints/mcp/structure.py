@@ -330,12 +330,67 @@ async def allusions(
     return rows
 
 
+async def document_syntax(
+    document_id: str, limit: int = 50, after: str | None = None
+) -> dict[str, Any]:
+    """Read a document's phrase structure (Layer 9) and predicate-argument frames (Layer 14).
+
+    Use this when the question is about *grammatical or semantic structure* rather
+    than wording: which noun phrase a modifier attaches to, what nests inside a
+    prepositional phrase, or who did what to whom in a clause. For finding text,
+    use ``search_sentences``; this explains the shape of text you already located.
+
+    Both layers are DERIVED from the dependency parse, not produced by a
+    constituency parser or a neural SRL model. Two consequences worth knowing
+    before you quote them:
+
+    * ``frame`` is the predicate's LEMMA (``found``), never a PropBank roleset
+      (``found.01``). The roleset index encodes a sense distinction nothing in the
+      pipeline determined, so it is not asserted.
+    * Labels are limited to what the derivation can justify — S, NP, VP, PP, ADJP,
+      ADVP, SBAR — and a non-projective phrase is recorded by its covering span.
+
+    Every node and argument carries ``charStart``/``charEnd``, so each is a citable
+    slice of the document exactly like a sentence hit.
+
+    Args:
+        document_id: The document UUID.
+        limit: Maximum constituents and frames to return (each capped separately).
+        after: Cursor from a previous call, to page the constituent list.
+
+    Returns:
+        ``{constituents, srlFrames}``. ``constituents`` are outermost-first with
+        ``parentId`` null on each sentence root, so the tree rebuilds by linking
+        each node to the id above it. ``srlFrames`` carry their ``arguments``
+        inline, each with a ``role`` (``ARG0``, ``ARG1``, ``ARGM-LOC``, ...).
+    """
+    _require_uuid(document_id, "document_id")
+    data = await gql(
+        "query($id:ID!,$n:Int!,$a:String){document(id:$id){"
+        "constituents(limit:$n,after:$a){id parentId label surface charStart charEnd cursor} "
+        "srlFrames(limit:$n){id frame surface charStart charEnd "
+        "arguments{role surface charStart charEnd} cursor}}}",
+        {"id": document_id, "n": limit, "a": after},
+    )
+    document = data.get("document")
+    if not document:
+        raise ToolCallError(
+            "not_found",
+            "No such document, or it is not readable with this token.",
+        )
+    return {
+        "constituents": document.get("constituents") or [],
+        "srlFrames": document.get("srlFrames") or [],
+    }
+
+
 #: Registered by ``server.build_server`` next to the corpus read tools.
 TOOLS: tuple[Callable[..., Any], ...] = (
     read_document_outline,
     entity_profiles,
     term_frequency,
     document_classification,
+    document_syntax,
     entity_projection,
     lens_entities,
     entity_relations,

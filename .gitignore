@@ -55,3 +55,5 @@ experiments/
 docs/the-delegation-of-doubt.md
 .doc-quarantine/
 .claude/settings.local.json
+_work/_probe/
+_work/

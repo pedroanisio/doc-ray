@@ -19,13 +19,13 @@ Exposes the doc-ray corpus to agentic AI over the **Model Context Protocol
 (MCP)**, authenticating each caller to a doc-ray principal so Postgres RLS scopes
 what they can read.
 
-**Status: live in production and verified end-to-end.** The server ships **34
+**Status: live in production and verified end-to-end.** The server ships **35
 read tools** (20 from `entrypoints/mcp/corpus.py` — incl. `read_document_sentences`,
 `corpus_stats`, `corpus_manifest`, `corpus_shard`, `get_job`, `list_collections`,
 `get_collection`,
-`entity_mention_corrections`, and the 5 Prism visual tools — + 9 structure tools from
+`entity_mention_corrections`, and the 5 Prism visual tools — + 10 structure tools from
 `entrypoints/mcp/structure.py` (`read_document_outline`, `entity_profiles`,
-`term_frequency`, `document_classification`, the SLP Block D `entity_projection`, the
+`term_frequency`, `document_classification`, `document_syntax`, the SLP Block D `entity_projection`, the
 Block F hyper-context readers `lens_entities` / `entity_relations` / `related_entities`,
 and the Block E `allusions` reader) + 3
 composition-grounding tools from `entrypoints/mcp/compose.py`
@@ -146,7 +146,7 @@ by hostname dashboard-side and needs no change.
 | `src/doc_ray/entrypoints/mcp/corpus.py` | httpx only | GraphQL-passthrough read tools using the shared outbound client (SDK-independent) |
 | `src/doc_ray/entrypoints/mcp/http_client.py` | httpx only | Process-wide, token-free GraphQL connection pool; explicit bounds and lifespan shutdown |
 | `src/doc_ray/entrypoints/mcp/auth.py` | starlette only | Bearer/JWT validation + `BearerAuthMiddleware` (reuses `tokens`) |
-| `src/doc_ray/entrypoints/mcp/structure.py` | httpx only | The 9 structure/SLP read tools: outline, `entity_profiles`, `term_frequency`, `document_classification`, and the lens-scoped `entity_projection` / `lens_entities` / `entity_relations` / `related_entities` / `allusions` (split from `corpus.py` for D-015) |
+| `src/doc_ray/entrypoints/mcp/structure.py` | httpx only | The 10 structure/SLP read tools: outline, `entity_profiles`, `term_frequency`, `document_classification`, `document_syntax`, and the lens-scoped `entity_projection` / `lens_entities` / `entity_relations` / `related_entities` / `allusions` (split from `corpus.py` for D-015) |
 | `src/doc_ray/entrypoints/mcp/compose.py` | httpx only | The 3 composition-grounding read tools (`briefing_pack`, `entity_dossier`, `document_evidence`) |
 | `src/doc_ray/entrypoints/mcp/semantic.py` | httpx only | The semantic-search read tool (`semantic_search_sentences`) |
 | `src/doc_ray/entrypoints/mcp/mutations.py` | httpx only | The 31 write tools (reprocessing + curation mutations); registered only when writes are enabled |
@@ -261,6 +261,7 @@ but had no passage cited on this page. Example:
 | `entity_mention_corrections(document_id)` | `entityMentionCorrections` | the human NER-correction audit log for a document |
 | `uncertain_mentions(document_id, limit, entity_type?, after?)` | `uncertainMentions` | uncorrected mentions ranked least-trustworthy first; heuristic triage with reasons, not a calibrated probability |
 | `document_classification(document_id)` | `documentClassification` | the document's genre axis; `status` tells you if it is a `pending` guess or a `confirmed` human decision |
+| `document_syntax(document_id, limit?, after?)` | `Document.constituents` + `Document.srlFrames` | NLP Layers 9 and 14: the phrase tree (`S`/`NP`/`VP`/`PP`/`ADJP`/`ADVP`/`SBAR`, `parentId` null at each sentence root) and predicate-argument frames (`ARG0`…`ARG2`, `ARGM-LOC`/`TMP`/`MNR`/`NEG`/`ADV`). Both are DERIVED from the dependency parse, not a constituency parser or neural SRL: `frame` is the predicate lemma (`found`), never a PropBank roleset (`found.01`), and a non-projective phrase is recorded by its covering span. Every node and argument carries `charStart`/`charEnd`, so each is citable like a sentence hit |
 | `entity_projection(document_id, lens_id?, limit, after?)` | `entityProjection` | `project(mention, lens)` — each mention's identity within a lens; `scope` local/global, `canonicalId` null = unresolved, `status` proposed/confirmed/rejected (Block D) |
 | `lens_entities(lens_id, limit, after?, min_mentions?)` | `lensEntities` | a lens's significant entities, most-mentioned first (Block F) — type profile + consistency + `refreshedAt`; keyset `cursor` |
 | `entity_relations(lens_id, canonical_id, limit, min_strength?, after?)` | `entityRelations` | an entity's direct co-occurrence relations (Block F); `strength` is NPMI — a structural measure, NOT a real-relationship claim |

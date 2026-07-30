@@ -18,13 +18,16 @@ from strawberry.scalars import JSON
 
 from doc_ray.adapters import persistence_layers_read as layer_read
 from doc_ray.adapters import persistence_read as read
+from doc_ray.adapters import persistence_syntax_read as syntax_read
 from doc_ray.entrypoints.api.context import RequestContext
 from doc_ray.entrypoints.api.layer_types import (
     AnnotationRun,
     Chunk,
+    Constituent,
     CorefChain,
     DependencyEdge,
     EntityLink,
+    SrlFrame,
     Token,
 )
 
@@ -405,6 +408,51 @@ class Document:
             ctx.conn, str(self.id), limit=ctx.page_size(limit), after=after
         )
         return [Chunk.from_row(r) for r in rows]
+
+    @strawberry.field
+    async def constituents(
+        self, info: Info, limit: int = 200, after: str | None = None
+    ) -> list[Constituent]:
+        """Resolve bounded Layer-9 phrase-structure nodes, outermost first.
+
+        Example — the phrase tree over a document's opening::
+
+            { document(id: "…") {
+                constituents(limit: 20) { id parentId label surface charStart charEnd }
+            } }
+
+        ``parentId`` is null on each sentence root (``S``), so the tree rebuilds by
+        linking every node to the id above it.
+        """
+        ctx = info.context
+        rows = await syntax_read.list_constituents(
+            ctx.conn, str(self.id), limit=ctx.page_size(limit), after=after
+        )
+        return [Constituent.from_row(r) for r in rows]
+
+    @strawberry.field
+    async def srl_frames(
+        self, info: Info, limit: int = 100, after: str | None = None
+    ) -> list[SrlFrame]:
+        """Resolve bounded Layer-14 predicate-argument frames, in document order.
+
+        Example — who did what to whom, per predicate::
+
+            { document(id: "…") {
+                srlFrames(limit: 10) {
+                  frame surface
+                  arguments { role surface charStart charEnd }
+                }
+            } }
+
+        ``frame`` is the predicate lemma (``found``), not a PropBank roleset
+        (``found.01``); see the ``SrlFrame`` type for why.
+        """
+        ctx = info.context
+        rows = await syntax_read.list_srl_frames(
+            ctx.conn, str(self.id), limit=ctx.page_size(limit), after=after
+        )
+        return [SrlFrame.from_row(r) for r in rows]
 
     @strawberry.field
     async def coref_chains(

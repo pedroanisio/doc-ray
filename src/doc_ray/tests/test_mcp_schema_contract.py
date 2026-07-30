@@ -128,6 +128,7 @@ _READ_CALLS = [
     lambda: semantic.semantic_search_sentences("photosynthesis", document_id=_DOC),
     lambda: corpus.entity_mention_corrections(_DOC),
     lambda: structure.document_classification(_DOC),
+    lambda: structure.document_syntax(_DOC),
     lambda: corpus.document_images(_DOC),
     lambda: corpus.image_class_summary(_DOC),
     lambda: corpus.visual_captions(_DOC),
