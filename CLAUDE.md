@@ -336,6 +336,7 @@ gates went red on main precisely because fleet landings ran pytest alone:
 ruff check src scripts webapp && ruff format --check src scripts webapp  # D-011
 mypy src                                                                 # D-012
 python scripts/check_file_size.py src/doc_ray webapp scripts             # D-015
+python scripts/check_tracked_imports.py                                  # no committed→uncommitted import
 python scripts/check_version_consistency.py                              # version lockstep
 python scripts/check_read_path_aggregates.py                             # D-024 read-path aggregates
 python scripts/check_surface_parity.py --strict                          # D-034 GraphQL ↔ webapp parity

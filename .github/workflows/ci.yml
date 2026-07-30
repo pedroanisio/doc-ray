@@ -42,6 +42,8 @@ jobs:
         run: mypy src
       - name: Net-LOC cap (D-015)
         run: python scripts/check_file_size.py src/doc_ray webapp scripts
+      - name: Tracked-imports gate (no committed→uncommitted import)
+        run: python scripts/check_tracked_imports.py
       - name: Doc-Ray GraphQL skill drift gate
         run: python3 skills/doc-ray-graphql-maximizer/scripts/check_doc_ray_drift.py
       - name: Public documentation drift gate
