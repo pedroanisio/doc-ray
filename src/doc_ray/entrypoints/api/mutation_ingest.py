@@ -26,6 +26,31 @@ from doc_ray.entrypoints.api.mutation_guards import (
 )
 from doc_ray.entrypoints.api.types import Info, Job
 
+#: Non-default readers a caller may name. Kept as an allowlist so an unknown
+#: value is a caller error at the API boundary rather than a payload the worker
+#: discovers it cannot honour after the upload is already stored.
+_NAMED_EXTRACTORS = frozenset({"patent"})
+
+
+def _validated_extractor(extractor: str | None) -> str | None:
+    """Return the requested extractor, or raise if it is unknown or disabled."""
+    name = (extractor or "").strip().lower()
+    if not name:
+        return None
+    if name not in _NAMED_EXTRACTORS:
+        raise ValueError(
+            f"unknown extractor: {extractor!r}; supported: {sorted(_NAMED_EXTRACTORS)}"
+        )
+    from doc_ray.adapters.patent_text_source_factory import patent_extraction_enabled
+
+    if name == "patent" and not patent_extraction_enabled():
+        raise ValueError(
+            "the patent extractor is not enabled on this deployment; set "
+            "DOCRAY_PATENT_EXTRACTION=1 (it needs Tesseract and Ghostscript, and "
+            "costs a rasterisation pass per page)"
+        )
+    return name
+
 
 async def _ingest_reference(
     ctx: RequestContext, reference: str, title: str | None, pipeline: bool
@@ -69,6 +94,9 @@ class IngestMutations:
         ref: str | None = None,
         title: str | None = None,
         pipeline: bool = True,
+        extractor: str | None = None,
+        jurisdiction: str | None = None,
+        ocrLanguage: str | None = None,  # noqa: N803 — GraphQL field name
     ) -> Job:
         """Ingest a document from an upload **or** a remote reference; returns the job.
 
@@ -92,6 +120,22 @@ class IngestMutations:
         can read it back; the object store's ``put`` (blocking boto3) runs off
         the event loop. The upload is capped at ``DOCRAY_MAX_UPLOAD_MB`` (BL-098),
         the same ceiling the webapp's Flask route already enforces.
+
+        ``extractor`` names a non-default reader. ``"patent"`` selects the
+        column-aware path: an ordinary PDF read orders lines by ``y``, which
+        interleaves the two columns of a patent into sentences that never
+        existed. It is a caller decision rather than something sniffed from the
+        file, so a paper that merely cites a patent number keeps the fast path.
+        The option is rejected unless the deployment enabled it
+        (``DOCRAY_PATENT_EXTRACTION``), because it costs a rasterisation pass
+        per page and needs Tesseract and Ghostscript present.
+
+        ``jurisdiction`` (an office code like ``DE``, ``SU``, ``JP``) picks the
+        OCR language; ``ocrLanguage`` overrides it with an explicit Tesseract
+        spec. This is a correctness input rather than a preference: a Latin model
+        run over Cyrillic or CJK does not fail, it emits confident Latin
+        lookalikes. Left unset, the office is read from a ``XX-1234567`` filename
+        and only then does it fall back to English.
         """
         import anyio
 
@@ -103,6 +147,7 @@ class IngestMutations:
         await _require_write_audited(ctx, action="mutation.ingest")
         settings = Config.from_env()
 
+        requested_extractor = _validated_extractor(extractor)
         reference = (ref or "").strip()
         if bool(file) == bool(reference):
             raise ValueError(
@@ -140,6 +185,14 @@ class IngestMutations:
             # therefore lands in the uploader's own corpus.
             "owner_principal_id": ctx.principal.principal_id,
         }
+        if requested_extractor:
+            payload["extractor"] = requested_extractor
+            office = (jurisdiction or "").strip().upper()
+            if office:
+                payload["jurisdiction"] = office
+            spec = (ocrLanguage or "").strip()
+            if spec:
+                payload["ocr_language"] = spec
         if pipeline:
             payload["chain"] = list(DEFAULT_PIPELINE_CHAIN)
         job_id = await _enqueue_job(ctx, KIND_INGEST, payload, document_id=None)

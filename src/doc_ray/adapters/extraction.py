@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import subprocess as subprocess  # noqa: PLC0414 — tests patch extraction.subprocess.run
 from dataclasses import replace
+from typing import Any
 
 from defusedxml import (
     ElementTree as ET,  # noqa: N814, F401 — re-export; tests harden via extraction.ET
@@ -66,6 +67,12 @@ from doc_ray.adapters.extraction_svg import (
     extract_svg as extract_svg,
 )
 from doc_ray.domain.document_formats import content_type_for
+from doc_ray.ports.patent_text_source import (
+    PatentTextSource,
+)
+from doc_ray.ports.patent_text_source import (
+    PatentTextUnavailableError as PatentTextUnavailableError,
+)
 
 # Dispatch table keyed by lowercase file extension. Any of these formats ingests.
 _EXTRACTORS = {
@@ -103,24 +110,104 @@ def content_type_for_extension(extension: str) -> str:
     return content_type_for(extension)
 
 
-def extract(data: bytes, filename: str, extension: str) -> Extracted:
+def extract(
+    data: bytes,
+    filename: str,
+    extension: str,
+    *,
+    extractor: str | None = None,
+    patent_source: PatentTextSource | None = None,
+    jurisdiction: str | None = None,
+    ocr_language: str | None = None,
+) -> Extracted:
     """Dispatch to the extractor registered for ``extension``.
 
     Args:
         data: Raw source bytes.
         filename: Original filename, used as the fallback title.
         extension: File extension (with leading dot) selecting the extractor.
+        extractor: Optional named override. ``"patent"`` reads the file through
+            :mod:`doc_ray.ports.patent_text_source` instead of the ordinary PDF
+            path. Selection is a caller decision and is never inferred from
+            content: a paper that merely cites a patent number must not be
+            silently routed onto a slower, different-shaped extractor.
+        patent_source: The port implementation to use for ``extractor="patent"``.
+        jurisdiction: Patent office code, used by the patent path to pick an OCR
+            language. A Latin model over Cyrillic or CJK fabricates rather than
+            failing, so this is a correctness input, not a preference.
+        ocr_language: Explicit Tesseract spec, overriding ``jurisdiction``.
 
     Returns:
         The extracted document.
 
     Raises:
-        ValueError: If no extractor is registered for the extension.
+        ValueError: If no extractor is registered for the extension, or the
+            named ``extractor`` is unknown.
+        PatentTextUnavailableError: If the patent path was selected and its
+            engine is absent. Never degraded to the ordinary PDF extractor,
+            which would emit column-interleaved text that reads as a success.
     """
+    if extractor is not None and extractor != _PATENT_EXTRACTOR:
+        raise ValueError(f"unknown extractor: {extractor!r}")
+    if extractor == _PATENT_EXTRACTOR:
+        return _sanitize(_extract_patent(data, filename, patent_source, jurisdiction, ocr_language))
     fn = _EXTRACTORS.get(extension.lower())
     if fn is None:
         raise ValueError(f"unsupported document type: {extension!r}")
     return _sanitize(fn(data, fallback_title=filename))
+
+
+#: Name callers pass to ``extract(extractor=...)`` for the patent path.
+_PATENT_EXTRACTOR = "patent"
+
+
+def _extract_patent(
+    data: bytes,
+    filename: str,
+    source: PatentTextSource | None,
+    jurisdiction: str | None = None,
+    ocr_language: str | None = None,
+) -> Extracted:
+    """Read ``data`` through the patent port and normalize to :class:`Extracted`."""
+    if source is None:
+        raise PatentTextUnavailableError(
+            "the patent extractor was selected but no patent text source is "
+            "configured; install the patent OCR engine or ingest without the flag"
+        )
+    read = source.read(data, language=ocr_language, jurisdiction=jurisdiction)
+    metadata: dict[str, Any] = {
+        "patent_read_quality": read.quality,
+        "patent_read_language": read.language,
+    }
+    if read.diagnostics:
+        metadata["patent_read_diagnostics"] = dict(read.diagnostics)
+    return Extracted(
+        doc_type="pdf",
+        title=filename,
+        author=None,
+        page_count=read.page_count,
+        full_text=read.full_text,
+        content_type=content_type_for(".pdf"),
+        extractor=read.engine,
+        extractor_version=read.engine_version,
+        metadata=metadata,
+        # Columns are carried through rather than re-derived: only the source
+        # knows how it split the page, and a citation that loses the column has
+        # lost the thing that made the read correct.
+        page_runs=[
+            {
+                "page": span.page,
+                "column": span.column,
+                "bbox": span.bbox,
+                "text": span.text,
+                "char_start": span.char_start,
+                "char_end": span.char_end,
+                "confidence": span.confidence,
+            }
+            for span in read.spans
+        ]
+        or None,
+    )
 
 
 def _sanitize(extracted: Extracted) -> Extracted:

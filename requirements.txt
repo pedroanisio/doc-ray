@@ -72,3 +72,12 @@ open_clip_torch==3.*
 # fail with SemanticStackUnavailableError on the worker. Baking it in mirrors the
 # Prism encoder and makes the worker able to run the job it already dispatches.
 sentence-transformers==5.*
+
+# Column-aware patent OCR (ports/patent_text_source, opt-in via
+# DOCRAY_PATENT_EXTRACTION). A patent front page is two columns; the ordinary
+# PDF path orders lines by y and interleaves them into sentences that were never
+# written — measured on US-4336787, 3,928 words against 5,727 read column-wise.
+# Pinned to an immutable commit rather than a branch: not on PyPI yet, and
+# `uv sync --locked` must resolve to the same tree on every build. Brings
+# ocrmypdf + pytesseract (Tesseract and Ghostscript are installed in the image).
+patent-ocr @ git+https://github.com/pedroanisio/patent-ocr-lib.git@5857795651b72e72ec647540b791e18d6b69883d

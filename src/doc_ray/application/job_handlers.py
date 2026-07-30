@@ -60,6 +60,7 @@ from doc_ray.domain.jobs import (
     KIND_VISUAL_EMBED,
     KIND_VISUAL_EXTRACT,
     Job,
+    payload_str,
 )
 from doc_ray.domain.progress import report_progress
 from doc_ray.ports.object_store import ObjectStore
@@ -223,13 +224,15 @@ def handle_ingest(
     # store is the concrete S3 adapter at runtime; the pipeline is typed against it.
     # The blob's re-PUT is content-addressed/idempotent.
     report_progress(2, 3, "Extracting and storing document")
-    owner = job.payload.get("owner_principal_id")
     result = ingest_bytes(
         conn,
         cast("S3ObjectStore", store),
         data,
         filename=safe_name,
-        owner_principal_id=str(owner) if owner else None,
+        owner_principal_id=payload_str(job.payload, "owner_principal_id"),
+        extractor=payload_str(job.payload, "extractor"),
+        jurisdiction=payload_str(job.payload, "jurisdiction"),
+        ocr_language=payload_str(job.payload, "ocr_language"),
     )
 
     title = job.payload.get("title")

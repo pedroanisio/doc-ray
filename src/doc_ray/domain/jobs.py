@@ -8,6 +8,7 @@ dispatch table, not the schema) so new job kinds need no migration.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Final, Literal
@@ -206,3 +207,15 @@ class Job:
     progress_current: int | None = None
     progress_total: int | None = None
     progress_stage: str | None = None
+
+
+def payload_str(payload: Mapping[str, Any], key: str) -> str | None:
+    """Return ``payload[key]`` as a string, or ``None`` when absent or empty.
+
+    A job payload is JSON some earlier process wrote, so every field arrives
+    untyped and any of them may be missing. Collapsing "absent" and "present but
+    empty" to ``None`` here keeps every handler from re-deciding which of the two
+    it meant, which is where optional ingest options quietly diverge.
+    """
+    value = payload.get(key)
+    return str(value) if value else None
