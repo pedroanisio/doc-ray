@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import re
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -13,6 +14,7 @@ import psycopg
 from doc_ray.adapters import extraction as extract_mod
 from doc_ray.adapters import persistence as db
 from doc_ray.adapters.object_store import ObjectStore
+from doc_ray.adapters.patent_text_source_factory import build_patent_source
 from doc_ray.config import Config
 from doc_ray.domain import provenance as prov_mod
 from doc_ray.domain import sentences as sent_mod
@@ -57,6 +59,9 @@ def ingest_bytes(
     title: str | None = None,
     source_url: str | None = None,
     owner_principal_id: str | None = None,
+    extractor: str | None = None,
+    jurisdiction: str | None = None,
+    ocr_language: str | None = None,
 ) -> IngestResult:
     """Ingest raw bytes: dedupe, store the blob, extract, and persist.
 
@@ -78,6 +83,16 @@ def ingest_bytes(
             (migration 102). An authenticated upload carries the uploader here
             so the document lands in *their* corpus; operator CLI ingest leaves
             it ``None`` (unowned — admin-only until org corpora ship).
+        extractor: Named extractor override, e.g. ``"patent"`` for the
+            column-aware read. ``None`` uses the extension's default. Chosen by
+            the caller and never inferred from content — a paper that cites a
+            patent number must not land on a different, slower extractor.
+        jurisdiction: Patent office code for the patent path's language choice.
+            Falls back to the code encoded in a ``XX-1234567`` filename, which is
+            how patent collections are conventionally named. Unlike extractor
+            selection this *is* inferred, because the cost of being wrong is a
+            slower-but-correct read rather than a different document.
+        ocr_language: Explicit Tesseract spec, overriding ``jurisdiction``.
 
     Returns:
         An ``IngestResult`` describing the outcome (ingested, duplicate, or
@@ -139,7 +154,15 @@ def ingest_bytes(
 
     try:
         report_progress(2, 5, "Extracting document text")
-        extracted = extract_mod.extract(data, filename=stem, extension=ext)
+        extracted = extract_mod.extract(
+            data,
+            filename=stem,
+            extension=ext,
+            extractor=extractor,
+            patent_source=build_patent_source() if extractor == "patent" else None,
+            jurisdiction=jurisdiction or jurisdiction_from_filename(name),
+            ocr_language=ocr_language,
+        )
     except Exception as exc:  # extraction failed -> still record the blob + failure
         return record_failure(str(exc))
 
@@ -363,6 +386,25 @@ def finalize_new_document(
     if job_id:
         result.detail += f", queued {chain[0]}"
     return job_id
+
+
+#: ``US-4336787.pdf``, ``DE 0154179 B``, ``SU1234567``: two-letter office code,
+#: then the number. Mirrors the convention patent collections are named with, and
+#: the one ``patent_ocr.corpus.parse_id`` reads. Deliberately anchored, so an
+#: ordinary document whose name merely starts with two letters ("An-analysis.pdf")
+#: does not resolve to a jurisdiction — it needs the digits to follow.
+_PATENT_ID_RE = re.compile(r"^([A-Za-z]{2})[-\s]?0*\d+")
+
+
+def jurisdiction_from_filename(filename: str) -> str | None:
+    """Return the patent office code encoded in ``filename``, if any.
+
+    Only ever used to choose an OCR *language* on a read the caller already
+    asked for. Getting it wrong costs accuracy on that document; it never
+    changes which extractor runs.
+    """
+    match = _PATENT_ID_RE.match(Path(filename).stem.strip())
+    return match.group(1).upper() if match else None
 
 
 def expand_paths(inputs: list[str], extensions: set[str]) -> list[Path]:

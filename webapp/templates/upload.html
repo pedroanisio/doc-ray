@@ -55,6 +55,37 @@ worker; with the pipeline enabled it is annotated and canonicalized automaticall
       {% call terms.explain("Canonicalize links known mentions to canonical entities.") %}canonicalize{% endcall %}
       ) after ingest</label>
   </div>
+  {% if patent_extraction_enabled %}
+  <div class="field pipe">
+    <input type="checkbox" name="patent" id="patent">
+    <label for="patent" style="margin:0; text-transform:none; font-family:inherit;
+      font-size:.9rem; color:var(--ink);">
+      read as a {% call terms.explain("A patent front page is two columns. The ordinary
+      reader orders lines down the page, which interleaves them into sentences that were
+      never written. This splits the columns first, then OCRs each one.") %}patent{% endcall %}
+      (column-aware, slower)</label>
+  </div>
+  <p class="muted" style="margin:-.5rem 0 0; font-size:.82rem">
+    Tick this only for a scanned two-column patent. It re-reads every page as an
+    image, so it takes appreciably longer than a normal ingest and is the wrong
+    choice for a single-column or born-digital PDF.
+  </p>
+  <div class="field">
+    <label for="upload-jurisdiction">patent office (optional — read from a
+      <code>US-4336787.pdf</code> style filename when blank)</label>
+    <input id="upload-jurisdiction" type="text" name="jurisdiction"
+           maxlength="2" style="width:6rem; text-transform:uppercase"
+           placeholder="DE">
+    <p class="muted" style="margin:.35rem 0 0; font-size:.82rem">
+      This chooses the OCR language, which is not a preference: reading a
+      Cyrillic or Japanese scan with an English model does not fail, it invents
+      plausible Latin words. <code>DE</code>/<code>AT</code> add Fraktur;
+      <code>EP</code>, <code>WO</code>, <code>CH</code>, <code>BE</code> and
+      <code>CA</code> are probed page-by-page because those offices publish in
+      several languages.
+    </p>
+  </div>
+  {% endif %}
   <button>Upload &amp; ingest</button>
 </form>
 {% endblock %}

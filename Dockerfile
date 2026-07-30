@@ -10,6 +10,13 @@ COPY --from=ghcr.io/astral-sh/uv:0.10.9@sha256:10902f58a1606787602f303954cea0996
 
 WORKDIR /app
 
+# git is needed to resolve the one dependency pinned to a commit rather than a
+# PyPI release (patent-ocr). It stays in this stage only — the runtime image
+# copies /usr/local and never inherits the build toolchain.
+RUN apt-get update \
+      && apt-get install -y --no-install-recommends git \
+      && rm -rf /var/lib/apt/lists/*
+
 # Install straight into the image's Python prefix: the final stage copies
 # /usr/local wholesale and needs no venv or PATH changes. --locked fails the
 # build if uv.lock drifted from pyproject/requirements.txt (the point of

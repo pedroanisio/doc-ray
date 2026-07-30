@@ -287,11 +287,16 @@ def upload_form():
     extractor registry, and a narrower ``accept`` attribute hides working
     formats (HTML, SVG, PPTX) from the operator.
     """
+    from doc_ray.adapters.patent_text_source_factory import patent_extraction_enabled
+
     return _core.render_template(
         "upload.html",
         error=request.args.get("error"),
         accept_attribute=ACCEPT_ATTRIBUTE,
         format_label=format_label(conjunction="or"),
+        # Offered only where the deployment can honour it: a checkbox whose
+        # submission the API rejects is worse than no checkbox.
+        patent_extraction_enabled=patent_extraction_enabled(),
     )
 
 
@@ -319,6 +324,15 @@ def upload_submit():
 
     title = request.form.get("title") or None
     pipeline = request.form.get("pipeline") == "on"
+    # The column-aware reader is only meaningful for an uploaded PDF; a remote
+    # reference resolves to whatever the source serves, so the checkbox does not
+    # ride along that route.
+    extractor = "patent" if request.form.get("patent") == "on" else None
+    # Only meaningful alongside the patent reader; sent as None otherwise so the
+    # API never records an office code against a document it did not steer.
+    jurisdiction = (request.form.get("jurisdiction") or "").strip().upper() or None
+    if extractor is None:
+        jurisdiction = None
     if ref:
         post_kwargs: dict = {
             "json": {
@@ -332,10 +346,18 @@ def upload_submit():
     else:
         operations = {
             "query": (
-                "mutation($file: Upload, $title: String, $pipeline: Boolean!) {"
-                " ingestDocument(file: $file, title: $title, pipeline: $pipeline) { id } }"
+                "mutation($file: Upload, $title: String, $pipeline: Boolean!,"
+                " $extractor: String, $jurisdiction: String) {"
+                " ingestDocument(file: $file, title: $title, pipeline: $pipeline,"
+                " extractor: $extractor, jurisdiction: $jurisdiction) { id } }"
             ),
-            "variables": {"file": None, "title": title, "pipeline": pipeline},
+            "variables": {
+                "file": None,
+                "title": title,
+                "pipeline": pipeline,
+                "extractor": extractor,
+                "jurisdiction": jurisdiction,
+            },
         }
         post_kwargs = {
             "data": {

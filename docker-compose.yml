@@ -89,6 +89,10 @@ services:
       # worker pools that handle ingest/retry_extract jobs.
       DOCRAY_PDF_OCR: ${DOCRAY_PDF_OCR:-1}
       DOCRAY_PDF_OCR_LANGUAGE: ${DOCRAY_PDF_OCR_LANGUAGE:-eng}
+      # Column-aware patent reader. Off by default; the worker is where it runs,
+      # so without this pass-through enabling it in an env file does nothing.
+      DOCRAY_PATENT_EXTRACTION: ${DOCRAY_PATENT_EXTRACTION:-0}
+      DOCRAY_PATENT_OCR_DPI: ${DOCRAY_PATENT_OCR_DPI:-300}
     volumes:
       - ./:/app:ro          # source + sample PDFs available under /data via /app
       - ./:/data:ro
@@ -428,6 +432,10 @@ services:
       # pdf_ocr_language_from_env); the runtime image ships eng + por.
       DOCRAY_PDF_OCR: ${DOCRAY_PDF_OCR:-1}
       DOCRAY_PDF_OCR_LANGUAGE: ${DOCRAY_PDF_OCR_LANGUAGE:-eng}
+      # Column-aware patent reader. Off by default; the worker is where it runs,
+      # so without this pass-through enabling it in an env file does nothing.
+      DOCRAY_PATENT_EXTRACTION: ${DOCRAY_PATENT_EXTRACTION:-0}
+      DOCRAY_PATENT_OCR_DPI: ${DOCRAY_PATENT_OCR_DPI:-300}
     entrypoint: ["python", "-m", "doc_ray.entrypoints.worker"]
 
   # Short-job lane: a reserved worker that never claims the hours-long spaCy
@@ -478,6 +486,10 @@ services:
       # same way rather than falling back to a different code default.
       DOCRAY_PDF_OCR: ${DOCRAY_PDF_OCR:-1}
       DOCRAY_PDF_OCR_LANGUAGE: ${DOCRAY_PDF_OCR_LANGUAGE:-eng}
+      # Column-aware patent reader. Off by default; the worker is where it runs,
+      # so without this pass-through enabling it in an env file does nothing.
+      DOCRAY_PATENT_EXTRACTION: ${DOCRAY_PATENT_EXTRACTION:-0}
+      DOCRAY_PATENT_OCR_DPI: ${DOCRAY_PATENT_OCR_DPI:-300}
     entrypoint: ["python", "-m", "doc_ray.entrypoints.worker"]
 
   # Scheduled backup trigger + retention pruning. The worker performs the

@@ -58,6 +58,7 @@ _SYSTEM = {"USER", "SUDO_USER", "CI", "GITHUB_ACTIONS"}
 # doc-hygiene guard's _KNOWN_MULTILINE_VARS.
 _INDIRECT_VARS = {
     "DOCRAY_RESOLVER_BACKEND",  # os.environ.get(BACKEND_ENV, ...)
+    "DOCRAY_CAPTION_APPROVE_FLOOR",  # os.environ.get(APPROVE_FLOOR_ENV, ...)
     "DOCRAY_SMTP_CHECK_TO",  # read via a parsed-env dict: env.get("DOCRAY_SMTP_CHECK_TO")
     # Rate limits: rate_limit_rule_from_env(prefix) reads f"{prefix}_REQUESTS"
     # and f"{prefix}_WINDOW_SECONDS", so the full keys never appear as literals.

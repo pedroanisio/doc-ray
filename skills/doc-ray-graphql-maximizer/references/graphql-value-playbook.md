@@ -153,7 +153,8 @@ arguments and return fields before composing a request.
   `updateOperationSchedule`, `deleteOperationSchedule`,
   `embedDocumentSentences`, `embedCorpusSentences`.
 - Sharing: `shareDocument`, `setDocumentVisibility`, `revokeDocumentShare`.
-- Visual review: `decideVisualCaptions`.
+- Visual review: `decideVisualCaptions`, `retractVisualCaption` (captions publish on
+  write, so the retraction — not an approval — is the recorded human verification).
 - Ingestion, processing, metadata, and lifecycle: `ingestDocument`,
   `reannotate`, `reextractDocument`, `retryDocumentExtraction`, `cancelJob`,
   `reextractDocuments`,

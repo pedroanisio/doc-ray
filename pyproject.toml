@@ -96,7 +96,8 @@ exclude = "(^|/)(\\.repo|engineering/schema|\\.venv|tests)/"
 module = ["psycopg.*", "boto3.*", "botocore.*", "fitz.*", "pypdf.*", "spacy.*",
           "strawberry.*", "docx", "docx.*", "pptx", "pptx.*", "defusedxml",
           "defusedxml.*", "open_clip", "open_clip.*",
-          "sentence_transformers", "sentence_transformers.*"]
+          "sentence_transformers", "sentence_transformers.*",
+          "patent_ocr", "patent_ocr.*"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
