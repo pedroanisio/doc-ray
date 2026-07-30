@@ -577,7 +577,8 @@ this corrects the record for shipped BL-175/BL-164 behavior without changing it.
 | BL-198 | Caption proposals render as undifferentiated walls of text with no visual hierarchy | webapp | tech-debt | done | S | medium | unassigned |
 | BL-199 | The review queue discloses a count but never progress, remaining effort, or scale | webapp | feature | done | XS | medium | unassigned |
 | BL-200 | Decide whether visual captions require per-item human approval at all | docs | research | done | M | high | unassigned |
-| BL-201 | Derive NLP Layers 9 (constituency) and 14 (SRL) from the dependency parse | nlp | feature | done | L | medium | shared |
+| BL-201 | Publish visual captions on write and verify them by retraction | nlp | feature | done | L | critical | unassigned |
+| BL-202 | Derive NLP Layers 9 (constituency) and 14 (SRL) from the dependency parse | nlp | feature | done | L | medium | shared |
 
 See [`backlog.yml`](backlog.yml) for each item's full description, rationale,
 acceptance criteria, dependencies, related decisions (`D-###`), and references.
