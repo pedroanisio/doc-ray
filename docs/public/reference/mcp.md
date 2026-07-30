@@ -134,6 +134,7 @@ Each of these enqueues a background Job or applies a curation decision; poll ret
 | `confirm_allusion` | Confirm a proposed allusion. | `id` |
 | `reject_allusion` | Reject a proposed allusion. | `id` |
 | `decide_visual_captions` | Approve or reject visual caption proposals. | `approve_ids`, `reject_ids` |
+| `retract_visual_caption` | Retract one published caption, with the reason it was wrong. | `caption_id`, `reason` |
 
 Canonicalization links mentions only to entities already in the registry; seed first (`suggest_seeds` → `decide_seeds` → `seed_approved`). Since 1.46.0 a designated Lens also scopes entity identity through projection; the Global lens cannot be renamed, demoted, or deleted.
 

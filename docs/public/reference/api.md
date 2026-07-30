@@ -298,6 +298,7 @@ The Global lens cannot be renamed, demoted, or deleted.
 | Field | Purpose | Key arguments |
 |---|---|---|
 | `decideVisualCaptions` | Approve or reject Tier-3 caption proposals; returns the number decided. | `approveIds`, `rejectIds` |
+| `retractVisualCaption` | Withdraw a published caption a reader can see is wrong; records who, when and why, and never deletes the row. | `captionId`, `reason` |
 
 An id cannot appear in both lists, and the combined batch is capped. Approval
 commits the caption for `visualCaptions`; rejection keeps it out of trusted
