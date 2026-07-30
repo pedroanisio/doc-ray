@@ -288,15 +288,19 @@ _ENTITIES = EvalTask(
         Step(corpus.lexeme_kwic, lambda ctx: {"uid": _MISSING_LEXEME_UID, "limit": 40}),
         Step(corpus.entity_mention_corrections, lambda ctx: {"document_id": _entity(ctx)}),
         Step(structure.document_classification, lambda ctx: {"document_id": _entity(ctx)}),
+        # Layers 9 + 14: derived syntax must stay measured like every other read
+        # surface, or the harness stops noticing when it regresses.
+        Step(structure.document_syntax, lambda ctx: {"document_id": _entity(ctx), "limit": 5}),
     ),
     assertions=(
         _nonempty("entity_frequency"),
         _ok("lexeme_kwic"),
         _ok("entity_mention_corrections"),
         _ok("document_classification"),
-        _within(TaskBudget(max_calls=5, max_chars=20_000)),
+        _ok("document_syntax"),
+        _within(TaskBudget(max_calls=6, max_chars=24_000)),
     ),
-    budget=TaskBudget(max_calls=5, max_chars=20_000),
+    budget=TaskBudget(max_calls=6, max_chars=24_000),
 )
 
 _PROJECTION = EvalTask(

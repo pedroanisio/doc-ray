@@ -60,10 +60,29 @@ sentiment under one provenance-stamped annotation run. Sentence embeddings
 (Layer 20) are NOT part of this deterministic run: after the hard cutover from
 the `hash-bow-768` placeholder (issues #20/#21), they are produced by the learned
 `application.semantic_embed` writer under the opt-in `semantic_embed` job and
-retrieved via `semanticSearchSentences`. Subword tokenization, constituency, SRL,
-WSD, and AMR remain schema-only because they require a dedicated
-tokenizer/parser/model or knowledge base rather than a safe deterministic
-fallback.
+retrieved via `semanticSearchSentences`. Subword tokenization, WSD, and AMR remain schema-only because they
+require a dedicated tokenizer/model or knowledge base rather than a safe
+deterministic fallback.
+
+Constituency (Layer 9) and SRL (Layer 14) were listed here on the same grounds
+until 2026-07-29, and that judgement was half right. It holds for *gold*
+annotation: a Penn Treebank bracketing and a PropBank roleset are
+human-annotated targets, and a neural parser (benepar, AllenNLP SRL) only
+approximates them with model output that would owe a verification queue under
+PALS's Law. It does not hold for the whole layer. A useful subset of both is
+recoverable from the dependency parse the annotator already produces, with no
+model and no new dependency, so both are now written on every annotate run by
+`domain/syntax_derived` and marked **api-exposed (derived)** rather than
+api-exposed: the status names what the data is.
+
+Two limits are deliberate and load-bearing. The SRL `frame` is the predicate's
+LEMMA (`found`), never a roleset (`found.01`) — the roleset index encodes a sense
+distinction that needs the PropBank frame files and Layer 15, so emitting it
+would assert a sense nothing determined. And a non-projective subtree is recorded
+by its covering span, because one `(char_start, char_end)` pair cannot express a
+discontinuous constituent; the covering span is a superset, never a wrong subset.
+A future neural parser supersedes this derivation by writing under a different
+tool version, not by overwriting it.
 
 ## Capability Matrix
 
@@ -77,12 +96,12 @@ fallback.
 | 6 | Part-of-speech tagging | `db/migrations/008_tokens_morphology.sql`; `db/migrations/005_lexemes.sql` | writer: `src/doc_ray/adapters/annotation_spacy.py::_build_tokens` | `src/doc_ray/adapters/persistence_read.py::list_lexemes` | field: `Query.lexemes`; `Query.lexeme` | `webapp/app.py` POS filters and annotation styling | `src/doc_ray/application/corpus_health.py` annotation coverage | `src/doc_ray/tests/test_complete_mapping.py`; `src/doc_ray/tests/test_api.py` | api-exposed |
 | 7 | Morphological features | `db/migrations/008_tokens_morphology.sql` | writer: `src/doc_ray/adapters/annotation_spacy.py::_build_tokens` | `src/doc_ray/adapters/persistence_layers_read.py::list_tokens` | field: `Document.tokens` | none: not browser-exposed | none: no health signal beyond table tests | `src/doc_ray/tests/test_008_tokens.py`; `src/doc_ray/tests/test_complete_mapping.py`; `src/doc_ray/tests/test_api_layers.py` | api-exposed |
 | 8 | Shallow chunking | `db/migrations/009_syntax.sql` | writer: `src/doc_ray/adapters/annotation_spacy.py::_copy_layers` | `src/doc_ray/adapters/persistence_layers_read.py::list_chunks` | field: `Document.chunks` | none: not browser-exposed | none: no health signal beyond table tests | `src/doc_ray/tests/test_009_syntax.py`; `src/doc_ray/tests/test_complete_mapping.py`; `src/doc_ray/tests/test_api_layers.py` | api-exposed |
-| 9 | Constituency parsing | `db/migrations/009_syntax.sql` | none: no production constituency writer is registered | none: no read-adapter function for constituent rows | none: no GraphQL constituent field | none: not browser-exposed | none: no health signal beyond table tests | `src/doc_ray/tests/test_009_syntax.py` | schema-only |
+| 9 | Constituency parsing | `db/migrations/009_syntax.sql` | writer: `src/doc_ray/adapters/annotation_syntax_rows.py::build_syntax_rows` (derivation: `src/doc_ray/domain/syntax_derived.py::derive_constituents`) | `src/doc_ray/adapters/persistence_syntax_read.py::list_constituents` | field: `Document.constituents` | none: not browser-exposed | none: no health signal beyond table tests | `src/doc_ray/tests/test_syntax_derived.py`; `src/doc_ray/tests/test_api_layers.py`; `src/doc_ray/tests/test_009_syntax.py` | api-exposed |
 | 10 | Dependency parsing | `db/migrations/009_syntax.sql` | writer: `src/doc_ray/adapters/annotation_spacy.py::_copy_layers` | `src/doc_ray/adapters/persistence_layers_read.py::list_dependencies` | field: `Document.dependencies` | none: not browser-exposed | none: no health signal beyond table tests | `src/doc_ray/tests/test_009_syntax.py`; `src/doc_ray/tests/test_complete_mapping.py`; `src/doc_ray/tests/test_api_layers.py` | api-exposed |
 | 11 | Named entity recognition | `db/migrations/010_reference.sql` | writer: `src/doc_ray/adapters/annotation_spacy.py::_copy_layers` | `src/doc_ray/adapters/persistence_read.py::list_entities`; `src/doc_ray/adapters/persistence_read.py::entity_frequency` | field: `Query.entities`; `Query.entity_frequency`; `Document.entities` | `webapp/app.py` entity and document views | `src/doc_ray/application/corpus_health.py` entity totals | `src/doc_ray/tests/test_010_reference.py`; `src/doc_ray/tests/test_api.py`; `src/doc_ray/tests/test_complete_mapping.py` | api-exposed |
 | 12 | Entity linking | `db/migrations/010_reference.sql`; `db/migrations/021_canonical.sql`; `db/migrations/023_resolution.sql` | writer: `src/doc_ray/application/term_scan.py` | `src/doc_ray/adapters/persistence_layers_read.py::list_entity_links`; `src/doc_ray/adapters/persistence_canonical_read.py::list_unresolved_mentions`; `src/doc_ray/adapters/persistence_canonical_read.py::list_resolution_review` | field: `Document.entity_links`; `Query.unresolved_mentions`; `Query.resolution_review` | `webapp/review_web.py` entity-review lane | `src/doc_ray/application/corpus_health.py` unresolved-link signals | `src/doc_ray/tests/test_term_scan.py`; `src/doc_ray/tests/test_canonicalize_autolink.py`; `src/doc_ray/tests/test_api_layers.py`; `src/doc_ray/tests/test_api_canonical_surfaces.py`; `tests/test_webapp.py` | api-exposed |
 | 13 | Coreference | `db/migrations/010_reference.sql` | writer: `src/doc_ray/adapters/annotation_spacy.py::_build_entities` | `src/doc_ray/adapters/persistence_layers_read.py::list_coref_chains` | field: `Document.coref_chains` | none: not browser-exposed | none: no health signal beyond table tests | `src/doc_ray/tests/test_010_reference.py`; `src/doc_ray/tests/test_complete_mapping.py`; `src/doc_ray/tests/test_api_layers.py` | api-exposed |
-| 14 | Semantic role labeling | `db/migrations/011_meaning_discourse.sql` | none: no production SRL writer is registered | none: no read-adapter function for SRL rows | none: no GraphQL SRL field | none: not browser-exposed | none: no health signal beyond table tests | `src/doc_ray/tests/test_011_meaning.py` | schema-only |
+| 14 | Semantic role labeling | `db/migrations/011_meaning_discourse.sql` | writer: `src/doc_ray/adapters/annotation_syntax_rows.py::build_syntax_rows` (derivation: `src/doc_ray/domain/syntax_derived.py::derive_srl_frames`) | `src/doc_ray/adapters/persistence_syntax_read.py::list_srl_frames` | field: `Document.srl_frames` | none: not browser-exposed | none: no health signal beyond table tests | `src/doc_ray/tests/test_syntax_derived.py`; `src/doc_ray/tests/test_api_layers.py`; `src/doc_ray/tests/test_011_meaning.py` | api-exposed |
 | 15 | Word-sense disambiguation | `db/migrations/011_meaning_discourse.sql` | none: no production WSD writer is registered | none: no read-adapter function for word_sense rows | none: no GraphQL WSD field | none: not browser-exposed | none: no health signal beyond table tests | `src/doc_ray/tests/test_011_meaning.py` | schema-only |
 | 16 | AMR semantic parsing | `db/migrations/011_meaning_discourse.sql` | none: no production AMR writer is registered | none: no read-adapter function for AMR rows | none: no GraphQL AMR field | none: not browser-exposed | none: no health signal beyond table tests | `src/doc_ray/tests/test_011_meaning.py` | schema-only |
 | 17 | Discourse relations | `db/migrations/011_meaning_discourse.sql` | writer: `src/doc_ray/application/semantic_enrichment.py::annotate_document` | none: no read-adapter function for discourse rows | none: no GraphQL discourse field | none: not browser-exposed | none: no health signal beyond table tests | `src/doc_ray/tests/test_011_meaning.py`; `src/doc_ray/tests/test_semantic_enrichment.py` | writer-backed |

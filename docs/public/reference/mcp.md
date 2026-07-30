@@ -51,6 +51,7 @@ The default MCP surface is **read-only**. Write tools are registered only when `
 | `semantic_search_sentences` | Rank Sentences by learned semantic similarity (meaning, not keywords). | `query`, `document_id`, `limit` |
 | `term_frequency` | Check candidate frequency before searching; phrases expose bounded candidates plus `surface_word_v1` verified sentence/occurrence counts. | `terms`, `document_id` |
 | `document_classification` | Read a Document's genre classification and review status. | `document_id` |
+| `document_syntax` | Read a Document's phrase structure (NLP Layer 9) and predicate-argument frames (Layer 14). Both are derived from the dependency parse: the SRL `frame` is the predicate lemma, not a PropBank roleset. | `document_id`, `limit`, `after` |
 | `entity_projection` | Read how a Document's mentions resolve under a Lens (local, global, or unresolved). | `document_id`, `lens_id`, `limit`, `after` |
 | `lens_entities` | Significant entities for a Lens with volumes, type profile, and staleness stamp. | `lens_id`, `limit`, `after`, `min_mentions` |
 | `entity_relations` | Sentence-level co-occurrence pairs for a Lens with normalized strength. | `lens_id`, `canonical_id`, `limit`, `after`, `min_strength` |

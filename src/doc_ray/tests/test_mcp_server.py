@@ -48,6 +48,7 @@ _READ_TOOL_NAMES = {
     # NER-correction audit log (Block A)
     "entity_mention_corrections",
     "document_classification",
+    "document_syntax",
     # lens-scoped entity identity (Block D)
     "entity_projection",
     "lens_entities",

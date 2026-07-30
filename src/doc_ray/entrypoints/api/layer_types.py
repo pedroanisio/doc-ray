@@ -146,6 +146,90 @@ class CorefMention:
 
 
 @strawberry.type
+class Constituent:
+    """One Layer-9 phrase-structure node.
+
+    ``parent_id`` is null for the sentence root (``S``). Nodes arrive outermost
+    first, so a client can rebuild the tree by streaming rather than sorting.
+    """
+
+    id: strawberry.ID
+    annotation_id: strawberry.ID
+    parent_id: strawberry.ID | None
+    label: str
+    surface: str
+    char_start: int
+    char_end: int
+    cursor: str
+
+    @classmethod
+    def from_row(cls, row: Row) -> Constituent:
+        """Build a ``Constituent`` from a read-adapter row."""
+        parent = row.get("parent_id")
+        return cls(
+            id=strawberry.ID(str(row["id"])),
+            annotation_id=strawberry.ID(str(row["annotation_id"])),
+            parent_id=strawberry.ID(str(parent)) if parent else None,
+            label=row["label"],
+            surface=row.get("surface") or "",
+            char_start=row["char_start"],
+            char_end=row["char_end"],
+            cursor=row["cursor"],
+        )
+
+
+@strawberry.type
+class SrlArgument:
+    """One labelled argument of a Layer-14 frame (``ARG0``, ``ARGM-LOC``, ...)."""
+
+    role: str
+    surface: str
+    char_start: int
+    char_end: int
+
+
+@strawberry.type
+class SrlFrame:
+    """One Layer-14 predicate with its arguments.
+
+    ``frame`` is the predicate's LEMMA, not a PropBank roleset: the ``.01`` in
+    ``found.01`` encodes a sense distinction this deterministic derivation does not
+    make, so emitting it would assert a sense that was never determined.
+    """
+
+    id: strawberry.ID
+    annotation_id: strawberry.ID
+    frame: str
+    surface: str
+    char_start: int
+    char_end: int
+    arguments: list[SrlArgument]
+    cursor: str
+
+    @classmethod
+    def from_row(cls, row: Row) -> SrlFrame:
+        """Build an ``SrlFrame`` (with its arguments) from a read-adapter row."""
+        return cls(
+            id=strawberry.ID(str(row["id"])),
+            annotation_id=strawberry.ID(str(row["annotation_id"])),
+            frame=row["frame"],
+            surface=row.get("surface") or "",
+            char_start=row["char_start"],
+            char_end=row["char_end"],
+            arguments=[
+                SrlArgument(
+                    role=a["role"],
+                    surface=a.get("surface") or "",
+                    char_start=a["char_start"],
+                    char_end=a["char_end"],
+                )
+                for a in row.get("arguments") or []
+            ],
+            cursor=row["cursor"],
+        )
+
+
+@strawberry.type
 class CorefChain:
     """One coreference chain and its mentions."""
 

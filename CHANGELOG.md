@@ -21,6 +21,40 @@ doc-ray carries **one global version** covering both the application package
 
 ## [Unreleased]
 
+### Added
+
+- **NLP Layers 9 (constituency) and 14 (semantic role labelling) are now
+  written and readable.** Both had schema since migrations `009_syntax.sql` and
+  `011_meaning_discourse.sql` and had never been populated: no writer, no read
+  adapter, no API field. The capability matrix explained the gap by saying they
+  "require a dedicated parser/model rather than a safe deterministic fallback".
+  That is true of *gold* annotation — a Penn Treebank bracketing and a PropBank
+  roleset are human-annotated targets, and a neural parser only approximates them
+  with model output that would owe a verification queue under PALS's Law. It is
+  not true of the whole layer: a useful subset of both is recoverable from the
+  dependency parse the annotator already produces.
+
+  - `domain/syntax_derived.py` derives both, deterministically, with no model and
+    no new dependency. Its derivation is documented from first principles.
+  - Written on every `annotate` run under the same annotation record, so a
+    re-annotation replaces rather than accumulates.
+  - Readable via `Document.constituents` and `Document.srlFrames` (GraphQL), and
+    the `document_syntax` MCP tool. Every node and argument carries
+    `charStart`/`charEnd`, so each is citable like a sentence hit.
+
+  Two limits are deliberate. The SRL `frame` is the predicate's **lemma**
+  (`found`), never a roleset (`found.01`): the roleset index encodes a sense
+  distinction requiring the PropBank frame files and Layer 15 (WSD, still
+  schema-only), so emitting it would assert a sense nothing determined. And a
+  non-projective phrase is recorded by its covering span, because one
+  `(char_start, char_end)` pair cannot express a discontinuous constituent — a
+  superset, never a wrong subset. A future neural parser supersedes this
+  derivation by writing under a different tool version, not by overwriting it.
+
+  **Migration:** none required — the tables already existed. Existing documents
+  gain both layers on their next `annotate` or `reannotate`; until then they
+  return empty lists rather than an error.
+
 ### Fixed
 
 - **A scanned PDF now ingests instead of failing with advice the deployment

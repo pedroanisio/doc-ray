@@ -173,6 +173,15 @@ contains its NP.
   (. .))
 ```
 
+**What doc‑ray stores.** As of 2026‑07‑29 this layer is populated on every
+annotate run, *derived from the dependency parse* rather than produced by a
+constituency parser — see `domain/syntax_derived`. For this sentence the derivation
+reproduces the tree above exactly. Read it with `Document.constituents`; `parentId`
+is null on each sentence root. Labels are limited to the set the derivation can
+justify (S, NP, VP, PP, ADJP, ADVP, SBAR): there is no gold Penn Treebank tag set
+here, and a non‑projective subtree is recorded by its covering span because one
+offset pair cannot express a discontinuous constituent.
+
 ### 10 · Dependency parsing (CoNLL‑U)
 Heads and grammatical relations. `HEAD` 0 marks the root; `founded` is the root and
 everything hangs off it.
@@ -240,6 +249,16 @@ found.01:   [ARG0 Elena] [PRED founded] [ARG1 a startup] [ARGM-LOC in Berlin]
 trust.01:   [ARG0 investors] [PRED trusted] [ARG1 her vision]      (P2, sentence 1)
 ```
 Reading: ARG0 = agent/founder, ARG1 = thing founded, ARGM‑LOC = location modifier.
+
+**What doc‑ray stores.** Populated on every annotate run, derived from the
+dependency parse (`domain/syntax_derived`), and read with `Document.srlFrames`.
+The example above shows `found.01`; doc‑ray stores the frame as the bare lemma
+**`found`**. The `.01` is a PropBank roleset index encoding a sense distinction
+that requires the PropBank frame files and Layer 15 (WSD, still schema‑only), so
+emitting it would assert a sense that was never determined. Core roles (ARG0–ARG2)
+come from UD relations, with passive voice swapping which surface position carries
+ARG0 and ARG1; modifiers cover ARGM‑LOC/TMP/MNR/NEG/ADV, and an oblique whose case
+marker is ambiguous gets the unspecified `ARGM` rather than a guess.
 
 ### 15 · Word sense disambiguation (WordNet)
 ```

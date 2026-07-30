@@ -107,10 +107,10 @@ disclaimer: |
 
 metadata:
   schema_version:   "1.0.0"
-  generated_by:     "Claude Sonnet 5 via Claude Code (merge of Claude Opus 4.8 backlog + OpenAI Codex improvement-proposal candidates); BL-181/BL-182/BL-183/BL-184 by OpenAI GPT-5 via Codex; BL-188/BL-189..BL-193 by Claude Opus 5 via Claude Code; BL-194..BL-200 by Claude Opus 5 (1M context) via Claude Code, applying TC-DXP-001.product-surfaces.tc-v0.3"
+  generated_by:     "Claude Sonnet 5 via Claude Code (merge of Claude Opus 4.8 backlog + OpenAI Codex improvement-proposal candidates); BL-181/BL-182/BL-183/BL-184 by OpenAI GPT-5 via Codex; BL-188/BL-189..BL-193 by Claude Opus 5 via Claude Code; BL-194..BL-200 by Claude Opus 5 (1M context) via Claude Code, applying TC-DXP-001.product-surfaces.tc-v0.3; BL-201 by Claude Opus 5 (1M context) via Claude Code"
   generated_on:     "2026-07-29"
   system_of_record: "docs/backlog.yml"
-  total_items:      200
+  total_items:      201
 
 items:
 
@@ -277,7 +277,7 @@ items:
       - "db/migrations/011_meaning_discourse.sql"
       - "db/migrations/012_embeddings.sql"
     owner:        "concurrent"
-    source:       "docs/nlp_annotation_layers.md §1 (complete set) vs db/migrations 008–012. Completed 2026-07-05 by auditing all 20 layers in docs/nlp_capability_matrix.md, adding a production semantic_enrichment writer/CLI for deterministic layers 17-20 (discourse, TimeML date/event rows, sentiment, hash-BoW embeddings), and leaving subword, constituency, SRL, WSD, and AMR explicitly schema-only because they require a dedicated tokenizer/parser/model/KB rather than a safe deterministic fallback."
+    source:       "docs/nlp_annotation_layers.md §1 (complete set) vs db/migrations 008–012. Completed 2026-07-05 by auditing all 20 layers in docs/nlp_capability_matrix.md, adding a production semantic_enrichment writer/CLI for deterministic layers 17-20 (discourse, TimeML date/event rows, sentiment, hash-BoW embeddings), and leaving subword, constituency, SRL, WSD, and AMR explicitly schema-only because they require a dedicated tokenizer/parser/model/KB rather than a safe deterministic fallback. SUPERSEDED IN PART by BL-201 (2026-07-29): constituency (9) and SRL (14) are now derived deterministically from the dependency parse; subword, WSD, and AMR remain schema-only."
     tags:         ["nlp", "annotation-layers", "schema"]
 
   - id:          "BL-007"
@@ -7386,3 +7386,44 @@ items:
     owner:        "unassigned"
     source:       "Session finding 2026-07-29; arises from the observation that the commit path is unreachable (BL-195) while the queue grows unboundedly"
     tags:         ["visual-caption", "pals-gate", "architecture"]
+
+  - id:          "BL-201"
+    title:        "Derive NLP Layers 9 (constituency) and 14 (SRL) from the dependency parse"
+    summary:      "Both layers had schema since migrations 009/011 and no writer, reader, or API field; derive the deterministic subset instead of leaving them empty."
+    description: |
+      BL-006 audited the 20-layer target and left constituency and SRL schema-only
+      on the grounds that they "require a dedicated tokenizer/parser/model/KB
+      rather than a safe deterministic fallback". That holds for GOLD annotation:
+      a Penn Treebank bracketing and a PropBank roleset are human-annotated
+      targets, and a neural parser (benepar, AllenNLP SRL) only approximates them
+      with model output that would owe a verification queue under PALS's Law.
+      It does not hold for the whole layer. A dependency tree already encodes
+      phrase structure implicitly — the subtree a token governs IS its phrase —
+      and PropBank proto-roles map onto UD relations, so a useful subset of both
+      is recoverable by construction from the parse the annotator already runs.
+      Implemented as domain/syntax_derived.py (pure, no model, no new dependency),
+      written by adapters/annotation_syntax_rows.py under the same annotation
+      record as the other spaCy layers, and read through
+      adapters/persistence_syntax_read.py, GraphQL Document.constituents /
+      Document.srlFrames, and the document_syntax MCP tool.
+    category:     "nlp"
+    type:         "feature"
+    status:       "done"
+    complexity:   "L"
+    priority:     "medium"
+    rationale:    "Two of twenty documented layers were permanently empty; the data was derivable from a parse already being computed and discarded."
+    acceptance_criteria:
+      - "The repo's own worked example in docs/nlp_annotation_layers.md §9 reproduces exactly, including the PP containing its NP."
+      - "The §14 frame reproduces as ARG0/ARG1/ARGM-LOC over the same sentence."
+      - "Passive voice maps the surface subject to ARG1 and the by-agent to ARG0."
+      - "Re-annotation replaces both layers rather than accumulating them."
+      - "Both layers are reachable from GraphQL and MCP with citable char offsets."
+    references:
+      - "src/doc_ray/domain/syntax_derived.py"
+      - "src/doc_ray/adapters/annotation_syntax_rows.py"
+      - "src/doc_ray/adapters/persistence_syntax_read.py"
+      - "src/doc_ray/tests/test_syntax_derived.py"
+      - "docs/nlp_capability_matrix.md"
+    owner:        "shared"
+    source:       "Operator request 2026-07-29 to close the Layer 9/14 gap under strict TDD. Deliberate limits: the SRL frame is the predicate LEMMA (found), never a roleset (found.01), because the roleset index encodes a sense needing the PropBank frame files and Layer 15 (WSD, still schema-only); a non-projective phrase is recorded by its covering span, a superset rather than a wrong subset. A future neural parser supersedes this by writing under a different tool version."
+    tags:         ["nlp", "syntax", "srl", "constituency", "derived"]

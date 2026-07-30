@@ -25,6 +25,7 @@ from typing import Any
 
 import psycopg
 
+from doc_ray.adapters import annotation_syntax_rows as syntax_mod
 from doc_ray.adapters import persistence as db
 from doc_ray.adapters.annotation_capabilities import (
     CAPABILITY_MODELS,
@@ -315,9 +316,12 @@ class SpacyAnnotator:
         chunks = list(doc.noun_chunks)
         ent_spans = [(e.start_char, e.end_char) for e in ents]
         chunk_spans = [(c.start_char, c.end_char) for c in chunks]
-        span_count = len(tok_spans) + len(ent_spans) + len(chunk_spans)
-        report_progress(5, _ANNOTATE_PROGRESS_TOTAL, f"Registering {span_count} annotation spans")
-        span_map = db.ensure_spans(conn, doc_id, tok_spans + ent_spans + chunk_spans)
+        parsed, derived_spans = syntax_mod.derive(doc)  # Layers 9 + 14, same parse
+        all_spans = tok_spans + ent_spans + chunk_spans + derived_spans
+        report_progress(
+            5, _ANNOTATE_PROGRESS_TOTAL, f"Registering {len(all_spans)} annotation spans"
+        )
+        span_map = db.ensure_spans(conn, doc_id, all_spans)
 
         report_progress(6, _ANNOTATE_PROGRESS_TOTAL, "Building token and morphology rows")
         token_rows, feat_rows, tok_id = self._build_tokens(conn, doc, span_map, sentence_of, lang)
@@ -338,6 +342,10 @@ class SpacyAnnotator:
         chunk_rows = [
             (new_ulid_str(), span_map[(c.start_char, c.end_char)], "NP", c.text) for c in chunks
         ]
+
+        # Layer 9 (constituency) and Layer 14 (SRL): projections of the dependency
+        # parse above, written under this same annotation run so a re-annotation
+        # replaces them with everything else.
 
         # Lexeme layer (real POS) — the projection the webapp reads. One pass,
         # so the whole mapping (spaCy tokens/deps/NER/chunks + lexeme POS) is
@@ -373,6 +381,7 @@ class SpacyAnnotator:
             ent_rows,
             chunk_rows,
             coref,
+            syntax=syntax_mod.rows_for(doc, parsed, span_map, tok_id),
             lex_occ=lex_occ,
             lex_tool=lex_tool,
             lex_version=lex_version,
@@ -468,6 +477,7 @@ class SpacyAnnotator:
         ents: list[tuple[str, str, str, str]],
         chunks: list[tuple[str, str, str, str]],
         coref: dict[str, list[str]],
+        syntax: syntax_mod.SyntaxRows,
         lex_occ: list[tuple[str, str]] | None = None,
         lex_tool: str | None = None,
         lex_version: str | None = None,
@@ -487,6 +497,7 @@ class SpacyAnnotator:
             )
             with conn.cursor() as cur:
                 self._copy_layers(cur, ann, tokens, feats, deps, ents, chunks)
+                syntax_mod.copy_syntax_layers(cur, ann, syntax or syntax_mod.SyntaxRows([], [], []))
             for _surface, spans in coref.items():
                 chain = new_ulid_str()
                 conn.execute(

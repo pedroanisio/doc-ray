@@ -78,6 +78,17 @@ def test_spacy_annotate_reports_advancing_phases(pg):
     assert currents[-1] >= 11, "annotate() never reported persistence completion"
 
 
+def _one_sentence(doc):
+    """Sentence view for the fake Doc: the annotator now reads ``doc.sents``.
+
+    Layers 9 and 14 are derived from the parse, so a Doc stub without sentence
+    spans no longer satisfies the annotator's contract. All tokens are one
+    sentence here, and each token heads itself, so the derivation sees a flat
+    root and emits only the S node.
+    """
+    return [list(doc)]
+
+
 def test_spacy_annotate_reports_fine_grained_inner_phases(monkeypatch):
     from doc_ray.adapters import annotation_spacy
     from doc_ray.adapters.annotation_spacy import SpacyAnnotator
@@ -138,6 +149,8 @@ def test_spacy_annotate_reports_fine_grained_inner_phases(monkeypatch):
         def noun_chunks(self):
             return []
 
+        sents = property(_one_sentence)
+
     doc = _Doc(
         [
             _Token("Elena", 0, 0, "PROPN"),
@@ -184,7 +197,9 @@ def test_spacy_annotate_reports_fine_grained_inner_phases(monkeypatch):
         "Indexing sentences",
         "Collecting token spans",
         "Collecting entity and chunk spans",
-        "Registering 6 annotation spans",
+        # 9, not 6: Layers 9 and 14 register their phrase and argument spans in
+        # this same bulk call rather than paying a round-trip per sentence.
+        "Registering 9 annotation spans",
         "Building token and morphology rows",
         "Building dependency, entity, chunk, and coreference rows",
         "Projecting lexeme occurrences",

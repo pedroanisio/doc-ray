@@ -3,9 +3,9 @@
     "failed": 0,
     "passed": 17,
     "tasks": 17,
-    "total_calls": 41,
-    "total_chars": 52409,
-    "total_est_tokens": 13102
+    "total_calls": 43,
+    "total_chars": 53844,
+    "total_est_tokens": 13461
   },
   "mode": "scripted",
   "surface": {
@@ -14,18 +14,18 @@
       "prompts_count": 4,
       "resource_templates_count": 5,
       "resources_count": 3,
-      "tool_count": 34,
-      "tools_list_chars": 47153,
-      "tools_list_est_tokens": 11788
+      "tool_count": 35,
+      "tools_list_chars": 49475,
+      "tools_list_est_tokens": 12368
     },
     "write_enabled": {
       "instructions_chars": 2915,
       "prompts_count": 4,
       "resource_templates_count": 5,
       "resources_count": 3,
-      "tool_count": 67,
-      "tools_list_chars": 81695,
-      "tools_list_est_tokens": 20423
+      "tool_count": 68,
+      "tools_list_chars": 84017,
+      "tools_list_est_tokens": 21004
     }
   },
   "tasks": [
@@ -263,6 +263,11 @@
       "assertions": [
         {
           "detail": "1 call(s), all ok",
+          "name": "corpus_stats_ok",
+          "passed": true
+        },
+        {
+          "detail": "1 call(s), all ok",
           "name": "corpus_manifest_ok",
           "passed": true
         },
@@ -272,19 +277,19 @@
           "passed": true
         },
         {
-          "detail": "2/3 calls, 794/20000 chars",
+          "detail": "3/4 calls, 1620/20000 chars",
           "name": "within_budget",
           "passed": true
         }
       ],
       "budget": {
-        "max_calls": 3,
+        "max_calls": 4,
         "max_chars": 20000
       },
-      "calls": 2,
-      "chars": 794,
-      "est_tokens": 198,
-      "grounded_in": "reachability: corpus_manifest / corpus_shard",
+      "calls": 3,
+      "chars": 1620,
+      "est_tokens": 405,
+      "grounded_in": "reachability: corpus_stats / corpus_manifest / corpus_shard",
       "passed": true,
       "task_id": "coverage-corpus-map",
       "within_budget": true
@@ -312,18 +317,23 @@
           "passed": true
         },
         {
-          "detail": "4/5 calls, 228/20000 chars",
+          "detail": "1 call(s), all ok",
+          "name": "document_syntax_ok",
+          "passed": true
+        },
+        {
+          "detail": "5/6 calls, 265/24000 chars",
           "name": "within_budget",
           "passed": true
         }
       ],
       "budget": {
-        "max_calls": 5,
-        "max_chars": 20000
+        "max_calls": 6,
+        "max_chars": 24000
       },
-      "calls": 4,
-      "chars": 228,
-      "est_tokens": 57,
+      "calls": 5,
+      "chars": 265,
+      "est_tokens": 66,
       "grounded_in": "reachability: entity_frequency / lexeme_kwic / entity_mention_corrections / document_classification",
       "passed": true,
       "task_id": "coverage-entities-and-lexemes",
@@ -492,7 +502,7 @@
           "passed": true
         },
         {
-          "detail": "1/2 calls, 1272/15000 chars",
+          "detail": "1/2 calls, 1473/15000 chars",
           "name": "within_budget",
           "passed": true
         }
@@ -502,8 +512,8 @@
         "max_chars": 15000
       },
       "calls": 1,
-      "chars": 1272,
-      "est_tokens": 318,
+      "chars": 1473,
+      "est_tokens": 368,
       "grounded_in": "reachability: term_frequency (Item 10 flood-risk pre-flight)",
       "passed": true,
       "task_id": "coverage-term-frequency",
@@ -522,7 +532,7 @@
           "passed": true
         },
         {
-          "detail": "1/2 calls, 1005/15000 chars",
+          "detail": "1/2 calls, 1376/15000 chars",
           "name": "within_budget",
           "passed": true
         }
@@ -532,13 +542,13 @@
         "max_chars": 15000
       },
       "calls": 1,
-      "chars": 1005,
-      "est_tokens": 251,
+      "chars": 1376,
+      "est_tokens": 344,
       "grounded_in": "pre-flight: multi-word terms are measured, not declined (#39)",
       "passed": true,
       "task_id": "coverage-phrase-frequency",
       "within_budget": true
     }
   ],
-  "wall_clock_seconds": 13.144
+  "wall_clock_seconds": 18.669
 }
