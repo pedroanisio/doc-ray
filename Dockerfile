@@ -38,11 +38,34 @@ ENV PYTHONPATH=/app/src
 # with "OCR required before ingest", advice no deployment built from this image
 # could take. Language packs are the whole cost (~5 MB each); add more here to
 # widen DOCRAY_PDF_OCR_LANGUAGE.
+#
+# The language list is driven by the corpus, not by guesswork. A Latin model run
+# over Cyrillic or CJK does not degrade — it emits confident Latin lookalikes at
+# zero percent correct script, which is fabricated text that passes every
+# downstream check. Ghostscript is here for the same reason: the column-aware
+# patent reader (DOCRAY_PATENT_EXTRACTION) needs it to rasterise.
+# `frk` covers German-language publications before roughly 1941, which are set
+# in Fraktur and unreadable with `deu` alone. Debian names that pack
+# `tesseract-ocr-frk`, matching the Tesseract language code used in
+# ports/patent_text_source.py ("deu+frk"). There is no
+# `tesseract-ocr-deu-frak` in trixie; requesting it fails the build with
+# `Unable to locate package` and exit 100.
 RUN apt-get update \
       && apt-get install -y --no-install-recommends \
+        ghostscript \
         tesseract-ocr \
+        tesseract-ocr-ces \
+        tesseract-ocr-deu \
+        tesseract-ocr-frk \
         tesseract-ocr-eng \
+        tesseract-ocr-fra \
+        tesseract-ocr-ita \
+        tesseract-ocr-jpn \
+        tesseract-ocr-nld \
         tesseract-ocr-por \
+        tesseract-ocr-rus \
+        tesseract-ocr-spa \
+        tesseract-ocr-swe \
       && rm -rf /var/lib/apt/lists/*
 
 COPY --from=deps /usr/local /usr/local
