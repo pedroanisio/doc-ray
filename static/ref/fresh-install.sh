@@ -60,6 +60,9 @@ REQUIRE_GPU="${REQUIRE_GPU:-auto}"
 # patch version — see the verification step below. The container's userspace is
 # independent of the host release, so a 24.04-based probe is correct on 22.04.
 CUDA_PROBE_IMAGE="${CUDA_PROBE_IMAGE:-nvidia/cuda:13.0.1-base-ubuntu24.04}"
+# Where to look for PCI hardware when nvidia-smi cannot enumerate a card.
+# Overridable so the detection tests can point it at a fixture directory.
+PCI_DEVICES_DIR="${PCI_DEVICES_DIR:-/sys/bus/pci/devices}"
 
 export DEBIAN_FRONTEND=noninteractive
 
@@ -89,28 +92,81 @@ as_operator() {
 
 as_operator_sh() { as_operator bash -lc "$1"; }
 
-[[ $EUID -eq 0 ]] || die "run as root" 1
-[[ -n "$SSH_PUBKEY" ]] || die "set SSH_PUBKEY='ssh-ed25519 AAAA... you@host' before running" 1
-[[ "$REQUIRE_GPU" =~ ^(auto|0|1)$ ]] || die "REQUIRE_GPU must be auto, 0, or 1" 1
-
 # ------------------------------------------------------- what is this host? ---
 # Decided BEFORE anything is installed, so every later step can branch on it and
 # the handoff text describes the machine you actually have.
-log "Host shape"
-if [[ "$REQUIRE_GPU" == "0" ]]; then
+#
+# THE HARD CASE IS A CARD THAT IS PRESENT BUT NOT USABLE. `nvidia-smi -L` fails
+# identically whether the machine has no GPU at all or has one whose driver is
+# missing, still loading after a first boot, or mismatched against the CUDA
+# build. Treating those two the same is how a GPU droplet gets provisioned as a
+# CPU host, prints "Host ready", and only reveals the problem much later, when
+# `make gpu-worker-up` dies with `unresolvable CDI devices nvidia.com/gpu=all` —
+# an error that names neither the driver nor the provisioning step that was
+# skipped. So ask the PCI bus as well. A card on the bus that nvidia-smi cannot
+# drive stops the run: it is the one case where the operator is paying GPU rates
+# for a machine that cannot use the card, and silence there is expensive.
+detect_host_shape() {
+  [[ "$REQUIRE_GPU" =~ ^(auto|0|1)$ ]] || die "REQUIRE_GPU must be auto, 0, or 1" 1
+
+  if [[ "$REQUIRE_GPU" == "0" ]]; then
+    HAS_GPU=0
+    echo "GPU lane disabled by REQUIRE_GPU=0"
+    return 0
+  fi
+
+  if nvidia-smi -L >/dev/null 2>&1; then
+    HAS_GPU=1
+    nvidia-smi -L
+    return 0
+  fi
+
+  # nvidia-smi could not enumerate a card. Ask the bus what hardware is really
+  # here.
+  #
+  # sysfs FIRST, lspci only as a fallback. Detection runs before this script has
+  # installed anything, and lspci ships in pciutils, which a minimal image may
+  # not carry — so making the safety check depend on it would reopen the very
+  # silent-degradation hole it exists to close. /sys/bus/pci is always present on
+  # Linux, needs no package, and does not require a working driver. Vendor id
+  # 0x10de is NVIDIA.
+  local card=""
+  local detail=""
+  local vendor_file
+  if [[ -d "$PCI_DEVICES_DIR" ]]; then
+    for vendor_file in "$PCI_DEVICES_DIR"/*/vendor; do
+      [[ -r "$vendor_file" ]] || continue
+      if [[ "$(cat "$vendor_file" 2>/dev/null)" == "0x10de" ]]; then
+        card="NVIDIA PCI device $(basename "$(dirname "$vendor_file")") (vendor 0x10de)"
+        break
+      fi
+    done
+  fi
+  if [[ -z "$card" ]] && command -v lspci >/dev/null 2>&1; then
+    card="$(lspci 2>/dev/null | grep -i 'nvidia' || true)"
+  fi
+
+  if [[ -n "$card" ]]; then
+    die "an NVIDIA card is on the PCI bus but nvidia-smi cannot drive it:
+       $card
+     Provisioning stops here rather than silently building a CPU-only box: this
+     host is billed at GPU rates, and its worker pool would later fail with
+     'unresolvable CDI devices nvidia.com/gpu=all' with nothing pointing back to
+     this moment.
+     The driver ships with DigitalOcean's AI/ML-ready image; this script does not
+     install one, because a driver/CUDA mismatch is worse than a clear stop.
+     Check 'nvidia-smi' directly. The worker image is built against CUDA 13.0, so
+     the driver must report CUDA Version 13.0 or newer — an older driver
+     enumerates the card yet cannot run the container.
+     Rebuild the droplet from a GPU image, or pass REQUIRE_GPU=0 to provision
+     this host as CPU-only on purpose." 1
+  fi
+
   HAS_GPU=0
-  echo "GPU lane disabled by REQUIRE_GPU=0"
-elif nvidia-smi -L >/dev/null 2>&1; then
-  HAS_GPU=1
-  nvidia-smi -L
-else
-  HAS_GPU=0
-  # A driver that is present but broken looks identical to no card at all, and
-  # only one of those is worth stopping for — so say which we found.
   if command -v nvidia-smi >/dev/null 2>&1; then
-    detail="nvidia-smi is installed but lists no GPU (driver/library mismatch?)"
+    detail="nvidia-smi is installed but lists no GPU, and no NVIDIA card is on the PCI bus"
   else
-    detail="no nvidia-smi on this host"
+    detail="no nvidia-smi and no NVIDIA card on the PCI bus"
   fi
   if [[ "$REQUIRE_GPU" == "1" ]]; then
     die "REQUIRE_GPU=1 but no NVIDIA GPU is visible — $detail.
@@ -119,7 +175,20 @@ else
      Rebuild the droplet from a GPU image, then re-run." 1
   fi
   echo "CPU-only host — $detail; the GPU lane will be skipped"
+}
+
+# Sourcing with FRESH_INSTALL_LIB_ONLY=1 defines the helpers above and stops, so
+# tests can exercise detect_host_shape without running an installer or being
+# root. It sits before the root check for exactly that reason.
+if [[ -n "${FRESH_INSTALL_LIB_ONLY:-}" ]]; then
+  return 0 2>/dev/null || exit 0
 fi
+
+[[ $EUID -eq 0 ]] || die "run as root" 1
+[[ -n "$SSH_PUBKEY" ]] || die "set SSH_PUBKEY='ssh-ed25519 AAAA... you@host' before running" 1
+
+log "Host shape"
+detect_host_shape
 
 # ------------------------------------------------------------- base packages --
 log "Base packages"
