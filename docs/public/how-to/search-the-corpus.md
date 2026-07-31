@@ -11,7 +11,7 @@ doc_type: "how-to"
 audience: ["end-user", "integrator"]
 surfaces: ["webapp", "mcp", "api"]
 classification: "public"
-applies_to: "1.57.0"
+applies_to: "1.57.1"
 owner: "documentation-maintainer"
 last_reviewed: "2026-07-29"
 status: "current"
@@ -62,6 +62,13 @@ unavailable rather than silently presenting an empty corpus.
 
 ```
 semantic_search_sentences  query="water governance under scarcity"  limit=20
+```
+
+Searches the whole corpus. Add `document_id` only when you already know the scope
+and want to rank within one work:
+
+```
+semantic_search_sentences  query="water governance under scarcity"  document_id="…"  limit=20
 ```
 
 Result: ranked Sentence rows with `documentId`, `ordinal`, text, and similarity.

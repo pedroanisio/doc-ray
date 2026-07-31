@@ -7565,7 +7565,7 @@ items:
       the candidate set rather than in a single aggregate.
     category:     "persistence"
     type:         "bug"
-    status:       "ready"
+    status:       "done"
     complexity:   "M"
     priority:     "high"
     rationale:    "Semantic search is the documented antidote to lexical flooding; if it only works document-scoped, the corpus-wide discovery path advertised in the tool description does not exist."
@@ -7574,8 +7574,11 @@ items:
       - "The RLS-vs-BYPASSRLS cost split is measured and recorded, not assumed, before and after the fix."
       - "Results stay RLS-correct: no sentence from a document the principal may not read is ever returned, and the fix does not silently under-return by dropping the iterative scan."
     references:
+      - "db/migrations/157_embedding_read_policy_plan_shape.sql"
+      - "db/migrations/158_schema_version_1_57_1.sql"
       - "src/doc_ray/adapters/persistence_semantic_read.py"
-      - "src/doc_ray/entrypoints/mcp/corpus.py"
-    owner:        "unassigned"
-    source:       "Agent feedback 2026-07-30: a broad multi-concept query timed out and scoping to a document_id fixed it. Verified end to end through the MCP tool and reproduced on the SQL path in the same session. Left ready rather than done because the candidate fixes (a materialised readable-document filter, a tenant-partitioned index, or pushing the ACL into the indexed predicate) trade correctness against latency differently and that is an architectural call."
+      - "tests/test_semantic_search_rls_scan.py"
+      - "src/doc_ray/tests/test_semantic_search_rls.py"
+    owner:        "shared"
+    source:       "Agent feedback 2026-07-30: a broad multi-concept query timed out and scoping to a document_id fixed it. Verified end to end through the MCP tool and reproduced on the SQL path. Root cause was the SHAPE of the embedding p_read policy, not the vector index: span_id IN (SELECT id FROM spans WHERE document_id IN readable) makes the planner derive ~28M span ids out of 113M rows in spans, past work_mem, so it materialised the set and rescanned it per candidate row. EXISTS was tried and rejected — the planner un-nests it into a semi-join and hashes the same set (still >90 s). Migration 157 uses a correlated scalar subquery on spans.id against a once-materialised readable-document array: >90 s to 0.20 s, visibility provably unchanged (spans.id is unique) and verified against the live corpus in both directions. Shipped in 1.57.1."
     tags:         ["persistence", "rls", "semantic-search", "performance"]

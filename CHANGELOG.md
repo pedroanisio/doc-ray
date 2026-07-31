@@ -93,6 +93,48 @@ doc-ray carries **one global version** covering both the application package
      original and renders its first-page cover; non-PDFs say "Text extraction
      failed", which is what actually happened.
 
+## [1.57.1]
+
+### Fixed
+
+- **`semantic_search_sentences` answers corpus-wide queries again.** Every
+  unscoped semantic search returned a typed `timeout`; the same query scoped to
+  a `document_id` returned promptly, so the tool was usable only if you already
+  knew which document you wanted — the opposite of what it is for. The vector
+  index was never the problem. The row-level security policy on `embedding` read
+
+  ```sql
+  span_id IN (SELECT spans.id FROM spans
+               WHERE spans.document_id IN (SELECT docray_readable_documents()))
+  ```
+
+  and the planner estimates that inner list at 28,242,348 span ids, out of
+  113,471,175 rows in `spans`. That is far past `work_mem`, so it cannot be
+  hashed: the plan built a `Materialize` node and scanned it linearly for every
+  candidate row the HNSW index produced. The same `EXPLAIN` showed the
+  equivalent predicate on `sentences` as a `hashed SubPlan` evaluated once,
+  because that table carries `document_id` directly.
+
+  Migration 157 rewrites the policy to read the owning document through a
+  correlated scalar subquery on the `spans` primary key, against a
+  readable-document array materialised once per statement. Measured on the
+  production corpus, `docray_api` + principal, same query:
+
+  | policy | time |
+  | --- | --- |
+  | original `IN`-list | >90 s (statement timeout — the reported bug) |
+  | `EXISTS` rewrite | >90 s (planner un-nests it to a semi-join, hashing 28M span ids) |
+  | correlated scalar subquery | **0.20 s** |
+
+  Visibility is unchanged and that is the point: `spans.id` is the primary key,
+  so the old and new predicates admit exactly the same rows. Verified against
+  the live corpus before and after — per-document counts match the
+  BYPASSRLS ground truth exactly (1,989 / 4,897 / 27,258), and a principal with
+  no grants still sees zero.
+
+  No table, column, index or function is altered, so this applies instantly and
+  rolls back by restoring the previous policy body. Nothing needs re-embedding.
+
 ## [1.57.0]
 
 ### Fixed

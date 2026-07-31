@@ -473,6 +473,43 @@ Folding widens; it never narrows. `hick` still matches `thick`, because that is
 the documented substring rule — the description now says so up front instead of
 leaving the caller to infer a lemma pipeline from the evidence.
 
+### 3.1.1 Corpus-wide semantic search is supported, and was not (BL-205)
+
+For a period, `semantic_search_sentences` returned a typed `timeout` for **every**
+query that did not pass a `document_id`, while the same query scoped to one
+document answered promptly. That made the tool usable only when you already knew
+which document you wanted — the inverse of what it exists for — and the guidance
+it emitted on failure ("narrow it, pass document_id") described the workaround as
+if it were the intended usage.
+
+The cause was the shape of the row-level security policy on `embedding`, not the
+vector index and not the query. Expressing visibility as `span_id IN (SELECT id
+FROM spans WHERE document_id IN readable)` makes the planner derive ~28M span ids
+out of a 113M-row table; it cannot hash a set that large, so it materialised it
+and rescanned it for every candidate row the HNSW index produced. Scoping to a
+document shrank the candidate set, which is why that path stayed fast — the
+policy cost was identical, it was simply paid fewer times.
+
+Migration 157 states the same rule as a correlated scalar subquery on the `spans`
+primary key against a once-materialised readable-document array. Same visibility
+(`spans.id` is unique, so both forms admit exactly the same rows), 0.20 s instead
+of a >90 s timeout. **No client change is required**, and nothing needs
+re-embedding: pass `query` with no `document_id` and it works.
+
+```jsonc
+// Corpus-wide: previously always timed out, now the normal path.
+{"name": "semantic_search_sentences",
+ "arguments": {"query": "evaluating LLM reliability in production", "limit": 5}}
+
+// Still supported, and still the right call when you know the scope.
+{"name": "semantic_search_sentences",
+ "arguments": {"query": "spice harvesting", "document_id": "…", "limit": 20}}
+```
+
+A `timeout` from this tool is therefore no longer an expected outcome of a broad
+query. If you see one, it is a real fault worth reporting rather than a hint to
+narrow the search.
+
 ### 3.1.2 An empty semantic ranking is a precondition failure (BL-166)
 
 `semantic_search_sentences` scoped to a document returned `{"result": []}`, which

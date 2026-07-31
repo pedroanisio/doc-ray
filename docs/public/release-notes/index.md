@@ -22,6 +22,9 @@ status: "current"
 What changed in each version, newest first. Each entry states who a change affects
 and any action required.
 
+- **[1.57.1](1.57.1.md)** — searching the whole library by meaning works again;
+  it previously timed out unless you limited the search to a single document
+  (**migration required**, no configuration change, nothing to re-index).
 - **[1.57.0](1.57.0.md)** — corpus totals are kept current incrementally instead
   of being rebuilt from the whole corpus, deleting a document now reduces them,
   and a word's share is measured against a real total again on installations

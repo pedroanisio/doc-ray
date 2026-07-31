@@ -385,4 +385,21 @@ MIGRATIONS = [
         "BYPASSRLS, so the column shipped NULL against a true 72,681,387. "
         "docray_backfill_total_lexeme_uses() is re-runnable after a restore",
     ),
+    (
+        "157_embedding_read_policy_plan_shape",
+        "rewrite the embedding p_read policy so a corpus-wide vector search is "
+        "planned as a per-row primary-key probe: expressing visibility as "
+        "span_id IN (SELECT id FROM spans WHERE document_id IN readable) makes "
+        "the planner derive ~28M span ids out of 113M rows in spans, too large "
+        "to hash, so it materialised the set and rescanned it per candidate row "
+        "and every corpus-wide semantic_search_sentences call hit the statement "
+        "timeout. EXISTS is not enough — the planner un-nests it to a semi-join "
+        "— so the rule is a correlated scalar subquery on spans.id against a "
+        "once-materialised readable-document array. Same visibility (spans.id is "
+        "unique), >90 s to 0.20 s, no table rewritten",
+    ),
+    (
+        "158_schema_version_1_57_1",
+        "advance the schema SemVer to 1.57.1 for the executable embedding read policy",
+    ),
 ]

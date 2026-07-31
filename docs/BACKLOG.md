@@ -581,7 +581,7 @@ this corrects the record for shipped BL-175/BL-164 behavior without changing it.
 | BL-202 | Derive NLP Layers 9 (constituency) and 14 (SRL) from the dependency parse | nlp | feature | done | L | medium | shared |
 | BL-203 | Tracked ENVIRONMENT.md symlink dangles in every clean checkout | docs | bug | ready | XS | medium | unassigned |
 | BL-204 | term_frequency's share denominator was a live aggregate over lexeme_stats | persistence | bug | done | S | critical | shared |
-| BL-205 | semantic_search_sentences times out on any corpus-wide query | persistence | bug | ready | M | high | unassigned |
+| BL-205 | semantic_search_sentences times out on any corpus-wide query | persistence | bug | done | M | high | shared |
 
 See [`backlog.yml`](backlog.yml) for each item's full description, rationale,
 acceptance criteria, dependencies, related decisions (`D-###`), and references.

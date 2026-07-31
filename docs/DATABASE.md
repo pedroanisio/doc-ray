@@ -1,6 +1,6 @@
 # doc-ray — Database ERD & Data Dictionary
 
-**Schema version `1.57.0`** (SemVer) · 156 committed migrations define the repository target schema
+**Schema version `1.57.1`** (SemVer) · 158 committed migrations define the repository target schema
 
 > Generated from a database whose migration ledger exactly matches `db/migrations/`. This describes the schema expected after all committed migrations; it does not prove a deployment is current. Run `make prod-check` for deployed migration lockstep. Do not edit by hand.
 
@@ -2543,3 +2543,5 @@ owner's bypass.
 | 154 | `154_incremental_corpus_rollups.sql` | maintain the tenant rollups by delta instead of rebuilding them: docray_refresh_stats_for_document deleted and regrouped lexeme_stats over the 72.7M-row lexeme_occurrences table six times an hour, leaving both rollups ~99% dead tuples. Per-document snapshots in document_lexeme_stats / document_entity_frequency_stats now carry only the difference into the tenant rollup, a BEFORE DELETE trigger withdraws a deleted document's contribution, and corpus_stats is stamped after the rollups it summarises |
 | 155 | `155_schema_version_1_57_0.sql` | advance the schema SemVer to 1.57.0 for the incremental corpus rollups |
 | 156 | `156_backfill_total_lexeme_uses.sql` | backfill corpus_stats.total_lexeme_uses through a SECURITY DEFINER function owned by docray_batch: migration 152 ended with a bare UPDATE, which wrote nothing and raised nothing because corpus_stats has FORCE ROW LEVEL SECURITY with no UPDATE policy and the migration role is not BYPASSRLS, so the column shipped NULL against a true 72,681,387. docray_backfill_total_lexeme_uses() is re-runnable after a restore |
+| 157 | `157_embedding_read_policy_plan_shape.sql` | rewrite the embedding p_read policy so a corpus-wide vector search is planned as a per-row primary-key probe: span_id IN (SELECT id FROM spans WHERE document_id IN readable) made the planner derive ~28M span ids out of 113M rows in spans, too large to hash, so it materialised the set and rescanned it per candidate row and every corpus-wide semantic_search_sentences call hit the statement timeout. EXISTS is not enough (the planner un-nests it to a semi-join), so the rule is a correlated scalar subquery on spans.id against a once-materialised readable-document array. Same visibility, >90 s to 0.20 s |
+| 158 | `158_schema_version_1_57_1.sql` | advance the schema SemVer to 1.57.1 for the executable embedding read policy |

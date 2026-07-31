@@ -485,6 +485,7 @@ def test_default_pipeline_chain_is_the_documented_post_ingest_order():
         "score_mentions",
         "semantic_embed",
         "visual_extract",
+        "visual_caption",
     )
 
 
@@ -533,4 +534,27 @@ def test_every_ingested_document_becomes_semantically_reachable():
     # Embedding consumes sentences, so it can never precede annotation.
     assert DEFAULT_PIPELINE_CHAIN.index(KIND_SEMANTIC_EMBED) > DEFAULT_PIPELINE_CHAIN.index(
         KIND_ANNOTATE
+    )
+
+
+def test_every_ingested_document_gets_its_images_captioned():
+    """The visual counterpart of the semantic-reachability guarantee.
+
+    Captioning was reachable only by an operator running the backfill CLI, so a
+    document's images stayed invisible to meaning-based retrieval until somebody
+    remembered — measured 2026-07-31 as 275 documents and 70,611 images with no
+    caption at all, three days after the last sweep died. Chaining it makes the
+    coverage true by construction; the recurring only-missing sweep behind it
+    exists because a chained step that fails is never revisited.
+    """
+    from doc_ray.domain.jobs import (
+        DEFAULT_PIPELINE_CHAIN,
+        KIND_VISUAL_CAPTION,
+        KIND_VISUAL_EXTRACT,
+    )
+
+    assert KIND_VISUAL_CAPTION in DEFAULT_PIPELINE_CHAIN
+    # Captioning reads document_image rows, which only visual_extract writes.
+    assert DEFAULT_PIPELINE_CHAIN.index(KIND_VISUAL_CAPTION) > DEFAULT_PIPELINE_CHAIN.index(
+        KIND_VISUAL_EXTRACT
     )

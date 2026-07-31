@@ -580,6 +580,23 @@ encoder it carries no verification gate. Retrieval is exposed as
 which rank sentences by learned cosine similarity over the RLS-scoped `embedding`
 table — the structural answer to lexical-search flooding on common terms.
 
+**The `embedding` read policy is written for plan shape, deliberately.** RLS on a
+vector search is not free, and the obvious formulation is unusable: expressing
+visibility as `span_id IN (SELECT id FROM spans WHERE document_id IN readable)`
+makes the planner derive a set of ~28M span ids (against 113M rows in `spans`),
+which it cannot hash at that cardinality — so it materialises the set and scans
+it once per candidate row the HNSW index yields. Every corpus-wide query hit the
+statement timeout while document-scoped ones stayed fast, because scoping shrinks
+the candidate set rather than the policy. Migration 157 states the same rule as a
+correlated scalar subquery on the `spans` primary key, compared against a
+readable-document array built once per statement (`ARRAY(SELECT
+docray_readable_documents())`). `EXISTS` is *not* an adequate substitute: the
+planner un-nests it back into a semi-join and re-derives the same set. The rule
+is unchanged — `spans.id` is unique, so both forms admit exactly the same rows —
+and the measured cost falls from a >90 s timeout to 0.20 s (BL-205). Tables that
+carry `document_id` directly, like `sentences`, never had the problem, which is
+what the contrasting `hashed SubPlan` in the same plan revealed.
+
 Both heavy encoders share one device posture. `semantic_embed` (like `annotate`)
 runs only on the heavy `worker` pool, never on `worker-fast`, so light user jobs
 never queue behind a model load. That pool is GPU-accelerated when the host can

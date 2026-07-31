@@ -133,6 +133,31 @@ KIND_SCORE_MENTIONS = "score_mentions"
 # canonicalize writes, and its registry_novelty_signal is *better* informed once
 # the registry scan has run. src/doc_ray/tests/test_job_kind_config.py pins the
 # order so this cannot silently regress.
+#
+# KIND_VISUAL_CAPTION closes the visual tail, and is the one chained step that
+# spends money per unit of work — one hosted VLM round trip per image. It is on
+# the chain for the same reason KIND_SEMANTIC_EMBED is: withholding it made image
+# coverage a matter of operator memory, and memory lost. Measured 2026-07-31: 275
+# documents and 70,611 images carried no caption at all, three days after the last
+# operator sweep died against a refusing endpoint — every one of them already
+# through visual_extract with its images sitting in document_image.
+#
+# Two properties keep the cost bounded rather than open-ended. The handler resumes
+# by default (`handle_visual_caption` passes ``resume=not force``), so a retry buys
+# only the images the endpoint has not already charged for. And the caption lane is
+# fenced off the general pools by docker-compose.caption.yml, so a book-length run
+# cannot starve user-facing ingest — a deployment that chains this step WITHOUT
+# that overlay will schedule hours-long caption jobs onto its general workers.
+#
+# ORDERING INVARIANT — KIND_VISUAL_CAPTION RUNS AFTER KIND_VISUAL_EXTRACT.
+# Captioning reads document_image rows; visual_extract is what writes them.
+#
+# The chain is the fast path, NOT the guarantee. A chained step that fails is never
+# revisited — retries exhaust and the row is terminal, which is exactly how the
+# 2026-07-31 gap accumulated. The recurring only-missing caption schedule
+# (operation_schedule, fired by entrypoints/operation_scheduler) is what recovers
+# what this step loses, because it recomputes the gap from the corpus every run
+# instead of trusting a job row.
 DEFAULT_PIPELINE_CHAIN: tuple[str, ...] = (
     KIND_ANNOTATE,
     KIND_SEMANTIC_ENRICH,
@@ -140,6 +165,7 @@ DEFAULT_PIPELINE_CHAIN: tuple[str, ...] = (
     KIND_SCORE_MENTIONS,
     KIND_SEMANTIC_EMBED,
     KIND_VISUAL_EXTRACT,
+    KIND_VISUAL_CAPTION,
 )
 
 # Job kinds that are expected to take enough wall-clock time to need a reserved
