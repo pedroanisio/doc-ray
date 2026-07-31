@@ -402,4 +402,25 @@ MIGRATIONS = [
         "158_schema_version_1_57_1",
         "advance the schema SemVer to 1.57.1 for the executable embedding read policy",
     ),
+    (
+        "159_grant_rollup_helpers_to_batch",
+        "grant EXECUTE on the three per-document rollup helpers to docray_batch: "
+        "migration 154 created docray_refresh_document_lexeme_stats, "
+        "docray_refresh_document_entity_frequency_stats and "
+        "docray_unapply_document_rollups owned by docray, revoked ALL from "
+        "PUBLIC, and never granted the role that owns their only caller. "
+        "docray_refresh_stats_for_document is SECURITY DEFINER owned by "
+        "docray_batch, so its body runs as docray_batch and could not execute "
+        "them — failing for every caller, docray included, because the definer "
+        "switches identity before reaching the inner call. The driver aborted at "
+        "that line, so the corpus_stats refresh after it never ran either, and "
+        "154's delta path had already replaced the full rebuild: lexeme_stats, "
+        "entity_frequency_stats and the corpus totals derived from them silently "
+        "stopped tracking the corpus while ingestion logged one warning per "
+        "document. Run docray_refresh_all_corpus_stats() once after applying",
+    ),
+    (
+        "160_schema_version_1_57_2",
+        "advance the schema SemVer to 1.57.2 for the executable rollup driver",
+    ),
 ]

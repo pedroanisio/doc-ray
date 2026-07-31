@@ -293,12 +293,22 @@ GROUPS: list[tuple[str, str, list[str]]] = [
         "grain: `document_stats` is document-scoped and inherits the document read "
         "policy, while `corpus_stats`, `lexeme_stats`, and `entity_frequency_stats` "
         "are tenant-scoped — one row per tenant rather than one global row, which "
-        "would leak vocabulary and entity magnitude across tenants.",
+        "would leak vocabulary and entity magnitude across tenants.\n\n"
+        "`document_lexeme_stats` and `document_entity_frequency_stats` (migration "
+        "154) are the per-document snapshots that make the tenant rollups "
+        "*incremental*: a document's contribution is diffed against its stored "
+        "snapshot instead of the tenant total being rebuilt from the fact tables. "
+        "They are internal maintenance state with RLS enabled and no read policy — "
+        "the SECURITY DEFINER refresh helpers are their only readers, which is why "
+        "those helpers must be executable by the role their caller runs as "
+        "(migration 159).",
         [
             "document_stats",
             "corpus_stats",
             "lexeme_stats",
             "entity_frequency_stats",
+            "document_lexeme_stats",
+            "document_entity_frequency_stats",
         ],
     ),
 ]

@@ -22,6 +22,9 @@ status: "current"
 What changed in each version, newest first. Each entry states who a change affects
 and any action required.
 
+- **[1.57.2](1.57.2.md)** — library-wide statistics track the library again; corpus
+  totals and term-frequency shares had stopped advancing as documents were added
+  (**migration required**, plus one refresh command, nothing to re-index).
 - **[1.57.1](1.57.1.md)** — searching the whole library by meaning works again;
   it previously timed out unless you limited the search to a single document
   (**migration required**, no configuration change, nothing to re-index).

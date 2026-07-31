@@ -93,6 +93,45 @@ doc-ray carries **one global version** covering both the application package
      original and renders its first-page cover; non-PDFs say "Text extraction
      failed", which is what actually happened.
 
+## [1.57.2]
+
+### Fixed
+
+- **Per-document statistic rollups stopped being maintained the moment migration
+  154 applied, and said so only in a warning.** Every ingest logged
+  `corpus stat rollup refresh failed for document <id>` and carried on. The
+  driver `docray_refresh_stats_for_document` is `SECURITY DEFINER` owned by
+  `docray_batch`, so its body runs as `docray_batch`; the three helpers it calls
+  were created owned by `docray`, had `ALL` revoked from `PUBLIC`, and were never
+  granted `EXECUTE` to `docray_batch`. Reproduced on the production corpus:
+
+  ```
+  InsufficientPrivilege: permission denied for function
+      docray_refresh_document_lexeme_stats
+  CONTEXT: SQL statement "SELECT docray_refresh_document_lexeme_stats(doc)"
+           PL/pgSQL function docray_refresh_stats_for_document(uuid,interval) line 17
+  ```
+
+  The call fails for *every* caller, `docray` included, because the definer
+  switches identity before it reaches the inner call — which is why it never
+  looked like a permissions problem from any one caller's point of view. The
+  driver aborts at that line, so the two refreshes after it and the
+  `docray_refresh_corpus_stats` call that summarises them never ran either.
+
+  Because 154 replaced the full rebuild with a delta path, nothing else was
+  maintaining those rollups: `lexeme_stats`, `entity_frequency_stats` and the
+  `corpus_stats` totals derived from them silently stopped tracking the corpus.
+  That includes `total_lexeme_uses`, the denominator behind `term_frequency`'s
+  `share` and its flood-risk verdicts. Measured before the repair: 805 documents,
+  765 with per-document rollup rows, and a `corpus_stats` row last computed more
+  than three hours earlier while ingestion ran continuously.
+
+  Migration 159 grants the missing `EXECUTE`. A new invariant test asserts that no
+  `SECURITY DEFINER` function names a `docray_*` helper its owner cannot execute,
+  so the next omission fails the build rather than a production job. Operators
+  upgrading should run `SELECT docray_refresh_all_corpus_stats();` once to
+  reconcile the drift accumulated since 154.
+
 ## [1.57.1]
 
 ### Fixed

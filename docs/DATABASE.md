@@ -1,6 +1,6 @@
 # doc-ray — Database ERD & Data Dictionary
 
-**Schema version `1.57.1`** (SemVer) · 158 committed migrations define the repository target schema
+**Schema version `1.57.2`** (SemVer) · 160 committed migrations define the repository target schema
 
 > Generated from a database whose migration ledger exactly matches `db/migrations/`. This describes the schema expected after all committed migrations; it does not prove a deployment is current. Run `make prod-check` for deployed migration lockstep. Do not edit by hand.
 
@@ -1268,6 +1268,8 @@ pgvector embeddings over spans, ANN-indexed with HNSW (cosine).
 
 #### `embedding`
 
+Learned sentence vectors (NLP Layer 20), one row per span per model. Read visibility is inherited from the owning document through spans; the policy probes spans by primary key against a once-materialised readable-document array, because the set-of-span-ids form could not be hashed at this cardinality and was scanned per candidate row (BL-205).
+
 | Column | Type | Null | Key | Default | Notes |
 |---|---|---|---|---|---|
 | `span_id` | uuid |  | PK, FK→spans |  |  |
@@ -2180,7 +2182,12 @@ at the pipeline job boundary and never computed on the request path (migrations 
 rollup carries its own RLS grain: `document_stats` is document-scoped and inherits the document read
 policy, while `corpus_stats`, `lexeme_stats`, and `entity_frequency_stats` are tenant-scoped — one
 row per tenant rather than one global row, which would leak vocabulary and entity magnitude across
-tenants.
+tenants.  `document_lexeme_stats` and `document_entity_frequency_stats` (migration 154) are the per-
+document snapshots that make the tenant rollups *incremental*: a document's contribution is diffed
+against its stored snapshot instead of the tenant total being rebuilt from the fact tables. They are
+internal maintenance state with RLS enabled and no read policy — the SECURITY DEFINER refresh
+helpers are their only readers, which is why those helpers must be executable by the role their
+caller runs as (migration 159).
 
 #### `document_stats`
 
@@ -2206,6 +2213,7 @@ tenants.
 | `n_distinct_lexemes` | bigint |  |  | `0` |  |
 | `computed_at` | timestamp with time zone |  |  | `now()` |  |
 | `n_sentences` | bigint |  |  | `0` |  |
+| `total_lexeme_uses` | bigint | yes |  |  | Maintained SUM(lexeme_stats.uses) for the tenant — term_frequency's share denominator. Never computed on a read path (D-024, BL-202). |
 
 - **Primary key:** (tenant_id)
 - **FK:** FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE
@@ -2222,6 +2230,7 @@ tenants.
 - **Primary key:** (tenant_id, lexeme_uid)
 - **FK:** FOREIGN KEY (lexeme_uid) REFERENCES lexemes(uid) ON DELETE CASCADE
 - **FK:** FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE
+- **Index** `idx_lexeme_stats_exhausted`: public.lexeme_stats USING btree (tenant_id) WHERE (uses <= 0)
 - **Index** `idx_lexeme_stats_tenant_uses`: public.lexeme_stats USING btree (tenant_id, uses DESC)
 - **RLS:** enabled — read/write policies via *?* (FORCED)
 
@@ -2236,8 +2245,38 @@ tenants.
 
 - **Primary key:** (tenant_id, entity_text, entity_type)
 - **FK:** FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE
+- **Index** `idx_entity_freq_exhausted`: public.entity_frequency_stats USING btree (tenant_id) WHERE (uses <= 0)
 - **Index** `idx_entity_freq_tenant_uses`: public.entity_frequency_stats USING btree (tenant_id, uses DESC)
 - **RLS:** enabled — read/write policies via *?* (FORCED)
+
+#### `document_lexeme_stats`
+
+Per-document snapshot of what each document contributes to lexeme_stats. Internal maintenance state for the incremental rollup (migration 154); never a read path.
+
+| Column | Type | Null | Key | Default | Notes |
+|---|---|---|---|---|---|
+| `document_id` | uuid |  | PK, FK→documents |  |  |
+| `lexeme_uid` | text |  | PK |  |  |
+| `uses` | bigint |  |  |  |  |
+
+- **Primary key:** (document_id, lexeme_uid)
+- **FK:** FOREIGN KEY (document_id) REFERENCES documents(id) ON DELETE CASCADE
+- **RLS:** enabled — read/write policies via *?*
+
+#### `document_entity_frequency_stats`
+
+Per-document snapshot of what each document contributes to entity_frequency_stats. Internal maintenance state for the incremental rollup (migration 154); never a read path.
+
+| Column | Type | Null | Key | Default | Notes |
+|---|---|---|---|---|---|
+| `document_id` | uuid |  | PK, FK→documents |  |  |
+| `entity_text` | text |  | PK |  |  |
+| `entity_type` | text |  | PK |  |  |
+| `uses` | bigint |  |  |  |  |
+
+- **Primary key:** (document_id, entity_text, entity_type)
+- **FK:** FOREIGN KEY (document_id) REFERENCES documents(id) ON DELETE CASCADE
+- **RLS:** enabled — read/write policies via *?*
 
 
 ## 6. Views
@@ -2289,12 +2328,14 @@ SELECT a.document_id,
 | `docray_abac_document_write_allowed(target_document uuid)` | `TABLE(ok boolean, reason text)` | DEFINER | sql |
 | `docray_attach_rls(tbl regclass, tmpl text)` | `void` | invoker | plpgsql |
 | `docray_audit_tenant_for_principal(actor uuid)` | `uuid` | DEFINER | sql |
+| `docray_backfill_total_lexeme_uses()` | `bigint` | DEFINER | sql |
 | `docray_can_share_document(doc_id uuid)` | `boolean` | DEFINER | sql |
 | `docray_create_principal_login(principal uuid, role_name name, password text DEFAULT NULL::text)` | `name` | DEFINER | plpgsql |
 | `docray_current_principal()` | `uuid` | DEFINER | sql |
 | `docray_current_tenant()` | `uuid` | DEFINER | sql |
 | `docray_default_tenant_id()` | `uuid` | DEFINER | sql |
 | `docray_document_default_lens_guard()` | `trigger` | invoker | plpgsql |
+| `docray_documents_unapply_rollups()` | `trigger` | DEFINER | plpgsql |
 | `docray_effective_actor()` | `name` | invoker | sql |
 | `docray_email_for_principal(pid uuid)` | `text` | DEFINER | sql |
 | `docray_is_admin()` | `boolean` | DEFINER | sql |
@@ -2308,6 +2349,8 @@ SELECT a.document_id,
 | `docray_readable_sentence_ids(pattern_1 text, pattern_2 text, pattern_3 text, pattern_4 text, document uuid, max_rows integer)` | `TABLE(id ulid, text text)` | DEFINER | sql |
 | `docray_refresh_all_corpus_stats()` | `void` | DEFINER | plpgsql |
 | `docray_refresh_corpus_stats(tenant uuid)` | `void` | DEFINER | sql |
+| `docray_refresh_document_entity_frequency_stats(doc uuid)` | `void` | DEFINER | plpgsql |
+| `docray_refresh_document_lexeme_stats(doc uuid)` | `void` | DEFINER | plpgsql |
 | `docray_refresh_document_stats(doc uuid)` | `void` | DEFINER | sql |
 | `docray_refresh_entity_frequency_stats(tenant uuid)` | `void` | DEFINER | plpgsql |
 | `docray_refresh_lexeme_stats(tenant uuid)` | `void` | DEFINER | plpgsql |
@@ -2316,6 +2359,7 @@ SELECT a.document_id,
 | `docray_schema_version()` | `text` | invoker | sql |
 | `docray_set_document_visibility(doc_id uuid, vis text)` | `void` | DEFINER | plpgsql |
 | `docray_ts_config(lang text)` | `regconfig` | invoker | sql |
+| `docray_unapply_document_rollups(doc uuid)` | `void` | DEFINER | plpgsql |
 | `docray_writable_documents()` | `SETOF uuid` | DEFINER | sql |
 | `refresh_content_fts_on_language()` | `trigger` | invoker | plpgsql |
 | `set_document_content_fts()` | `trigger` | invoker | plpgsql |
@@ -2331,6 +2375,7 @@ SELECT a.document_id,
 - **document_content** `trg_content_fts`: CREATE TRIGGER trg_content_fts BEFORE INSERT OR UPDATE OF full_text …
 - **documents** `trg_document_default_lens_guard`: CREATE TRIGGER trg_document_default_lens_guard BEFORE INSERT OR UPDATE OF default_lens_id …
 - **documents** `trg_documents_language_fts`: CREATE TRIGGER trg_documents_language_fts AFTER UPDATE OF language …
+- **documents** `trg_documents_unapply_rollups`: CREATE TRIGGER trg_documents_unapply_rollups BEFORE DELETE …
 - **documents** `trg_documents_updated_at`: CREATE TRIGGER trg_documents_updated_at BEFORE UPDATE …
 - **principal_roles** `trg_reject_manual_scim_role_edit`: CREATE TRIGGER trg_reject_manual_scim_role_edit BEFORE INSERT OR DELETE OR UPDATE …
 - **tenant_billing_accounts** `trg_tenant_billing_accounts_updated_at`: CREATE TRIGGER trg_tenant_billing_accounts_updated_at BEFORE UPDATE …
@@ -2345,7 +2390,7 @@ document-scoped table. A principal may **read** a same-tenant document iff it is
 *admin* or holds any `document_acl` row on it, and may **write** iff *admin* or
 holds an `annotate`/`delete`/`admin` grant.
 
-**Enforcement.** RLS is `ENABLE`d **and `FORCE`d** on 67 tables (incl. `jobs`
+**Enforcement.** RLS is `ENABLE`d **and `FORCE`d** on 69 tables (incl. `jobs`
 and `backups` since migration 043 — BL-064; `FORCE` applied fleet-wide by migration 106
 — BL-138, so even a table owner is filtered). The `docray`
 role is a **superuser**, so it **bypasses RLS** (superusers are exempt even under
@@ -2543,5 +2588,7 @@ owner's bypass.
 | 154 | `154_incremental_corpus_rollups.sql` | maintain the tenant rollups by delta instead of rebuilding them: docray_refresh_stats_for_document deleted and regrouped lexeme_stats over the 72.7M-row lexeme_occurrences table six times an hour, leaving both rollups ~99% dead tuples. Per-document snapshots in document_lexeme_stats / document_entity_frequency_stats now carry only the difference into the tenant rollup, a BEFORE DELETE trigger withdraws a deleted document's contribution, and corpus_stats is stamped after the rollups it summarises |
 | 155 | `155_schema_version_1_57_0.sql` | advance the schema SemVer to 1.57.0 for the incremental corpus rollups |
 | 156 | `156_backfill_total_lexeme_uses.sql` | backfill corpus_stats.total_lexeme_uses through a SECURITY DEFINER function owned by docray_batch: migration 152 ended with a bare UPDATE, which wrote nothing and raised nothing because corpus_stats has FORCE ROW LEVEL SECURITY with no UPDATE policy and the migration role is not BYPASSRLS, so the column shipped NULL against a true 72,681,387. docray_backfill_total_lexeme_uses() is re-runnable after a restore |
-| 157 | `157_embedding_read_policy_plan_shape.sql` | rewrite the embedding p_read policy so a corpus-wide vector search is planned as a per-row primary-key probe: span_id IN (SELECT id FROM spans WHERE document_id IN readable) made the planner derive ~28M span ids out of 113M rows in spans, too large to hash, so it materialised the set and rescanned it per candidate row and every corpus-wide semantic_search_sentences call hit the statement timeout. EXISTS is not enough (the planner un-nests it to a semi-join), so the rule is a correlated scalar subquery on spans.id against a once-materialised readable-document array. Same visibility, >90 s to 0.20 s |
+| 157 | `157_embedding_read_policy_plan_shape.sql` | rewrite the embedding p_read policy so a corpus-wide vector search is planned as a per-row primary-key probe: expressing visibility as span_id IN (SELECT id FROM spans WHERE document_id IN readable) makes the planner derive ~28M span ids out of 113M rows in spans, too large to hash, so it materialised the set and rescanned it per candidate row and every corpus-wide semantic_search_sentences call hit the statement timeout. EXISTS is not enough — the planner un-nests it to a semi-join — so the rule is a correlated scalar subquery on spans.id against a once-materialised readable-document array. Same visibility (spans.id is unique), >90 s to 0.20 s, no table rewritten |
 | 158 | `158_schema_version_1_57_1.sql` | advance the schema SemVer to 1.57.1 for the executable embedding read policy |
+| 159 | `159_grant_rollup_helpers_to_batch.sql` | grant EXECUTE on the three per-document rollup helpers to docray_batch: migration 154 created docray_refresh_document_lexeme_stats, docray_refresh_document_entity_frequency_stats and docray_unapply_document_rollups owned by docray, revoked ALL from PUBLIC, and never granted the role that owns their only caller. docray_refresh_stats_for_document is SECURITY DEFINER owned by docray_batch, so its body runs as docray_batch and could not execute them — failing for every caller, docray included, because the definer switches identity before reaching the inner call. The driver aborted at that line, so the corpus_stats refresh after it never ran either, and 154's delta path had already replaced the full rebuild: lexeme_stats, entity_frequency_stats and the corpus totals derived from them silently stopped tracking the corpus while ingestion logged one warning per document. Run docray_refresh_all_corpus_stats() once after applying |
+| 160 | `160_schema_version_1_57_2.sql` | advance the schema SemVer to 1.57.2 for the executable rollup driver |

@@ -33,6 +33,28 @@ _MIGRATION = _ROOT / "db" / "migrations" / "106_force_rls.sql"
 # is not a superuser, which is why the managed-Postgres outage (BL-142) never
 # reproduced on the superuser-owned test DB. This query is the invariant, shared
 # by migration 114's guard.
+#: SECURITY DEFINER functions whose OWNER cannot EXECUTE a `docray_*` helper their
+#: body names. The body runs as the owner, so this is a guaranteed runtime failure
+#: for every caller — not a caller-specific permissions issue, which is why it
+#: survived review. Matching is by name against `pg_get_functiondef`, the same
+#: approximation the BYPASSRLS guard below uses: it can over-report a helper merely
+#: mentioned in a comment, and that is the safe direction to err.
+_SECDEF_CALLEES_OWNER_CANNOT_EXECUTE = r"""
+    SELECT f.oid::regprocedure::text AS caller,
+           fo.rolname                AS caller_runs_as,
+           g.oid::regprocedure::text AS uncallable_callee
+      FROM pg_proc f
+      JOIN pg_roles fo ON fo.oid = f.proowner
+      JOIN pg_proc g  ON g.pronamespace = 'public'::regnamespace
+                     AND g.oid <> f.oid
+                     AND g.proname LIKE 'docray%'
+                     AND pg_get_functiondef(f.oid) ~ ('\y' || g.proname || '\y')
+     WHERE f.prosecdef
+       AND f.pronamespace = 'public'::regnamespace
+       AND NOT has_function_privilege(fo.rolname, g.oid, 'EXECUTE')
+     ORDER BY 1, 3
+"""
+
 _NON_BYPASS_SECDEF_HELPERS = """
     SELECT p.oid::regprocedure::text AS sig, r.rolname AS owner
       FROM pg_proc p
@@ -209,6 +231,44 @@ def test_no_security_definer_helper_that_reads_a_forced_rls_table_lacks_bypass(p
     assert offenders == [], (
         "SECURITY DEFINER helpers that read a forced-RLS table must be owned by a "
         f"BYPASSRLS role or they recurse under FORCE RLS: {[dict(r) for r in offenders]}"
+    )
+
+
+def test_every_secdef_function_can_execute_the_helpers_it_calls(pg) -> None:
+    """A SECURITY DEFINER function must be able to call what its body names.
+
+    SECURITY DEFINER switches identity to the function's OWNER *before* the body
+    runs, so the privileges that matter are the owner's, not the caller's. When a
+    helper is created owned by one role, has its default grants revoked, and is
+    then called from a definer function owned by a different role, every call
+    fails — for every caller, including the role that owns the helper. That is
+    what makes it hard to see: it does not look like a permissions problem from
+    any particular caller's point of view.
+
+    Migration 154 shipped exactly that. It created
+
+        docray_refresh_document_lexeme_stats(uuid)
+        docray_refresh_document_entity_frequency_stats(uuid)
+        docray_unapply_document_rollups(uuid)
+
+    owned by `docray`, revoked ALL from PUBLIC, and never granted EXECUTE to
+    `docray_batch` — the owner of their only caller,
+    `docray_refresh_stats_for_document`. Every per-document rollup refresh then
+    failed with `permission denied for function
+    docray_refresh_document_lexeme_stats`, on every document, from the moment the
+    migration applied. It was logged per document rather than raised, so ingestion
+    continued while `lexeme_stats`, `entity_frequency_stats` and the `corpus_stats`
+    totals derived from them silently stopped tracking the corpus. Migration 159
+    grants the missing EXECUTE; this keeps it true as new helpers are added.
+    """
+    conn, _created = pg
+    conn.execute("RESET ROLE")
+    offenders = conn.execute(_SECDEF_CALLEES_OWNER_CANNOT_EXECUTE).fetchall()
+    conn.execute("SET ROLE docray_batch")
+    assert offenders == [], (
+        "a SECURITY DEFINER function names a helper its OWNER may not EXECUTE, so "
+        "every call through it fails at runtime regardless of caller: "
+        f"{[dict(r) for r in offenders]}"
     )
 
 
