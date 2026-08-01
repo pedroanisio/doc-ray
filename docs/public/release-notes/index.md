@@ -22,6 +22,9 @@ status: "current"
 What changed in each version, newest first. Each entry states who a change affects
 and any action required.
 
+- **[1.57.3](1.57.3.md)** — documents no longer halt at "Annotate text" on an
+  unusual sentence, leaving the rest of the pipeline unrun (**migration required**,
+  re-run analysis on any document already in that state).
 - **[1.57.2](1.57.2.md)** — library-wide statistics track the library again; corpus
   totals and term-frequency shares had stopped advancing as documents were added
   (**migration required**, plus one refresh command, nothing to re-index).

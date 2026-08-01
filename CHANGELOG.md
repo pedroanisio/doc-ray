@@ -93,6 +93,50 @@ doc-ray carries **one global version** covering both the application package
      original and renders its first-page cover; non-PDFs say "Text extraction
      failed", which is what actually happened.
 
+## [1.57.3]
+
+### Fixed
+
+- **Annotation failed terminally on documents whose parse contained a
+  self-headed token, taking the rest of the pipeline chain with it.** Layer 9
+  builds two constituents by narrowing a subtree — the predicate VP is the
+  root's subtree minus its subjects and sentence punctuation, and a PP's inner
+  NP is its subtree minus its case markers. Both excluded the dependents by
+  testing `head_index == <the node>`, which a self-headed token satisfies
+  vacuously. The filter could therefore delete the very token whose projection
+  it was computing.
+
+  The consequences were graded. Where dependents survived, the node survived
+  with a span that omitted its own head — a VP reported as beginning after its
+  verb. Where none did, the span had nothing to measure:
+
+  ```
+  File "doc_ray/adapters/annotation_spacy.py", line 319, in annotate
+  File "doc_ray/domain/syntax_derived.py", line 289, in derive_constituents
+  File "doc_ray/domain/syntax_derived.py", line 203, in _span
+  ValueError: min() iterable argument is empty
+  ```
+
+  The failure is deterministic, so the retry policy correctly spent all three
+  attempts in four minutes and marked the job terminal. Measured on the
+  production corpus 2026-07-31: four documents (305k–1.4M characters) left at
+  `status='extracted'` with no annotations, and — because a chained step that
+  fails is never revisited — `canonicalize`, `score_mentions`, `semantic_embed`,
+  `visual_extract` and `visual_caption` never enqueued for any of them.
+
+  - Both filters now retain the projecting token explicitly. The invariant is
+    that a constituent always contains its own head.
+  - `_span` documents that it is deliberately not defensive: an empty
+    constituent is not a degenerate span to paper over, it is a filter that
+    deleted a phrase's head, and a bare failure is the honest signal.
+  - Three regression tests cover the crash, the degenerate single-token case,
+    and the silent span corruption that the same defect produced whenever
+    dependents remained.
+
+  Layer 9 rows written before this fix may carry understated spans; re-annotating
+  a document rewrites them. Migration `161` carries the version for that reason —
+  the offsets are a schema-level contract — though it changes no DDL.
+
 ## [1.57.2]
 
 ### Fixed

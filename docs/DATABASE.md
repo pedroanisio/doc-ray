@@ -1,6 +1,6 @@
 # doc-ray — Database ERD & Data Dictionary
 
-**Schema version `1.57.2`** (SemVer) · 160 committed migrations define the repository target schema
+**Schema version `1.57.3`** (SemVer) · 161 committed migrations define the repository target schema
 
 > Generated from a database whose migration ledger exactly matches `db/migrations/`. This describes the schema expected after all committed migrations; it does not prove a deployment is current. Run `make prod-check` for deployed migration lockstep. Do not edit by hand.
 
@@ -2213,7 +2213,7 @@ caller runs as (migration 159).
 | `n_distinct_lexemes` | bigint |  |  | `0` |  |
 | `computed_at` | timestamp with time zone |  |  | `now()` |  |
 | `n_sentences` | bigint |  |  | `0` |  |
-| `total_lexeme_uses` | bigint | yes |  |  | Maintained SUM(lexeme_stats.uses) for the tenant — term_frequency's share denominator. Never computed on a read path (D-024, BL-202). |
+| `total_lexeme_uses` | bigint | yes |  |  | Maintained SUM(lexeme_stats.uses) for the tenant — term_frequency's share denominator. Never computed on a read path (D-024, BL-204). |
 
 - **Primary key:** (tenant_id)
 - **FK:** FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE
@@ -2592,3 +2592,4 @@ owner's bypass.
 | 158 | `158_schema_version_1_57_1.sql` | advance the schema SemVer to 1.57.1 for the executable embedding read policy |
 | 159 | `159_grant_rollup_helpers_to_batch.sql` | grant EXECUTE on the three per-document rollup helpers to docray_batch: migration 154 created docray_refresh_document_lexeme_stats, docray_refresh_document_entity_frequency_stats and docray_unapply_document_rollups owned by docray, revoked ALL from PUBLIC, and never granted the role that owns their only caller. docray_refresh_stats_for_document is SECURITY DEFINER owned by docray_batch, so its body runs as docray_batch and could not execute them — failing for every caller, docray included, because the definer switches identity before reaching the inner call. The driver aborted at that line, so the corpus_stats refresh after it never ran either, and 154's delta path had already replaced the full rebuild: lexeme_stats, entity_frequency_stats and the corpus totals derived from them silently stopped tracking the corpus while ingestion logged one warning per document. Run docray_refresh_all_corpus_stats() once after applying |
 | 160 | `160_schema_version_1_57_2.sql` | advance the schema SemVer to 1.57.2 for the executable rollup driver |
+| 161 | `161_schema_version_1_57_3.sql` | advance the schema SemVer to 1.57.3 — Layer 9 constituents keep their own head token, so spans written before it may understate their start |

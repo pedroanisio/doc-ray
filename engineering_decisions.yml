@@ -53,7 +53,7 @@ source_schema:         "db/migrations"
 # 1.47.0 allusion edges (131), 1.48.0 hyper-context rollups (133).
 # Kept in lockstep with doc_ray.__version__
 # by scripts/check_version_consistency.py.
-source_schema_version: "1.57.2"
+source_schema_version: "1.57.3"
 target_engine:         "PostgreSQL 16"
 total_decisions:       35
 

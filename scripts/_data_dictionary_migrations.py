@@ -423,4 +423,9 @@ MIGRATIONS = [
         "160_schema_version_1_57_2",
         "advance the schema SemVer to 1.57.2 for the executable rollup driver",
     ),
+    (
+        "161_schema_version_1_57_3",
+        "advance the schema SemVer to 1.57.3 — Layer 9 constituents keep their "
+        "own head token, so spans written before it may understate their start",
+    ),
 ]

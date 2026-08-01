@@ -198,6 +198,13 @@ def _subtree(index: int, kids: dict[int, list[int]]) -> list[int]:
 
 
 def _span(indices: list[int], by_index: dict[int, ParsedToken]) -> tuple[int, int]:
+    """Covering offsets of *indices*, which must be non-empty.
+
+    Deliberately not defensive: a constituent with no tokens is not a degenerate
+    span to paper over, it is a filter that deleted the head token of the phrase
+    it was measuring. Callers that narrow a subtree must keep the projecting
+    token, and a bare ``min()`` failure is the honest signal when one does not.
+    """
     starts = [by_index[i].char_start for i in indices]
     ends = [by_index[i].char_end for i in indices]
     return min(starts), max(ends)
@@ -278,10 +285,15 @@ def derive_constituents(
     nodes[s_key] = ConstituentNode(s_key, None, "S", *sentence_span)
 
     # The predicate VP: the root's subtree minus subjects and sentence punctuation.
+    # Keeping ``i == root.index`` is load-bearing: the filter removes the root's
+    # *dependents*, and a root is its own head, so without that clause the root
+    # matches its own exclusion test and is dropped from the phrase it heads
+    # (see _span's contract).
     vp_indices = [
         i
         for i in _subtree(root.index, kids)
-        if not (by_index[i].head_index == root.index and by_index[i].deprel in _OUTSIDE_VP)
+        if i == root.index
+        or not (by_index[i].head_index == root.index and by_index[i].deprel in _OUTSIDE_VP)
     ]
     vp_key: str | None = None
     if _PHRASE_LABEL.get(root.upos) == "VP" and len(vp_indices) < len(ordered):
@@ -321,7 +333,8 @@ def derive_constituents(
         inner_indices = [
             i
             for i in _subtree(index, kids)
-            if not (by_index[i].head_index == index and by_index[i].deprel.startswith("case"))
+            if i == index
+            or not (by_index[i].head_index == index and by_index[i].deprel.startswith("case"))
         ]
         inner_key = f"{key_prefix}-{index}-np"
         resolved.append(ConstituentNode(inner_key, key, "NP", *_span(inner_indices, by_index)))

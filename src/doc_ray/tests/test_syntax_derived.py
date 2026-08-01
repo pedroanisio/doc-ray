@@ -178,6 +178,73 @@ def test_non_projective_subtree_spans_its_full_extent():
     assert covering.char_end == 16  # covers the non-projective dependent
 
 
+# --- A constituent always contains its own head token ------------------------
+#
+# Both subtree filters below exclude *dependents* of a node by matching
+# ``head_index == <that node>``. A self-headed token satisfies that test
+# vacuously, so each filter could delete the very token whose projection it was
+# computing. The consequences were graded: with dependents left over the node
+# survived with a span that omitted its head (silent corruption), and with none
+# left over the span had nothing to measure and ``min()`` raised — which is how
+# this reached production. Annotation of four books failed terminally on
+# 2026-07-31 (``ValueError: min() iterable argument is empty``, syntax_derived
+# line 289), stranding them at ``status='extracted'`` with the rest of the
+# pipeline chain below them never running.
+
+
+def test_root_stays_inside_its_own_vp_when_its_relation_is_outside_vp():
+    """A root related as ``punct``/``nsubj``/``expl`` still heads its predicate.
+
+    ``_OUTSIDE_VP`` lifts subjects and sentence punctuation out of the VP by
+    matching the root's dependents. The root is its own head, so it matched too:
+    the VP was built from the predicate *minus the predicate*, here leaving the
+    object alone and reporting a verb phrase that starts after the verb.
+    """
+    tokens = [
+        ParsedToken(0, 1, "nsubj", "PRON", "it", 0, 2),
+        ParsedToken(1, 1, "punct", "VERB", "hold", 3, 8),
+        ParsedToken(2, 1, "obj", "NOUN", "line", 9, 13),
+    ]
+
+    vp = next(n for n in derive_constituents(tokens) if n.label == "VP")
+
+    assert (vp.char_start, vp.char_end) == (3, 13)  # verb + object, subject excluded
+
+
+def test_root_alone_in_its_vp_yields_a_bare_s_instead_of_raising():
+    """The degenerate case that failed in production: nothing survives the filter.
+
+    A one-token sentence whose token is tagged as a verb but related as
+    punctuation — the shape OCR noise produces in scanned books. Retaining the
+    root makes the VP coextensive with the sentence, which the existing
+    ``len(vp_indices) < len(ordered)`` guard already rejects as the unary
+    ``S -> VP`` chain this module documents itself as not emitting.
+    """
+    nodes = derive_constituents([ParsedToken(0, 0, "punct", "VERB", "cont", 0, 4)])
+
+    assert _labelled(nodes) == [("S", 0, 4)]
+
+
+def test_pp_inner_np_keeps_the_nominal_that_heads_it():
+    """The same vacuous self-match in adjustment 2's inner-NP filter.
+
+    ``case:loc`` is a real UD subtype and is not in ``_FUNCTIONAL_DEPRELS`` (an
+    exact-membership set), so a nominal carrying it projects a PP — and is then
+    deleted from its own inner NP by a filter testing ``startswith("case")``.
+    """
+    tokens = [
+        ParsedToken(0, 0, "ROOT", "VERB", "wait", 0, 4),
+        ParsedToken(1, 1, "case:loc", "NOUN", "side", 5, 9),
+        ParsedToken(2, 1, "case", "ADP", "at", 10, 12),
+    ]
+
+    nodes = derive_constituents(tokens)
+    pp = next(n for n in nodes if n.label == "PP")
+    inner = next(n for n in nodes if n.parent_key == pp.key)
+
+    assert (inner.label, inner.char_start, inner.char_end) == ("NP", 5, 9)
+
+
 # --- Layer 14: semantic role labelling ---------------------------------------
 
 

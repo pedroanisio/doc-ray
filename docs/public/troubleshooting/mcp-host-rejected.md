@@ -11,7 +11,7 @@ doc_type: "troubleshooting"
 audience: ["administrator", "integrator"]
 surfaces: ["mcp", "config"]
 classification: "public"
-applies_to: "1.57.2"
+applies_to: "1.57.3"
 owner: "documentation-maintainer"
 last_reviewed: "2026-07-29"
 status: "current"
