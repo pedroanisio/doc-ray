@@ -33,19 +33,55 @@ def _literal_string(node: ast.AST) -> str | None:
     return value if isinstance(value, str) else None
 
 
-def _record_if_graphql(node: ast.AST, documents: list[str]) -> None:
-    value = _literal_string(node)
+def _module_string_constants(tree: ast.AST) -> dict[str, str]:
+    """Map module-level ``NAME = "..."`` bindings to their string value.
+
+    Hoisting a query out of the call site into a named constant is ordinary good
+    practice — it is how a document shared by two code paths stays one document.
+    Without this resolution step the scanner sees an ``ast.Name`` instead of a
+    literal and silently stops validating that query against the live schema:
+    coverage drops with no failure anywhere, which is the worst way for a
+    contract guard to break.
+    """
+    constants: dict[str, str] = {}
+    for node in getattr(tree, "body", []):
+        targets = (
+            node.targets
+            if isinstance(node, ast.Assign)
+            else [node.target]
+            if isinstance(node, ast.AnnAssign) and node.value is not None
+            else []
+        )
+        value = _literal_string(node.value) if getattr(node, "value", None) else None
+        if value is None:
+            continue
+        for target in targets:
+            if isinstance(target, ast.Name):
+                constants[target.id] = value
+    return constants
+
+
+def _resolved_string(node: ast.AST, constants: dict[str, str]) -> str | None:
+    """The string a node denotes: a literal, or a module-level constant."""
+    if isinstance(node, ast.Name):
+        return constants.get(node.id)
+    return _literal_string(node)
+
+
+def _record_if_graphql(node: ast.AST, documents: list[str], constants: dict[str, str]) -> None:
+    value = _resolved_string(node, constants)
     if value is not None and value.lstrip().startswith(("query", "mutation")):
         documents.append(value)
 
 
 def _graphql_literals(tree: ast.AST) -> list[str]:
+    constants = _module_string_constants(tree)
     documents: list[str] = []
     for node in ast.walk(tree):
         if isinstance(node, ast.Call) and node.args and _is_gql_call(node):
-            _record_if_graphql(node.args[0], documents)
+            _record_if_graphql(node.args[0], documents, constants)
         elif isinstance(node, ast.Dict):
-            _record_graphql_dict_values(node, documents)
+            _record_graphql_dict_values(node, documents, constants)
     return documents
 
 
@@ -58,10 +94,12 @@ def _is_gql_call(node: ast.Call) -> bool:
     )
 
 
-def _record_graphql_dict_values(node: ast.Dict, documents: list[str]) -> None:
+def _record_graphql_dict_values(
+    node: ast.Dict, documents: list[str], constants: dict[str, str]
+) -> None:
     for key, value in zip(node.keys, node.values, strict=True):
         if _literal_string(key) in {"query", "mutation"}:
-            _record_if_graphql(value, documents)
+            _record_if_graphql(value, documents, constants)
 
 
 def _assert_documents_validate(documents: dict[str, str]) -> None:

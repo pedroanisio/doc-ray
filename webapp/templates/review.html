@@ -1,9 +1,10 @@
 {% extends "base.html" %}
+{% import "_icons.html" as icons %}
 {% block title %}Review · doc·ray{% endblock %}
 {% block body %}
 <p class="kicker">Human verification inbox</p>
 <h1>AI proposes; a human decides</h1>
-<p class="lede" style="max-width:48rem">
+<p class="lede measure-lg">
   Every item here is an untrusted machine proposal. Nothing is approved automatically;
   your decision passes through the authorized API and becomes part of the audit trail.
 </p>
@@ -45,7 +46,7 @@
             <p>{{ item.reason }}</p><p class="kicker">Source · {{ item.source }}</p>
           </article>
         {% else %}{% if document_id %}<p class="lede">Nothing pending for this document.</p>{% endif %}{% endfor %}
-        {% if metadata_items|default([]) %}<button name="action" value="approve">Approve selected</button> <button name="action" value="reject">Reject selected</button>{% endif %}
+        {% if metadata_items|default([]) %}<button name="action" value="approve">{{ icons.icon('check') }}Approve selected</button> <button name="action" value="reject">{{ icons.icon('x') }}Reject selected</button>{% endif %}
       </form>
     </div>
   </section>
@@ -71,7 +72,7 @@
       {% for item in seed_items|default([]) %}
         <label class="review-item"><input type="checkbox" name="item_id" value="{{ item.id }}"> <strong>{{ item.term }}</strong> · {{ item.title }}<span class="hint">{{ item.description or 'No description' }} · Source {{ item.source }}</span></label>
       {% else %}<p class="lede">No seed candidates are awaiting a decision.</p>{% endfor %}
-      {% if seed_items|default([]) %}<button name="action" value="approve">Approve selected</button> <button name="action" value="reject">Reject selected</button>{% endif %}
+      {% if seed_items|default([]) %}<button name="action" value="approve">{{ icons.icon('check') }}Approve selected</button> <button name="action" value="reject">{{ icons.icon('x') }}Reject selected</button>{% endif %}
     </form>
   </section>
   <section class="card">
@@ -167,9 +168,9 @@
       {% else %}<p class="lede" data-testid="empty-state">No captions match this filter.</p>{% endfor %}
 
       {% if visual_items|default([]) %}
-        <div class="actions">
-          <button name="action" value="approve" data-testid="approve-btn">Approve selected</button>
-          <button name="action" value="reject" data-testid="reject-btn">Reject selected</button>
+        <div class="actions actions--sticky">
+          <button name="action" value="approve" data-testid="approve-btn">{{ icons.icon('check') }}Approve selected</button>
+          <button name="action" value="reject" data-testid="reject-btn">{{ icons.icon('x') }}Reject selected</button>
         </div>
       {% endif %}
     </form>
@@ -197,27 +198,4 @@
   })();
   </script>
 {% endif %}
-<style>
-  .review-layout { display:grid; grid-template-columns:minmax(14rem,1fr) minmax(0,2fr); gap:1rem; }
-  .review-item { display:block; padding:1rem 0; border-top:1px solid var(--line); }
-  .review-item:first-of-type { border-top:0; }
-  .review-item .hint { display:block; margin:.3rem 0; }
-  @media (max-width:760px){ .review-layout { grid-template-columns:1fr; } }
-  .triage { display:flex; gap:1rem; flex-wrap:wrap; align-items:end; margin:.5rem 0 1rem; }
-  .triage label { display:flex; flex-direction:column; font-size:.85rem; gap:.25rem; }
-  .bulkbar { display:flex; align-items:center; gap:.75rem; padding:.6rem .8rem;
-             border:1px solid var(--line); border-radius:.4rem; margin-bottom:.75rem;
-             position:sticky; top:0; background:var(--bg,#fff); z-index:2; }
-  .proposal-grid { display:grid; grid-template-columns:120px minmax(0,1fr); gap:1rem; align-items:start; }
-  .proposal .thumb img { width:120px; height:auto; border:1px solid var(--line); border-radius:.3rem; display:block; }
-  .proposal-head { display:flex; align-items:center; gap:.6rem; margin-bottom:.4rem; }
-  /* Clamp long captions so proposals occupy comparable vertical space and can be
-     compared by scanning rather than by reading each one in full (BL-198). */
-  .caption-text { display:-webkit-box; -webkit-line-clamp:4; -webkit-box-orient:vertical;
-                  overflow:hidden; margin:.2rem 0; }
-  .proposal:focus-within .caption-text, .caption-text:hover { -webkit-line-clamp:unset; overflow:visible; }
-  .pill.ok { border-color:#2e7d32; color:#2e7d32; }
-  .actions { position:sticky; bottom:0; padding:.75rem 0; background:var(--bg,#fff); }
-  @media (max-width:760px){ .proposal-grid { grid-template-columns:1fr; } }
-</style>
 {% endblock %}

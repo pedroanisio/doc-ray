@@ -4,7 +4,7 @@
 {% block body %}
 <p class="kicker">Every distinct word, by identity</p>
 <h1>The <span class="accent">Lexicon</span></h1>
-<p class="lede" style="max-width:38rem">
+<p class="lede measure-sm">
   A lexeme is one normalized vocabulary identity. The lexicon groups observed
   word forms by lemma, language, part of speech, and corpus use count.
 </p>
@@ -34,8 +34,8 @@
     {% for l in rows %}
       <tr class="p-{{ l.pos }}">
         <td class="table-title">
-          <a href="{{ url_for('lexeme', uid=l.uid) }}" style="color:var(--c)">{{ l.lemma }}</a></td>
-        <td>{{ terms.pos_pill(l.pos, 'pill', 'color:var(--c); border-color:var(--c)') }}</td>
+          <a class="text-pos" href="{{ url_for('lexeme', uid=l.uid) }}">{{ l.lemma }}</a></td>
+        <td>{{ terms.pos_pill(l.pos, 'pill pill--pos') }}</td>
         <td><span class="pill lang">{{ l.lang }}</span></td>
         <td class="num">{{ "{:,}".format(l.uses) }}</td>
       </tr>

@@ -1,24 +1,23 @@
 {% extends "base.html" %}
+{% import "_icons.html" as icons %}
+{% import "_components.html" as ui %}
 {% set back_url = url_for('documents') %}
 {% set back_label = 'Corpus' %}
 {% block title %}Collections · doc·ray{% endblock %}
 {% block body %}
-<p class="kicker"><a href="{{ url_for('documents') }}">← Corpus</a></p>
+<p class="kicker"><a href="{{ url_for('documents') }}">{{ icons.icon('arrow-left') }}Corpus</a></p>
 <h1>Collections</h1>
-<p class="lede" style="max-width:42rem">
+<p class="lede lede--measure">
   Group documents into manual reading sets or smart collections that stay current
   as new documents match their metadata rule.
 </p>
 {% if error %}<div class="errbox">{{ error }}</div>{% endif %}
 {% if notice %}<div class="notice">{{ notice }}</div>{% endif %}
 
+{% set lens_note %}Lenses name a scope for a future projection layer; they do not change search or entity resolution today. Projection behavior belongs to <a href="https://github.com/pedroanisio/doc-ray/issues/8">Block D (#8){{ icons.icon('external-link', class_name='ico--sm') }}</a>.{% endset %}
 <section class="card">
   <h2>Lenses</h2>
-  <p class="lede">
-    Lenses name a scope for a future projection layer; they do not change search or
-    entity resolution today. Projection behavior belongs to
-    <a href="https://github.com/pedroanisio/doc-ray/issues/8">Block D (#8)</a>.
-  </p>
+  <p class="lede">{{ lens_note }}</p>
   <div class="collection-list">
     {% for lens in lenses %}
       <p><a href="{{ url_for('collection_detail', collection_id=lens.id) }}">{{ lens.name }}</a> <span class="pill">Lens</span> <span class="hint">{{ lens.documentCount }} docs</span></p>
@@ -43,29 +42,32 @@
         </div>
       </article>
     {% else %}
-      <div class="card">
-        <strong>No collections yet.</strong>
-        <span class="hint">Create a manual set or a smart rule to organize the corpus.</span>
-      </div>
+      {% set no_collections = 'A collection is either a manual reading set you curate by hand, or a smart rule that keeps matching new documents as they arrive.' %}
+      {{ ui.empty_state('No collections yet.', no_collections, icon_name='layers') }}
     {% endfor %}
   </section>
 
   <aside class="card collection-create">
-    <h2 style="margin-top:0">New collection</h2>
+    <h2 class="h2--flush">New collection</h2>
     <form method="post" action="{{ url_for('collections_create') }}">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-      <label>Name <input type="text" name="name" required></label>
-      <label>Description <input type="text" name="description"></label>
-      <label>Type
-        <select name="kind">
+      {{ ui.field('name', 'Name', required=True) }}
+      {{ ui.field('description', 'Description') }}
+      <div class="field">
+        <label for="f-kind">Type</label>
+        <select id="f-kind" name="kind">
           <option value="manual">manual</option>
           <option value="smart">smart</option>
         </select>
-      </label>
-      <label>Smart doc type <input type="text" name="doc_type" placeholder="pdf, docx, html"></label>
-      <label>Smart status <input type="text" name="status" placeholder="extracted"></label>
-      <label>Smart tags <input type="text" name="tags" placeholder="primary, review"></label>
-      <button type="submit">Create collection</button>
+        <p class="field__hint">A manual set holds exactly what you add. A smart
+          collection re-evaluates its rule, so its membership changes as the
+          corpus does.</p>
+      </div>
+      {{ ui.field('doc_type', 'Smart doc type', placeholder='pdf, docx, html') }}
+      {{ ui.field('status', 'Smart status', placeholder='extracted') }}
+      {{ ui.field('tags', 'Smart tags', placeholder='primary, review',
+                  hint='The three smart fields are ANDed; leave a field blank to ignore that axis.') }}
+      <button type="submit">{{ icons.icon('plus') }}Create collection</button>
     </form>
   </aside>
 </div>

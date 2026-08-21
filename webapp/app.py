@@ -13,7 +13,7 @@ or simply:
 
 This module is the webapp's core: Flask app construction, the per-request DB
 connection (``get_conn``/``q``/``q1``/``exec_sql``), rate limiting, and error
-handling. Route groups live in sibling modules (``auth_web``, ``corpus_web``,
+handling. Route groups live in sibling modules (``auth_web``, ``corpus_web``, ``upload_web``,
 ``document_web``, ``collections_web``, ``admin_web``) registered below (D-015);
 they resolve the helpers here through this module object at call time, so the
 test suite's monkeypatching of these attributes reaches every route.
@@ -52,6 +52,7 @@ try:
         review_web,
         search_web,
         sharing_web,
+        upload_web,
     )
     from webapp.auth_session import (
         AuthenticatedWebPrincipal as AuthenticatedWebPrincipal,
@@ -81,6 +82,7 @@ except ModuleNotFoundError:  # pragma: no cover - direct ``python webapp/app.py`
     import review_web
     import search_web
     import sharing_web
+    import upload_web
     from auth_session import (
         AuthenticatedWebPrincipal as AuthenticatedWebPrincipal,
     )
@@ -481,6 +483,7 @@ _SELF = sys.modules[__name__]
 overlay_web.bind(_SELF)
 auth_web.register(app, _SELF)
 corpus_web.register(app, _SELF)
+upload_web.register(app, _SELF)
 search_web.register(app, _SELF)
 briefing_web.register(app, _SELF)
 review_web.register(app, _SELF)

@@ -3,15 +3,14 @@
 {% block body %}
 <p class="kicker">Cited evidence</p>
 <h1>Build a <span class="accent">briefing pack</span></h1>
-<p class="lede" style="max-width:46rem">
+<p class="lede measure-lg">
   This is machine-composed evidence, not authored prose. It gathers checkable passages;
   you decide what they support and verify every citation before synthesis.
 </p>
 <form class="filters" method="post" action="{{ url_for('briefing') }}">
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
   <label for="briefing-topic">Topic</label>
-  <input id="briefing-topic" type="text" name="topic" value="{{ topic }}"
-         style="min-width:min(28rem,70vw)"
+  <input class="select--wider" id="briefing-topic" type="text" name="topic" value="{{ topic }}"
          placeholder="e.g. surveillance and language" autofocus>
   <button type="submit">Gather evidence</button>
 </form>
@@ -46,7 +45,7 @@
 <section aria-labelledby="passages-heading">
   <h2 id="passages-heading">Key passages</h2>
   {% for passage in pack.keyPassages %}
-    <article class="card" style="margin-bottom:1rem">
+    <article class="card mb-4">
       <p>{{ passage.text }}</p>
       {% if passage.matchedTerms %}<p>Matched: {% for term in passage.matchedTerms %}<span class="pill">{{ term }}</span> {% endfor %}</p>{% endif %}
       <a class="mono" href="{{ url_for('document', doc_id=passage.documentId) }}{% if passage.sentenceOrdinal is not none %}#s{{ passage.sentenceOrdinal }}{% endif %}">{{ passage.cite.ref }}</a>

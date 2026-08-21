@@ -5,7 +5,7 @@
 <h1><span class="accent">Search</span> the corpus</h1>
 <form class="filters" method="get">
   <label for="search-q">Passage</label>
-  <input id="search-q" type="text" name="q" value="{{ term }}" style="min-width:min(24rem,70vw)"
+  <input class="select--wide" id="search-q" type="text" name="q" value="{{ term }}"
          placeholder="e.g. the ministry of truth" autofocus>
   <fieldset class="seg" aria-label="Search mode">
     <label><input type="radio" name="mode" value="keyword"{% if mode == 'keyword' %} checked{% endif %}> Keyword</label>
@@ -17,23 +17,23 @@
 </form>
 
 {% if mode == 'image' %}
-<p class="lede" style="max-width:42rem">
+<p class="lede measure">
   Image mode ranks extracted images by their visual relationship to your text.
   Results are bounded to the top {{ image_cap }} images and show model similarity.
 </p>
 {% elif mode == 'semantic' %}
-<p class="lede" style="max-width:42rem">
+<p class="lede measure">
   Semantic mode ranks passages by meaning using the active sentence-embedding model.
   Results are bounded to the top {{ semantic_cap }} passages and show their similarity.
 </p>
 {% elif match == 'phrase' %}
-<p class="lede" style="max-width:42rem">
+<p class="lede measure">
   Whole-word phrase search verifies boundaries and adjacency under
   <span class="mono">surface_word_v1</span>. It reports every exact occurrence,
   so <span class="mono">ngram</span> does not match <span class="mono">Tangram</span>.
 </p>
 {% else %}
-<p class="lede" style="max-width:42rem">
+<p class="lede measure">
   Literal substring search across every sentence in the corpus, shown in
   keyword-in-context. It matches the characters you type, so
   <span class="mono">run</span> can match inside <span class="mono">running</span>
@@ -54,10 +54,10 @@
       {% for r in rows %}
         <tr>
           {% if result_mode == 'image' %}<td><a href="{{ url_for('document', doc_id=r.doc_id, view='images') }}#image-{{ r.image_id }}"><img src="{{ url_for('document_image', doc_id=r.doc_id, image_id=r.image_id, ext='webp', w=320) }}" alt="Image result from {{ r.title }}, page {{ r.page_number }}" width="160" loading="lazy"></a></td>{% endif %}
-          <td style="white-space:nowrap"><a class="mono" style="font-size:.78rem" href="{{ url_for('document', doc_id=r.doc_id, view='images') if result_mode == 'image' else url_for('document', doc_id=r.doc_id) }}#{{ 'image-' ~ r.image_id if result_mode == 'image' else 's' ~ r.ordinal }}">{{ r.title }}</a></td>
-          <td class="num" style="color:var(--ink-faint)">{{ r.page_number if result_mode == 'image' else r.ordinal }}</td>
+          <td class="nowrap"><a class="mono text-xs" href="{{ url_for('document', doc_id=r.doc_id, view='images') if result_mode == 'image' else url_for('document', doc_id=r.doc_id) }}#{{ 'image-' ~ r.image_id if result_mode == 'image' else 's' ~ r.ordinal }}">{{ r.title }}</a></td>
+          <td class="num text-faint">{{ r.page_number if result_mode == 'image' else r.ordinal }}</td>
           {% if result_mode in ['semantic', 'image'] %}<td><span class="pill" aria-label="Similarity {{ '%.1f'|format(r.similarity * 100) }} percent">{{ '%.1f'|format(r.similarity * 100) }}%</span></td>{% endif %}
-          <td style="font-size:1.05rem; line-height:1.7">{% if result_mode == 'image' %}<span class="pill">{{ r.image_class or 'unclassified' }}</span> {{ r.source }} · page {{ r.page_number }}{% elif result_mode == 'semantic' %}{{ r.text }}{% else %}{{ r.pre }}{% if r.hit %}<mark>{{ r.hit }}</mark>{% endif %}{{ r.post }}{% endif %}</td>
+          <td class="text-lg">{% if result_mode == 'image' %}<span class="pill">{{ r.image_class or 'unclassified' }}</span> {{ r.source }} · page {{ r.page_number }}{% elif result_mode == 'semantic' %}{{ r.text }}{% else %}{{ r.pre }}{% if r.hit %}<mark>{{ r.hit }}</mark>{% endif %}{{ r.post }}{% endif %}</td>
         </tr>
       {% else %}
         <tr>

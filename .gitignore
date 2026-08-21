@@ -57,3 +57,9 @@ docs/the-delegation-of-doubt.md
 .claude/settings.local.json
 # Scratch working area (probe output, downloaded corpora, archives) — never shipped.
 _work/
+# Third-party design/theme archives held for reference only. Commercially
+# licensed (ThemeForest et al.) and the licence terms are not in the archive, so
+# the bytes must never enter this repo's history. Nothing here ships: the theme
+# is read as a capability reference, and the UI is built on webapp/static/
+# design-system.css.
+vendors/

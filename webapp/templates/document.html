@@ -2,258 +2,10 @@
 {% set back_url = url_for('documents') %}
 {% set back_label = 'Corpus' %}
 {% import "_terms.html" as terms %}
+{% import "_icons.html" as icons %}
+{% import "_components.html" as ui %}
 {% block title %}{{ doc.title }} · doc·ray{% endblock %}
 {% block body %}
-<style>
-  /* This page reads wide: give the text room, park the stats in a rail. */
-  main { max-width:1320px; padding-top:var(--space-5); }
-  /* The header identifies the document; it is not a title page. Kept to one
-     compact strip so the text — the object of the page — starts high. */
-  .doc-head { margin-bottom:.8rem; }
-  .doc-head h1 { font-size:clamp(1.1rem,1.6vw,1.4rem); line-height:1.3; overflow-wrap:anywhere; }
-  .doc-head .kicker { margin:0 0 .35rem; }
-
-  .docgrid { display:grid; grid-template-columns:minmax(0,1fr) 16.5rem; gap:2.8rem;
-             align-items:start; }
-  @media (max-width:920px){ .docgrid { grid-template-columns:1fr; } }
-
-  aside.rail { position:sticky; top:5rem; display:grid; gap:1rem; }
-  aside.rail .card { margin:0; padding:1rem 1.1rem; }
-  .posrow { display:grid; grid-template-columns:3.6rem 1fr auto; align-items:center;
-            gap:.5rem; padding:.14rem 0; }
-  .posrow .lab { font-family:var(--mono); font-size:.68rem; color:var(--ink-soft); }
-  .posrow .num { font-size:.72rem; }
-
-  /* The control bar sticks under the masthead: in a 940-page document the
-     pager and the view switches have to stay reachable from anywhere in the
-     text, not only from its two ends. The legend scrolls away with the page —
-     it is a reference, not a control you reach for mid-paragraph. */
-  .reader-bar { position:sticky; top:60px; z-index:20;
-    display:flex; align-items:center; gap:.55rem .9rem; flex-wrap:wrap;
-    margin:0 0 .6rem; padding:.55rem 0;
-    background:var(--bg); border-bottom:2px solid var(--line); }
-  .reader-bar .pager { margin-top:0; }
-  .reader-pager { margin-left:auto; }
-  .legend { margin:0 0 1rem; }
-  /* Phone: wrapping the bar would pin ~150px of controls to an 844px screen.
-     Keep it one row that scrolls sideways, with the pager — the control that
-     is actually used while reading — first and always visible. */
-  @media (max-width:920px){
-    .reader-bar { flex-wrap:nowrap; overflow-x:auto; gap:.5rem; }
-    .reader-bar > * { flex:0 0 auto; }
-    .reader-pager { order:-2; margin-left:0; }
-    .spread-leaf { order:-1; }
-  }
-  /* Landing target for a page turn: clears the masthead and the sticky bar so
-     the first line of the new page is not hidden underneath them. */
-  .reader-anchor { display:block; scroll-margin-top:8rem; }
-  .seg { display:inline-flex; border:2px solid var(--line); border-radius:0; overflow:hidden; }
-  .seg a { font-family:var(--mono); font-size:.68rem; letter-spacing:.1em; text-transform:uppercase;
-    padding:.42rem .85rem; color:var(--ink-soft); }
-  .seg a:hover { text-decoration:none; color:var(--ink); }
-  .seg a.on { background:var(--accent); color:var(--accent-ink); }
-  #pos-focus { max-width:11rem; padding:.42rem .55rem; border:2px solid var(--line);
-    border-radius:0; background:var(--panel); color:var(--ink); font-family:var(--mono);
-    font-size:.68rem; text-transform:uppercase; }
-  .legend { display:flex; gap:.35rem; flex-wrap:wrap; }
-  .chip { font-family:var(--mono); font-size:.64rem; letter-spacing:.05em; cursor:pointer;
-    padding:.2rem .5rem; border:1px solid var(--line); border-radius:0; color:var(--ink-soft);
-    user-select:none; transition:.15s; }
-  .chip:hover { border-color:var(--c); color:var(--ink); }
-  .chip.muted { opacity:.38; text-decoration:line-through; }
-
-  /* THE TEXT — the primary object. The measure is capped for reading, not to
-     fill the column: past ~80 characters the eye loses the line it is
-     returning to. The 3rem ordinal gutter sits inside this width. */
-  .reader { max-width:78ch; font-family:var(--reading-sans); font-size:1.24rem; line-height:1.9;
-            font-optical-sizing:auto; }
-
-  /* --- reading options ------------------------------------------------- */
-  /* Type scale and face are the two settings that decide whether a given
-     reader can read comfortably at all; both are page-level classes so they
-     apply equally to the scrolling column and to the spread. */
-  .reader.r-size-compact { font-size:1.06rem; line-height:1.72; }
-  .reader.r-size-comfortable { font-size:1.24rem; line-height:1.9; }
-  .reader.r-size-large { font-size:1.46rem; line-height:1.95; }
-  .reader.r-face-sans { font-family:var(--reading-sans); }
-  .reader.r-face-serif { font-family:var(--reading-serif); letter-spacing:0; }
-
-  /* Spread: two pages side by side, sized to the viewport, turned rather than
-     scrolled. The CSS is applied only once the script has measured the
-     viewport (.spread-ready) — without JavaScript the reader stays a plain
-     scrolling column instead of a box that clips its own text.
-
-     "Fits without scrolling" only holds if nothing else on the page is taller
-     than the window, so the spread is a focus mode: the stats rail, the site
-     footer, and the header's cover/pills step aside for the duration. Scroll
-     layout brings them all back. */
-  .docgrid-spread { grid-template-columns:minmax(0,1fr); gap:0; }
-  .docgrid-spread aside.rail { display:none; }
-  body:has(.docgrid-spread) .site-footer { display:none; }
-  body:has(.docgrid-spread) main { padding-bottom:var(--space-4); }
-  .doc-head-slim { margin-bottom:.4rem; }
-  .doc-head-slim .doc-preview,
-  .doc-head-slim .doc-title-main > div,
-  .doc-head-slim .lede,
-  .doc-head-slim > details { display:none; }
-  .doc-head-slim h1 { font-size:1rem; white-space:nowrap; overflow:hidden;
-    text-overflow:ellipsis; }
-  .spread-window { position:relative; }
-  .spread-window.spread-ready { overflow:hidden; }
-  .spread-window.spread-ready .reader {
-    max-width:none; column-gap:var(--spread-gap,3rem); column-fill:auto;
-    transform:translateX(calc(-1 * var(--spread-offset, 0px)));
-    transition:transform .18s var(--ease-out);
-  }
-  /* A page of a book carries no sentence ordinals in its margin: the spread
-     drops the gutter and reads edge to edge. Scroll layout keeps them — that
-     is where the corpus is being inspected rather than read. */
-  .spread-window.spread-ready .ord { display:none; }
-  .spread-window.spread-ready .reader p,
-  .spread-window.spread-ready .reader-heading { padding-left:0; }
-  .spread-window.spread-ready .reader-list li { padding-left:1.2rem; }
-  .spread-window.spread-ready .reader-list li::before { left:.1rem; }
-  .spread-window.spread-ready .reader { line-height:1.62; }
-  .spread-window.spread-ready .reader p { margin:0 0 .9em; text-align:justify;
-    hyphens:auto; }
-  .spread-window.spread-ready .reader-heading { margin:1.1em 0 .5em; }
-  /* A column break mid-heading reads as two headings; keep blocks whole. */
-  .spread-window.spread-ready .reader-heading { break-inside:avoid; break-after:avoid; }
-  .spread-window.spread-ready .reader p { break-inside:auto; }
-  .spread-gutter { position:absolute; top:0; bottom:0; left:50%; width:1px;
-    background:var(--line); pointer-events:none; }
-  .spread-window:not(.spread-ready) .spread-gutter,
-  .spread-window.spread-single .spread-gutter { display:none; }
-  .spread-leaf { font-family:var(--mono); font-size:.68rem; color:var(--ink-faint);
-    letter-spacing:.06em; text-transform:uppercase; }
-  .reading-options { position:relative; }
-  .reading-options > summary { list-style:none; cursor:pointer; padding:.42rem .7rem;
-    border:2px solid var(--line); font-family:var(--mono); font-size:.68rem;
-    letter-spacing:.1em; text-transform:uppercase; color:var(--ink-soft); }
-  .reading-options > summary::-webkit-details-marker { display:none; }
-  .reading-options[open] > summary { border-color:var(--accent); color:var(--ink); }
-  .reading-panel { position:absolute; z-index:40; top:calc(100% + .4rem); left:0;
-    display:grid; gap:.55rem; min-width:19rem; padding:.8rem;
-    background:var(--panel); border:2px solid var(--line); box-shadow:var(--shadow-md); }
-  .reading-panel .row { display:flex; align-items:center; gap:.6rem; }
-  .reading-panel .row > .lab { flex:0 0 4.4rem; font-family:var(--mono); font-size:.64rem;
-    letter-spacing:.06em; text-transform:uppercase; color:var(--ink-faint); }
-  .reader p { margin:0 0 .5rem; position:relative; padding-left:3rem; }
-  .sentence-target { scroll-margin-top:8rem; }
-  .reader p:has(.sentence-target:target),
-  .reader-heading:has(.sentence-target:target),
-  .reader-list li:has(.sentence-target:target) {
-    outline:3px solid var(--accent); outline-offset:.3rem;
-    background:color-mix(in srgb, var(--accent) 10%, transparent); }
-  .reader p:hover .ord,
-  .reader-heading:hover .ord,
-  .reader-list li:hover .ord { color:var(--accent); }
-  .reader .ord { position:absolute; left:0; top:.62em; font-family:var(--mono); font-size:.58rem;
-    color:var(--ink-faint); font-variant-numeric:tabular-nums; }
-  /* Reader headings are book headings, not the admin section labels the global
-     h2/h3/h4 rules describe — reset the uppercase, the mono face, the rule
-     underneath and the faint colour those inherit. */
-  .reader-heading { position:relative; padding:0 0 0 3rem; margin:1.7rem 0 .7rem;
-    font-family:inherit; font-weight:600; line-height:1.25; color:var(--ink);
-    text-transform:none; letter-spacing:-0.01em; border-bottom:0; }
-  .reader-empty { padding:2rem 0; color:var(--ink-faint); font-size:.95rem; font-style:italic; }
-  .reader-heading.h1 { font-size:1.7rem; font-weight:600; margin-top:2.3rem; }
-  .reader-heading.h2 { font-size:1.45rem; font-weight:600; margin-top:1.5rem; }
-  .reader-heading.h3 { font-size:1.25rem; font-weight:600; color:var(--ink-soft);
-    margin-top:1.05rem; margin-bottom:.45rem; }
-  /* Two headings back to back read as a title + subtitle pair (common in
-     slide-style sources split by split_structural_blocks) — collapse the
-     gap between them rather than stacking each level's full lead-in space. */
-  .reader-heading + .reader-heading { margin-top:.3rem; }
-  .reader-heading .ord { top:.45em; }
-  .reader-list { margin:.15rem 0 .6rem 0; padding:0; list-style:none; }
-  .reader-list li { position:relative; padding-left:4.2rem; margin:.22rem 0; }
-  .reader-list li::before { content:""; position:absolute; left:3.05rem; top:.85em;
-    width:.36rem; height:.36rem; border-radius:0; background:var(--accent); }
-  /* Each bullet is its own <ul> (one per split block/sentence) so a run of
-     them reads as one continuous list rather than several stacked lists. */
-  .reader-list + .reader-list { margin-top:-.35rem; }
-  .reader-note { margin:0 0 1.2rem; padding:.85rem 1rem; border:1px solid var(--line);
-    border-left:3px solid var(--accent); background:var(--panel); color:var(--ink-soft);
-    font-family:var(--sans); font-size:.9rem; line-height:1.5; }
-  .w { color:inherit; text-decoration:none; border-bottom:2px solid var(--c);
-       padding-bottom:1px; position:relative; transition:background .12s; cursor:pointer; }
-  .w.p-NOUN { border-bottom-style:solid; }
-  .w.p-PROPN { border-bottom-style:solid; border-bottom-width:3px; }
-  .w.p-VERB { border-bottom-style:double; }
-  .w.p-ADJ { border-bottom-style:dashed; }
-  .w.p-ADV { border-bottom-style:dotted; }
-  .w.p-PRON { border-bottom-style:groove; }
-  .w.p-NUM { border-bottom-style:ridge; }
-  .w.p-DET,.w.p-ADP,.w.p-CCONJ,.w.p-SCONJ,.w.p-PART,.w.p-AUX,.w.p-PUNCT,.w.p-SYM,.w.p-X,.w.p-INTJ {
-    border-bottom-style:dotted;
-  }
-  .pos-sigil { display:inline-block; min-width:.9em; margin-right:.12em;
-    padding:0 .12em; border:1px solid currentColor; border-radius:0;
-    color:var(--ink-soft); background:var(--panel); font-family:var(--mono);
-    font-size:.48em; line-height:1.15; text-align:center; vertical-align:super; }
-  .w:hover { background:color-mix(in srgb, var(--c) 22%, transparent); border-radius:0; }
-  .w[data-t]:hover::after { content:attr(data-t); position:absolute; left:50%; bottom:calc(100% + 7px);
-    transform:translateX(-50%); white-space:nowrap; font-family:var(--mono); font-size:.62rem;
-    letter-spacing:.03em; background:var(--ink); color:var(--bg); padding:.28rem .55rem;
-    border-radius:0; z-index:30; pointer-events:none; box-shadow:none; }
-  .plain .w { border-bottom-color:transparent; }
-  .reader.off-NOUN .p-NOUN,.reader.off-PROPN .p-PROPN,.reader.off-VERB .p-VERB,
-  .reader.off-ADJ .p-ADJ,.reader.off-ADV .p-ADV,.reader.off-PRON .p-PRON,
-  .reader.off-NUM .p-NUM,.reader.off-FUNC .p-DET,.reader.off-FUNC .p-ADP,
-  .reader.off-FUNC .p-CCONJ,.reader.off-FUNC .p-SCONJ,.reader.off-FUNC .p-PART,
-  .reader.off-FUNC .p-AUX,.reader.off-FUNC .p-PUNCT,.reader.off-FUNC .p-SYM,.reader.off-FUNC .p-X
-    { border-bottom-color:transparent; }
-  .reader.solo-NOUN .w:not(.p-NOUN),.reader.solo-PROPN .w:not(.p-PROPN),
-  .reader.solo-VERB .w:not(.p-VERB),.reader.solo-ADJ .w:not(.p-ADJ),
-  .reader.solo-ADV .w:not(.p-ADV),.reader.solo-PRON .w:not(.p-PRON),
-  .reader.solo-NUM .w:not(.p-NUM),.reader.solo-DET .w:not(.p-DET),
-  .reader.solo-ADP .w:not(.p-ADP),.reader.solo-CCONJ .w:not(.p-CCONJ),
-  .reader.solo-SCONJ .w:not(.p-SCONJ),.reader.solo-PART .w:not(.p-PART),
-  .reader.solo-AUX .w:not(.p-AUX),.reader.solo-PUNCT .w:not(.p-PUNCT),
-  .reader.solo-SYM .w:not(.p-SYM),.reader.solo-X .w:not(.p-X),
-  .reader.solo-INTJ .w:not(.p-INTJ) {
-    opacity:.24; border-bottom-color:transparent; filter:saturate(.45);
-  }
-  .original-shell { max-width:980px; }
-  .original-overlay { position:relative; width:100%; background:var(--panel);
-    border:2px solid var(--line); box-shadow:none; }
-  .original-overlay img { display:block; width:100%; height:auto; }
-  /* Original view as a book: the rendered page image is sized to the window
-     height (via --fit-h set by the script) so a whole page fits without
-     scrolling, and the spread lays two facing pages side by side. Boxes are
-     percentage-positioned inside each page, so they scale with it for free. */
-  .original-shell.original-fit { max-width:none; display:flex; gap:var(--space-5);
-    justify-content:center; align-items:flex-start; }
-  .original-fit .original-overlay { width:auto; height:var(--fit-h,auto);
-    max-height:var(--fit-h,none); flex:0 1 auto; }
-  .original-fit .original-overlay img { width:auto; height:100%; max-height:var(--fit-h,none); }
-  @media (max-width:700px){ .original-fit { flex-direction:column; align-items:center; } }
-  .overlay-box { position:absolute; display:block; border:2px solid var(--c);
-    background:color-mix(in srgb, var(--c) 20%, transparent); border-radius:0;
-    box-sizing:border-box; transition:background .12s, box-shadow .12s; }
-  .overlay-box.p-NOUN { border-bottom-style:solid; }
-  .overlay-box.p-PROPN { border-bottom-width:3px; }
-  .overlay-box.p-VERB { border-style:double; }
-  .overlay-box.p-ADJ { border-style:dashed; }
-  .overlay-box.p-ADV { border-style:dotted; }
-  .entity-box { --c:var(--pos-propn); border-radius:0; }
-  .entity-box.e-PER,.entity-box.e-PERSON { --c:var(--pos-noun); }
-  .entity-box.e-ORG { --c:var(--pos-propn); border-style:double; }
-  .entity-box.e-GPE,.entity-box.e-LOC,.entity-box.e-PLACE { --c:var(--pos-adj); }
-  .entity-box.e-DATE,.entity-box.e-TIME { --c:var(--pos-num); border-style:dashed; }
-  .overlay-box:hover { background:color-mix(in srgb, var(--c) 34%, transparent);
-    box-shadow:inset 0 0 0 2px color-mix(in srgb, var(--c) 40%, transparent); }
-  .overlay-box[data-t]:hover::after { content:attr(data-t); position:absolute;
-    left:50%; bottom:calc(100% + 7px); transform:translateX(-50%);
-    white-space:nowrap; font-family:var(--mono); font-size:.62rem; letter-spacing:.03em;
-    background:var(--ink); color:var(--bg); padding:.28rem .55rem; border-radius:0;
-    z-index:30; pointer-events:none; box-shadow:none; }
-  .markup-original { max-width:760px; background:var(--panel); border:1px solid var(--line);
-    padding:1.4rem; box-shadow:none; }
-  .markup-original .w { color:inherit; text-decoration:none; border-bottom:2px solid var(--c); }
-  .markup-original .w:hover { background:color-mix(in srgb, var(--c) 22%, transparent); }
-</style>
 
 {# One pager definition drives both copies (control bar and end of page) so the
    two can never disagree about where "next" goes. Pager links land on #text:
@@ -317,12 +69,12 @@
            href="/doc/{{ doc.id }}/seeding">domain seeding &rarr;<span class="sr-only" role="tooltip">Domain seeding is the curation loop that approves exact knowledge-base identities.</span></a>
         <a class="pill" href="{{ url_for('document_download', doc_id=doc.id) }}">Download original</a>
         <a class="pill" href="{{ url_for('document_sharing', doc_id=doc.id) }}">Share</a>
-        {% if authors %}<span style="color:var(--ink-soft)">&nbsp; by {{ authors|join(", ") }}</span>{% endif %}
+        {% if authors %}<span class="text-soft">&nbsp; by {{ authors|join(", ") }}</span>{% endif %}
         {% for t in tags %}<span class="pill">{{ t }}</span>{% endfor %}
       </div>
     </div>
   </div>
-  {% if doc.description %}<p class="lede" style="margin-top:.6rem">{{ doc.description }}</p>{% endif %}
+  {% if doc.description %}<p class="lede mt-3">{{ doc.description }}</p>{% endif %}
   {# A 'failed' pill tells the reader to act; only the recorded error tells them
      what to do about it. Without this the remedy (usually OCR) was reachable
      from psql alone. #}
@@ -331,7 +83,7 @@
     <div class="errbox">
       <strong>Ingest failed.</strong>
       {% if doc.error %}{{ doc.error }}{% else %}No reason was recorded for this failure.{% endif %}
-      <div class="muted" style="margin-top:.35rem">
+      <div class="muted mt-2">
         The original file is stored and intact — only reading its text failed.
         Re-uploading the same file cannot help: it is recognised by content hash
         and this failure is reported again. Retry the extraction below to re-read
@@ -340,11 +92,11 @@
       </div>
       {% if retry %}
         {% if retry.active %}
-          <div class="muted" style="margin-top:.35rem">
+          <div class="muted mt-2">
             Retry extraction is {{ retry.active_status }}{% if retry.progress and retry.progress.stage %} — {{ retry.progress.stage }}{% endif %}. Reload to see the outcome.
           </div>
         {% else %}
-          <form method="post" action="{{ url_for('document_reprocess', doc_id=doc.id) }}" style="margin-top:.5rem">
+          <form class="mt-3" method="post" action="{{ url_for('document_reprocess', doc_id=doc.id) }}">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <input type="hidden" name="step" value="retry_extract">
             <button type="submit">Retry extraction</button>
@@ -371,20 +123,19 @@
   {% if reprocess_error %}
     <div class="errbox">Couldn't queue reprocess action: {{ reprocess_error }}</div>
   {% endif %}
-  <details style="margin-top:.6rem">
-    <summary class="kicker" style="cursor:pointer">Edit title, description, tags</summary>
+  <details class="mt-3">
+    <summary class="kicker summary--control">{{ icons.icon('pencil') }}Edit title, description, tags</summary>
     <form method="post" action="{{ url_for('document_metadata_update', doc_id=doc.id) }}"
-          class="filters" style="margin-top:.7rem; align-items:flex-start">
+          class="filters mt-3 row--top">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <label for="doc-meta-title">Title</label>
-      <input id="doc-meta-title" type="text" name="title" value="{{ doc.title }}"
-             style="min-width:16rem">
+      <input class="input--md" id="doc-meta-title" type="text" name="title" value="{{ doc.title }}">
       <label for="doc-meta-description">Description</label>
-      <input id="doc-meta-description" type="text" name="description"
-             value="{{ doc.description or '' }}" style="min-width:20rem">
+      <input class="input--lg" id="doc-meta-description" type="text" name="description"
+             value="{{ doc.description or '' }}">
       <label for="doc-meta-tags">Tags</label>
-      <input id="doc-meta-tags" type="text" name="tags" value="{{ tags|join(', ') }}"
-             placeholder="e.g. reviewed, source-a" style="min-width:14rem">
+      <input class="input--sm" id="doc-meta-tags" type="text" name="tags" value="{{ tags|join(', ') }}"
+             placeholder="e.g. reviewed, source-a">
       <button type="submit">Save</button>
     </form>
   </details>
@@ -430,7 +181,7 @@
               <a href="{{ reader_url(face='serif') }}" class="{{ 'on' if face == 'serif' }}">Serif</a>
             </div>
           </div>
-          <p class="hint" style="margin:0">
+          <p class="hint m-0">
             Spread lays the text out as two facing pages sized to the window —
             turn them with ← and →; nothing scrolls.
           </p>
@@ -463,7 +214,7 @@
     {% if images_view %}
       <section class="visual-gallery" aria-label="Document images">
         <div class="card">
-          <h2>Visual coverage</h2>
+          <h2>{{ icons.icon('image') }}Visual coverage</h2>
           {% if visual_gallery.coverage_state == 'unknown' %}
             <div class="errbox">Visual coverage is unknown: {{ visual_gallery.error }}</div>
           {% elif visual_gallery.coverage_state == 'no_images' %}
@@ -530,7 +281,7 @@
                 {% if step.active %}
                   <div class="reader-note">{{ step.label }} is {{ step.active_status }}.</div>
                 {% else %}
-                  <form method="post" action="{{ url_for('document_reprocess', doc_id=doc.id) }}" class="filters" style="margin-top:.8rem">
+                  <form method="post" action="{{ url_for('document_reprocess', doc_id=doc.id) }}" class="filters mt-3">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <input type="hidden" name="step" value="reextract">
                     <button type="submit">Re-extract</button>
@@ -592,35 +343,35 @@
   <!-- SIDE PANEL: stats, visible while reading -->
   <aside class="rail">
     <div class="card">
-      <h2 style="margin-top:0">Parts of speech · {{ "{:,}".format(n_sent) }} sent.</h2>
+      <h2 class="mt-0">Parts of speech · {{ "{:,}".format(n_sent) }} sent.</h2>
       {% set maxn = (pos|map(attribute='n')|max) if pos else 1 %}
       {% for p in pos %}
         <div class="posrow p-{{ p.pos }}">
           <a class="lab tip" href="{{ url_for('lexemes', pos=p.pos) }}" tabindex="0"
              aria-label="{{ p.pos }}: {{ terms.pos_defs.get(p.pos, p.pos) }}"
              data-tip="{{ terms.pos_defs.get(p.pos, p.pos) }}"><span class="swatch"></span>{{ p.pos }}<span class="sr-only" role="tooltip">{{ terms.pos_defs.get(p.pos, p.pos) }}</span></a>
-          <div class="bar" style="width:{{ (100*p.n/maxn)|round(0,'floor') }}%; background:var(--c); opacity:.8"></div>
+          {{ ui.meter(p.n, maxn, p.pos ~ ' occurrences, against the most frequent tag', class_name='meter--pos', show_value=False) }}
           <span class="num">{{ "{:,}".format(p.n) }}</span>
         </div>
       {% endfor %}
     </div>
     <div class="card">
-      <h2 style="margin-top:0">Most-used verbs</h2>
-      <div style="line-height:2.1">
+      <h2 class="mt-0">Most-used verbs</h2>
+      <div class="line-loose">
       {% for v in top_verbs %}
-        <a class="pill" style="color:var(--pos-verb)" href="{{ url_for('lexeme', uid=v.uid) }}">{{ v.lemma }} <span class="num" style="color:var(--ink-faint)">{{ v.n }}</span></a>
+        <a class="pill pill--verb" href="{{ url_for('lexeme', uid=v.uid) }}">{{ v.lemma }} <span class="num text-faint">{{ v.n }}</span></a>
       {% else %}<span class="lede">—</span>{% endfor %}
       </div>
     </div>
     {% if visual %}
     <div class="card">
       {% set vtotal = visual|sum(attribute='n') %}
-      <h2 style="margin-top:0">Visual · {{ "{:,}".format(vtotal) }} image{{ "" if vtotal == 1 else "s" }}</h2>
+      <h2 class="mt-0">Visual · {{ "{:,}".format(vtotal) }} image{{ "" if vtotal == 1 else "s" }}</h2>
       {% set vmax = (visual|map(attribute='n')|max) if visual else 1 %}
       {% for c in visual %}
         <div class="posrow">
           <span class="lab">{{ c.image_class }}</span>
-          <div class="bar" style="width:{{ (100*c.n/vmax)|round(0,'floor') }}%; background:var(--accent); opacity:.7"></div>
+          {{ ui.meter(c.n, vmax, c.image_class ~ ' images, against the largest class', class_name='meter--visual', show_value=False) }}
           <span class="num">{{ "{:,}".format(c.n) }}</span>
         </div>
       {% endfor %}
@@ -628,7 +379,7 @@
     {% endif %}
     {% if manual_collections %}
     <div class="card">
-      <h2 style="margin-top:0">Add to collection</h2>
+      <h2 class="mt-0">Add to collection</h2>
       <div class="collection-add-list">
         {% for c in manual_collections %}
           <form method="post" action="{{ url_for('collection_document_update', collection_id=c.id, doc_id=doc.id) }}">
@@ -642,7 +393,7 @@
     </div>
     {% endif %}
     <div class="card">
-      <h2 style="margin-top:0">Default lens</h2>
+      <h2 class="mt-0">Default lens</h2>
       <p class="hint">Lenses name a future projection scope; they do not change search or entity resolution today. See <a href="https://github.com/pedroanisio/doc-ray/issues/8">Block D (#8)</a>.</p>
       {% if lens_notice %}<div class="notice">{{ lens_notice }}</div>{% endif %}
       {% if lens_error %}<div class="errbox">{{ lens_error }}</div>{% endif %}
@@ -659,43 +410,43 @@
     </div>
     {% if metadata_history %}
     <div class="card">
-      <h2 style="margin-top:0">Edit history</h2>
-      <div style="display:grid; gap:.55rem">
+      <h2 class="mt-0">Edit history</h2>
+      <div class="stack--sm">
         {% for h in metadata_history %}
-          <div style="font-size:.82rem; line-height:1.45">
-            <span class="mono" style="color:var(--ink-faint)">{{ h.changed_at.strftime('%Y-%m-%d %H:%M') }}</span>
+          <div class="text-sm">
+            <span class="mono text-faint">{{ h.changed_at.strftime('%Y-%m-%d %H:%M') }}</span>
             &nbsp;changed <b>{{ h.field }}</b>{% if h.actor %} by {{ h.actor }}{% endif %}<br>
-            <span style="color:var(--ink-faint)">{{ h.old_value or '—' }}</span> &rarr; {{ h.new_value or '—' }}
+            <span class="text-faint">{{ h.old_value or '—' }}</span> &rarr; {{ h.new_value or '—' }}
           </div>
         {% endfor %}
       </div>
     </div>
     {% endif %}
     <div class="card">
-      <h2 style="margin-top:0">Reprocess pipeline</h2>
-      <div style="display:grid; gap:.75rem">
+      <h2 class="mt-0">Reprocess pipeline</h2>
+      <div class="stack--md">
         {% for step in reprocess_steps %}
           {% if step.available %}
-            <div style="font-size:.86rem; line-height:1.45">
+            <div class="text-sm">
               <div><b>{{ step.label }}</b></div>
-              <div style="color:var(--ink-faint)">{{ step.description }}</div>
+              <div class="text-faint">{{ step.description }}</div>
               {% if step.active %}
                 <span class="pill">{{ step.label }} is {{ step.active_status }}</span>
                 {% if step.progress %}
                   {% if step.progress.current is defined and step.progress.total is defined %}
-                    <div style="display:flex; align-items:center; gap:.5rem; margin-top:.35rem">
+                    <div class="row mt-2">
                       <progress class="job-progress" value="{{ step.progress.current }}" max="{{ step.progress.total }}">{{ step.progress.label }}</progress>
                       <span class="mono">{{ step.progress.label }}</span>
                       {% if step.progress.elapsed_label %}
-                        <span class="mono" style="color:var(--ink-faint)">running {{ step.progress.elapsed_label }}</span>
+                        <span class="mono text-faint">running {{ step.progress.elapsed_label }}</span>
                       {% endif %}
                     </div>
                   {% endif %}
                   {% if step.progress.stage %}
-                    <div style="color:var(--ink-faint); margin-top:.2rem">{{ step.progress.stage }}</div>
+                    <div class="text-faint mt-1">{{ step.progress.stage }}</div>
                   {% endif %}
                   {% if step.progress.heartbeat_uncertain %}
-                    <div class="errbox" style="margin-top:.35rem">
+                    <div class="errbox mt-2">
                       This step's worker hasn't reported in a while — it may have been
                       interrupted by a restart. If progress does not change soon, it will
                       be retried automatically; you don't need to do anything yet.
@@ -704,13 +455,13 @@
                 {% endif %}
               {% else %}
                 {% if step.outcome %}
-                  <div class="errbox" style="margin-top:.35rem">
+                  <div class="errbox mt-2">
                     <div><b>{{ step.outcome.summary }}</b>{% if step.attempts and step.max_attempts %} ({{ step.attempts }}/{{ step.max_attempts }} attempts used){% endif %}</div>
-                    {% if step.outcome.detail %}<div style="margin-top:.2rem">{{ step.outcome.detail }}</div>{% endif %}
-                    {% if step.outcome.action %}<div style="color:var(--ink-faint); margin-top:.2rem">{{ step.outcome.action }}</div>{% endif %}
+                    {% if step.outcome.detail %}<div class="mt-1">{{ step.outcome.detail }}</div>{% endif %}
+                    {% if step.outcome.action %}<div class="text-faint mt-1">{{ step.outcome.action }}</div>{% endif %}
                   </div>
                 {% endif %}
-                <form method="post" action="{{ url_for('document_reprocess', doc_id=doc.id) }}" style="margin-top:.35rem">
+                <form class="mt-2" method="post" action="{{ url_for('document_reprocess', doc_id=doc.id) }}">
                   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                   <input type="hidden" name="step" value="{{ step.step }}">
                   <button type="submit">{{ "Retry " + step.label if step.outcome else step.label }}</button>
@@ -722,22 +473,22 @@
       </div>
     </div>
     <div class="card">
-      <h2 style="margin-top:0">Metadata suggestions</h2>
-      <form method="post" action="{{ url_for('document_metadata_suggestions_request', doc_id=doc.id) }}" style="margin-bottom:.8rem">
+      <h2 class="mt-0">Metadata suggestions</h2>
+      <form class="mb-3" method="post" action="{{ url_for('document_metadata_suggestions_request', doc_id=doc.id) }}">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <button type="submit">Suggest</button>
       </form>
-      <div style="display:grid; gap:.65rem">
+      <div class="stack--sm">
         {% for s in metadata_suggestions %}
-          <div style="font-size:.86rem; line-height:1.45">
+          <div class="text-sm">
             <div>
               <b>{{ s.field }}</b>
               <span class="pill">{{ s.confidence_label }}</span>
-              <span class="mono" style="color:var(--ink-faint)">{{ "%.0f"|format((s.confidence or 0) * 100) }}%</span>
+              <span class="mono text-faint">{{ "%.0f"|format((s.confidence or 0) * 100) }}%</span>
             </div>
             <div>{{ s.suggested_value }}</div>
-            <div style="color:var(--ink-faint)">{{ s.reason }}</div>
-            <div class="mono" style="color:var(--ink-faint)">{{ s.status }} · {{ s.source }}</div>
+            <div class="text-faint">{{ s.reason }}</div>
+            <div class="mono text-faint">{{ s.status }} · {{ s.source }}</div>
           </div>
         {% else %}
           <span class="lede">No pending suggestions.</span>
@@ -746,13 +497,6 @@
     </div>
   </aside>
 </div>
-<style>
-  .visual-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(16rem,1fr)); gap:1rem; }
-  .visual-tile { margin:0; scroll-margin-top:8rem; }
-  .visual-tile:target { outline:3px solid var(--accent); outline-offset:.25rem; }
-  .visual-tile img { display:block; width:100%; height:auto; max-height:22rem; object-fit:contain; background:var(--panel); }
-  .visual-tile figcaption { margin-top:.7rem; color:var(--ink-soft); }
-</style>
 {% endblock %}
 
 {# Declared outside `body`: a block nested inside another renders in both

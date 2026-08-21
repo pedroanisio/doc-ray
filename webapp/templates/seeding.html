@@ -3,25 +3,8 @@
 {% set back_label = doc.title or 'Document' %}
 {% import "_terms.html" as terms %}
 {% block title %}Domain seeding · {{ doc.title }} · doc·ray{% endblock %}
+{% block main_class %} class="page--wide"{% endblock %}
 {% block body %}
-<style>
-  main { max-width:1200px; }
-  .seedhead { display:flex; align-items:baseline; gap:1rem; flex-wrap:wrap; margin-bottom:.4rem; }
-  .seedhead .counts { font-family:var(--mono); font-size:.7rem; color:var(--ink-soft); }
-  .actions { display:flex; gap:.6rem; flex-wrap:wrap; margin:1rem 0; }
-  table.seed { width:100%; border-collapse:collapse; font-size:.86rem; }
-  td.term { font-family:var(--mono); font-size:.8rem; white-space:nowrap; }
-  td.n { font-variant-numeric:tabular-nums; text-align:right; }
-  .src, .etype { font-family:var(--mono); font-size:.62rem; letter-spacing:.06em;
-    padding:.12rem .45rem; border:1px solid var(--line); border-radius:0;
-    color:var(--ink-soft); white-space:nowrap; }
-  td.desc { color:var(--ink-soft); max-width:34rem; }
-  td.desc .lbl { color:var(--ink); font-weight:600; }
-  .noqid { color:var(--ink-faint); font-style:italic; }
-  .workflow { margin:.8rem 0 1rem; padding:.75rem .9rem; border:1px solid var(--line);
-    border-radius:0; background:var(--panel); color:var(--ink-soft); }
-  .workflow b { color:var(--ink); }
-</style>
 
 <div class="seedhead">
   <h1>Domain seeding</h1>
@@ -30,7 +13,7 @@
 </div>
 <p class="noqid"><a href="{{ url_for('help_page') }}#domain-seeding">Domain seeding guide</a></p>
 <p><a href="/doc/{{ doc.id }}">&larr; {{ doc.title }}</a></p>
-<p class="lede" style="max-width:45rem">
+<p class="lede measure-lg">
   Domain seeding is the curation loop for approving exact knowledge-base
   identities before they enter the shared canonical registry.
 </p>

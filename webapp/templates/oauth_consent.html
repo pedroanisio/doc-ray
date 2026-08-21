@@ -7,7 +7,7 @@
 </section>
 
 <section class="auth-panel">
-  <p class="lede" style="margin-top:0">
+  <p class="lede mt-0">
     <b>{{ req.client_name or "An application" }}</b> wants to connect to your doc·ray corpus.
   </p>
   {# The grant is bounded to the signed-in user's RBAC (`scopes`), not to what the
@@ -18,8 +18,8 @@
   <dl class="kv">
     <dt>Signed in as</dt><dd>{{ subject }}</dd>
     <dt>Access</dt>
-    <dd>{% for s in scopes %}<span class="pill">{{ s }}</span> {% endfor %}<span class="hint" style="margin:0">{{ "read and write" if writable else "read-only" }}</span></dd>
-    <dt>Returns to</dt><dd class="mono" style="overflow-wrap:anywhere; font-size:.78rem">{{ req.redirect_uri }}</dd>
+    <dd>{% for s in scopes %}<span class="pill">{{ s }}</span> {% endfor %}<span class="hint m-0">{{ "read and write" if writable else "read-only" }}</span></dd>
+    <dt>Returns to</dt><dd class="mono break-anywhere text-xs">{{ req.redirect_uri }}</dd>
   </dl>
   <p class="hint">
     {% if writable %}
@@ -41,7 +41,7 @@
     {% for key, value in passthrough.items() %}
       <input type="hidden" name="{{ key }}" value="{{ value }}">
     {% endfor %}
-    <div style="display:flex; gap:.6rem; margin-top:.3rem">
+    <div class="row row--gap mt-1">
       <button type="submit" name="decision" value="approve">Approve</button>
       <button type="submit" name="decision" value="deny" class="btn-ghost">Deny</button>
     </div>

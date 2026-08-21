@@ -1297,6 +1297,1135 @@ a.is-loading, button.is-loading, input.is-loading[type="submit"] { opacity: .72;
 .bottom-nav__t { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
 .bottom-nav__back { color: var(--ink); }
 
+/* ── Icons ─────────────────────────────────────────────────────────────────
+   The sprite host is display:none; a <symbol> inside it still renders wherever
+   it is referenced, so the definitions cost no layout. Icons size in `em` so an
+   icon always matches the text it labels — one rule instead of a size per
+   context — and take their colour from `currentColor`, which is why the sprite
+   is inlined rather than fetched (see templates/_icons.html).
+
+   The baseline nudge is deliberate: an inline SVG box sits on the text baseline,
+   which leaves the drawn glyph optically high next to lowercase text. */
+.icon-sprite { display: none; }
+.ico {
+  width: 1.15em;
+  height: 1.15em;
+  flex: 0 0 auto;
+  vertical-align: -0.19em;
+  stroke: currentColor;
+}
+.ico--sm { width: 1em; height: 1em; vertical-align: -0.15em; }
+.ico--lg { width: 1.45em; height: 1.45em; vertical-align: -0.28em; }
+.ico--xl { width: 2.1em; height: 2.1em; vertical-align: -0.4em; }
+/* An icon paired with a word needs the word's own spacing, not a margin: every
+   control that carries one is already a flex box, so set the gap there. */
+header nav a, .bottom-nav a, .bottom-nav__more, .view-switch__btn,
+.th-sort, .empty-state .btn, .pager a { gap: .42rem; }
+.view-switch__btn, .th-sort { display: inline-flex; align-items: center; }
+
+/* ── Empty states ──────────────────────────────────────────────────────────
+   The moment a list has no rows is the moment the user is definitely looking at
+   it, so the surface names what is missing and offers the action that creates
+   it rather than reporting absence and stopping. */
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+  padding: var(--space-7) var(--space-5);
+  text-align: center;
+}
+.empty-state__mark {
+  display: grid;
+  place-items: center;
+  width: 3.4rem;
+  height: 3.4rem;
+  margin-bottom: var(--space-1);
+  background: var(--bg2);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--ink-faint);
+  font-size: 1rem;
+}
+.empty-state__title {
+  color: var(--ink);
+  font-family: var(--display);
+  font-size: 1.05rem;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+}
+.empty-state__body { max-width: 34rem; color: var(--ink-faint); font-size: .88rem; }
+.empty-state .btn { margin-top: var(--space-3); }
+
+/* ── Form fields ───────────────────────────────────────────────────────────
+   Label, control, and note as one block. The note is wired to the control with
+   aria-describedby in the macro, so it is read out with the field instead of
+   being loose text near it. */
+.field { display: grid; gap: .34rem; margin: 0 0 var(--space-4); }
+.field > label {
+  color: var(--ink-faint);
+  font-family: var(--mono);
+  font-size: .66rem;
+  font-weight: 600;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+}
+.field input, .field select, .field textarea { width: 100%; }
+.field__hint, .field__error { margin: 0; font-size: .82rem; line-height: 1.45; }
+.field__hint { color: var(--ink-faint); }
+.field__error { color: var(--danger); font-weight: 500; }
+.field--invalid input, .field--invalid select, .field--invalid textarea { border-color: var(--danger); }
+/* A tick box whose label is a sentence: the label reads inline, in body voice,
+   not as an uppercase mono field name. */
+.field--check {
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  gap: .1rem .6rem;
+}
+.field--check > input { margin-top: .28rem; }
+.field--check > label {
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: .92rem;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+}
+.field__hint--check { grid-column: 2; }
+.field--narrow input { width: 6rem; text-transform: uppercase; }
+
+/* ── Sortable column headers ───────────────────────────────────────────────
+   The header is the control. `aria-sort` on the <th> carries the current state
+   for assistive technology — the arrow alone says nothing to a screen reader —
+   and the arrow's own accessible name repeats it for anyone who lands on the
+   link itself. The inactive glyph is faint until hover so a wide table does not
+   read as a row of arrows. */
+.th-sort {
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  text-decoration: none;
+  text-transform: inherit;
+}
+.th-sort .ico { opacity: 0; transition: opacity var(--dur-2) var(--ease-out); }
+.th-sort:hover { color: var(--accent); text-decoration: none; }
+.th-sort:hover .ico, .th-sort:focus-visible .ico { opacity: .75; }
+.th-sort--on { color: var(--accent); }
+.th-sort--on .ico { opacity: 1; }
+th[aria-sort="ascending"], th[aria-sort="descending"] { background: var(--accent-wash); }
+/* Numeric columns sort from the right edge, where their digits are. */
+th.num .th-sort { justify-content: flex-end; }
+
+/* ── Client-side row filter ────────────────────────────────────────────────
+   Narrows the rows already on screen. It is explicitly NOT a search: it can
+   only see one page of a paginated corpus, so the count beside it says how many
+   of the loaded rows matched rather than implying a corpus-wide total. */
+.table-filter { position: relative; display: inline-flex; align-items: center; }
+.table-filter .ico {
+  position: absolute;
+  left: .6rem;
+  color: var(--ink-faint);
+  pointer-events: none;
+}
+.table-filter input { padding-left: 2.1rem; min-width: 13rem; }
+.table-filter__count {
+  margin-left: .5rem;
+  color: var(--ink-faint);
+  font-family: var(--mono);
+  font-size: .7rem;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+[hidden] { display: none !important; }
+
+/* ── Proportion meter ──────────────────────────────────────────────────────
+   Drawn as SVG with the numbers in the accessible name, so the figure survives
+   being read rather than seen. Used only where a real denominator exists: a bar
+   asserts "this much out of that much", and inventing the denominator to get a
+   bar is the one way this component can lie. */
+.meter { display: inline-flex; align-items: center; gap: .5rem; min-width: 7rem; }
+.meter svg { width: 100%; height: 6px; min-width: 4rem; overflow: visible; }
+.meter__track { fill: var(--line-soft); }
+.meter__fill { fill: var(--accent); }
+.meter__val {
+  color: var(--ink-faint);
+  font-family: var(--mono);
+  font-size: .7rem;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.meter--ok .meter__fill { fill: var(--ok); }
+.meter--warn .meter__fill { fill: var(--warn); }
+.meter--danger .meter__fill { fill: var(--danger); }
+
+/* ── Toasts ────────────────────────────────────────────────────────────────
+   Transient confirmation for an action whose result is not visible on screen.
+   Deliberately not a replacement for `.notice`/`.errbox`: anything the user
+   must be able to re-read, act on, or copy stays in the page. A toast is for
+   "that worked", and it announces through a live region so the confirmation is
+   not sight-only.
+
+   Bottom-right on a mouse; on touch it clears the thumb bar (see the
+   coarse-pointer layer). */
+.toast-region {
+  position: fixed;
+  right: clamp(.6rem, 2vw, 1.4rem);
+  bottom: clamp(.6rem, 2vw, 1.4rem);
+  z-index: 70;
+  display: flex;
+  flex-direction: column;
+  gap: .5rem;
+  width: min(24rem, calc(100vw - 1.6rem));
+  pointer-events: none;
+}
+.toast {
+  display: flex;
+  align-items: flex-start;
+  gap: .55rem;
+  padding: .7rem .85rem;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--info);
+  border-radius: var(--r-sm);
+  box-shadow: var(--shadow-md);
+  color: var(--ink);
+  font-size: .88rem;
+  font-weight: 500;
+  pointer-events: auto;
+  animation: docray-toast-in var(--dur-3) var(--ease-spring) both;
+}
+.toast--ok { border-left-color: var(--ok); }
+.toast--ok .ico { color: var(--ok); }
+.toast--error { border-left-color: var(--danger); }
+.toast--error .ico { color: var(--danger); }
+.toast__text { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
+.toast__close {
+  flex: 0 0 auto;
+  min-height: 0;
+  padding: .1rem;
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+  color: var(--ink-faint);
+}
+.toast__close:hover { background: var(--bg2); border-color: transparent; color: var(--ink); transform: none; }
+.toast--leaving { animation: docray-toast-out var(--dur-2) var(--ease-out) both; }
+@keyframes docray-toast-in {
+  from { opacity: 0; transform: translateY(10px) scale(.98); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes docray-toast-out {
+  to { opacity: 0; transform: translateY(6px); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .toast, .toast--leaving { animation: none; }
+}
+
+/* ── Upload dropzone ───────────────────────────────────────────────────────
+   The file input stays the control; the zone is a larger target layered over
+   it. That ordering matters: drag-and-drop is an enhancement, so with JS off
+   the same input still picks a file and the same form still posts. The dashed
+   border is the only affordance that reads as "drop here" without a label. */
+.dropzone {
+  position: relative;
+  display: grid;
+  place-items: center;
+  gap: var(--space-2);
+  padding: var(--space-6) var(--space-5);
+  background: var(--bg2);
+  border: 2px dashed var(--line);
+  border-radius: var(--r);
+  text-align: center;
+  transition: background-color var(--dur-2) var(--ease-out), border-color var(--dur-2) var(--ease-out);
+}
+.dropzone__mark { color: var(--ink-faint); }
+.dropzone__lead { color: var(--ink); font-weight: 600; }
+.dropzone__note { margin: 0; color: var(--ink-faint); font-size: .8rem; }
+.dropzone input[type=file] {
+  /* Covers the zone so the whole area is the picker, while remaining a real
+     focusable input for the keyboard. */
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  opacity: 0;
+  border: 0;
+  box-shadow: none;
+  cursor: pointer;
+}
+.dropzone:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--ring); }
+.dropzone[data-drag="over"] { background: var(--accent-wash); border-color: var(--accent); }
+.dropzone[data-drag="over"] .dropzone__mark { color: var(--accent); }
+
+.upload-queue { display: grid; gap: .5rem; margin: var(--space-4) 0 0; padding: 0; list-style: none; }
+.upload-item {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: .3rem .6rem;
+  padding: .55rem .7rem;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+}
+.upload-item__name {
+  min-width: 0;
+  overflow: hidden;
+  font-size: .88rem;
+  font-weight: 550;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.upload-item__size, .upload-item__state {
+  color: var(--ink-faint);
+  font-family: var(--mono);
+  font-size: .68rem;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.upload-item__state--failed { color: var(--danger); }
+.upload-item__state--done { color: var(--ok); }
+.upload-item progress {
+  grid-column: 1 / -1;
+  width: 100%;
+  height: 5px;
+  appearance: none;
+  border: 0;
+  border-radius: 999px;
+  background: var(--line-soft);
+  color: var(--accent);
+}
+.upload-item progress::-webkit-progress-bar { background: var(--line-soft); border-radius: 999px; }
+.upload-item progress::-webkit-progress-value { background: var(--accent); border-radius: 999px; }
+.upload-item progress::-moz-progress-bar { background: var(--accent); border-radius: 999px; }
+.upload-item__drop {
+  min-height: 0;
+  padding: .2rem;
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+  color: var(--ink-faint);
+}
+.upload-item__drop:hover { background: var(--bg2); border-color: transparent; color: var(--danger); transform: none; }
+
+/* ── Combobox ──────────────────────────────────────────────────────────────
+   Type-to-narrow over a list that is already in the page. It is built on the
+   ARIA combobox pattern rather than a styled <select> because the useful part
+   is filtering, and a native select cannot filter: the input owns
+   aria-expanded/aria-activedescendant, the list is a real listbox of options,
+   and Up/Down/Enter/Escape/Home/End work from the keyboard alone.
+
+   Progressive enhancement, again: the markup it enhances is a plain list of
+   forms, which works untouched with JS off. */
+.combobox { position: relative; display: grid; gap: .34rem; }
+.combobox input { width: 100%; }
+.combobox__list {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  z-index: 40;
+  max-height: 17rem;
+  margin: .3rem 0 0;
+  padding: .25rem;
+  overflow-y: auto;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  box-shadow: var(--shadow-md);
+  list-style: none;
+}
+.combobox__list[hidden] { display: none; }
+.combobox__opt {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+  padding: .42rem .5rem;
+  border-radius: var(--r-sm);
+  color: var(--ink);
+  cursor: pointer;
+  font-size: .88rem;
+}
+.combobox__opt:hover, .combobox__opt[aria-selected="true"] { background: var(--accent-wash); color: var(--accent); }
+.combobox__opt-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.combobox__empty { padding: .5rem; color: var(--ink-faint); font-size: .84rem; }
+/* Static fallback: without JS the options are a plain scrolling list in flow,
+   so the same markup still lists every candidate. */
+.combobox__list--static {
+  position: static;
+  max-height: 20rem;
+  box-shadow: none;
+}
+
+/* ── Layout utilities ──────────────────────────────────────────────────────
+   The small set of one-decision classes that replaced the inline `style=`
+   attributes scattered across the templates. They exist so that eliminating
+   inline style did not mean inventing a component for every one-off measure —
+   and so the CSP can forbid inline style outright (webapp/security_headers.py).
+
+   This is deliberately not a utility framework. A class earns a place here only
+   when the same single decision recurs; anything with more than one declaration
+   belongs in a component above. */
+/* Page measures. A short scale, not a per-page value: four widths cover every
+   screen here, and a fifth would only be a rounding difference nobody can see. */
+.page--narrow { max-width: 660px; }
+.page--reading { max-width: 900px; }
+.page--roomy { max-width: 980px; }
+.page--wide { max-width: 1200px; }
+.lede--measure { max-width: 42rem; }
+.lede--tight { max-width: 38rem; }
+.lede--spaced { margin-top: .6rem; }
+.h2--flush { margin-top: 0; }
+.stack-note { margin-top: .35rem; }
+.stack-pull { margin-top: -.5rem; }
+.td--flush { padding: 0; }
+.cell--sm { font-size: .82rem; }
+.form--inline { margin: 0; }
+
+/* Colour roles. These name the *role*, not the hue, so a template never repeats
+   a token reference and a ramp change lands in one place. */
+.text-danger { color: var(--danger); }
+.text-faint { color: var(--ink-faint); }
+.text-soft { color: var(--ink-soft); }
+/* Inherits the part-of-speech hue that a `.p-XXX` class put on `--c`, so POS
+   colour stays in one place (the POS ramp) rather than being restated. */
+.text-pos { color: var(--c); }
+.pill--pos { color: var(--c); border-color: var(--c); }
+.pill--verb { color: var(--pos-verb); }
+.lex-head { color: var(--c); border-bottom: 2px solid var(--c); }
+
+/* Text sizes used by the dense operator/reader panels. */
+.text-sm { font-size: .86rem; line-height: 1.45; }
+.text-xs { font-size: .78rem; }
+.text-lg { font-size: 1.05rem; line-height: 1.7; }
+.line-loose { line-height: 2.1; }
+
+/* Margins, on the 4px scale rather than the ad-hoc rem values these replaced. */
+.m-0 { margin: 0; }
+.mt-0 { margin-top: 0; }
+.mt-1 { margin-top: var(--space-1); }
+.mt-2 { margin-top: var(--space-2); }
+.mt-3 { margin-top: var(--space-3); }
+.mt-4 { margin-top: var(--space-4); }
+.mb-3 { margin-bottom: var(--space-3); }
+.mb-4 { margin-bottom: var(--space-4); }
+
+/* Measures for body copy. Three widths, not seven near-identical ones. */
+.measure-sm { max-width: 38rem; }
+.measure { max-width: 42rem; }
+.measure-lg { max-width: 46rem; }
+
+/* Stacks and rows — the two arrangements that recurred often enough to name. */
+.stack--xs { display: grid; gap: var(--space-1); }
+.stack--sm { display: grid; gap: var(--space-2); }
+.stack--md { display: grid; gap: var(--space-3); }
+.row { display: flex; align-items: center; gap: var(--space-2); }
+.row--top { align-items: flex-start; }
+.row--gap { gap: var(--space-3); }
+
+/* Control widths, as a short scale. */
+.input--sm { min-width: 14rem; }
+.input--md { min-width: 16rem; }
+.input--lg { min-width: 20rem; }
+.select--wide { min-width: min(24rem, 70vw); }
+.select--wider { min-width: min(28rem, 70vw); }
+
+.inline { display: inline; }
+.nowrap { white-space: nowrap; }
+.baseline { vertical-align: baseline; }
+.pre-wrap { white-space: pre-wrap; }
+.break-anywhere { overflow-wrap: anywhere; }
+
+/* A panel's own first heading needs no top margin — the panel padding is the
+   space. This one rule replaced sixteen `style="margin-top:0"` attributes. */
+.card > h2:first-child, .card > form > h2:first-child { margin-top: 0; }
+/* A disclosure heading that opens a panel is a control, and reads as one. */
+.summary--control { cursor: pointer; display: flex; align-items: center; gap: .4rem; }
+details[open] > .summary--control .ico { transform: rotate(180deg); }
+.summary--control .ico { transition: transform var(--dur-2) var(--ease-out); }
+
+/* ── Operator surfaces ─────────────────────────────────────────────────────
+   Health, spool, and metadata-correction screens. Dense, numeric, and read by
+   someone deciding whether to intervene — so the figures lead and the prose
+   supports them, not the reverse. */
+.health-layout { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-4); }
+.health-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: var(--space-3);
+}
+.metric {
+  padding: var(--space-3) var(--space-4);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  box-shadow: var(--shadow-sm);
+}
+.metric b {
+  display: block;
+  color: var(--ink);
+  font-family: var(--display);
+  font-size: 1.6rem;
+  font-weight: 700;
+  line-height: 1.05;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+}
+.metric span {
+  color: var(--ink-faint);
+  font-family: var(--mono);
+  font-size: .62rem;
+  font-weight: 600;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+}
+.metric .meter { margin-top: .45rem; width: 100%; }
+.issue-groups {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: var(--space-3);
+  margin-top: var(--space-4);
+}
+/* Severity is carried by a coloured edge AND by the group's own heading text,
+   never by colour alone. */
+.severity-group { border-left: 4px solid var(--line); }
+.severity-group.error { border-left-color: var(--danger); }
+.severity-group.warning { border-left-color: var(--warn); }
+.severity-group.info { border-left-color: var(--info); }
+.severity-group h2 { display: flex; align-items: center; gap: .4rem; }
+.issue { padding: var(--space-3) 0; border-top: 1px solid var(--line-soft); }
+.issue:first-of-type { border-top: 0; }
+.issue-code {
+  display: inline-flex;
+  margin-bottom: .25rem;
+  padding: .08rem .4rem;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  color: var(--ink-soft);
+  font-family: var(--mono);
+  font-size: .66rem;
+  letter-spacing: .05em;
+  text-transform: uppercase;
+}
+.empty { color: var(--ink-faint); font-size: .86rem; }
+.job-spool td { vertical-align: top; }
+.job-meta { display: flex; flex-wrap: wrap; gap: .25rem .4rem; margin-top: .2rem; }
+.job-meta span { color: var(--ink-soft); font-family: var(--mono); font-size: .68rem; }
+.job-stage { max-width: 22rem; }
+.job-error { margin-top: .25rem; color: var(--danger); font-size: .78rem; }
+@media (min-width: 1100px) {
+  .health-layout { grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: var(--space-5); }
+}
+
+/* ══ Page surfaces ═════════════════════════════════════════════════════════
+   Screens whose layout is genuinely local: the job cascade, the guide, the
+   seeding queue, settings, backups, and the visual review queue. These rules
+   used to live in a per-template <style> block, which is why the CSP had to
+   allow inline style and why several of them had drifted off the tokens —
+   hardcoded #2e7d32 for "ok", `border-radius: 0` against a system with three
+   radii, `var(--bg, #fff)` guarding a variable that always exists, and a local
+   `.st` that shadowed the global status chip with a different shape.
+   Consolidating them here fixed those; keep new page rules here too. */
+
+/* ---- Job cascade (job.html) ---- */
+table.jobs { margin-top: var(--space-4); font-size: .86rem; }
+td.res { max-width: 30rem; color: var(--ink-soft); font-size: .82rem; overflow-wrap: anywhere; }
+td.res strong { display: block; margin-bottom: .15rem; color: var(--ink); font-weight: 600; }
+td.res .detail { margin: .15rem 0 0; }
+td.res .action { margin: .25rem 0 0; color: var(--ink); }
+.progress-line { display: flex; align-items: center; gap: .5rem; margin: .4rem 0 .15rem; }
+progress.job-progress {
+  width: 8rem;
+  max-width: 45%;
+  height: .6rem;
+  appearance: none;
+  border: 0;
+  border-radius: 999px;
+  background: var(--line-soft);
+  color: var(--accent);
+}
+progress.job-progress::-webkit-progress-bar { background: var(--line-soft); border-radius: 999px; }
+progress.job-progress::-webkit-progress-value { background: var(--accent); border-radius: 999px; }
+progress.job-progress::-moz-progress-bar { background: var(--accent); border-radius: 999px; }
+.progress-stage { margin: .15rem 0 0; color: var(--ink-faint); }
+
+/* ---- Guide (help.html) ---- */
+.guide-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: var(--space-4);
+}
+.guide-card h2 { margin-top: 0; }
+.steps { margin: .7rem 0 0; padding-left: 1.2rem; color: var(--ink-soft); }
+.steps li { margin: .25rem 0; }
+.anchor-list { display: flex; flex-wrap: wrap; gap: .45rem; margin: var(--space-4) 0 var(--space-5); }
+.anchor-list a {
+  padding: .35rem .55rem;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  color: var(--ink-soft);
+  font-family: var(--mono);
+  font-size: .68rem;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+.anchor-list a:hover { color: var(--accent); border-color: var(--accent); text-decoration: none; }
+
+/* ---- Seeding queue (seeding.html) ---- */
+.seedhead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-4);
+  margin-bottom: .4rem;
+}
+.seedhead .counts { color: var(--ink-soft); font-family: var(--mono); font-size: .7rem; }
+.actions { display: flex; flex-wrap: wrap; gap: .6rem; margin: var(--space-4) 0; }
+table.seed { font-size: .86rem; }
+td.term { font-family: var(--mono); font-size: .8rem; white-space: nowrap; }
+td.n { text-align: right; font-variant-numeric: tabular-nums; }
+.src, .etype {
+  padding: .12rem .45rem;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  color: var(--ink-soft);
+  font-family: var(--mono);
+  font-size: .62rem;
+  letter-spacing: .06em;
+  white-space: nowrap;
+}
+td.desc { max-width: 34rem; color: var(--ink-soft); }
+td.desc .lbl { color: var(--ink); font-weight: 600; }
+.noqid { color: var(--ink-faint); font-style: italic; }
+.workflow {
+  margin: .8rem 0 var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  color: var(--ink-soft);
+}
+.workflow b { color: var(--ink); }
+
+/* ---- Settings (settings.html) ---- */
+.set-head { margin: 0 0 var(--space-5); }
+.set-head h1 { margin: .1rem 0 .3rem; }
+.set-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: var(--space-4);
+  align-items: start;
+}
+.set-card { padding: var(--space-5); }
+.set-card h2 {
+  margin: 0 0 .25rem;
+  padding: 0;
+  border: 0;
+  color: var(--ink);
+  font-family: var(--display);
+  font-size: 1.05rem;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  text-transform: none;
+}
+.set-card .sub { margin: 0 0 var(--space-4); color: var(--ink-soft); font-size: .88rem; }
+.set-card form { display: grid; gap: var(--space-4); }
+.set-card label { display: grid; gap: .35rem; color: var(--ink-soft); font-size: .88rem; }
+.set-card label input, .set-card label select { width: 100%; }
+.set-card button { justify-self: start; }
+.set-card .field-hint { color: var(--ink-faint); font-size: .78rem; }
+.set-card .current-email { margin: 0 0 var(--space-3); font-size: .9rem; }
+.set-card .current-email b { color: var(--ink); }
+.set-card .kv { gap: .4rem var(--space-4); font-size: .88rem; }
+
+/* ---- Backups (backups.html) ---- */
+/* A row of controls on one line, as opposed to the stacked `.field` component. */
+.field-row { display: flex; flex-wrap: wrap; align-items: center; gap: .7rem; margin: var(--space-4) 0; }
+.field-row input[type=text] { flex: 1; min-width: 220px; }
+.rowacts { display: flex; gap: .5rem; }
+.rowacts a, .rowacts button {
+  padding: .35rem .7rem;
+  border-radius: var(--r-sm);
+  font-family: var(--mono);
+  font-size: .66rem;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+.rowacts a { border: 1px solid var(--line); color: var(--ink-soft); }
+.rowacts a:hover { border-color: var(--accent); color: var(--accent); text-decoration: none; }
+/* Backup lifecycle states, added to the shared `.st` family rather than
+   redefined locally: a status chip that changes shape between pages teaches the
+   reader that the shapes mean nothing. */
+.st-available { color: var(--ok); background: var(--ok-bg); border-color: color-mix(in srgb, var(--ok) 34%, transparent); }
+.st-creating, .st-restoring { color: var(--info); background: var(--info-bg); border-color: color-mix(in srgb, var(--info) 34%, transparent); }
+.st-queued, .st-pending { color: var(--ink-soft); }
+
+/* ---- Visual review queue (review.html) ---- */
+.review-layout { display: grid; grid-template-columns: minmax(14rem, 1fr) minmax(0, 2fr); gap: var(--space-4); }
+.review-item { display: block; padding: var(--space-4) 0; border-top: 1px solid var(--line); }
+.review-item:first-of-type { border-top: 0; }
+.review-item .hint { display: block; margin: .3rem 0; }
+.triage { display: flex; flex-wrap: wrap; align-items: end; gap: var(--space-4); margin: .5rem 0 var(--space-4); }
+.triage label { display: flex; flex-direction: column; gap: .25rem; font-size: .85rem; }
+.bulkbar {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: .75rem;
+  margin-bottom: .75rem;
+  padding: .6rem .8rem;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+}
+.proposal-grid { display: grid; grid-template-columns: 120px minmax(0, 1fr); gap: var(--space-4); align-items: start; }
+.proposal .thumb img { display: block; width: 120px; height: auto; border: 1px solid var(--line); border-radius: var(--r-sm); }
+.proposal-head { display: flex; align-items: center; gap: .6rem; margin-bottom: .4rem; }
+/* Clamp long captions so proposals occupy comparable vertical space and can be
+   compared by scanning rather than by reading each one in full (BL-198). */
+.caption-text {
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  margin: .2rem 0;
+}
+.proposal:focus-within .caption-text, .caption-text:hover { -webkit-line-clamp: unset; overflow: visible; }
+.pill.ok { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 45%, transparent); }
+.actions--sticky { position: sticky; bottom: 0; padding: .75rem 0; background: var(--panel); }
+@media (max-width: 760px) {
+  .review-layout, .proposal-grid { grid-template-columns: 1fr; }
+}
+
+/* ---- Document reader (document.html) ----
+   Moved verbatim out of the template's <style> block: these rules are the
+   reader's own layout (rail, POS rows, overlay boxes, spread window, page fit)
+   and are not shared, but a per-page <style> element is inline style as far as
+   the CSP is concerned. Rules are unchanged — this was a relocation, not a
+   restyle, because the reader is the product's core surface and the safe change
+   here is the one that alters no declaration. */
+/* This page reads wide: give the text room, park the stats in a rail. */
+main { max-width:1320px; padding-top:var(--space-5); }
+/* The header identifies the document; it is not a title page. Kept to one
+   compact strip so the text — the object of the page — starts high. */
+.doc-head { margin-bottom:.8rem; }
+.doc-head h1 { font-size:clamp(1.1rem,1.6vw,1.4rem); line-height:1.3; overflow-wrap:anywhere; }
+.doc-head .kicker { margin:0 0 .35rem; }
+
+.docgrid { display:grid; grid-template-columns:minmax(0,1fr) 16.5rem; gap:2.8rem;
+           align-items:start; }
+@media (max-width:920px){ .docgrid { grid-template-columns:1fr; } }
+
+aside.rail { position:sticky; top:5rem; display:grid; gap:1rem; }
+aside.rail .card { margin:0; padding:1rem 1.1rem; }
+.posrow { display:grid; grid-template-columns:3.6rem 1fr auto; align-items:center;
+          gap:.5rem; padding:.14rem 0; }
+.posrow .lab { font-family:var(--mono); font-size:.68rem; color:var(--ink-soft); }
+.posrow .num { font-size:.72rem; }
+
+/* The control bar sticks under the masthead: in a 940-page document the
+   pager and the view switches have to stay reachable from anywhere in the
+   text, not only from its two ends. The legend scrolls away with the page —
+   it is a reference, not a control you reach for mid-paragraph. */
+.reader-bar { position:sticky; top:60px; z-index:20;
+  display:flex; align-items:center; gap:.55rem .9rem; flex-wrap:wrap;
+  margin:0 0 .6rem; padding:.55rem 0;
+  background:var(--bg); border-bottom:2px solid var(--line); }
+.reader-bar .pager { margin-top:0; }
+.reader-pager { margin-left:auto; }
+.legend { margin:0 0 1rem; }
+/* Phone: wrapping the bar would pin ~150px of controls to an 844px screen.
+   Keep it one row that scrolls sideways, with the pager — the control that
+   is actually used while reading — first and always visible. */
+@media (max-width:920px){
+  .reader-bar { flex-wrap:nowrap; overflow-x:auto; gap:.5rem; }
+  .reader-bar > * { flex:0 0 auto; }
+  .reader-pager { order:-2; margin-left:0; }
+  .spread-leaf { order:-1; }
+}
+/* Landing target for a page turn: clears the masthead and the sticky bar so
+   the first line of the new page is not hidden underneath them. */
+.reader-anchor { display:block; scroll-margin-top:8rem; }
+.seg { display:inline-flex; border:2px solid var(--line); border-radius:0; overflow:hidden; }
+.seg a { font-family:var(--mono); font-size:.68rem; letter-spacing:.1em; text-transform:uppercase;
+  padding:.42rem .85rem; color:var(--ink-soft); }
+.seg a:hover { text-decoration:none; color:var(--ink); }
+.seg a.on { background:var(--accent); color:var(--accent-ink); }
+#pos-focus { max-width:11rem; padding:.42rem .55rem; border:2px solid var(--line);
+  border-radius:0; background:var(--panel); color:var(--ink); font-family:var(--mono);
+  font-size:.68rem; text-transform:uppercase; }
+.legend { display:flex; gap:.35rem; flex-wrap:wrap; }
+.chip { font-family:var(--mono); font-size:.64rem; letter-spacing:.05em; cursor:pointer;
+  padding:.2rem .5rem; border:1px solid var(--line); border-radius:0; color:var(--ink-soft);
+  user-select:none; transition:.15s; }
+.chip:hover { border-color:var(--c); color:var(--ink); }
+.chip.muted { opacity:.38; text-decoration:line-through; }
+
+/* THE TEXT — the primary object. The measure is capped for reading, not to
+   fill the column: past ~80 characters the eye loses the line it is
+   returning to. The 3rem ordinal gutter sits inside this width. */
+.reader { max-width:78ch; font-family:var(--reading-sans); font-size:1.24rem; line-height:1.9;
+          font-optical-sizing:auto; }
+
+/* --- reading options ------------------------------------------------- */
+/* Type scale and face are the two settings that decide whether a given
+   reader can read comfortably at all; both are page-level classes so they
+   apply equally to the scrolling column and to the spread. */
+.reader.r-size-compact { font-size:1.06rem; line-height:1.72; }
+.reader.r-size-comfortable { font-size:1.24rem; line-height:1.9; }
+.reader.r-size-large { font-size:1.46rem; line-height:1.95; }
+.reader.r-face-sans { font-family:var(--reading-sans); }
+.reader.r-face-serif { font-family:var(--reading-serif); letter-spacing:0; }
+
+/* Spread: two pages side by side, sized to the viewport, turned rather than
+   scrolled. The CSS is applied only once the script has measured the
+   viewport (.spread-ready) — without JavaScript the reader stays a plain
+   scrolling column instead of a box that clips its own text.
+
+   "Fits without scrolling" only holds if nothing else on the page is taller
+   than the window, so the spread is a focus mode: the stats rail, the site
+   footer, and the header's cover/pills step aside for the duration. Scroll
+   layout brings them all back. */
+.docgrid-spread { grid-template-columns:minmax(0,1fr); gap:0; }
+.docgrid-spread aside.rail { display:none; }
+body:has(.docgrid-spread) .site-footer { display:none; }
+body:has(.docgrid-spread) main { padding-bottom:var(--space-4); }
+.doc-head-slim { margin-bottom:.4rem; }
+.doc-head-slim .doc-preview,
+.doc-head-slim .doc-title-main > div,
+.doc-head-slim .lede,
+.doc-head-slim > details { display:none; }
+.doc-head-slim h1 { font-size:1rem; white-space:nowrap; overflow:hidden;
+  text-overflow:ellipsis; }
+.spread-window { position:relative; }
+.spread-window.spread-ready { overflow:hidden; }
+.spread-window.spread-ready .reader {
+  max-width:none; column-gap:var(--spread-gap,3rem); column-fill:auto;
+  transform:translateX(calc(-1 * var(--spread-offset, 0px)));
+  transition:transform .18s var(--ease-out);
+}
+/* A page of a book carries no sentence ordinals in its margin: the spread
+   drops the gutter and reads edge to edge. Scroll layout keeps them — that
+   is where the corpus is being inspected rather than read. */
+.spread-window.spread-ready .ord { display:none; }
+.spread-window.spread-ready .reader p,
+.spread-window.spread-ready .reader-heading { padding-left:0; }
+.spread-window.spread-ready .reader-list li { padding-left:1.2rem; }
+.spread-window.spread-ready .reader-list li::before { left:.1rem; }
+.spread-window.spread-ready .reader { line-height:1.62; }
+.spread-window.spread-ready .reader p { margin:0 0 .9em; text-align:justify;
+  hyphens:auto; }
+.spread-window.spread-ready .reader-heading { margin:1.1em 0 .5em; }
+/* A column break mid-heading reads as two headings; keep blocks whole. */
+.spread-window.spread-ready .reader-heading { break-inside:avoid; break-after:avoid; }
+.spread-window.spread-ready .reader p { break-inside:auto; }
+.spread-gutter { position:absolute; top:0; bottom:0; left:50%; width:1px;
+  background:var(--line); pointer-events:none; }
+.spread-window:not(.spread-ready) .spread-gutter,
+.spread-window.spread-single .spread-gutter { display:none; }
+.spread-leaf { font-family:var(--mono); font-size:.68rem; color:var(--ink-faint);
+  letter-spacing:.06em; text-transform:uppercase; }
+.reading-options { position:relative; }
+.reading-options > summary { list-style:none; cursor:pointer; padding:.42rem .7rem;
+  border:2px solid var(--line); font-family:var(--mono); font-size:.68rem;
+  letter-spacing:.1em; text-transform:uppercase; color:var(--ink-soft); }
+.reading-options > summary::-webkit-details-marker { display:none; }
+.reading-options[open] > summary { border-color:var(--accent); color:var(--ink); }
+.reading-panel { position:absolute; z-index:40; top:calc(100% + .4rem); left:0;
+  display:grid; gap:.55rem; min-width:19rem; padding:.8rem;
+  background:var(--panel); border:2px solid var(--line); box-shadow:var(--shadow-md); }
+.reading-panel .row { display:flex; align-items:center; gap:.6rem; }
+.reading-panel .row > .lab { flex:0 0 4.4rem; font-family:var(--mono); font-size:.64rem;
+  letter-spacing:.06em; text-transform:uppercase; color:var(--ink-faint); }
+.reader p { margin:0 0 .5rem; position:relative; padding-left:3rem; }
+.sentence-target { scroll-margin-top:8rem; }
+.reader p:has(.sentence-target:target),
+.reader-heading:has(.sentence-target:target),
+.reader-list li:has(.sentence-target:target) {
+  outline:3px solid var(--accent); outline-offset:.3rem;
+  background:color-mix(in srgb, var(--accent) 10%, transparent); }
+.reader p:hover .ord,
+.reader-heading:hover .ord,
+.reader-list li:hover .ord { color:var(--accent); }
+.reader .ord { position:absolute; left:0; top:.62em; font-family:var(--mono); font-size:.58rem;
+  color:var(--ink-faint); font-variant-numeric:tabular-nums; }
+/* Reader headings are book headings, not the admin section labels the global
+   h2/h3/h4 rules describe — reset the uppercase, the mono face, the rule
+   underneath and the faint colour those inherit. */
+.reader-heading { position:relative; padding:0 0 0 3rem; margin:1.7rem 0 .7rem;
+  font-family:inherit; font-weight:600; line-height:1.25; color:var(--ink);
+  text-transform:none; letter-spacing:-0.01em; border-bottom:0; }
+.reader-empty { padding:2rem 0; color:var(--ink-faint); font-size:.95rem; font-style:italic; }
+.reader-heading.h1 { font-size:1.7rem; font-weight:600; margin-top:2.3rem; }
+.reader-heading.h2 { font-size:1.45rem; font-weight:600; margin-top:1.5rem; }
+.reader-heading.h3 { font-size:1.25rem; font-weight:600; color:var(--ink-soft);
+  margin-top:1.05rem; margin-bottom:.45rem; }
+/* Two headings back to back read as a title + subtitle pair (common in
+   slide-style sources split by split_structural_blocks) — collapse the
+   gap between them rather than stacking each level's full lead-in space. */
+.reader-heading + .reader-heading { margin-top:.3rem; }
+.reader-heading .ord { top:.45em; }
+.reader-list { margin:.15rem 0 .6rem 0; padding:0; list-style:none; }
+.reader-list li { position:relative; padding-left:4.2rem; margin:.22rem 0; }
+.reader-list li::before { content:""; position:absolute; left:3.05rem; top:.85em;
+  width:.36rem; height:.36rem; border-radius:0; background:var(--accent); }
+/* Each bullet is its own <ul> (one per split block/sentence) so a run of
+   them reads as one continuous list rather than several stacked lists. */
+.reader-list + .reader-list { margin-top:-.35rem; }
+.reader-note { margin:0 0 1.2rem; padding:.85rem 1rem; border:1px solid var(--line);
+  border-left:3px solid var(--accent); background:var(--panel); color:var(--ink-soft);
+  font-family:var(--sans); font-size:.9rem; line-height:1.5; }
+.w { color:inherit; text-decoration:none; border-bottom:2px solid var(--c);
+     padding-bottom:1px; position:relative; transition:background .12s; cursor:pointer; }
+.w.p-NOUN { border-bottom-style:solid; }
+.w.p-PROPN { border-bottom-style:solid; border-bottom-width:3px; }
+.w.p-VERB { border-bottom-style:double; }
+.w.p-ADJ { border-bottom-style:dashed; }
+.w.p-ADV { border-bottom-style:dotted; }
+.w.p-PRON { border-bottom-style:groove; }
+.w.p-NUM { border-bottom-style:ridge; }
+.w.p-DET,.w.p-ADP,.w.p-CCONJ,.w.p-SCONJ,.w.p-PART,.w.p-AUX,.w.p-PUNCT,.w.p-SYM,.w.p-X,.w.p-INTJ {
+  border-bottom-style:dotted;
+}
+.pos-sigil { display:inline-block; min-width:.9em; margin-right:.12em;
+  padding:0 .12em; border:1px solid currentColor; border-radius:0;
+  color:var(--ink-soft); background:var(--panel); font-family:var(--mono);
+  font-size:.48em; line-height:1.15; text-align:center; vertical-align:super; }
+.w:hover { background:color-mix(in srgb, var(--c) 22%, transparent); border-radius:0; }
+.w[data-t]:hover::after { content:attr(data-t); position:absolute; left:50%; bottom:calc(100% + 7px);
+  transform:translateX(-50%); white-space:nowrap; font-family:var(--mono); font-size:.62rem;
+  letter-spacing:.03em; background:var(--ink); color:var(--bg); padding:.28rem .55rem;
+  border-radius:0; z-index:30; pointer-events:none; box-shadow:none; }
+.plain .w { border-bottom-color:transparent; }
+.reader.off-NOUN .p-NOUN,.reader.off-PROPN .p-PROPN,.reader.off-VERB .p-VERB,
+.reader.off-ADJ .p-ADJ,.reader.off-ADV .p-ADV,.reader.off-PRON .p-PRON,
+.reader.off-NUM .p-NUM,.reader.off-FUNC .p-DET,.reader.off-FUNC .p-ADP,
+.reader.off-FUNC .p-CCONJ,.reader.off-FUNC .p-SCONJ,.reader.off-FUNC .p-PART,
+.reader.off-FUNC .p-AUX,.reader.off-FUNC .p-PUNCT,.reader.off-FUNC .p-SYM,.reader.off-FUNC .p-X
+  { border-bottom-color:transparent; }
+.reader.solo-NOUN .w:not(.p-NOUN),.reader.solo-PROPN .w:not(.p-PROPN),
+.reader.solo-VERB .w:not(.p-VERB),.reader.solo-ADJ .w:not(.p-ADJ),
+.reader.solo-ADV .w:not(.p-ADV),.reader.solo-PRON .w:not(.p-PRON),
+.reader.solo-NUM .w:not(.p-NUM),.reader.solo-DET .w:not(.p-DET),
+.reader.solo-ADP .w:not(.p-ADP),.reader.solo-CCONJ .w:not(.p-CCONJ),
+.reader.solo-SCONJ .w:not(.p-SCONJ),.reader.solo-PART .w:not(.p-PART),
+.reader.solo-AUX .w:not(.p-AUX),.reader.solo-PUNCT .w:not(.p-PUNCT),
+.reader.solo-SYM .w:not(.p-SYM),.reader.solo-X .w:not(.p-X),
+.reader.solo-INTJ .w:not(.p-INTJ) {
+  opacity:.24; border-bottom-color:transparent; filter:saturate(.45);
+}
+.original-shell { max-width:980px; }
+.original-overlay { position:relative; width:100%; background:var(--panel);
+  border:2px solid var(--line); box-shadow:none; }
+.original-overlay img { display:block; width:100%; height:auto; }
+/* Original view as a book: the rendered page image is sized to the window
+   height (via --fit-h set by the script) so a whole page fits without
+   scrolling, and the spread lays two facing pages side by side. Boxes are
+   percentage-positioned inside each page, so they scale with it for free. */
+.original-shell.original-fit { max-width:none; display:flex; gap:var(--space-5);
+  justify-content:center; align-items:flex-start; }
+.original-fit .original-overlay { width:auto; height:var(--fit-h,auto);
+  max-height:var(--fit-h,none); flex:0 1 auto; }
+.original-fit .original-overlay img { width:auto; height:100%; max-height:var(--fit-h,none); }
+@media (max-width:700px){ .original-fit { flex-direction:column; align-items:center; } }
+.overlay-box { position:absolute; display:block; border:2px solid var(--c);
+  background:color-mix(in srgb, var(--c) 20%, transparent); border-radius:0;
+  box-sizing:border-box; transition:background .12s, box-shadow .12s; }
+.overlay-box.p-NOUN { border-bottom-style:solid; }
+.overlay-box.p-PROPN { border-bottom-width:3px; }
+.overlay-box.p-VERB { border-style:double; }
+.overlay-box.p-ADJ { border-style:dashed; }
+.overlay-box.p-ADV { border-style:dotted; }
+.entity-box { --c:var(--pos-propn); border-radius:0; }
+.entity-box.e-PER,.entity-box.e-PERSON { --c:var(--pos-noun); }
+.entity-box.e-ORG { --c:var(--pos-propn); border-style:double; }
+.entity-box.e-GPE,.entity-box.e-LOC,.entity-box.e-PLACE { --c:var(--pos-adj); }
+.entity-box.e-DATE,.entity-box.e-TIME { --c:var(--pos-num); border-style:dashed; }
+.overlay-box:hover { background:color-mix(in srgb, var(--c) 34%, transparent);
+  box-shadow:inset 0 0 0 2px color-mix(in srgb, var(--c) 40%, transparent); }
+.overlay-box[data-t]:hover::after { content:attr(data-t); position:absolute;
+  left:50%; bottom:calc(100% + 7px); transform:translateX(-50%);
+  white-space:nowrap; font-family:var(--mono); font-size:.62rem; letter-spacing:.03em;
+  background:var(--ink); color:var(--bg); padding:.28rem .55rem; border-radius:0;
+  z-index:30; pointer-events:none; box-shadow:none; }
+.markup-original { max-width:760px; background:var(--panel); border:1px solid var(--line);
+  padding:1.4rem; box-shadow:none; }
+.markup-original .w { color:inherit; text-decoration:none; border-bottom:2px solid var(--c); }
+.markup-original .w:hover { background:color-mix(in srgb, var(--c) 22%, transparent); }
+.visual-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(16rem,1fr)); gap:1rem; }
+.visual-tile { margin:0; scroll-margin-top:8rem; }
+.visual-tile:target { outline:3px solid var(--accent); outline-offset:.25rem; }
+.visual-tile img { display:block; width:100%; height:auto; max-height:22rem; object-fit:contain; background:var(--panel); }
+.visual-tile figcaption { margin-top:.7rem; color:var(--ink-soft); }
+
+/* ---- Landing (landing.html) ----
+   Marketing surface, relocated for the same reason as the reader's rules. */
+/* Landing-only layout (lp- prefix avoids clashing with page-local styles
+   elsewhere). Composition only — all color/type/spacing come from tokens. */
+.lp-hero { max-width: 48rem; margin: clamp(1.5rem, 6vw, 4rem) 0 var(--space-7); }
+.lp-title {
+  margin: .4rem 0 var(--space-4);
+  font-family: var(--display);
+  font-size: clamp(2.1rem, 5vw, 3.5rem);
+  font-weight: 700;
+  line-height: 1.06;
+  letter-spacing: -0.03em;
+  text-wrap: balance;
+}
+.lp-sub { max-width: 42rem; font-size: 1.08rem; color: var(--ink-soft); }
+.lp-ctas { display: flex; flex-wrap: wrap; gap: .7rem; margin-top: var(--space-5); }
+/* Selectors are 2-class specific on purpose: base.html loads the head block
+   before design-system.css, so plain .lp-cta-* would lose to .btn. */
+.lp-ctas .btn { padding: .7rem 1.3rem; font-size: .9rem; }
+.lp-ctas .lp-cta-primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.lp-ctas .lp-cta-primary:hover { background: var(--accent-soft); border-color: var(--accent-soft); color: var(--accent-ink); }
+.lp-ctas .lp-cta-ghost { background: transparent; border-color: var(--line); color: var(--ink); box-shadow: none; }
+.lp-ctas .lp-cta-ghost:hover { background: var(--bg2); border-color: var(--color-neutral-400); color: var(--ink); }
+
+.lp-section-label {
+  margin: 0 0 var(--space-4);
+  color: var(--ink-faint);
+  font-family: var(--mono);
+  font-size: .72rem;
+  font-weight: 600;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+.lp-section-label .soon {
+  margin-left: .6rem;
+  padding: .1rem .45rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--ink-faint);
+  font-weight: 600;
+}
+
+/* Entity fabric — the thesis, made visible: scattered mentions resolve to one
+   identity that threads the corpus together. */
+.lp-fabric {
+  display: grid;
+  grid-template-columns: 1fr 1.05fr;
+  gap: var(--space-6);
+  align-items: center;
+  margin: 0 0 var(--space-8);
+  padding: var(--space-6);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-sm);
+}
+@media (max-width: 760px) { .lp-fabric { grid-template-columns: 1fr; } }
+.lp-fabric h2 { margin: 0 0 .5rem; padding: 0; border: 0; font-family: var(--display);
+  font-size: 1.35rem; font-weight: 650; letter-spacing: -0.01em; text-transform: none; color: var(--ink); }
+.lp-fabric p { margin: 0; color: var(--ink-soft); font-size: .95rem; line-height: 1.6; }
+.lp-svg { width: 100%; height: auto; display: block; }
+.lp-svg .doc { fill: var(--bg2); stroke: var(--line); stroke-width: 1.5; }
+.lp-svg .rule { stroke: var(--line); stroke-width: 1.5; }
+.lp-svg .mention { fill: var(--accent); }
+.lp-svg .link { stroke: var(--accent); stroke-width: 1.5; fill: none; opacity: .55; }
+.lp-svg .hub { fill: var(--accent); }
+.lp-svg .hub-ring { fill: none; stroke: var(--accent); stroke-width: 1.5; opacity: .35; }
+.lp-svg .concept { fill: var(--panel); stroke: var(--ink-faint); stroke-width: 1.5; }
+.lp-svg .fab { stroke: var(--ink-faint); stroke-width: 1.5; fill: none; opacity: .5; }
+.lp-svg .lbl { fill: var(--ink-faint); font-family: var(--mono); font-size: 11px; letter-spacing: .04em; }
+.lp-svg .hub-lbl { fill: var(--accent-ink); font-family: var(--mono); font-size: 10px; font-weight: 700; }
+
+.lp-principles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: var(--space-4);
+  margin: 0 0 var(--space-8);
+}
+.lp-principle { padding: var(--space-5); }
+.lp-principle h3 { margin: 0 0 .35rem; font-size: .98rem; }
+.lp-principle p { margin: 0; font-size: .88rem; color: var(--ink-soft); line-height: 1.55; }
+
+.lp-pipe {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: var(--space-3);
+  margin: 0 0 var(--space-8);
+}
+.lp-step {
+  padding: var(--space-4);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  box-shadow: var(--shadow-sm);
+}
+.lp-step .n {
+  display: block;
+  margin-bottom: .5rem;
+  color: var(--accent);
+  font-family: var(--mono);
+  font-size: .72rem;
+  font-weight: 700;
+  letter-spacing: .08em;
+}
+.lp-step h3 { margin: 0 0 .3rem; font-size: 1.02rem; }
+.lp-step p { margin: 0; font-size: .86rem; color: var(--ink-soft); line-height: 1.5; }
+
+.lp-caps {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: var(--space-4);
+  margin: 0 0 var(--space-8);
+}
+.lp-cap { padding: var(--space-5); }
+.lp-cap h3 { margin: 0 0 .4rem; font-size: 1rem; }
+.lp-cap p { margin: 0; font-size: .9rem; color: var(--ink-soft); line-height: 1.55; }
+
+/* "Becoming" — intent, not fact. Visually distinct (dashed, muted) so it can
+   never read as a shipped capability. */
+.lp-soon {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: var(--space-4);
+  margin: 0 0 var(--space-7);
+}
+.lp-soon-card {
+  padding: var(--space-5);
+  background: transparent;
+  border: 1px dashed var(--line);
+  border-radius: var(--r);
+}
+.lp-soon-card h3 { margin: 0 0 .35rem; font-size: .98rem; color: var(--ink-soft); }
+.lp-soon-card p { margin: 0; font-size: .86rem; color: var(--ink-faint); line-height: 1.55; }
+
+.lp-audience {
+  margin: 0 0 var(--space-8);
+  padding: var(--space-5) var(--space-6);
+  border-left: 3px solid var(--accent);
+  background: var(--panel);
+  border-radius: 0 var(--r) var(--r) 0;
+  color: var(--ink-soft);
+  font-size: .95rem;
+  line-height: 1.65;
+  max-width: 52rem;
+}
+.lp-audience b { color: var(--ink); font-weight: 600; }
+
+.lp-end {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: var(--space-6);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-sm);
+}
+.lp-end h2 { margin: 0; padding: 0; border: 0; font-family: var(--display); font-size: 1.3rem; font-weight: 650; letter-spacing: -0.01em; text-transform: none; color: var(--ink); }
+.lp-end p { margin: .25rem 0 0; color: var(--ink-soft); font-size: .92rem; }
+
 /* ── Coarse-pointer control layer ──────────────────────────────────────────
    Sizing is scoped to the input device in use, not to the viewport. Target
    acquisition time is a function of distance and size, and a finger is
@@ -1321,20 +2450,24 @@ a.is-loading, button.is-loading, input.is-loading[type="submit"] { opacity: .72;
 
   /* Navigation, paging and segmented controls: the drawn chip may stay small
      on a mouse, but on touch these are primary targets. */
-  header nav a, .nav-link-button, .pager a, .seg a, .seg label, .footer-nav a, a.pill {
+  header nav a, .nav-link-button, .pager a, .seg a, .seg label, .footer-nav a, a.pill,
+  .view-switch__btn, .th-sort, .combobox__opt {
     min-height: var(--tap-min);
     display: inline-flex;
     align-items: center;
   }
-  .footer-nav a, .seg a, .seg label { display: flex; }
+  .footer-nav a, .seg a, .seg label, .combobox__opt { display: flex; }
 
-  /* Icon buttons are square, so both axes bound the target. */
-  .nav-burger, .toggle {
+  /* Icon buttons are square, so both axes bound the target. The drawn glyph
+     stays small — the grid centring means growing the box grows the active area
+     around the ink, not the ink. */
+  .nav-burger, .toggle, .toast__close, .upload-item__drop {
     min-width: var(--tap-min);
     min-height: var(--tap-min);
     width: var(--tap-min);
     height: var(--tap-min);
   }
+  .toast__close, .upload-item__drop { display: grid; place-items: center; }
   .toggle span { width: calc(var(--tap-min) / 2); height: var(--tap-min); }
 
   /* A disclosure heading is the control for the section it opens. */
@@ -1386,6 +2519,10 @@ a.is-loading, button.is-loading, input.is-loading[type="submit"] { opacity: .72;
      the page, and the footer stays reachable by scrolling. */
   main { padding-bottom: calc(var(--bottom-nav-h) + var(--space-5)); }
   .site-footer { margin-bottom: var(--bottom-nav-h); }
+
+  /* A toast must not land under the thumb bar, where it would both cover the
+     navigation and be un-dismissable. */
+  .toast-region { bottom: calc(var(--bottom-nav-h) + env(safe-area-inset-bottom, 0px) + .6rem); }
 
   /* The long tail opens upward from the bar rather than downward from the
      masthead, so the whole menu lands in the region the thumb can cover. */

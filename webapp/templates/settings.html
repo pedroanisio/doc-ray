@@ -1,34 +1,7 @@
 {% extends "base.html" %}
 {% block title %}Settings · doc·ray{% endblock %}
+{% block main_class %} class="page--roomy"{% endblock %}
 {% block body %}
-<style>
-  /* Settings-only layout. Inputs/selects/buttons inherit the global control
-     styles; this block only arranges the section cards and stacks fields. */
-  main { max-width: 980px; }
-  .set-head { margin: 0 0 var(--space-5); }
-  .set-head h1 { margin: .1rem 0 .3rem; }
-  .set-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
-    gap: var(--space-4);
-    align-items: start;
-  }
-  .set-card { padding: var(--space-5); }
-  .set-card h2 { margin: 0 0 .25rem; padding: 0; border: 0; font-size: 1.05rem;
-    font-family: var(--display); font-weight: 650; letter-spacing: -0.01em;
-    text-transform: none; color: var(--ink); }
-  .set-card .sub { margin: 0 0 var(--space-4); color: var(--ink-soft); font-size: .88rem; }
-  .set-card form { display: grid; gap: var(--space-4); }
-  .set-card label { display: grid; gap: .35rem; font-size: .88rem; color: var(--ink-soft); }
-  .set-card label input, .set-card label select { width: 100%; }
-  .set-card button { justify-self: start; }
-  .set-card .field-hint { color: var(--ink-faint); font-size: .78rem; }
-  .set-card .current-email { margin: 0 0 var(--space-3); font-size: .9rem; }
-  .set-card .current-email b { color: var(--ink); }
-  .kv { display: grid; grid-template-columns: auto 1fr; gap: .4rem 1rem; margin: 0; font-size: .88rem; }
-  .kv dt { color: var(--ink-faint); }
-  .kv dd { margin: 0; overflow-wrap: anywhere; }
-</style>
 
 <section class="set-head">
   <p class="eyebrow">Account</p>

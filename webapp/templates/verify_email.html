@@ -31,7 +31,7 @@
       </p>
     {% endif %}
   {% endif %}
-  <form method="post" action="{{ url_for('resend_verification') }}" style="margin-top:1rem">
+  <form class="mt-4" method="post" action="{{ url_for('resend_verification') }}">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <label for="resend-email">Resend the verification link</label>
     <input id="resend-email" type="email" name="email" required

@@ -1,9 +1,11 @@
 {% extends "base.html" %}
+{% import "_icons.html" as icons %}
+{% import "_components.html" as ui %}
 {% set back_url = url_for('collections') %}
 {% set back_label = 'Collections' %}
 {% block title %}{{ collection.name }} · doc·ray{% endblock %}
 {% block body %}
-<p class="kicker"><a href="{{ url_for('collections') }}">← Collections</a></p>
+<p class="kicker"><a href="{{ url_for('collections') }}">{{ icons.icon('arrow-left') }}Collections</a></p>
 <div class="doc-head">
   <h1>{{ collection.name }}</h1>
   <div>
@@ -12,7 +14,7 @@
     <span class="pill">{{ rows|length }} docs</span>
     {% if collection.kind == "smart" %}<span class="pill">Smart rule · {{ collection.rule_summary }}</span>{% endif %}
   </div>
-  {% if collection.description %}<p class="lede" style="margin-top:.6rem">{{ collection.description }}</p>{% endif %}
+  {% if collection.description %}<p class="lede lede--spaced">{{ collection.description }}</p>{% endif %}
 </div>
 
 {% if error %}<div class="errbox">{{ error }}</div>{% endif %}
@@ -34,18 +36,34 @@
 </section>
 
 {% if collection.kind == "manual" and available %}
+{# One candidate per document in the corpus, so this list is long by
+   construction. A combobox filters it by typing instead of asking the curator to
+   scroll it: the input owns the ARIA state, and each option is the submit button
+   of its own single-purpose form, so picking one is still a plain POST and the
+   whole control degrades to a scrolling list of Add buttons with JS off. #}
 <details class="card collection-add">
-  <summary class="kicker" style="cursor:pointer">Add document</summary>
-  <div class="collection-add-list">
-    {% for d in available %}
-      <form method="post" action="{{ url_for('collection_document_update', collection_id=collection.id, doc_id=d.id) }}">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-        <input type="hidden" name="action" value="add">
-        <button type="submit">Add</button>
-        <span>{{ d.title }}</span>
+  <summary class="kicker summary--control">{{ icons.icon('chevron-down') }}Add document</summary>
+  <div class="combobox" data-combobox>
+    <label class="sr-only" for="collection-add-filter">Filter documents to add</label>
+    <input id="collection-add-filter" type="search" role="combobox"
+           aria-expanded="false" aria-controls="collection-add-list" aria-autocomplete="list"
+           autocomplete="off" placeholder="Type to find a document…" data-combobox-input>
+    <ul class="combobox__list combobox__list--static" id="collection-add-list"
+        role="listbox" aria-label="Documents not in this collection" data-combobox-list>
+      {% for d in available %}
+      <li class="combobox__opt" role="option" id="collection-add-opt-{{ loop.index }}"
+          aria-selected="false" data-combobox-opt data-label="{{ d.title }} {{ d.doc_type }}">
+        <form method="post" action="{{ url_for('collection_document_update', collection_id=collection.id, doc_id=d.id) }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <input type="hidden" name="action" value="add">
+          <button type="submit" class="btn-ghost">{{ icons.icon('plus') }}Add</button>
+        </form>
+        <span class="combobox__opt-name">{{ d.title }}</span>
         <span class="pill">{{ d.doc_type }}</span>
-      </form>
-    {% endfor %}
+      </li>
+      {% endfor %}
+      <li class="combobox__empty" data-combobox-empty hidden>No document matches that.</li>
+    </ul>
   </div>
 </details>
 {% endif %}
@@ -84,15 +102,19 @@
           <form method="post" action="{{ url_for('collection_document_update', collection_id=collection.id, doc_id=d.id) }}">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <input type="hidden" name="action" value="remove">
-            <button type="submit">Remove</button>
+            <button type="submit" class="btn-ghost">{{ icons.icon('trash') }}Remove</button>
           </form>
         </td>
         {% endif %}
       </tr>
     {% else %}
-      <tr><td colspan="{{ 7 if collection.kind == 'manual' else 6 }}">No documents match this collection.</td></tr>
+      {% set none_body = 'A smart collection re-evaluates its rule on every read, so an empty result means nothing in the corpus matches it yet.' if collection.kind == 'smart' else 'Add documents with the picker above and they stay in this set until you remove them.' %}
+      <tr><td colspan="{{ 7 if collection.kind == 'manual' else 6 }}" class="td--flush">
+        {{ ui.empty_state('No documents in this collection.', none_body, icon_name='layers') }}
+      </td></tr>
     {% endfor %}
     </tbody>
   </table>
 </div>
 {% endblock %}
+{% block script %}<script src="{{ static_asset('combobox.js') }}"></script>{% endblock %}

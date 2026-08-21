@@ -1,4 +1,4 @@
-"""Corpus-wide browse routes: landing list, bulk actions, upload, jobs, search.
+"""Corpus-wide browse routes: landing list, bulk actions, jobs, lexicon.
 
 Split out of ``webapp/app.py`` (D-015). Query/GraphQL helpers are resolved
 through the ``webapp.app`` module object at call time so the test suite's
@@ -8,21 +8,17 @@ routes that moved here.
 
 from __future__ import annotations
 
-import json
 from types import ModuleType
 
 from flask import abort, current_app, redirect, request, url_for
 
-from doc_ray.domain.document_formats import ACCEPT_ATTRIBUTE, format_label
 from doc_ray.domain.read_consistency import CORPUS_STAT_GUARANTEES, assess
 from doc_ray.entrypoints.api.context import MAX_BATCH_IDS
 
 try:
-    from webapp.graphql_client import API_URL, api_auth_headers
     from webapp.job_view import decorate_job_rows
     from webapp.previews import document_preview
 except ModuleNotFoundError:  # pragma: no cover - direct ``python webapp/app.py`` path.
-    from graphql_client import API_URL, api_auth_headers
     from job_view import decorate_job_rows
     from previews import document_preview
 
@@ -33,15 +29,28 @@ _core: ModuleType
 #: back to ``table`` so a hand-edited or stale URL never 500s.
 CORPUS_VIEWS = ("table", "compact", "gallery", "grouped")
 CORPUS_DENSITIES = ("comfortable", "compact")
-#: ``sort`` is whitelisted to a fixed ORDER-BY fragment — the request value NEVER
+#: ``sort`` is whitelisted to a fixed ORDER-BY column — the request value NEVER
 #: reaches SQL, so a crafted ``?sort=`` cannot inject. ``n_sentences`` sorts on the
 #: SELECT alias; the rest on indexed document columns.
 CORPUS_SORTS = {
-    "size": "d.char_count DESC NULLS LAST",
-    "recent": "d.created_at DESC, d.id",
-    "title": "d.title ASC, d.id",
-    "sentences": "n_sentences DESC NULLS LAST, d.id",
-    "pages": "d.page_count DESC NULLS LAST, d.id",
+    "size": "d.char_count",
+    "recent": "d.created_at",
+    "title": "d.title",
+    "sentences": "n_sentences",
+    "pages": "d.page_count",
+}
+#: ``dir`` is whitelisted the same way and for the same reason. It is a separate
+#: axis from ``sort`` because a column header is a two-state control: clicking
+#: the active column reverses it rather than picking a different column.
+CORPUS_SORT_DIRECTIONS = {"asc": "ASC", "desc": "DESC"}
+#: A column's natural first direction. A title reads A→Z; a magnitude reads
+#: largest-first. One global default would make half the columns open backwards.
+CORPUS_SORT_DEFAULT_DIRECTION = {
+    "size": "desc",
+    "recent": "desc",
+    "title": "asc",
+    "sentences": "desc",
+    "pages": "desc",
 }
 #: The axes a corpus can be sectioned along in the grouped view.
 CORPUS_GROUPS = ("none", "type", "language", "status")
@@ -133,6 +142,13 @@ def documents():
     sort = request.args.get("sort", "size")
     if sort not in CORPUS_SORTS:
         sort = "size"
+    direction = request.args.get("dir", CORPUS_SORT_DEFAULT_DIRECTION[sort])
+    if direction not in CORPUS_SORT_DIRECTIONS:
+        direction = CORPUS_SORT_DEFAULT_DIRECTION[sort]
+    # NULLS LAST in both directions: a document with no page count is missing
+    # data, not the smallest document, so it belongs at the end of the list
+    # either way rather than heading the ascending page.
+    order_by = f"{CORPUS_SORTS[sort]} {CORPUS_SORT_DIRECTIONS[direction]} NULLS LAST, d.id"
     group_by = request.args.get("group_by", "none")
     if group_by not in CORPUS_GROUPS:
         group_by = "none"
@@ -146,7 +162,7 @@ def documents():
                   FROM annotations a WHERE a.document_id = d.id) AS tools
         FROM documents d
         WHERE d.lifecycle_state <> 'deleted'
-        ORDER BY {CORPUS_SORTS[sort]}
+        ORDER BY {order_by}
         LIMIT %(limit)s OFFSET %(offset)s
         """,
         {"limit": per_page, "offset": (page - 1) * per_page},
@@ -199,6 +215,7 @@ def documents():
         view=view,
         density=density,
         sort=sort,
+        direction=direction,
         group_by=group_by,
         groups=groups,
         views=CORPUS_VIEWS,
@@ -277,118 +294,6 @@ def documents_bulk_action():
     except Exception as exc:
         return redirect(url_for("documents", bulk_error=str(exc)))
     return redirect(url_for("documents", bulk_queued=queued))
-
-
-def upload_form():
-    """Render the document upload form.
-
-    The accepted-format list is read from ``domain.document_formats`` rather
-    than typed into the template: a hand-copied list drifts behind the
-    extractor registry, and a narrower ``accept`` attribute hides working
-    formats (HTML, SVG, PPTX) from the operator.
-    """
-    from doc_ray.adapters.patent_text_source_factory import patent_extraction_enabled
-
-    return _core.render_template(
-        "upload.html",
-        error=request.args.get("error"),
-        accept_attribute=ACCEPT_ATTRIBUTE,
-        format_label=format_label(conjunction="or"),
-        # Offered only where the deployment can honour it: a checkbox whose
-        # submission the API rejects is worse than no checkbox.
-        patent_extraction_enabled=patent_extraction_enabled(),
-    )
-
-
-def upload_submit():
-    """Send an uploaded file *or* a remote reference to the ingest mutation.
-
-    Two intake routes, one mutation. A file goes as a GraphQL multipart upload;
-    a reference goes as a plain JSON mutation, because there is no file part to
-    map and the *worker* performs the fetch — so the browser is never held open
-    on a remote download.
-
-    The full pipeline (ingest -> annotate -> canonicalize) is enqueued by
-    default; unticking the checkbox ingests only. The browser never touches the
-    object store or the queue — the API is the one write path.
-    """
-    import httpx
-
-    upload = request.files.get("file")
-    has_file = upload is not None and bool(upload.filename)
-    ref = (request.form.get("ref") or "").strip()
-    if has_file and ref:
-        return redirect(url_for("upload_form", error="give a file or a reference, not both"))
-    if not has_file and not ref:
-        return redirect(url_for("upload_form", error="choose a file or paste a reference first"))
-
-    title = request.form.get("title") or None
-    pipeline = request.form.get("pipeline") == "on"
-    # The column-aware reader is only meaningful for an uploaded PDF; a remote
-    # reference resolves to whatever the source serves, so the checkbox does not
-    # ride along that route.
-    extractor = "patent" if request.form.get("patent") == "on" else None
-    # Only meaningful alongside the patent reader; sent as None otherwise so the
-    # API never records an office code against a document it did not steer.
-    jurisdiction = (request.form.get("jurisdiction") or "").strip().upper() or None
-    if extractor is None:
-        jurisdiction = None
-    if ref:
-        post_kwargs: dict = {
-            "json": {
-                "query": (
-                    "mutation($ref: String, $title: String, $pipeline: Boolean!) {"
-                    " ingestDocument(ref: $ref, title: $title, pipeline: $pipeline) { id } }"
-                ),
-                "variables": {"ref": ref, "title": title, "pipeline": pipeline},
-            }
-        }
-    else:
-        operations = {
-            "query": (
-                "mutation($file: Upload, $title: String, $pipeline: Boolean!,"
-                " $extractor: String, $jurisdiction: String) {"
-                " ingestDocument(file: $file, title: $title, pipeline: $pipeline,"
-                " extractor: $extractor, jurisdiction: $jurisdiction) { id } }"
-            ),
-            "variables": {
-                "file": None,
-                "title": title,
-                "pipeline": pipeline,
-                "extractor": extractor,
-                "jurisdiction": jurisdiction,
-            },
-        }
-        post_kwargs = {
-            "data": {
-                "operations": json.dumps(operations),
-                "map": json.dumps({"0": ["variables.file"]}),
-            },
-            "files": {"0": (upload.filename, upload.stream, upload.mimetype)},
-        }
-    try:
-        response = httpx.post(
-            API_URL,
-            headers=api_auth_headers(),
-            timeout=120.0,
-            **post_kwargs,
-        )
-        response.raise_for_status()
-        body = response.json()
-        if body.get("errors"):
-            # Our own API's message (validation text) — safe and useful to show.
-            raise RuntimeError(body["errors"][0].get("message", "GraphQL error"))
-        job_id = ((body.get("data") or {}).get("ingestDocument") or {}).get("id")
-        if not job_id:
-            raise RuntimeError("the API returned no job for this ingest")
-    except httpx.HTTPError:
-        # Transport-level details (URLs, stack text) belong in the log, not the UI.
-        current_app.logger.exception("ingest forwarding failed")
-        return redirect(url_for("upload_form", error="ingest API unreachable — is it running?"))
-    except Exception as exc:
-        current_app.logger.exception("ingest rejected")
-        return redirect(url_for("upload_form", error=str(exc)))
-    return redirect(url_for("job_status", job_id=job_id))
 
 
 def job_status(job_id):
@@ -619,8 +524,6 @@ def register(app, core: ModuleType) -> None:
     app.add_url_rule(
         "/documents/bulk", "documents_bulk_action", documents_bulk_action, methods=["POST"]
     )
-    app.add_url_rule("/upload", "upload_form", upload_form)
-    app.add_url_rule("/upload", "upload_submit", upload_submit, methods=["POST"])
     app.add_url_rule("/job/<job_id>", "job_status", job_status)
     app.add_url_rule("/doc/<uuid:doc_id>/seeding", "seeding", seeding)
     app.add_url_rule(

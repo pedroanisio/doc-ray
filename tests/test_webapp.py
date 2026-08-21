@@ -37,6 +37,17 @@ def _norm(sql: str) -> str:
     return " ".join(sql.split())
 
 
+def _normalized_stylesheet(client) -> str:
+    """The design system with runs of whitespace collapsed.
+
+    Reader and landing CSS used to live in per-template ``<style>`` blocks, so
+    assertions about a rule read the response body. The rules now live in
+    ``design-system.css`` (the response carries no inline style at all), so an
+    assertion about a rule reads the stylesheet.
+    """
+    return _norm(client.get("/static/design-system.css").get_data(as_text=True))
+
+
 def _fake_health_q(s: str):
     if "FROM documents d" in s and "ORDER BY d.created_at" in s:
         return [dict(_DOC, language=None, sentences=6002, mentions=0, links=0)]
@@ -1262,11 +1273,15 @@ def test_original_spread_has_no_facing_page_on_the_last_leaf(client, monkeypatch
 def test_document_reader_headings_are_not_styled_as_admin_labels(client):
     # `.reader-heading` renders as h2/h3/h4, which the global rules style as
     # uppercase mono section labels with a rule underneath.
+    #
+    # The rule is asserted against the stylesheet, not the page: the reader's CSS
+    # moved out of a per-template <style> block into design-system.css so the
+    # response carries no inline style. What must hold is that the override
+    # exists and reaches the reader, which is a fact about the stylesheet.
     css = client.get("/static/design-system.css").get_data(as_text=True)
-    html = client.get(f"/doc/{DOC_ID}").get_data(as_text=True)
 
     assert "text-transform: uppercase" in css  # the global h2 rule still exists
-    rules = re.findall(r"\.reader-heading \{([^}]*)\}", html)
+    rules = re.findall(r"\.reader-heading \{([^}]*)\}", css)
     assert any("text-transform:none" in r and "border-bottom:0" in r for r in rules), rules
 
 
@@ -1323,12 +1338,14 @@ def test_document_annotated_reader_highlights_words(client):
 
 def test_document_annotated_reader_uses_non_color_pos_cues(client):
     html = client.get(f"/doc/{DOC_ID}").get_data(as_text=True)
-    normalized = _norm(html)
 
     assert 'data-pos="VERB"' in html
     assert 'aria-label="said, lemma say, part of speech VERB"' in html
     assert '<span class="pos-sigil" aria-hidden="true">V</span>said' in html
-    assert ".w.p-VERB { border-bottom-style:double;" in normalized
+    # In the stylesheet rather than the page (see the heading test above): the
+    # non-colour cue is a property of the design system, and that is where a
+    # regression in it would have to be introduced.
+    assert ".w.p-VERB { border-bottom-style:double;" in _normalized_stylesheet(client)
 
 
 def test_document_plain_mode_has_no_word_spans(client):
@@ -2009,7 +2026,7 @@ def test_document_reader_has_solo_pos_focus_controls(client):
     assert 'id="pos-focus"' in html
     assert '<option value="VERB">VERB</option>' in html
     assert 'reader.classList.add("solo-" + focus)' in html
-    assert ".reader.solo-VERB .w:not(.p-VERB)" in html
+    assert ".reader.solo-VERB .w:not(.p-VERB)" in _normalized_stylesheet(client)
 
 
 def test_document_missing_returns_404(client):

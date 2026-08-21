@@ -1,40 +1,16 @@
 {% extends "base.html" %}
 {% import "_terms.html" as terms %}
+{% import "_icons.html" as icons %}
+{% import "_components.html" as ui %}
 {% block title %}Operator health · doc·ray{% endblock %}
 {% block body %}
-<style>
-  .health-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:.65rem; }
-  .metric { background:var(--panel); border:2px solid var(--line); border-radius:0;
-    padding:.8rem .9rem; box-shadow:none; }
-  .metric b { display:block; font-family:var(--display); font-size:1.65rem; line-height:1.05; }
-  .metric span { font-family:var(--mono); font-size:.62rem; letter-spacing:.1em;
-    text-transform:uppercase; color:var(--ink-faint); }
-  .health-layout { display:grid; grid-template-columns:minmax(0,1fr); gap:1rem; }
-  .issue-groups { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:.8rem; }
-  .severity-group { border-left:4px solid var(--line); }
-  .severity-group.error { border-left-color:var(--accent); }
-  .severity-group.warning { border-left-color:var(--pos-adj); }
-  .severity-group.info { border-left-color:var(--pos-noun); }
-  .issue { padding:.7rem 0; border-top:1px solid var(--line-soft); }
-  .issue:first-of-type { border-top:0; }
-  .issue-code { display:inline-flex; font-family:var(--mono); font-size:.66rem; letter-spacing:.05em;
-    text-transform:uppercase; color:var(--ink-soft); border:1px solid var(--line);
-    border-radius:0; padding:.08rem .4rem; margin-bottom:.25rem; }
-  .empty { color:var(--ink-faint); font-size:.86rem; }
-  .job-spool td { vertical-align:top; }
-  .job-meta { display:flex; flex-wrap:wrap; gap:.25rem .4rem; margin-top:.2rem; }
-  .job-meta span { font-family:var(--mono); font-size:.68rem; color:var(--ink-soft); }
-  .job-stage { max-width:22rem; }
-  .job-error { color:var(--accent); font-size:.78rem; margin-top:.25rem; }
-</style>
-
 <p class="kicker">Restricted operations</p>
 <h1>Operator health</h1>
-<p class="lede" style="max-width:38rem">
+<p class="lede lede--tight">
   Read-only corpus and database checks, rendered from the same Postgres store as
   the browser. The page is hidden unless the operator token is supplied.
 </p>
-<p class="hint"><a href="{{ url_for('operator_health_json') }}">Stable JSON contract</a></p>
+<p class="hint"><a href="{{ url_for('operator_health_json') }}">Stable JSON contract{{ icons.icon('external-link', class_name='ico--sm') }}</a></p>
 
 <section class="health-layout">
   <div>
@@ -54,10 +30,10 @@
       {% endfor %}
     </div>
 
-    <div class="issue-groups" style="margin-top:1rem">
+    <div class="issue-groups">
       {% for group in corpus.issue_groups %}
       <div class="card severity-group {{ group.severity }}">
-        <h2>{{ group.severity }} group</h2>
+        <h2>{% if group.severity == "error" %}{{ icons.icon("x-circle") }}{% elif group.severity == "warning" %}{{ icons.icon("alert-triangle") }}{% else %}{{ icons.icon("check-circle") }}{% endif %}{{ group.severity }} group</h2>
         {% for issue in group.findings %}
         <div class="issue">
           <span class="issue-code">{{ issue.code }}</span>
@@ -123,6 +99,9 @@
             <div class="job-meta">
               {% if job.progress_current is not none and job.progress_total is not none %}
               <span>{{ job.progress_current }} / {{ job.progress_total }}</span>
+              {# A worker's own reported denominator, so the share is the job's
+                 claim rather than the page's inference. #}
+              {% if job.progress_total %}{{ ui.meter(job.progress_current, job.progress_total, 'Job progress') }}{% endif %}
               {% endif %}
             </div>
           </td>
@@ -146,17 +125,31 @@
 
   <div>
     <h2>Database health</h2>
+    {# Connections is the one figure on this page with a real ceiling, so it is
+       the one figure that gets a bar. `max_connections` is a hard limit: the
+       distance to it is the operator's actual question, and 47/100 answers it
+       far slower than a bar at 47% does. The other totals have no denominator,
+       so drawing one for them would invent a maximum that does not exist. #}
+    {% set conns = database.connections|length + 1 %}
+    {% set cap = database.max_connections or 0 %}
+    {% set share = (conns / cap) if cap else 0 %}
     <div class="health-grid">
       <div class="metric"><b>{{ database.size_pretty }}</b><span>database size</span></div>
-      <div class="metric"><b>{{ database.connections|length + 1 }}/{{ database.max_connections }}</b>
-        <span>connections</span></div>
+      <div class="metric">
+        <b>{{ conns }}/{{ cap }}</b>
+        <span>connections</span>
+        {% if cap %}
+        {% set band = 'meter--danger' if share >= 0.9 else ('meter--warn' if share >= 0.75 else 'meter--ok') %}
+        {{ ui.meter(conns, cap, 'Connection pool in use', class_name=band) }}
+        {% endif %}
+      </div>
       <div class="metric"><b>{{ database.tables|length }}</b><span>tracked tables</span></div>
     </div>
 
-    <div class="issue-groups" style="margin-top:1rem">
+    <div class="issue-groups">
       {% for group in database.issue_groups %}
       <div class="card severity-group {{ group.severity }}">
-        <h2>{{ group.severity }} group</h2>
+        <h2>{% if group.severity == "error" %}{{ icons.icon("x-circle") }}{% elif group.severity == "warning" %}{{ icons.icon("alert-triangle") }}{% else %}{{ icons.icon("check-circle") }}{% endif %}{{ group.severity }} group</h2>
         {% for issue in group.findings %}
         <div class="issue">
           <span class="issue-code">{{ issue.code }}</span>

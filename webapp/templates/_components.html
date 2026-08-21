@@ -1,0 +1,147 @@
+{# doc·ray shared UI components.
+
+   The stylesheet (webapp/static/design-system.css) owns *appearance*; this file
+   owns *composition* — the markup shape that goes with each class, so a panel,
+   an empty state, or a sortable column header is spelled the same way on every
+   page instead of being retyped per template. Adding a component here is how a
+   pattern stops being a local decision.
+
+   Rules for anything added below:
+     * No inline `style` attributes. Every visual decision belongs in the
+       stylesheet, which is what lets the CSP forbid inline style outright.
+     * Take an accessible name where the pattern needs one, and make it a
+       required argument rather than an optional nicety.
+     * Compose with `caller()` when the body is arbitrary page content; take
+       plain arguments when the body is structured data. #}
+
+{% import "_icons.html" as icons %}
+
+{# ── panel ────────────────────────────────────────────────────────────────
+   A titled card. `subtitle` is the explanatory line under the heading; the
+   caller body is the panel's content. #}
+{% macro panel(title, subtitle='', class_name='') -%}
+<section class="card{% if class_name %} {{ class_name }}{% endif %}">
+  <h2>{{ title }}</h2>
+  {% if subtitle %}<p class="lede">{{ subtitle }}</p>{% endif %}
+  {{ caller() }}
+</section>
+{%- endmacro %}
+
+{# ── empty state ──────────────────────────────────────────────────────────
+   Shown where a list has no rows. An empty state that only says "nothing here"
+   wastes the one moment the user is definitely looking: it names the thing that
+   is missing and offers the action that creates it. #}
+{% macro empty_state(title, body='', action_url='', action_label='', icon_name='file-text') -%}
+<div class="empty-state">
+  <span class="empty-state__mark">{{ icons.icon(icon_name) }}</span>
+  <strong class="empty-state__title">{{ title }}</strong>
+  {% if body %}<span class="empty-state__body">{{ body }}</span>{% endif %}
+  {% if action_url and action_label %}
+  <a class="btn" href="{{ action_url }}">{{ icons.icon('plus') }}{{ action_label }}</a>
+  {% endif %}
+</div>
+{%- endmacro %}
+
+{# ── form field ───────────────────────────────────────────────────────────
+   Label, control, and hint as one unit, with the label bound to the control by
+   id so clicking the label focuses the field and a screen reader announces the
+   pair. `hint` is help text, `error` is a validation failure — they render
+   differently and are both wired via aria-describedby. #}
+{% macro field(name, label, type='text', value='', placeholder='', hint='', error='',
+               required=False, maxlength='', autocomplete='', accept='', inputmode='',
+               class_name='') -%}
+{% set fid = 'f-' ~ name %}
+<div class="field{% if error %} field--invalid{% endif %}{% if class_name %} {{ class_name }}{% endif %}">
+  <label for="{{ fid }}">{{ label }}</label>
+  <input id="{{ fid }}" name="{{ name }}" type="{{ type }}"
+         {% if value %}value="{{ value }}"{% endif %}
+         {% if placeholder %}placeholder="{{ placeholder }}"{% endif %}
+         {% if required %}required{% endif %}
+         {% if maxlength %}maxlength="{{ maxlength }}"{% endif %}
+         {% if autocomplete %}autocomplete="{{ autocomplete }}"{% endif %}
+         {% if accept %}accept="{{ accept }}"{% endif %}
+         {% if inputmode %}inputmode="{{ inputmode }}"{% endif %}
+         {% if hint or error %}aria-describedby="{{ fid }}-note"{% endif %}
+         {% if error %}aria-invalid="true"{% endif %}>
+  {% if error %}<p class="field__error" id="{{ fid }}-note">{{ error }}</p>
+  {% elif hint %}<p class="field__hint" id="{{ fid }}-note">{{ hint }}</p>{% endif %}
+</div>
+{%- endmacro %}
+
+{# ── checkbox field ───────────────────────────────────────────────────────
+   A tick box whose label is a sentence rather than a field name, so it reads
+   inline instead of as an uppercase mono caption. #}
+{% macro check_field(name, checked=False, hint='') -%}
+<div class="field field--check">
+  <input type="checkbox" name="{{ name }}" id="f-{{ name }}"{% if checked %} checked{% endif %}
+         {% if hint %}aria-describedby="f-{{ name }}-note"{% endif %}>
+  <label for="f-{{ name }}">{{ caller() }}</label>
+  {% if hint %}<p class="field__hint field__hint--check" id="f-{{ name }}-note">{{ hint }}</p>{% endif %}
+</div>
+{%- endmacro %}
+
+{# ── sortable column header ───────────────────────────────────────────────
+   A column header that is also the control that sorts by it. The link carries
+   the *next* sort state, and aria-sort tells assistive technology the current
+   one — a visual arrow alone communicates nothing to a screen reader.
+
+   Sorting is a server round-trip on purpose: the table is one page of a
+   paginated corpus, so sorting the rows already in the DOM would silently sort
+   a slice and present it as the whole. #}
+{% macro sort_th(label, key, sort, direction, endpoint, args, numeric=False) -%}
+{% set active = (sort == key) %}
+{# First click on an unsorted column takes that column's natural direction:
+   a title reads A→Z, a magnitude reads largest-first. #}
+{% set next_dir = 'asc' if (active and direction == 'desc') else ('desc' if active else ('asc' if key == 'title' else 'desc')) %}
+<th{% if numeric %} class="num"{% endif %}
+    aria-sort="{{ ('ascending' if direction == 'asc' else 'descending') if active else 'none' }}">
+  <a class="th-sort{% if active %} th-sort--on{% endif %}"
+     href="{{ url_for(endpoint, sort=key, dir=next_dir, **args) }}">
+    <span>{{ label }}</span>
+    {% if active and direction == 'asc' %}{{ icons.icon('arrow-up', label='sorted ascending') }}
+    {% elif active %}{{ icons.icon('arrow-down', label='sorted descending') }}
+    {% else %}{{ icons.icon('sort') }}{% endif %}
+  </a>
+</th>
+{%- endmacro %}
+
+{# ── proportion meter ─────────────────────────────────────────────────────
+   One share, drawn as SVG. Two reasons it is SVG and not a div with a width:
+
+     1. Geometry as an *attribute*, not CSS. A data-driven `style="width:…"` is
+        exactly what the Content-Security-Policy forbids; `<rect width="47">` is
+        markup, so the bar needs no inline-style allowance.
+     2. The numbers land in the accessible name, so the figure survives being
+        read rather than only seen.
+
+   `label` must be worded so that "<label>: <value> of <total>" reads truthfully
+   — the denominator is whatever the caller passed, and it is not always a whole.
+   Where `total` is the largest bar rather than a sum, say so in the label; a
+   meter that implies a total it does not have is the one way this lies.
+
+   `show_value` prints the percentage beside the bar. Turn it off where the row
+   already states the count, so the same number is not given twice. #}
+{% macro meter(value, total, label, class_name='', show_value=True) -%}
+{% set pct = ((value / total) * 100) | round(1) if total else 0 %}
+<span class="meter{% if class_name %} {{ class_name }}{% endif %}" role="img" aria-label="{{ label }}: {{ value }} of {{ total }} ({{ pct }}%)">
+  <svg viewBox="0 0 100 6" preserveAspectRatio="none" aria-hidden="true" focusable="false">
+    <rect class="meter__track" x="0" y="0" width="100" height="6" rx="3"/>
+    <rect class="meter__fill" x="0" y="0" width="{{ pct }}" height="6" rx="3"/>
+  </svg>
+  {% if show_value %}<span class="meter__val">{{ pct }}%</span>{% endif %}
+</span>
+{%- endmacro %}
+
+{# A sparkline component was written for this layer and then removed: nothing in
+   the read model carries a time series, and a trend line needs a series. It
+   belongs here the day a figure has history to show — not before, on invented
+   points. #}
+
+{# ── toast region ─────────────────────────────────────────────────────────
+   The live region transient messages are announced into. It is empty markup
+   until something is posted to it; declaring it in the document (rather than
+   creating it on demand) is what makes the announcement reliable, because a
+   live region has to exist before the text lands in it to be read out. #}
+{% macro toast_region() -%}
+<div class="toast-region" id="toast-region" role="status" aria-live="polite" aria-atomic="false"></div>
+{%- endmacro %}

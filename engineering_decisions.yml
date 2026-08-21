@@ -2353,3 +2353,141 @@ decisions:
         command: pytest src/doc_ray/tests/test_sentence_search_index_usage_db.py
         expect:
           exit: 0
+
+  - id: D-037
+    title: The browser's visual language is authored on its own tokens, and inline style is a scoped exception
+    version_introduced: 1.57.3
+    category: architecture
+    decision: 'A vendored commercial admin theme (Bootstrap 5 + jQuery + ~55 plugins,
+      Blade views, a 1.1 MB compiled stylesheet with no SCSS sources and ~3,272
+      `!important` declarations) was evaluated as a source for the Flask browser and
+      rejected as an implementation. It cannot be retokenized — its brand layer is
+      baked into a compiled artifact with no source — and adopting it would replace a
+      49 KB tokenized stylesheet with a ~1.4 MB runtime, discard the shipping brand
+      (`#e5484d` on slate, Inter/JetBrains Mono), and import jQuery under a policy
+      that forbids external script. It was used instead as a capability checklist:
+      the affordances a mature admin surface has that this one lacked.
+
+
+      What was built on the existing tokens: an inline SVG icon sprite with a single
+      `icon()` macro; a component layer (`_components.html`) for panels, empty
+      states, fields, sortable headers, meters and the toast region; server-side
+      column sort with a whitelisted direction; a page-scoped row filter; a
+      drag-and-drop multi-file upload queue with per-file progress over a new JSON
+      intake route; and an ARIA combobox. Every widget is an enhancement over markup
+      that works with JavaScript disabled, because the browser is the surface where
+      anything durable is approved and it may not depend on script to be usable.
+
+
+      The sprite is inlined rather than fetched because `currentColor` inside an
+      externally referenced `<use>` resolves against the referenced document, so an
+      external sprite renders the wrong colour in exactly the light/dark and
+      accent-state cases that matter.
+
+
+      Inline style is now a scoped exception rather than a global allowance. Eleven
+      per-template `<style>` blocks and ninety-nine `style=` attributes became rules
+      and utility classes in `design-system.css`, and the two data-driven proportion
+      bars became SVG, where geometry is markup and needs no style allowance. What
+      remains is irreducible: `overlay_box_style` computes `left/top/width/height`
+      per word box from an OCR bounding box, hundreds per rendered PDF page, and CSP
+      hashes do not apply to style attributes. So `style-src` is strict on every
+      screen and `''unsafe-inline''` is granted to the `document` endpoint alone.
+      `script-src` still allows inline script everywhere; removing it means threading
+      a per-response nonce through every template, and tightening the directive
+      without doing that work would only break the pages.
+
+
+      Intake moved to `webapp/upload_web.py` because corpus browse was at the D-015
+      net-LOC cap and intake is a separate concern: `upload_submit` keeps the form
+      post, `upload_file` answers JSON so the browser can report which of five files
+      failed — something a single multipart navigation cannot express.
+      '
+    decision_status: proposed
+    decision_date: '2026-08-21'
+    owner:
+    - pedroanisio@faz.ai
+    scope_path:
+    - webapp/templates/_icons.html
+    - webapp/templates/_components.html
+    - webapp/static/design-system.css
+    - webapp/security_headers.py
+    - webapp/upload_web.py
+    claims:
+    - claim_id: D-037.k1
+      claim_text: Every icon a template references exists in the sprite, and the sprite carries
+        no symbol nothing references.
+      auditable: true
+      status: populated
+      declared_checks_count: 1
+      checks:
+      - check_id: D-037.k1.c1
+        description: A missing <symbol> draws nothing and raises nothing, and an unused one is
+          dead weight on every page, so both directions are checked statically.
+        check_kind: shell
+        severity: error
+        context: ci
+        side_effects: reads
+        command: pytest tests/test_webapp_ui_components.py -k icon
+        expect:
+          exit: 0
+    - claim_id: D-037.k2
+      claim_text: No template carries a <style> element, and the only inline style attribute left
+        is the PDF overlay's per-box geometry.
+      auditable: true
+      status: populated
+      declared_checks_count: 1
+      checks:
+      - check_id: D-037.k2.c1
+        description: The inline-style budget is what the scoped CSP depends on, so a new <style>
+          block or style attribute fails here rather than silently needing the allowance back.
+        check_kind: shell
+        severity: error
+        context: ci
+        side_effects: reads
+        command: pytest tests/test_webapp_upload_and_widgets.py -k inline_style
+        expect:
+          exit: 0
+    - claim_id: D-037.k3
+      claim_text: style-src forbids inline style on every endpoint except the document reader.
+      auditable: true
+      status: populated
+      declared_checks_count: 1
+      checks:
+      - check_id: D-037.k3.c1
+        description: The strict policy is the one ordinary pages actually receive, and the reader
+          is the only route granted the exception.
+        check_kind: shell
+        severity: error
+        context: ci
+        side_effects: reads
+        command: pytest tests/test_webapp_upload_and_widgets.py -k policy
+        expect:
+          exit: 0
+    - claim_id: D-037.k4
+      claim_text: Every enhanced widget works with JavaScript disabled, and sort direction is
+        whitelisted before it reaches ORDER BY.
+      auditable: true
+      status: populated
+      declared_checks_count: 2
+      checks:
+      - check_id: D-037.k4.c1
+        description: The upload form still posts, the combobox is still a list of submit buttons,
+          and the dropzone still holds a focusable input.
+        check_kind: shell
+        severity: error
+        context: ci
+        side_effects: reads
+        command: pytest tests/test_webapp_upload_and_widgets.py -k "javascript or combobox or dropzone"
+        expect:
+          exit: 0
+      - check_id: D-037.k4.c2
+        description: A hostile ?dir= never reaches SQL, every ordering carries a unique tiebreaker,
+          and each column opens in its natural direction.
+        check_kind: shell
+        severity: error
+        context: ci
+        side_effects: reads
+        command: pytest tests/test_webapp_ui_components.py -k sort
+        expect:
+          exit: 0

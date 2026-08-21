@@ -1,6 +1,12 @@
 {% extends "base.html" %}
 {% import "_terms.html" as terms %}
+{% import "_icons.html" as icons %}
+{% import "_components.html" as ui %}
 {% block title %}Corpus · doc·ray{% endblock %}
+
+{# The link state every control on this page has to preserve. A view switch, a
+   pager step, or a sort click must not silently reset the other three axes. #}
+{% set sort_args = {'view': view, 'density': density, 'group_by': group_by} %}
 
 {# ------- shared row/card fragments, reused across the layouts (BL-143) ------- #}
 {% macro thumb(d) %}
@@ -15,7 +21,7 @@
 {% endmacro %}
 
 {% macro compact_row(d) %}
-  <li class="doc-compact__row">
+  <li class="doc-compact__row" data-row>
     <input type="checkbox" name="document_id" value="{{ d.id }}" aria-label="Select {{ d.title }}">
     <span class="doc-compact__type ti ti-{{ (d.doc_type or 'file')|lower }}">{{ (d.doc_type or 'file')|upper }}</span>
     <a class="doc-compact__title" href="{{ url_for('document', doc_id=d.id) }}">{{ d.title }}</a>
@@ -29,7 +35,7 @@
 {% endmacro %}
 
 {% macro doc_card(d) %}
-  <article class="doc-card">
+  <article class="doc-card" data-row>
     <label class="doc-card__pick"><input type="checkbox" name="document_id" value="{{ d.id }}" aria-label="Select {{ d.title }}"></label>
     <a class="doc-card__cover" href="{{ url_for('document', doc_id=d.id) }}" aria-label="Open {{ d.title }}">
       {% set preview = d.preview %}
@@ -83,8 +89,8 @@
   <nav class="view-switch" aria-label="Corpus layout">
     {% for v in views %}
       <a class="view-switch__btn"
-         href="{{ url_for('documents', view=v, sort=sort, density=density, group_by=group_by) }}"
-         {% if v == view %}aria-current="page"{% endif %}>{{ v|capitalize }}</a>
+         href="{{ url_for('documents', view=v, sort=sort, dir=direction, density=density, group_by=group_by) }}"
+         {% if v == view %}aria-current="page"{% endif %}>{% if v == 'table' %}{{ icons.icon('table') }}{% elif v == 'compact' %}{{ icons.icon('list') }}{% elif v == 'gallery' %}{{ icons.icon('grid') }}{% else %}{{ icons.icon('columns') }}{% endif %}{{ v|capitalize }}</a>
     {% endfor %}
   </nav>
   <form method="get" class="corpus-lens" role="search">
@@ -115,26 +121,42 @@
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
   <div class="toolbar">
     <label>Tags <input name="tags" placeholder="reviewed, source-a"></label>
-    <button type="submit" name="bulk_action" value="tag">Tag selected</button>
-    <button type="submit" name="bulk_action" value="archive">Archive selected</button>
-    <button type="submit" name="bulk_action" value="reannotate">Re-annotate selected</button>
-    <button type="submit" name="bulk_action" value="reextract">Re-extract selected PDFs</button>
+    <button type="submit" name="bulk_action" value="tag">{{ icons.icon('tag') }}Tag selected</button>
+    <button type="submit" name="bulk_action" value="archive">{{ icons.icon('archive') }}Archive selected</button>
+    <button type="submit" name="bulk_action" value="reannotate">{{ icons.icon('refresh') }}Re-annotate selected</button>
+    <button type="submit" name="bulk_action" value="reextract">{{ icons.icon('refresh') }}Re-extract selected PDFs</button>
+    {% if rows %}
+    {# Narrows the rows already rendered. It is not a corpus search and must not
+       read as one — the corpus is paginated, so this can only ever see one page,
+       and the count says so. Search is a separate destination. #}
+    <span class="table-filter">
+      {{ icons.icon('filter') }}
+      <input type="search" data-row-filter aria-label="Filter the documents on this page"
+             placeholder="Filter this page…" autocomplete="off">
+      <span class="table-filter__count" data-row-filter-count aria-live="polite"></span>
+    </span>
+    {% endif %}
   </div>
 
   {% if not rows %}
-    <p class="empty-state"><strong>No documents yet.</strong>
-      <span style="color:var(--ink-faint)">Start by adding a file to the corpus.</span>
-      <a href="{{ url_for('upload_form') }}">Upload the first document</a></p>
+    {% set empty_body = 'The corpus is empty. Add a file and the worker extracts, annotates, and canonicalizes it into the connected corpus.' %}
+    {{ ui.empty_state('No documents yet.', empty_body,
+                      url_for('upload_form'), 'Upload the first document', 'rows') }}
 
   {% elif view == "table" %}
     <table>
       <thead><tr>
-        <th>Select</th><th>Preview</th><th>Title</th><th>Type</th><th>Lang</th>
-        <th class="num">Chars</th><th class="num">Pages</th><th class="num">Sentences</th><th>Analyzer</th>
+        <th>Select</th><th>Preview</th>
+        {{ ui.sort_th('Title', 'title', sort, direction, 'documents', sort_args) }}
+        <th>Type</th><th>Lang</th>
+        {{ ui.sort_th('Chars', 'size', sort, direction, 'documents', sort_args, numeric=True) }}
+        {{ ui.sort_th('Pages', 'pages', sort, direction, 'documents', sort_args, numeric=True) }}
+        {{ ui.sort_th('Sentences', 'sentences', sort, direction, 'documents', sort_args, numeric=True) }}
+        <th>Analyzer</th>
       </tr></thead>
       <tbody>
       {% for d in rows %}
-        <tr>
+        <tr data-row>
           <td><input type="checkbox" name="document_id" value="{{ d.id }}" aria-label="Select {{ d.title }}"></td>
           <td class="preview-cell">{{ thumb(d) }}{% if d.preview.status_label %}<div class="preview-status preview-status-{{ d.preview.state }}">{{ d.preview.status_label }}</div>{% endif %}</td>
           <td class="table-title"><a href="{{ url_for('document', doc_id=d.id) }}">{{ d.title }}</a></td>
@@ -176,10 +198,11 @@
 
   {% if rows %}
   <div class="pager">
-    {% if page > 1 %}<a href="{{ url_for('documents', view=view, sort=sort, density=density, group_by=group_by, page=page-1) }}">← prev</a>{% endif %}
+    {% if page > 1 %}<a href="{{ url_for('documents', view=view, sort=sort, dir=direction, density=density, group_by=group_by, page=page-1) }}">{{ icons.icon('chevron-left') }}prev</a>{% endif %}
     <span>page {{ page }}</span>
-    {% if has_next %}<a href="{{ url_for('documents', view=view, sort=sort, density=density, group_by=group_by, page=page+1) }}">next →</a>{% endif %}
+    {% if has_next %}<a href="{{ url_for('documents', view=view, sort=sort, dir=direction, density=density, group_by=group_by, page=page+1) }}">next{{ icons.icon('chevron-right') }}</a>{% endif %}
   </div>
   {% endif %}
 </form>
 {% endblock %}
+{% block script %}<script src="{{ static_asset('row-filter.js') }}"></script>{% endblock %}

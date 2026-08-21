@@ -40,9 +40,9 @@
 </span>
 {%- endmacro %}
 
-{% macro pos_pill(pos, class_name='pill', style='') -%}
+{% macro pos_pill(pos, class_name='pill') -%}
 {% set definition = pos_defs.get(pos, pos ~ ': part-of-speech tag.') %}
-<span class="tip {{ class_name }} p-{{ pos }}" tabindex="0" aria-label="{{ pos }}: {{ definition }}" data-tip="{{ definition }}" data-pos="{{ pos }}"{% if style %} style="{{ style }}"{% endif %}>
+<span class="tip {{ class_name }} p-{{ pos }}" tabindex="0" aria-label="{{ pos }}: {{ definition }}" data-tip="{{ definition }}" data-pos="{{ pos }}">
   <span class="swatch"></span>{{ pos }}
   <span class="sr-only" role="tooltip">{{ definition }}</span>
 </span>

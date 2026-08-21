@@ -1,22 +1,13 @@
 {% extends "base.html" %}
 {% import "_terms.html" as terms %}
+{% import "_icons.html" as icons %}
 {% block title %}Pipeline status · doc·ray{% endblock %}
 {% block head %}{% if active %}<meta http-equiv="refresh" content="3">{% endif %}{% endblock %}
+{% block main_class %} class="page--reading"{% endblock %}
 {% block body %}
-<style>
-  main { max-width:860px; }
-  table.jobs { width:100%; border-collapse:collapse; font-size:.86rem; margin-top:1rem; }
-  td.res { font-size:.82rem; color:var(--ink-soft); max-width:30rem; overflow-wrap:anywhere; }
-  td.res strong { display:block; color:var(--ink); font-weight:600; margin-bottom:.15rem; }
-  td.res .detail { margin:.15rem 0 0; }
-  td.res .action { margin:.25rem 0 0; color:var(--ink); }
-  .progress-line { display:flex; align-items:center; gap:.5rem; margin:.4rem 0 .15rem; }
-  progress.job-progress { width:8rem; max-width:45%; height:.6rem; accent-color:var(--accent); }
-  .progress-stage { margin:.15rem 0 0; color:var(--ink-faint); }
-</style>
 
 <h1>Pipeline status</h1>
-<p class="lede" style="max-width:39rem">
+<p class="lede measure-sm">
   Pipeline status tracks the background jobs that ingest files, annotate text,
   and canonicalize known entity mentions.
 </p>
@@ -24,8 +15,8 @@
 {% if doc %}
   <p><a href="/doc/{{ doc.id }}">&rarr; {{ doc.title }}</a></p>
 {% elif active %}
-  <p class="hint">waiting for ingestion to produce a document&hellip; this page
-  refreshes every 3 seconds.</p>
+  <p class="hint row">{{ icons.icon('clock') }}<span>waiting for ingestion to produce a
+  document&hellip; this page refreshes every 3 seconds.</span></p>
 {% endif %}
 
 <table class="jobs">
@@ -42,7 +33,7 @@
           <div class="progress-line">
             <progress class="job-progress" value="{{ j.progress.current }}" max="{{ j.progress.total }}">{{ j.progress.label }}</progress>
             <span class="mono">{{ j.progress.label }}</span>
-            {% if j.progress.elapsed_label %}<span class="mono" style="color:var(--ink-faint)">running {{ j.progress.elapsed_label }}</span>{% endif %}
+            {% if j.progress.elapsed_label %}<span class="mono text-faint">running {{ j.progress.elapsed_label }}</span>{% endif %}
           </div>
         {% endif %}
         {% if j.progress.stage %}<p class="progress-stage">{{ j.progress.stage }}</p>{% endif %}
@@ -60,7 +51,7 @@
 </table>
 
 {% if not active %}
-<p class="hint" style="margin-top:1rem;">pipeline finished.
+<p class="hint mt-4">pipeline finished.
   {% if doc %}Open <a href="/doc/{{ doc.id }}">{{ doc.title }}</a> or its
   <a href="/doc/{{ doc.id }}/seeding">domain seeding</a> screen.{% endif %}</p>
 {% endif %}

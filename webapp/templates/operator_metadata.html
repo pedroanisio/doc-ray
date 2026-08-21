@@ -17,7 +17,7 @@
 
 <section class="grid two">
   <div class="card">
-    <h2 style="margin-top:0">Metadata</h2>
+    <h2 class="mt-0">Metadata</h2>
     <form method="post" action="{{ url_for('operator_document_metadata_update', doc_id=doc.id) }}">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <label>Title
@@ -34,7 +34,7 @@
   </div>
 
   <div class="card">
-    <h2 style="margin-top:0">History</h2>
+    <h2 class="mt-0">History</h2>
     {% for h in metadata_history %}
       <p><b>{{ h.field }}</b> changed from <code>{{ h.old_value }}</code> to
         <code>{{ h.new_value }}</code>{% if h.actor %} by {{ h.actor }}{% endif %}</p>

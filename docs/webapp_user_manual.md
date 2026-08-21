@@ -7,8 +7,8 @@ disclaimer:
   generated_by: "Claude Opus 5 (1M context) via Claude Code"
   date: "2026-07-25"
 title: "doc·ray — Web Interface and Agent (MCP) Manual"
-applies_to: "1.54.0"
-last_reviewed: "2026-07-29"
+applies_to: "1.57.3"
+last_reviewed: "2026-08-21"
 ---
 
 # doc·ray — Web Interface and Agent (MCP) Manual
@@ -268,13 +268,31 @@ occurrence, annotation, canonicalization, domain seeding, POS codes.
 
 ### 4.2 Upload (`/upload`)
 
-Drag in (or pick) a PDF, EPUB, HTML, Markdown, plain-text, DOCX, PPTX or SVG
-file — optionally with an explicit
-title — and submit. By default the **full pipeline** checkbox is on: the file is
-ingested, then automatically annotated, semantically enriched, and canonicalized,
-with no further clicks. Untick it to ingest only. Uploads are capped in size
-(200 MB by default; `DOCRAY_MAX_UPLOAD_MB` overrides). Submitting lands you on
-the pipeline-status page (§4.3) for the new document.
+Drop files onto the intake zone, or click it to pick them — PDF, EPUB, HTML,
+Markdown, plain-text, DOCX, PPTX or SVG. By default the **full pipeline**
+checkbox is on: each file is ingested, then automatically annotated, semantically
+enriched, and canonicalized, with no further clicks. Untick it to ingest only.
+Uploads are capped in size (200 MB by default; `DOCRAY_MAX_UPLOAD_MB` overrides).
+
+**Several files at once.** Dropping more than one file queues them, and each row
+shows its own name, size, progress bar, and outcome. They upload one at a time:
+every ingest holds an API worker for its duration, so parallel posts would make
+each slower and make the bars misreport which one is moving. A file that the API
+rejects keeps its row and its reason — the queue *is* the report, so it is not
+cleared on completion. A single successful file behaves as before and lands you
+on its pipeline-status page (§4.3).
+
+An explicit **title** is applied only when exactly one file is queued. One typed
+title cannot describe five documents, so with several queued each keeps the
+metadata read from its own contents.
+
+**Reference intake** is unchanged and separate: paste an arXiv link or id instead
+of choosing a file, and the *worker* performs the fetch, so the browser is never
+held open on a remote download. Give a file or a reference, not both.
+
+None of the above requires JavaScript. With script disabled the page is a plain
+form that posts one file and redirects, which is the same path the queue uses
+per file.
 
 ### 4.3 Pipeline status (`/job/<id>`)
 
@@ -296,6 +314,21 @@ document table — title, type, language, size, sentence count, and which
 annotation tools have run — under its bulk-action toolbar. Click a title to open
 the reader. If the corpus is empty, the table shows an upload call-to-action
 instead of an unexplained empty grid.
+
+**Sorting.** In the table view the column headers for title, chars, pages and
+sentences are the controls that sort by them. Clicking an inactive column sorts
+it in its natural direction — a title A→Z, a magnitude largest-first — and
+clicking the active column reverses it. Sorting is a server round-trip because
+the list is one page of a paginated corpus: sorting only the rows already on
+screen would order a slice and present it as the whole. The current column and
+direction are announced through `aria-sort`, and they survive a view change, a
+density change, and paging.
+
+**Filtering this page.** The toolbar also carries a filter box, and it is
+deliberately not search. It narrows the rows already loaded, and the count beside
+it says so ("12 of 50 on this page"), because a client-side filter can only see
+one page — a control that looked like search would report "no matches" for
+documents that exist. Corpus-wide search is its own destination (§4.11).
 
 **View modes.** The same documents can be laid out four ways, chosen from the
 switcher above the list; the choice, along with sort, density, and grouping,
@@ -511,8 +544,16 @@ or wrong, the route returns 404.
 
 The page renders corpus-health totals, document/job findings, database size,
 connection pressure, lock/slow-query findings, and table-bloat findings. Issues
-are grouped as `error`, `warning`, and `info`; the browser reads the same
-Postgres store directly and does not write to the corpus.
+are grouped as `error`, `warning`, and `info`, each group carrying a mark as well
+as a coloured edge so severity is never signalled by colour alone; the browser
+reads the same Postgres store directly and does not write to the corpus.
+
+Two figures are drawn as bars rather than only as numbers: connection use against
+`max_connections`, and a running job's progress against the total its worker
+reported. Both have a real denominator, which is the condition for drawing one —
+the corpus totals (documents, sentences, tokens) have no ceiling, so a bar there
+would invent a maximum. The bars are SVG and state their numbers in their
+accessible name, so the figure survives being read rather than seen.
 
 Operators can also request `/operator/health.json` with the same token. That
 route returns the stable `operator-health.v1` JSON contract: corpus totals,
@@ -531,6 +572,18 @@ POS chips and status pills use the same shared tooltip affordance: hover with a
 pointer, focus with a keyboard, or tap to focus on touch devices to reveal the
 plain-language definition. Screen-reader-only tooltip text is also present in the
 control.
+
+Every navigation destination and every action button also carries an icon beside
+its word. The icons are decorative by construction — the word is the accessible
+name — so they add a shape to recognise a row by without adding anything for a
+screen reader to announce. An icon is promoted to a labelled image only where it
+is the control's sole name, such as the sort arrow in a column header.
+
+Actions whose result is not visible on the page they happened on confirm through
+a transient message in a live region, so the confirmation is announced and not
+only shown. Anything you need to re-read, act on, or copy stays in the page
+instead: a message on a timer cannot be a message that matters, and failures
+never auto-dismiss.
 
 ### 4.17 Admin console (separate application)
 

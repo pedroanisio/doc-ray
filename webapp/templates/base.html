@@ -1,3 +1,5 @@
+{% import "_icons.html" as icons %}
+{% import "_components.html" as ui %}
 <!doctype html>
 <html lang="en" data-theme="light">
 <head>
@@ -34,6 +36,7 @@
   <link rel="stylesheet" href="{{ static_asset('design-system.css') }}">
 </head>
 <body>
+  {{ icons.sprite() }}
   <div id="nav-progress" aria-hidden="true"></div>
   <header>
     {# App nav is only meaningful to someone who can use it: a signed-in user,
@@ -42,47 +45,52 @@
     {% set show_app_nav = current_auth_session or not web_auth_required %}
     <a class="brand" href="{{ url_for('documents') if show_app_nav else url_for('landing') }}">doc<b>·</b>ray</a>
     <input type="checkbox" id="nav-open" class="nav-cb" aria-hidden="true" tabindex="-1">
-    <label for="nav-open" class="nav-burger" aria-label="Toggle navigation"><span></span></label>
+    <label for="nav-open" class="nav-burger" aria-label="Toggle navigation">{{ icons.icon('menu', class_name='ico--lg') }}</label>
     <nav>
       {% if show_app_nav %}
+      {# Each destination carries a mark as well as its name. The icon is
+         decorative — the word is the accessible name — so it adds a shape to
+         recognise the row by without adding anything to announce. #}
       <span class="nav-group nav-reading">
-        <a href="{{ url_for('documents') }}" class="{{ 'on' if request.endpoint in ['documents','document','seeding','seeding_action'] }}">Corpus</a>
-        <a href="{{ url_for('collections') }}" class="{{ 'on' if request.endpoint in ['collections','collections_create','collection_detail','collection_document_update'] }}">Collections</a>
-        <a href="{{ url_for('review') }}" class="{{ 'on' if request.endpoint in ['review','review_action'] }}">Review</a>
-        <a href="{{ url_for('lexemes') }}" class="{{ 'on' if request.endpoint in ['lexemes','lexeme'] }}">Lexicon</a>
-        <a href="{{ url_for('search') }}" class="{{ 'on' if request.endpoint == 'search' }}">Search</a>
-        <a href="{{ url_for('briefing') }}" class="{{ 'on' if request.endpoint == 'briefing' }}">Briefing</a>
-        <a href="{{ url_for('upload_form') }}" class="nav-action {{ 'on' if request.endpoint in ['upload_form','upload_submit','job_status'] }}">+ Upload</a>
-        <a href="{{ url_for('help_page') }}" class="{{ 'on' if request.endpoint == 'help_page' }}">Help</a>
+        <a href="{{ url_for('documents') }}" class="{{ 'on' if request.endpoint in ['documents','document','seeding','seeding_action'] }}">{{ icons.icon('rows') }}Corpus</a>
+        <a href="{{ url_for('collections') }}" class="{{ 'on' if request.endpoint in ['collections','collections_create','collection_detail','collection_document_update'] }}">{{ icons.icon('layers') }}Collections</a>
+        <a href="{{ url_for('review') }}" class="{{ 'on' if request.endpoint in ['review','review_action'] }}">{{ icons.icon('check-square') }}Review</a>
+        <a href="{{ url_for('lexemes') }}" class="{{ 'on' if request.endpoint in ['lexemes','lexeme'] }}">{{ icons.icon('type') }}Lexicon</a>
+        <a href="{{ url_for('search') }}" class="{{ 'on' if request.endpoint == 'search' }}">{{ icons.icon('search') }}Search</a>
+        <a href="{{ url_for('briefing') }}" class="{{ 'on' if request.endpoint == 'briefing' }}">{{ icons.icon('file-text') }}Briefing</a>
+        <a href="{{ url_for('upload_form') }}" class="nav-action {{ 'on' if request.endpoint in ['upload_form','upload_submit','job_status'] }}">{{ icons.icon('upload') }}Upload</a>
+        <a href="{{ url_for('help_page') }}" class="{{ 'on' if request.endpoint == 'help_page' }}">{{ icons.icon('help-circle') }}Help</a>
       </span>
       {% if backup_enabled %}
       <span class="nav-group nav-admin">
-        <a href="{{ url_for('backups') }}" class="{{ 'on' if request.endpoint in ['backups','backups_create','backups_restore','backups_download'] }}">Backups</a>
+        <a href="{{ url_for('backups') }}" class="{{ 'on' if request.endpoint in ['backups','backups_create','backups_restore','backups_download'] }}">{{ icons.icon('archive') }}Backups</a>
       </span>
       {% endif %}
       {% endif %}
       {% if current_auth_session %}
       <span class="nav-group nav-account">
-        <a href="{{ url_for('settings') }}" class="{{ 'on' if request.endpoint in ['settings','settings_profile','settings_password','settings_email','settings_preferences','settings_email_confirm','profile'] }}">Settings</a>
+        <a href="{{ url_for('settings') }}" class="{{ 'on' if request.endpoint in ['settings','settings_profile','settings_password','settings_email','settings_preferences','settings_email_confirm','profile'] }}">{{ icons.icon('sliders') }}Settings</a>
         <form method="post" action="{{ url_for('logout') }}" class="nav-inline-form">
           <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-          <button type="submit" class="nav-link-button">Sign out</button>
+          <button type="submit" class="nav-link-button">{{ icons.icon('log-out') }}Sign out</button>
         </form>
       </span>
       {% elif web_auth_required %}
       <span class="nav-group nav-account">
-        <a href="{{ url_for('login') }}" class="{{ 'on' if request.endpoint in ['login','login_submit'] }}">Sign in</a>
+        <a href="{{ url_for('login') }}" class="{{ 'on' if request.endpoint in ['login','login_submit'] }}">{{ icons.icon('log-in') }}Sign in</a>
         {% if local_registration_available %}
-        <a href="{{ url_for('register_form') }}" class="{{ 'on' if request.endpoint in ['register_form','register_submit'] }}">Sign up</a>
+        <a href="{{ url_for('register_form') }}" class="{{ 'on' if request.endpoint in ['register_form','register_submit'] }}">{{ icons.icon('user-plus') }}Sign up</a>
         {% endif %}
       </span>
       {% endif %}
     </nav>
     <button class="toggle" onclick="toggleTheme()" title="Toggle light / dark" aria-label="Toggle theme">
-      <span class="sun">☀</span><span class="moon">☾</span>
+      <span class="sun">{{ icons.icon('sun') }}</span><span class="moon">{{ icons.icon('moon') }}</span>
     </button>
   </header>
-  <main>{% block body %}{% endblock %}</main>
+  {# Pages that need a different measure declare it as a class rather than an
+     inline `max-width`, which is what lets the CSP forbid inline style. #}
+  <main{% block main_class %}{% endblock %}>{% block body %}{% endblock %}</main>
   {# One-handed reach: on a touch device the reachable region is the bottom of
      the screen, so the recurring destinations and the back affordance live here
      rather than in the masthead. Hidden entirely under a fine pointer, where the
@@ -91,17 +99,17 @@
   {% if show_app_nav %}
   <nav class="bottom-nav" aria-label="Primary">
     {% if back_url %}
-    <a class="bottom-nav__back" href="{{ back_url }}"><span aria-hidden="true">←</span>
+    <a class="bottom-nav__back" href="{{ back_url }}">{{ icons.icon('arrow-left', class_name='ico--lg') }}
       <span class="bottom-nav__t">{{ back_label or 'Back' }}</span></a>
     {% endif %}
     <a href="{{ url_for('documents') }}" class="{{ 'on' if request.endpoint in ['documents','document','seeding','seeding_action'] }}">
-      <span aria-hidden="true">▤</span><span class="bottom-nav__t">Corpus</span></a>
+      {{ icons.icon('rows', class_name='ico--lg') }}<span class="bottom-nav__t">Corpus</span></a>
     <a href="{{ url_for('search') }}" class="{{ 'on' if request.endpoint == 'search' }}">
-      <span aria-hidden="true">⌕</span><span class="bottom-nav__t">Search</span></a>
+      {{ icons.icon('search', class_name='ico--lg') }}<span class="bottom-nav__t">Search</span></a>
     <a href="{{ url_for('upload_form') }}" class="{{ 'on' if request.endpoint in ['upload_form','upload_submit','job_status'] }}">
-      <span aria-hidden="true">＋</span><span class="bottom-nav__t">Upload</span></a>
+      {{ icons.icon('upload', class_name='ico--lg') }}<span class="bottom-nav__t">Upload</span></a>
     <label for="nav-open" class="bottom-nav__more">
-      <span aria-hidden="true">☰</span><span class="bottom-nav__t">More</span></label>
+      {{ icons.icon('menu', class_name='ico--lg') }}<span class="bottom-nav__t">More</span></label>
   </nav>
   {% endif %}
   <footer class="site-footer">
@@ -154,7 +162,9 @@
       localStorage.setItem('docray-theme', next);
     }
   </script>
+  {{ ui.toast_region() }}
   <script src="{{ static_asset('nav-progress.js') }}"></script>
+  <script src="{{ static_asset('toast.js') }}"></script>
   {% block script %}{% endblock %}
 </body>
 </html>

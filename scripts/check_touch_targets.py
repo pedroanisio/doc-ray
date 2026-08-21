@@ -86,6 +86,15 @@ CONTROLS: tuple[str, ...] = (
     "summary",
     ".bottom-nav a",
     ".bottom-nav__more",
+    # Corpus layout switch: an <a>, so the `button` rule never bounded it.
+    ".view-switch__btn",
+    # A sortable column header IS the control that sorts by it.
+    ".th-sort",
+    # Combobox options are the only way to pick a row from a filtered list.
+    ".combobox__opt",
+    # Icon-only buttons: both axes bound the target, so both are checked.
+    ".toast__close",
+    ".upload-item__drop",
 )
 
 #: Controls whose hit area is bounded on both axes because they are drawn as a

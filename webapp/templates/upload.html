@@ -1,20 +1,10 @@
 {% extends "base.html" %}
 {% import "_terms.html" as terms %}
+{% import "_icons.html" as icons %}
+{% import "_components.html" as ui %}
 {% block title %}Upload · doc·ray{% endblock %}
+{% block main_class %} class="page--narrow"{% endblock %}
 {% block body %}
-<style>
-  main { max-width:620px; }
-  .field { margin:1.1rem 0; }
-  .field label { display:block; font-family:var(--mono); font-size:.66rem;
-    letter-spacing:.1em; text-transform:uppercase; color:var(--ink-soft);
-    margin-bottom:.4rem; }
-  .field input[type=text] { width:100%; padding:.55rem .7rem; font-size:.95rem;
-    background:var(--panel); color:var(--ink); border:2px solid var(--line);
-    border-radius:0; }
-  .field input[type=file] { font-family:var(--mono); font-size:.78rem; color:var(--ink-soft); }
-  .pipe { display:flex; align-items:center; gap:.55rem; font-size:.9rem; }
-</style>
-
 <h1>Upload a document</h1>
 <p class="hint">{{ format_label }}. The file is ingested by the background
 worker; with the pipeline enabled it is annotated and canonicalized automatically.</p>
@@ -25,67 +15,51 @@ worker; with the pipeline enabled it is annotated and canonicalized automaticall
 
 {% if error %}<div class="errbox">{{ error }}</div>{% endif %}
 
-<form method="post" enctype="multipart/form-data">
+{# The form posts on its own with no JavaScript: one file, full reload, redirect
+   to the job page. upload.js layers drag-and-drop, several files at once, and
+   per-file progress on top of the same markup by posting each file to
+   /upload/file instead — so the enhancement adds capability without becoming
+   the only way in. #}
+<form method="post" enctype="multipart/form-data" data-upload-form>
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-  <div class="field">
-    <label for="upload-file">file</label>
-    <input id="upload-file" type="file" name="file"
-           accept="{{ accept_attribute }}">
+
+  <div class="dropzone" data-dropzone>
+    <span class="dropzone__mark">{{ icons.icon('upload', class_name='ico--xl') }}</span>
+    <span class="dropzone__lead">Drop a file here, or choose one</span>
+    <p class="dropzone__note">{{ format_label }}</p>
+    <input id="upload-file" type="file" name="file" accept="{{ accept_attribute }}"
+           aria-label="Choose a document to upload" data-upload-input>
   </div>
-  <div class="field">
-    <label for="upload-ref">or a reference — the server fetches it for you</label>
-    <input id="upload-ref" type="text" name="ref"
-           placeholder="e.g. https://arxiv.org/abs/2401.00001 or arxiv:2401.00001">
-    <p class="muted" style="margin:.35rem 0 0; font-size:.82rem">
-      Accepts arXiv <code>abs</code>/<code>pdf</code> links, <code>arxiv:&lt;id&gt;</code>,
-      and bare ids. Give a file <em>or</em> a reference, not both.
-    </p>
-  </div>
-  <div class="field">
-    <label for="upload-title">title (optional — defaults to the document's own metadata)</label>
-    <input id="upload-title" type="text" name="title" placeholder="e.g. Just My Type: A Book About Fonts">
-  </div>
-  <div class="field pipe">
-    <input type="checkbox" name="pipeline" id="pipeline" checked>
-    <label for="pipeline" style="margin:0; text-transform:none; font-family:inherit;
-      font-size:.9rem; color:var(--ink);">
-      run the full pipeline (
-      {% call terms.explain("Annotate builds sentences, lexemes, and entity mentions.") %}annotate{% endcall %}
-      &rarr;
-      {% call terms.explain("Canonicalize links known mentions to canonical entities.") %}canonicalize{% endcall %}
-      ) after ingest</label>
-  </div>
+  <ul class="upload-queue" data-upload-queue></ul>
+
+  {{ ui.field('ref', 'or a reference — the server fetches it for you',
+              placeholder='e.g. https://arxiv.org/abs/2401.00001 or arxiv:2401.00001',
+              hint='Accepts arXiv abs/pdf links, arxiv:<id>, and bare ids. Give a file or a reference, not both.') }}
+
+  {{ ui.field('title', "title (optional — defaults to the document's own metadata)",
+              placeholder='e.g. Just My Type: A Book About Fonts') }}
+
+  {% call ui.check_field('pipeline', checked=True) %}
+    run the full pipeline (
+    {% call terms.explain("Annotate builds sentences, lexemes, and entity mentions.") %}annotate{% endcall %}
+    &rarr;
+    {% call terms.explain("Canonicalize links known mentions to canonical entities.") %}canonicalize{% endcall %}
+    ) after ingest
+  {% endcall %}
+
   {% if patent_extraction_enabled %}
-  <div class="field pipe">
-    <input type="checkbox" name="patent" id="patent">
-    <label for="patent" style="margin:0; text-transform:none; font-family:inherit;
-      font-size:.9rem; color:var(--ink);">
-      read as a {% call terms.explain("A patent front page is two columns. The ordinary
-      reader orders lines down the page, which interleaves them into sentences that were
-      never written. This splits the columns first, then OCRs each one.") %}patent{% endcall %}
-      (column-aware, slower)</label>
-  </div>
-  <p class="muted" style="margin:-.5rem 0 0; font-size:.82rem">
-    Tick this only for a scanned two-column patent. It re-reads every page as an
-    image, so it takes appreciably longer than a normal ingest and is the wrong
-    choice for a single-column or born-digital PDF.
-  </p>
-  <div class="field">
-    <label for="upload-jurisdiction">patent office (optional — read from a
-      <code>US-4336787.pdf</code> style filename when blank)</label>
-    <input id="upload-jurisdiction" type="text" name="jurisdiction"
-           maxlength="2" style="width:6rem; text-transform:uppercase"
-           placeholder="DE">
-    <p class="muted" style="margin:.35rem 0 0; font-size:.82rem">
-      This chooses the OCR language, which is not a preference: reading a
-      Cyrillic or Japanese scan with an English model does not fail, it invents
-      plausible Latin words. <code>DE</code>/<code>AT</code> add Fraktur;
-      <code>EP</code>, <code>WO</code>, <code>CH</code>, <code>BE</code> and
-      <code>CA</code> are probed page-by-page because those offices publish in
-      several languages.
-    </p>
-  </div>
+  {% set patent_hint = 'Tick this only for a scanned two-column patent. It re-reads every page as an image, so it takes appreciably longer than a normal ingest and is the wrong choice for a single-column or born-digital PDF.' %}
+  {% call ui.check_field('patent', hint=patent_hint) %}
+    read as a {% call terms.explain("A patent front page is two columns. The ordinary
+    reader orders lines down the page, which interleaves them into sentences that were
+    never written. This splits the columns first, then OCRs each one.") %}patent{% endcall %}
+    (column-aware, slower)
+  {% endcall %}
+  {% set jurisdiction_hint = 'This chooses the OCR language, which is not a preference: reading a Cyrillic or Japanese scan with an English model does not fail, it invents plausible Latin words. DE/AT add Fraktur; EP, WO, CH, BE and CA are probed page-by-page because those offices publish in several languages.' %}
+  {{ ui.field('jurisdiction', 'patent office (optional — read from a US-4336787.pdf style filename when blank)',
+              placeholder='DE', maxlength='2', hint=jurisdiction_hint, class_name='field--narrow') }}
   {% endif %}
-  <button>Upload &amp; ingest</button>
+  <button data-upload-submit>{{ icons.icon('upload') }}Upload &amp; ingest</button>
 </form>
 {% endblock %}
+{% block script %}<script src="{{ static_asset('upload.js') }}"></script>{% endblock %}
