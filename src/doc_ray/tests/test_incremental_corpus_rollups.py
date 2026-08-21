@@ -74,7 +74,16 @@ def _seed_lexeme_doc(conn, occurrences: int) -> tuple[str, str, str]:
 
 def _add_occurrences(conn, doc_id: str, annotation_id: str, lexeme_uid: str, n: int) -> None:
     width = 12
-    ranges = [(i * width, i * width + width - 1) for i in range(n)]
+    # Place the new spans after whatever this annotation already carries.
+    # `lexeme_occurrences` is keyed on (annotation_id, span_id), so a second call
+    # that restarted at offset 0 would collide with its own earlier rows instead
+    # of adding occurrences.
+    row = conn.execute(
+        "SELECT count(*) AS n FROM lexeme_occurrences WHERE annotation_id = %s",
+        (annotation_id,),
+    ).fetchone()
+    start = int(row["n"])
+    ranges = [((start + i) * width, (start + i) * width + width - 1) for i in range(n)]
     if not ranges:
         return
     spans = db.ensure_spans(conn, doc_id, ranges)
@@ -135,12 +144,7 @@ def test_reannotation_replaces_rather_than_accumulates(pg) -> None:
     _refresh(conn, doc_id)
     assert _uses(conn, tenant, lexeme_uid) == 3
 
-    conn.execute(
-        "DELETE FROM lexeme_occurrences o USING annotations a "
-        "WHERE a.id = o.annotation_id AND a.document_id = %s",
-        (doc_id,),
-    )
-    annotation_id = _itdb_make_annotation(conn, doc_id)
+    annotation_id = _reannotate(conn, doc_id)
     _add_occurrences(conn, doc_id, annotation_id, lexeme_uid, 1)
 
     _refresh(conn, doc_id)
@@ -148,7 +152,38 @@ def test_reannotation_replaces_rather_than_accumulates(pg) -> None:
     assert _uses(conn, tenant, lexeme_uid) == 1
 
 
-def _itdb_make_annotation(conn, doc_id: str) -> str:
+def _lexeme_annotation(conn, doc_id: str) -> str:
+    """The document's one ``('lexeme', 'test')`` annotation.
+
+    ``annotations_doc_layer_tool_key`` (migration 007) permits exactly one row per
+    (document, layer, tool), and ``_seed_lexeme_doc`` already created it. A test
+    adding further occurrences to the same document must therefore reuse that row
+    rather than insert a second one.
+    """
+    row = conn.execute(
+        "SELECT id FROM annotations WHERE document_id = %s AND layer = 'lexeme' AND tool = 'test'",
+        (doc_id,),
+    ).fetchone()
+    if row is not None:
+        return str(row["id"])
+    import _itdb
+
+    return _itdb.make_annotation(conn, doc_id, "lexeme", "test")
+
+
+def _reannotate(conn, doc_id: str) -> str:
+    """Replace the document's lexeme annotation the way a re-annotation does.
+
+    Dropping the annotation row cascades its ``lexeme_occurrences`` (migration
+    005), so the document's old contribution disappears and the caller writes the
+    new one under a fresh row — which is exactly what the unique constraint on
+    (document_id, layer, tool) models. Deleting only the occurrences and then
+    inserting a second annotation, as this test first did, violates it.
+    """
+    conn.execute(
+        "DELETE FROM annotations WHERE document_id = %s AND layer = 'lexeme' AND tool = 'test'",
+        (doc_id,),
+    )
     import _itdb
 
     return _itdb.make_annotation(conn, doc_id, "lexeme", "test")
@@ -261,7 +296,7 @@ def test_corpus_stats_are_stamped_after_the_rollups(pg) -> None:
         "SELECT total_lexeme_uses FROM corpus_stats WHERE tenant_id = %s", (tenant,)
     ).fetchone()["total_lexeme_uses"]
 
-    annotation_id = _itdb_make_annotation(conn, doc_id)
+    annotation_id = _lexeme_annotation(conn, doc_id)
     _add_occurrences(conn, doc_id, annotation_id, lexeme_uid, 4)
     _refresh(conn, doc_id)
 
@@ -279,7 +314,7 @@ def test_refresh_is_not_debounced(pg) -> None:
     created.append(doc_id)
     _refresh(conn, doc_id)
 
-    annotation_id = _itdb_make_annotation(conn, doc_id)
+    annotation_id = _lexeme_annotation(conn, doc_id)
     _add_occurrences(conn, doc_id, annotation_id, lexeme_uid, 2)
     # Default corpus_max_age; pre-154 this returned without touching anything
     # because corpus_stats.computed_at was seconds old.

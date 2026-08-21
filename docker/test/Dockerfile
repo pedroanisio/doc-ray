@@ -7,8 +7,13 @@ WORKDIR /app
 ENV PYTHONPATH=/app/src:/app:/app/scripts:/app/src/doc_ray/tests \
     UV_COMPILE_BYTECODE=1
 
+# git resolves the one dependency pinned to a commit rather than a PyPI release
+# (patent-ocr, requirements.txt). The runtime Dockerfile installs it for the same
+# reason; omitting it here left `uv pip install` failing on this image alone, so
+# the containerised suite could not build at all.
 RUN apt-get update \
       && apt-get install -y --no-install-recommends \
+        git \
         tesseract-ocr \
         tesseract-ocr-eng \
       && rm -rf /var/lib/apt/lists/*
