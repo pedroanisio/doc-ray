@@ -81,7 +81,8 @@ doc-ray carries **one global version** covering both the application package
 ### Removed
 
 - The design-book checksum gate (`check_doc_artifacts.py`) and the unrelated
-  design-guidelines book it protected; the backlog-content regression tests.
+  design-guidelines book it protected; the backlog-content regression tests;
+  an autonomous-iteration prompt that had been committed under `docs/`.
 
 - **NLP Layers 9 (constituency) and 14 (semantic role labelling) are now
   written and readable.** Both had schema since migrations `009_syntax.sql` and

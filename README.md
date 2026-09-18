@@ -626,9 +626,9 @@ Current decisions (see the record for rationale, claims, and auditable checks):
 | D-015 | Every source file stays under 400 net lines of code |
 | D-016 | `engineering_decisions.yml` is the ADR system of record |
 
-_These are the foundational decisions; the full, current ADR set runs through **D-036**
+_These are the foundational decisions; the full, current ADR set runs through **D-037**
 (e.g. D-024 supply-chain lock gate, D-025 no live fact-table aggregates, D-033/D-034
-surface parity, D-036 touch targets). See [`engineering_decisions.yml`](engineering_decisions.yml) — the
+surface parity, D-036 touch targets, D-037 the browser's own UI tokens). See [`engineering_decisions.yml`](engineering_decisions.yml) — the
 system of record (D-016) — for all of them._
 
 ## Quality gates

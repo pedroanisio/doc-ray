@@ -14,13 +14,12 @@ error is raised**. The helper returns success, the caller then refreshes
 ``corpus_stats`` correctly as ``docray_batch`` and stamps a fresh ``computed_at``,
 and the rollup looks maintained while recomputing the same frozen number.
 
-Measured on production 2026-08-03, three days after 154 applied: ``lexeme_stats``
-still held the 453,662 rows the migration's own header recorded before the
-cutover, against 481,564 distinct lexemes actually present in
-``lexeme_occurrences`` — 27,902 keys missing, 44 annotated documents contributing
-nothing, and ``corpus_stats.total_lexeme_uses`` short by 3,620,281. That scalar is
-the denominator in ``_TERM_FREQ_SQL``, so every ``term_frequency`` share was
-computed against a total 4.7 % too small.
+Observed days after migration 154 applied: ``lexeme_stats`` still held exactly
+the row count recorded before the cutover while ``lexeme_occurrences`` had gained
+tens of thousands of distinct lexemes — dozens of annotated documents contributed
+nothing, and ``corpus_stats.total_lexeme_uses`` ran several percent short. That
+scalar is the denominator in ``_TERM_FREQ_SQL``, so every ``term_frequency`` share
+was computed against a total that was too small.
 
 Migration 159 addressed a *different* symptom of the same omission — the helpers
 were never granted ``EXECUTE`` to ``docray_batch``, so the calls failed loudly
@@ -48,8 +47,8 @@ _MIGRATIONS_DIR = _ROOT / "db" / "migrations"
 #: Tenant rollups that carry FORCE ROW LEVEL SECURITY with a SELECT policy and no
 #: write policy at all. A write reaches them only from a BYPASSRLS identity; from
 #: any other it is denied on INSERT and silently matches zero rows on UPDATE and
-#: DELETE. Read off production 2026-08-03 by selecting forced-RLS tables having no
-#: policy with cmd in (ALL, INSERT, UPDATE, DELETE).
+#: DELETE. Derived by selecting the forced-RLS tables that have no policy with
+#: cmd in (ALL, INSERT, UPDATE, DELETE).
 _BYPASS_ONLY_WRITE_TABLES = (
     "backups",
     "corpus_stats",

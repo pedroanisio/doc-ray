@@ -55,7 +55,7 @@ source_schema:         "db/migrations"
 # by scripts/check_version_consistency.py.
 source_schema_version: "1.57.3"
 target_engine:         "PostgreSQL 16"
-total_decisions:       35
+total_decisions:       36
 
 decisions:
 
