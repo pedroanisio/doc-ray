@@ -1,6 +1,6 @@
 """BL-195: the specificity gate must not mistake stray capitals for entities.
 
-Found 2026-07-29 by repairing the production corpus: seven captions that were
+Found by repairing a corpus: several captions that were
 degenerate token soup had been **committed** — i.e. promoted to trusted,
 reader-visible output — with grounding scores of 0.98, 0.97 and 0.86.
 

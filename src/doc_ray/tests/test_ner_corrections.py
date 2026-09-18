@@ -1,4 +1,4 @@
-"""Block A — NER correction domain: the reconcile invariant.
+"""NER correction domain: the reconcile invariant.
 
 These tests define the load-bearing behavior of human NER corrections: a
 correction is keyed by a stable span identity and is *re-applied* onto the

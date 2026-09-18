@@ -1,4 +1,4 @@
-"""Unit tests for the pure genre → resolution-scope policy (SLP Block C, #6).
+"""Unit tests for the pure genre → resolution-scope policy (issue #6).
 
 No database, no network. The policy is a total, deterministic pure function; these
 tests pin the full genre × entity-type matrix, totality on unknown inputs, and the

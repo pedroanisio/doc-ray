@@ -1,9 +1,9 @@
-"""GraphQL mutations for allusion edges (SLP Block E, issue #9, FR-3).
+"""GraphQL mutations for allusion edges (issue #9, FR-3).
 
 Three writes, mixed into the ``Mutation`` root (D-015), all guarded by
 ``_require_write_audited`` (write scope + billing entitlement) and audited on success
 AND denial. ``entity_allusion`` is a **curation** table the API writes directly
-(docray_client) — unlike Block D's derived fact tables. The per-document/per-lens
+(docray_client) — unlike the projection engine's derived fact tables. The per-document/per-lens
 protection is enforced by the table's RLS (the caller may only write an edge justified
 by a document they can write); this layer adds the scope/billing gate and a clean error.
 
@@ -68,7 +68,7 @@ async def _apply_status(
 
 @strawberry.type
 class AllusionMutations:
-    """Propose/confirm/reject typed cross-lens allusion edges (Block E)."""
+    """Propose/confirm/reject typed cross-lens allusion edges."""
 
     @strawberry.mutation
     async def propose_allusion(
@@ -83,7 +83,7 @@ class AllusionMutations:
         confidence: float | None = None,
         rationale: str | None = None,
     ) -> AllusionEdge:
-        """Propose a typed cross-lens allusion — a link, NOT an identity claim (Block E, #9).
+        """Propose a typed cross-lens allusion — a link, NOT an identity claim (issue #9).
 
         Records that ``fromCanonicalId`` in ``fromLensId`` *alludes to / depicts /
         references / is adapted from / inspired by* ``toCanonicalId`` in ``toLensId``.
@@ -157,7 +157,7 @@ class AllusionMutations:
 
     @strawberry.mutation
     async def confirm_allusion(self, info: Info, id: strawberry.ID) -> AllusionEdge:
-        """Confirm an allusion edge — a human verification (Block E, #9).
+        """Confirm an allusion edge — a human verification (issue #9).
 
         Promotes a ``proposed`` edge to ``confirmed`` and records the reviewer. Confirming
         an allusion asserts the *relationship*, never an identity: it still does not merge
@@ -169,7 +169,7 @@ class AllusionMutations:
 
     @strawberry.mutation
     async def reject_allusion(self, info: Info, id: strawberry.ID) -> AllusionEdge:
-        """Reject an allusion edge (Block E, #9).
+        """Reject an allusion edge (issue #9).
 
         Marks the edge ``rejected`` (records the reviewer); the substrate is untouched.
         Requires write access to the edge's evidence document.

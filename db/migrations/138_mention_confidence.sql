@@ -1,4 +1,4 @@
--- Block G — materialized, explainable confidence for NER mention review.
+-- mention confidence — materialized, explainable confidence for NER mention review.
 --
 -- spaCy's default transition-based NER exposes no calibrated entity probability.
 -- The worker therefore writes a deterministic heuristic score plus its reasons

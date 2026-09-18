@@ -1,4 +1,4 @@
-"""Persistence for document genre classification (SLP Block C, issue #6).
+"""Persistence for document genre classification (issue #6).
 
 Bridges the heuristic classifier (``doc_ray.application.genre_classification``) and
 the human confirm path to the ``document_classification`` table (migration 127),

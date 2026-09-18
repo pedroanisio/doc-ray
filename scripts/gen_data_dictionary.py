@@ -415,6 +415,21 @@ def main(argv: list[str] | None = None) -> int:
         ver = None
 
     o: list[str] = []
+    # Front matter: the disclaimer every tracked Markdown document carries plus the
+    # doc_type the release-audit gate requires. No date — the file is regenerated
+    # and diffed by the drift gate, so its content must depend on the schema alone.
+    o.append(
+        "---\n"
+        "disclaimer:\n"
+        "  notice: >-\n"
+        "    No information within this document should be taken for granted.\n"
+        "    Any statement or premise not backed by a real logical definition\n"
+        "    or verifiable reference may be invalid, erroneous, or a hallucination.\n"
+        '  generated_by: "scripts/gen_data_dictionary.py"\n'
+        "doc_type: reference\n"
+        "status: current\n"
+        "---\n"
+    )
     o.append("# doc-ray — Database ERD & Data Dictionary\n")
     if ver:
         o.append(

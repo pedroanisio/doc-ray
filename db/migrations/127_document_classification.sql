@@ -1,4 +1,4 @@
--- SLP Block C (issue #6) — genre / type classification, migration 127.
+-- genre classification (issue #6) — genre / type classification, migration 127.
 --
 -- documents.doc_type records the FILE FORMAT (pdf, epub), not the GENRE. The
 -- library holds fiction and non-fiction together, and they demand opposite
@@ -6,8 +6,8 @@
 -- are the same Paris across every history. This table gives every document a
 -- genre axis, which the per-entity-type resolution policy
 -- (doc_ray.domain.genre_policy) reads to decide LOCAL vs GLOBAL resolution. This
--- block DEFINES the policy input; Block D (#8) applies it — nothing resolves
--- differently yet. See docs/proposals/entity-fabric-substrate-lens-projection.md.
+-- block DEFINES the policy input; the projection engine (issue #8) applies it — nothing resolves
+-- differently yet. See docs/design/entity-fabric.md.
 --
 -- PALS's LAW: a machine genre is an unverified guess. The classifier job writes
 -- status='pending'; only a human confirmation (method='human') asserts a genre.

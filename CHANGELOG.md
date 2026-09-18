@@ -6,6 +6,7 @@ disclaimer:
     or verifiable reference may be invalid, erroneous, or a hallucination.
   generated_by: "Claude Fable 5 via Claude Code"
   date: "2026-07-02"
+doc_type: changelog
 ---
 
 # Changelog
@@ -22,6 +23,65 @@ doc-ray carries **one global version** covering both the application package
 ## [Unreleased]
 
 ### Added
+
+- **Release-audit gates keep working material out of the repository.** Eight
+  deterministic checks now run in pre-commit, `make check` and CI:
+  `check_tracked_ignored.py` (the index must agree with the ignore policy; no
+  tracked symlink may point at an untracked file), `check_private_references.py`
+  (no home paths, working-directory names, managed-database hostnames, private
+  addresses, session narrative, plan-phase labels or dated diary comments in
+  tracked files), `check_doc_types.py` (every tracked Markdown document declares
+  a shippable `doc_type`), `check_build_context.py` (`.dockerignore` is an
+  allow-list), `check_commit_message.py` (conventional subjects, no session
+  narrative; runs as the `commit-msg` hook), `check_secrets.py` (key blocks,
+  provider tokens, real values in env files, oversized files),
+  `check_front_door.py` (README, CONTRIBUTING and the ADR registry agree) and
+  `check_release_package.py` (the wheel, sdist and image are inspected in the
+  release job before a tag). Exceptions live in `.release-audit-allow.txt`, one
+  reasoned line each. `CONTRIBUTING.md` documents the gates and the review rubric.
+- **`DOCRAY_WORK_DIR`** names a local working store outside the repository for
+  everything tooling writes that is not source: screenshots, benchmark output,
+  evaluation reports, telemetry snapshots. Every script that used to write into
+  the tree (`visual_check.py`, `bench/*`, `gen_corpus_dashboard.py`,
+  `watch_semantic_backfill.py`, `eval_phrase_retrieval.py`, `cost_telemetry.py`)
+  now defaults there, falling back to the gitignored `_work/` when it is unset.
+- **`CONTRIBUTING.md` and `AGENTS.md`** carry the engineering contract that was
+  previously embedded in an agent-instruction file; `CLAUDE.md` now imports
+  `AGENTS.md` and nothing more.
+- **Design records** under `docs/design/` for the entity fabric
+  (Substrate·Lens·Projection), cover delivery, and the brand identity, replacing
+  the proposal and brief documents they grew out of.
+
+### Changed
+
+- **Working material left the tree.** Plans, proposals, evaluation reports,
+  benchmark output, deployment status notes, a corpus inventory, the structured
+  backlog and its rendered view, quarantined and experimental files, and
+  documents unrelated to the product are no longer tracked. Code keeps citing
+  `BL-###` identifiers as opaque issue keys; tests that asserted on backlog
+  content were removed. The dangling `ENVIRONMENT.md` symlink is gone.
+- **Documentation and comments state invariants, not diary entries.** Plan-phase
+  labels (lettered blocks, numbered items, priority tags) are replaced by feature names
+  throughout the docs, the changelog, migrations and source; dated "measured in
+  production" comments now describe the failure mode and the mechanism without
+  the date, the corpus size or the decider. Generated reports name the script
+  that produced them rather than a model.
+- **Deployment values are placeholders in the product.** The env registry's
+  `prod:` examples, the Spaces loader's defaults, the provisioning script's
+  operator identity (now required, no defaults; the personal dotfiles step is
+  gone) and a test fixture's database host no longer carry one deployment's
+  names. `.gitignore` holds generic patterns only; machine-local paths belong in
+  `.git/info/exclude`.
+- **`.dockerignore` is an allow-list.** Only build and test inputs reach the
+  daemon; env files, caches, editor state and working directories never do.
+- **The webapp's lens hints describe the shipped projection behaviour** instead
+  of announcing a future layer.
+- **The wheel no longer packages `doc_ray.tests`.**
+
+### Removed
+
+- The design-book checksum gate (`check_doc_artifacts.py`) and the unrelated
+  design-guidelines book it protected; the backlog-content regression tests.
 
 - **NLP Layers 9 (constituency) and 14 (semantic role labelling) are now
   written and readable.** Both had schema since migrations `009_syntax.sql` and
@@ -58,7 +118,7 @@ doc-ray carries **one global version** covering both the application package
 ### Fixed
 
 - **A scanned PDF now ingests instead of failing with advice the deployment
-  could not take.** An image-only PDF (a patent scan, `US2022099404A1`) landed
+  could not take.** An image-only PDF (a scanned patent) landed
   as `status='failed'` reading *"no extractable text — scanned/image-only file?
   OCR required before ingest"*. Five defects stood behind that one screen, and
   all five are fixed:
@@ -108,18 +168,12 @@ doc-ray carries **one global version** covering both the application package
 
   The consequences were graded. Where dependents survived, the node survived
   with a span that omitted its own head — a VP reported as beginning after its
-  verb. Where none did, the span had nothing to measure:
-
-  ```
-  File "doc_ray/adapters/annotation_spacy.py", line 319, in annotate
-  File "doc_ray/domain/syntax_derived.py", line 289, in derive_constituents
-  File "doc_ray/domain/syntax_derived.py", line 203, in _span
-  ValueError: min() iterable argument is empty
-  ```
+  verb. Where none did, the span had nothing to measure and `_span` raised
+  `ValueError: min() iterable argument is empty` from inside `annotate`.
 
   The failure is deterministic, so the retry policy correctly spent all three
-  attempts in four minutes and marked the job terminal. Measured on the
-  production corpus 2026-07-31: four documents (305k–1.4M characters) left at
+  attempts in four minutes and marked the job terminal. On a real corpus this
+  left several book-length documents at
   `status='extracted'` with no annotations, and — because a chained step that
   fails is never revisited — `canonicalize`, `score_mentions`, `semantic_embed`,
   `visual_extract` and `visual_caption` never enqueued for any of them.
@@ -147,7 +201,7 @@ doc-ray carries **one global version** covering both the application package
   driver `docray_refresh_stats_for_document` is `SECURITY DEFINER` owned by
   `docray_batch`, so its body runs as `docray_batch`; the three helpers it calls
   were created owned by `docray`, had `ALL` revoked from `PUBLIC`, and were never
-  granted `EXECUTE` to `docray_batch`. Reproduced on the production corpus:
+  granted `EXECUTE` to `docray_batch`. Reproduced on a live corpus:
 
   ```
   InsufficientPrivilege: permission denied for function
@@ -166,9 +220,9 @@ doc-ray carries **one global version** covering both the application package
   maintaining those rollups: `lexeme_stats`, `entity_frequency_stats` and the
   `corpus_stats` totals derived from them silently stopped tracking the corpus.
   That includes `total_lexeme_uses`, the denominator behind `term_frequency`'s
-  `share` and its flood-risk verdicts. Measured before the repair: 805 documents,
-  765 with per-document rollup rows, and a `corpus_stats` row last computed more
-  than three hours earlier while ingestion ran continuously.
+  `share` and its flood-risk verdicts. Before the repair, a corpus under
+  continuous ingestion had dozens of documents without per-document rollup rows
+  and a `corpus_stats` row hours out of date.
 
   Migration 159 grants the missing `EXECUTE`. A new invariant test asserts that no
   `SECURITY DEFINER` function names a `docray_*` helper its owner cannot execute,
@@ -200,8 +254,8 @@ doc-ray carries **one global version** covering both the application package
 
   Migration 157 rewrites the policy to read the owning document through a
   correlated scalar subquery on the `spans` primary key, against a
-  readable-document array materialised once per statement. Measured on the
-  production corpus, `docray_api` + principal, same query:
+  readable-document array materialised once per statement. Measured on a large
+  corpus as `docray_api` + principal, same query:
 
   | policy | time |
   | --- | --- |
@@ -228,8 +282,8 @@ doc-ray carries **one global version** covering both the application package
   `GROUP BY` over the 72.7M-row / 16 GB `lexeme_occurrences` table, plus a
   second full pass of the same table for `corpus_stats.n_distinct_lexemes`.
   During ingest that happened six times an hour, forever. The writes were worse
-  than the reads — read from `pg_stat_user_tables` on the production cluster
-  (2026-07-30) minutes after autovacuum had run on both tables:
+  than the reads — read from `pg_stat_user_tables` on a live cluster minutes
+  after autovacuum had run on both tables:
 
   | table | live rows | dead rows | dead % |
   | --- | --- | --- | --- |
@@ -270,9 +324,9 @@ doc-ray carries **one global version** covering both the application package
   while doing so: the table carries `FORCE ROW LEVEL SECURITY` with a single
   `p_read` SELECT policy and no UPDATE policy, and the migration runner connects
   as `docray`, which is not `BYPASSRLS` — so the statement matched zero rows and
-  reported success. Confirmed on production the moment 152 applied: the column
-  existed and was `NULL` for the only tenant, against a true value of 72,681,387
-  over 453,662 `lexeme_stats` rows. Because `_TERM_FREQ_SQL` coalesces the scalar
+  reported success. Confirmed on a live corpus the moment 152 applied: the column
+  existed and was `NULL` for the only tenant against a true value in the tens of
+  millions. Because `_TERM_FREQ_SQL` coalesces the scalar
   to `0`, `term_frequency` would have reported every term's share against a zero
   denominator rather than failing — the "maintained scalar nobody maintains"
   case, disguised as a clean deploy. Migration 156 adds
@@ -288,8 +342,8 @@ doc-ray carries **one global version** covering both the application package
   aggregate.** The tool computed each term's share against a live
   `SUM(uses) FROM lexeme_stats` on every call — the read-path fact-table
   aggregate D-024 forbids. Forced RLS made it not merely slow but unusable,
-  because the policy is evaluated per row across the whole table. Measured on
-  the production corpus (2026-07-30, 444,294 `lexeme_stats` rows):
+  because the policy is evaluated per row across the whole table. Measured on a
+  corpus with ~450k `lexeme_stats` rows:
 
   | path | time |
   | --- | --- |
@@ -388,8 +442,8 @@ doc-ray carries **one global version** covering both the application package
 - **VLM reasoning scaffolding reached the human review queue (BL-196).** The
   Tier-3 model emits its `<think>` block, leaked tool-call JSON and
   chat-template sentinels (`<|im_end|>`, and a degraded `[im_end]` form) inline
-  with the caption, and all of it was persisted verbatim: 386 of 6,122 rows on
-  the production corpus. Two consequences, both bad — an operator was asked to
+  with the caption, and all of it was persisted verbatim — in one corpus,
+  roughly one caption row in sixteen. Two consequences, both bad — an operator was asked to
   adjudicate strings carrying no information, and the grounding metric scored the
   scaffolding *as if it were the caption*, dragging sound captions down.
 
@@ -401,7 +455,7 @@ doc-ray carries **one global version** covering both the application package
 
   `scripts/repair_caption_scaffolding.py` repairs rows written before the fix —
   in place, never deleted, since a rejected caption is still the audit trail for
-  a paid-for API call. Applied to production: 268 recovered into readable prose,
+  a paid-for API call. Applied to a live corpus, most affected rows recovered into readable prose,
   133 rejected as scaffolding-only, 3 committed rows demoted for failing the
   corrected specificity gate. Scaffolding-bearing rows fell from 386 to 5, with
   zero false positives measured across 2,000 clean captions.
@@ -411,9 +465,8 @@ doc-ray carries **one global version** covering both the application package
   which does not hold `BYPASSRLS`. Against the forced row-level security on
   `documents`/`sentences` (migration 106) its corpus selection matched **zero
   rows**, so the command printed `enqueued 0 job(s)` and exited `0` — a result
-  indistinguishable from "the backfill is already complete". Measured on the
-  production cluster, the same query returned **0** rows as `docray` and **580**
-  as `docray_batch`.
+  indistinguishable from "the backfill is already complete". On a live cluster
+  the same query returned **0** rows as `docray` and hundreds as `docray_batch`.
 
   This is an operator-wide batch task, not a per-caller read, so it now assumes
   `docray_batch` and asserts the corpus is visible before enqueueing, exiting
@@ -429,9 +482,9 @@ doc-ray carries **one global version** covering both the application package
   `enable_seqscan = off`. The index had been unreachable for every RLS-subject
   caller for more than a hundred migrations, with nothing to signal it.
 
-  Measured on production, 2026-07-28: an ordinary one-word search took 3,774 ms
-  to return a single page of 200 rows, reading all 1,966,114 sentences
-  (1,277 MB). Every query class in the #47 evaluation planned a sequential scan.
+  On a corpus of ~2M sentences an ordinary one-word search took several seconds
+  to return a single page of 200 rows, reading every sentence. Every query class
+  in the #47 evaluation planned a sequential scan.
 
   Candidate selection now runs through `docray_readable_sentence_ids` (migration
   148), a `SECURITY DEFINER` helper owned by the `BYPASSRLS` batch role that
@@ -459,10 +512,10 @@ doc-ray carries **one global version** covering both the application package
   The step had been withheld under the in-code D-018 cost argument that keeps
   the frontier resolver and the GPU visual tiers off the chain. Measurement did
   not support extending it here: the encoder runs on CPU with no paid API call,
-  at roughly a minute per document — **0.9 h of a measured 80.8 h month**,
-  against 23.8 h for `annotate`, which was already chained. The cost of
-  withholding it was far larger than the cost of running it: only **58 of 637
-  documents (9%)** carried active-model vectors, so `semanticSearchSentences`
+  at roughly a minute per document — about one percent of a month's measured
+  pipeline time, against a quarter for `annotate`, which was already chained.
+  The cost of withholding it was far larger than the cost of running it: fewer
+  than one document in ten carried active-model vectors, so `semanticSearchSentences`
   and its MCP tool answered for a small fraction of the corpus.
 
   The GraphQL `embedDocumentSentences` mutation and the MCP tool keep their
@@ -583,7 +636,7 @@ doc-ray carries **one global version** covering both the application package
   a pure function instead of as prose. It ships no feature code: no GraphQL,
   MCP, webapp or SDK surface changes. Documented in
   [docs/phrase-retrieval-evaluation.md](docs/phrase-retrieval-evaluation.md);
-  first run in `docs/eval/phrase-retrieval-2026-07-28.md`; decision **D-035**.
+  each run writes a dated report outside the repository; decision **D-035**.
 
   The production leg cannot write. It runs in a read-only transaction and reads
   the setting back, bounds every statement with a timeout, screens each
@@ -761,7 +814,7 @@ doc-ray carries **one global version** covering both the application package
 
 ### Added
 
-- **Explainable NER mention-confidence materialization (Block G).** The worker can
+- **Explainable NER mention-confidence materialization.** The worker can
   persist a nullable heuristic confidence, its method, and deterministic reasons
   on each `entity_mention`. This is a review-ordering signal, never a calibrated
   probability: consumers sort least-confident first and show the reasons beside
@@ -873,7 +926,7 @@ doc-ray carries **one global version** covering both the application package
   search reports itself via `coverage.requested_limit` and the `note`. Paginated tool
   docstrings now name the **last** row's cursor (a non-last row's cursor overlaps the
   previous page by n−1 rows and masquerades as "the cursor re-served page one" — the
-  false pagination bug in the 2026-07-26 "Stress-Testing the Librarian" operator report).
+  false pagination bug an operator once reported).
   Response-shaping helpers moved to `entrypoints/mcp/shaping.py` (D-015 split).
 - **CLI/bulk ingest now hands every new document to the default pipeline (BL-162).**
   `application.pipeline.ingest_paths` enqueues `DEFAULT_PIPELINE_CHAIN` and refreshes
@@ -887,8 +940,7 @@ doc-ray carries **one global version** covering both the application package
 
 ### Added
 
-- **Hyper-context rollups + relationship discovery over the projected graph (SLP Block F,
-  issue #10).** Turns the projected entity graph into corpus-wide sensemaking — "who are
+- **Hyper-context rollups + relationship discovery over the projected graph (  issue #10).** Turns the projected entity graph into corpus-wide sensemaking — "who are
   the significant figures in this body of work, and how do they relate?" — as
   *precomputed, bounded* rollups (answering it live at 10k documents is the
   aggregate-over-a-fact-table pattern D-024 forbids).
@@ -902,7 +954,7 @@ doc-ray carries **one global version** covering both the application package
   - **Pure domain** (`domain.lens_rollups`): the cited NPMI formula, significance ranking,
     and a **bounded, cycle-safe** N-hop BFS with a hard cap (3) — no unbounded graph walk.
   - **Refresh:** `KIND_REFRESH_LENS_ROLLUP` — incremental per lens (chained strictly after
-    Block D's projection refresh, which it aggregates) + a full rebuild. Idempotent and
+    the projection engine's projection refresh, which it aggregates) + a full rebuild. Idempotent and
     reproducible.
   - **Surfaces:** GraphQL `lensEntities` (now with `minMentions` + type profile + staleness)
     / `entityRelations` / `relatedEntities` (bounded N-hop — an over-cap `hops` is
@@ -910,7 +962,7 @@ doc-ray carries **one global version** covering both the application package
     precomputed rollups (with a `refreshedAt` staleness stamp) and that relationship
     strength is a co-occurrence measure, not a claim of a real relationship (PALS's Law).
     Composability is a lens parameter on the entity reads, not a query language (FR-6).
-  - Degrades gracefully without Block E (intra-lens only). Narrative summaries (FR-2) are
+  - Degrades gracefully without allusion edges (intra-lens only). Narrative summaries (FR-2) are
     deferred to a follow-up (**BL-161**) — they add a model dependency + review workflow
     deserving their own gate. Schema SemVer → **1.48.0** (migration 134). This completes
     the Entity Fabric (Substrate·Lens·Projection) programme (Blocks A–F).
@@ -919,8 +971,7 @@ doc-ray carries **one global version** covering both the application package
 
 ### Added
 
-- **Allusion edges — typed cross-lens links that never assert identity (SLP Block E,
-  issue #9).** Block D (#8) deliberately keeps a novel's Paris and the real Paris as
+- **Allusion edges — typed cross-lens links that never assert identity (  issue #9).** The projection engine (issue #8) deliberately keeps a novel's Paris and the real Paris as
   distinct entities (no lossy merge); this block records the honest relationship between
   them — the novel's Paris *alludes to* the real Paris — as a typed, directional edge
   that preserves both and makes the connection queryable. An edge is **not** an equality:
@@ -947,21 +998,20 @@ doc-ray carries **one global version** covering both the application package
     suggests `alludes_to` edges where a work-local entity's surface matches a KB-linked
     global entity — `proposed` only. Schema SemVer → **1.47.0** (migration 132).
   - Machine-proposed edges land `status='proposed'` (PALS's Law); only a human confirms.
-    Unblocks Block F (#10, hyper-context) alongside Block D.
+    Unblocks the hyper-context rollups (issue #10, hyper-context) alongside the projection engine.
 
 ## [1.46.0]
 
 ### Added
 
-- **Projection Engine — lens-scoped entity identity without lossy merges (SLP Block D,
-  issue #8).** Entity identity is no longer a fact baked into the substrate; it is a
+- **Projection Engine — lens-scoped entity identity without lossy merges (  issue #8).** Entity identity is no longer a fact baked into the substrate; it is a
   **derived, refreshable interpretation**: `entity = project(mention, lens)`. The same
   corpus can now hold fiction and non-fiction side by side — a fictional *Duncan* stays
   inside its work lens while the real *Paris* is shared across every history — with no
   lossy merge, because a projection is derived (drop and rebuild) where a merge is
   destructive. The pure resolver (`domain.projection.project`) encodes the law —
   *policy decides local vs global → local-first lookup → global fallback → explicit
-  unresolved* — consuming the Block C genre policy (#6) and the Block B lenses (#5).
+  unresolved* — consuming the genre classification genre policy (#6) and the lens registry lenses (#5).
   - **Schema (migration 129, additive; RLS + FORCE on every table):**
     `entity_projection` (one row per mention × projecting lens; `scope` local/global,
     a nullable `canonical_id` where NULL = explicitly unresolved, and a
@@ -969,7 +1019,7 @@ doc-ray carries **one global version** covering both the application package
     API); `lens_local_entity` (the stable registry that mints one `canonical` row per
     (lens, surface, type) so a rebuild is byte-identical); `entity_projection_review`
     (human confirm/reject keyed by the **stable span**, so a decision survives
-    re-annotation — Block A's record-then-apply shape); `lens_entity_stats` (the
+    re-annotation — the NER-correction log's record-then-apply shape); `lens_entity_stats` (the
     per-lens entity rollup `lensEntities` reads, D-024); and
     `document_collections.projects` — only a **designated** lens is materialized
     (FR-2 cost control, bounded per document).
@@ -989,8 +1039,7 @@ doc-ray carries **one global version** covering both the application package
 
 ### Added
 
-- **Genre / type classification + per-entity-type resolution policy (SLP Block C,
-  issue #6).** Every document can now carry a **genre axis** — fiction /
+- **Genre / type classification + per-entity-type resolution policy (  issue #6).** Every document can now carry a **genre axis** — fiction /
   non_fiction / mixed / unknown — orthogonal to its file format (`doc_type`), in a
   new `document_classification` table (migration 127, RLS + FORCE). A heuristic
   classifier (`KIND_CLASSIFY_GENRE` job, deterministic signals — dialogue density,
@@ -1002,7 +1051,7 @@ doc-ray carries **one global version** covering both the application package
   (shared identity), with a conservative GLOBAL default for `mixed`/`unknown` and
   for real-world types (DATE, MONEY, LAW, …) even inside fiction.
   - **This block only *defines* the policy — nothing resolves differently yet.**
-    Block D (#8, the projection engine) consumes it.
+    the projection engine (issue #8, the projection engine) consumes it.
   - Surfaces: GraphQL `documentClassification` (read), `classifyDocument` +
     `confirmDocumentClassification` (writes, guarded + audited); MCP
     `document_classification` (read) and the write-gated `classify_document` /
@@ -1012,8 +1061,7 @@ doc-ray carries **one global version** covering both the application package
 ## [1.44.0]
 
 ### Added
-- **Semantic retrieval for `briefingPack` — rank passages by meaning, not keywords**
-  (Claude Opus 4.8 (1M context) via Claude Code; issue #33, under epic #23). The
+- **Semantic retrieval for `briefingPack` — rank passages by meaning, not keywords** (issue #33). The
   shared `application.briefing` service now ranks each matched document's passages by
   **learned semantic similarity** (the same sentence encoder behind
   `semanticSearchSentences`), RLS-scoped, so a paraphrase surfaces even with no shared
@@ -1120,8 +1168,7 @@ doc-ray carries **one global version** covering both the application package
 > *use*, not by verification (mirrors the Prism vision encoder).
 
 ### Changed
-- **In-app corpus backup is now a feature toggle, off by default** (Claude Opus 5
-  (1M context) via Claude Code; D-033). `DOCRAY_BACKUP_ENABLED` gates the whole
+- **In-app corpus backup is now a feature toggle, off by default** (D-033). `DOCRAY_BACKUP_ENABLED` gates the whole
   subsystem — the `backup-scheduler` service, the `backup`/`restore` job kinds,
   the archive download route, and the backup UI in both the webapp and the admin
   console. It defaults to `false`; production runs with it off and relies on the
@@ -1139,25 +1186,24 @@ doc-ray carries **one global version** covering both the application package
   - **New `backupEnabled` query field** so a client can check the capability
     before offering the action; the admin console uses it to hide its nav entry
     and to explain itself on a deep link.
-  - **Why:** the subsystem had never once succeeded in production — 27 failed
-    rows, 2 stuck, zero `available`, and an empty `backups/` prefix in the
+  - **Why:** the subsystem had never once succeeded in a real deployment — every
+    attempt failed, some stuck, none `available`, and an empty `backups/` prefix in the
     bucket. It failed two ways: `EntityTooLarge` (the archive is built wholly in
     memory and uploaded with a single `PutObject`, past S3's 5 GiB single-PUT
     ceiling) and `JobExecutionTimeout` at 3600s. Worse, `backup` was claimable by
     the only worker pool that runs `annotate`, so each attempt held that slot for
-    an hour: on 2026-07-25 a user-facing annotate job queued 39 minutes behind
+    an hour, and a user-facing annotate job could queue most of that hour behind
     one.
   - **Known gap, accepted (D-033):** managed-database backups cover the database
     only. This archive was the sole mechanism capturing object-store blobs, and
-    the production bucket has no versioning — with the flag off, original
+    an object-store bucket without versioning has no other copy — with the flag off, original
     document bytes have a single copy and no point-in-time recovery. Closing it
     needs bucket versioning or a separate blob backup.
   - No schema change; no version bump. `make prod-up` and the other `up` targets
     no longer start `backup-scheduler`.
 
 ### Added
-- **MCP Ops Phase 3 — health, readiness, rate limiting, and the token runbook**
-  (Claude Opus 4.8 (1M context) via Claude Code; issue #18). The MCP service — live
+- **MCP Ops Phase 3 — health, readiness, rate limiting, and the token runbook** (issue #18). The MCP service — live
   in production ahead of its ops surface — gains the operational surface every other
   service in the stack already has. No schema change; no version bump.
   - **`GET /health`** (liveness): `200 {"status":"ok","version":…}` whenever the
@@ -1187,8 +1233,7 @@ doc-ray carries **one global version** covering both the application package
     generous default that only catches runaway loops. To restore the previous unlimited
     behaviour set `DOCRAY_MCP_RATE_LIMIT_REQUESTS=0`. New env keys are additive and
     registered in `config/env.registry.yaml`.
-- **MCP prompts primitive — ship the corpus methodology as selectable workflows**
-  (Claude Opus 4.8 (1M context) via Claude Code; issue #13, MCP Item 8). The server
+- **MCP prompts primitive — ship the corpus methodology as selectable workflows** (issue #13). The server
   now declares MCP's third and final primitive — **prompts** (user-controlled, joining
   the model-controlled tools and application-controlled `docray://` resources) — as
   four argument-taking workflows a user picks from their client's menu, so the
@@ -1214,8 +1259,7 @@ doc-ray carries **one global version** covering both the application package
     compose with `FastMCP.prompt()`), returns a single user-role message, holds no DB
     pool, and never embeds the caller's token in its text. Each message is well under
     ~1.5 KB. New: `entrypoints/mcp/prompts.py`; documented in `docs/mcp-service.md` §3.7.
-- **Term-frequency pre-flight — prevent search flooding instead of diagnosing it**
-  (Claude Opus 4.8 (1M context) via Claude Code; issue #16, MCP Item 10). A new
+- **Term-frequency pre-flight — prevent search flooding instead of diagnosing it** (issue #16). A new
   read — GraphQL `termFrequency(terms:)` and MCP tool `term_frequency` — lets an
   agent ask how common a **batch** of candidate search terms is *before* spending a
   search call, and get a categorical `floodRisk` (`low` | `moderate` | `high`) so it
@@ -1225,7 +1269,7 @@ doc-ray carries **one global version** covering both the application package
   bump.
   - **One indexed statement over the D-024 rollup:** the whole batch is served by a
     single `unnest`/`LEFT JOIN`/`SUM` against the `lexeme_stats` rollup — never the
-    17.5M-row `lexeme_occurrences` fact table (the measured 37 s Lexicon
+    multi-million-row `lexeme_occurrences` fact table (the measured 37 s Lexicon
     regression). RLS-scoped to the caller's tenant; a regression test fails if the
     query ever references `lexeme_occurrences` again.
   - **The verdict is the product (FR-2):** `floodRisk` is the term's `share` of the
@@ -1247,8 +1291,7 @@ doc-ray carries **one global version** covering both the application package
     registered in every MCP drift guard; and it is exercised by a new
     `coverage-term-frequency` task in the evaluation harness (#12). New:
     `domain/term_frequency.py`, `adapters/persistence_read_terms.py`.
-- **MCP evaluation harness — measure the tool surface instead of asserting it**
-  (Claude Opus 4.8 (1M context) via Claude Code; issue #12, MCP Item 11). A
+- **MCP evaluation harness — measure the tool surface instead of asserting it** (issue #12). A
   reproducible, offline harness runs a fixed set of grounded retrieval tasks
   against a **seeded, disposable** fixture corpus and reports task success,
   tool-call count, and payload size, so a change to a tool description or return
@@ -1281,8 +1324,7 @@ doc-ray carries **one global version** covering both the application package
     call once the numbers are trusted).
 
 ### Changed
-- **NLP Layer 20 — hard cutover from `hash-bow-768` to a learned sentence encoder**
-  (Claude Opus 4.8 (1M context) via Claude Code; issues #20, #21). **BREAKING** for
+- **NLP Layer 20 — hard cutover from `hash-bow-768` to a learned sentence encoder** (issues #20, #21). **BREAKING** for
   the embedding vector space. The old sentence embedding was `hash-bow-768` — a
   deterministic BLAKE2b bag-of-words hash where distinct words landed in unrelated
   buckets, so it carried no semantics and (verified) *no reader ever queried it*.
@@ -1329,8 +1371,7 @@ doc-ray carries **one global version** covering both the application package
 
 ### Fixed
 - **`resolutionReview` was dead for every client caller — `resolution_review`
-  never granted to `docray_client`, and never RLS-scoped** (Claude Opus 4.8 (1M
-  context) via Claude Code; issue #15, broader sweep). Migration 117 fixed the
+  never granted to `docray_client`, and never RLS-scoped** (issue #15, broader sweep). Migration 117 fixed the
   `form_index`/`entity_profiles` instance of this class; the class-closing sweep
   the issue asked for surfaced a second: `resolution_review` (read by the
   `resolutionReview` GraphQL query via `list_resolution_review`) was created in
@@ -1345,8 +1386,7 @@ doc-ray carries **one global version** covering both the application package
   touch, so the next table added after a grant loop cannot silently repeat this.
   No schema-structure change (grant + RLS only); `docray_schema_version()`
   untouched, as with 117.
-- **`entity_dossier` reported a capped page as the corpus total** (Claude Opus 4.8
-  (1M context) via Claude Code; issue #14). The MCP tool derived `total_mentions`,
+- **`entity_dossier` reported a capped page as the corpus total** (issue #14). The MCP tool derived `total_mentions`,
   its `documents` roster, and `gaps` from a single `search_sentences` page capped
   at `max_mentions`, so it claimed `total_mentions == max_mentions` and a
   single-document roster with `gaps: []` for an entity that was demonstrably in
@@ -1364,10 +1404,9 @@ doc-ray carries **one global version** covering both the application package
   `entrypoints/mcp/compose_common.py` (D-015).
 
 ### Added
-- **Lens Registry — promote collections to named entity-resolution scopes**
-  (Claude Opus 4.8 (1M context) via Claude Code; Block B, issue #5). A *lens* is a
+- **Lens Registry — promote collections to named entity-resolution scopes** (issue #5). A *lens* is a
   `document_collections` row flagged `is_scope`: a named scope under which a later
-  projection layer (Block D) will interpret entity identity, so the fictional
+  projection layer will interpret entity identity, so the fictional
   *Duncan Idaho* of one work stays distinct from an unrelated novel's Duncan while
   the reserved **`global`** lens holds real-world (Wikidata-linkable) identities
   shared corpus-wide. This block ships **vocabulary and metadata only** — it does
@@ -1401,16 +1440,15 @@ doc-ray carries **one global version** covering both the application package
 ## [1.40.0]
 
 ### Fixed
-- **Editing a document's authors failed every metadata job** (Claude Opus 4.8 via
-  Claude Code). `document_metadata_history` records one row per changed field,
+- **Editing a document's authors failed every metadata job**. `document_metadata_history` records one row per changed field,
   gated by a CHECK listing the editable vocabulary. Migration 045 created it
   (title/description/tags) and 053 widened it for `lifecycle_state`; the
   authors-edit capability was later added to the writer
   (`persistence_doc_admin.update_document_metadata` calls `_record("authors", …)`)
   and to the GraphQL/MCP surfaces, but no migration widened the CHECK. So every
   `updateDocumentMetadata` that changed an author aborted its whole job with
-  `CheckViolation: document_metadata_history_field_check` — 29 failed jobs in
-  production before it was traced, and the two DB-backed tests that cover author
+  `CheckViolation: document_metadata_history_field_check` — every such job failed
+  until it was traced, and the two DB-backed tests that cover author
   edits had been red on `main`, which let a real defect hide among tolerated
   failures.
 
@@ -1424,8 +1462,7 @@ doc-ray carries **one global version** covering both the application package
   insertable, so the contract is asserted against real behavior, not just string
   equality.
 
-- **Every backup failed on a table the backup role could not read** (Claude Opus
-  4.8 via Claude Code). A backup COPYs every public base table elevated to the
+- **Every backup failed on a table the backup role could not read**. A backup COPYs every public base table elevated to the
   trusted writer `docray_batch`. Migration 106 granted that role access with a
   one-time `GRANT ALL ON ALL TABLES` and no `ALTER DEFAULT PRIVILEGES`, so
   `web_auth_sessions` (migration 112) — and any table added later — was invisible
@@ -1442,8 +1479,7 @@ doc-ray carries **one global version** covering both the application package
 ## [1.39.0]
 
 ### Added
-- **MCP resources — `docray://` URIs and templates (Block 3b)** (Claude Opus 4.8
-  (1M context) via Claude Code). The server previously declared only MCP's
+- **MCP resources — `docray://` URIs and templates (Block 3b)**. The server previously declared only MCP's
   *tools* primitive; it now also declares **resources**, so a host can enumerate
   addressable handles with `resources/templates/list` and fetch one with
   `resources/read` instead of composing a tool call. Five surfaces
@@ -1466,8 +1502,7 @@ doc-ray carries **one global version** covering both the application package
   clients that expose only tools are unaffected. No schema change, no new
   dependency, no write surface (all reads, always registered).
 
-- **Random-access sentence reads — ordinal range + page (Block 3a)** (Claude Opus
-  4.8 (1M context) via Claude Code). `read_document_sentences` / `Document.sentences`
+- **Random-access sentence reads — ordinal range + page (Block 3a)**. `read_document_sentences` / `Document.sentences`
   were sequential-only (cursor walk): reaching a mid-document slice meant paging
   from ordinal 0. They now accept `fromOrdinal`/`toOrdinal` (inclusive ordinal
   range) and `page` (a source-page filter via `spans.page_number`, migration 049),
@@ -1482,8 +1517,7 @@ doc-ray carries **one global version** covering both the application package
   the page filter isolates one source page; `fromOrdinal > toOrdinal` is rejected
   (resolver + MCP tool). See `docs/mcp-service.md` §3 for the random-access example.
 
-- **Durable NER corrections — Block A (P0)** (Claude Opus 4.8 (1M context) via
-  Claude Code). The verification layer PURPOSE.md mandates ("AI proposes,
+- **Durable NER corrections — the NER-correction log**. The verification layer PURPOSE.md mandates ("AI proposes,
   verification decides") for named-entity recognition: a human (or a reviewing
   agent under write scope) records a correction — reclassify a type, reject a
   spurious mention, add a missed entity, or adjust a span boundary — and it
@@ -1512,7 +1546,7 @@ doc-ray carries **one global version** covering both the application package
   anything is recorded. Usage: README "Correcting the model's entities",
   `docs/mcp-service.md` §3.
 - **A self-teaching MCP surface — server instructions, search coverage, steered
-  errors (BL-145)** (Claude Opus 4.8 (1M context) via Claude Code). A user
+  errors (BL-145)**. A user
   summarizing a full novel through the MCP server lost most of their effort to
   friction the server could have removed: high-frequency search terms flooded one
   region of the text and starved the rest, which *read as missing content* rather
@@ -1527,14 +1561,12 @@ doc-ray carries **one global version** covering both the application package
   `get_collection`, `entity_frequency`, `image_class_summary`) were expanded to
   teach their use, and `list_documents` now also returns `language` and
   `sentenceCount` so a document can be sized before it is read. No schema change.
-- **Drift protection for new MCP surface** (Claude Opus 4.8 (1M context) via
-  Claude Code). `src/doc_ray/tests/test_mcp_p0.py` holds every *future* tool to
+- **Drift protection for new MCP surface**. `src/doc_ray/tests/test_mcp_p0.py` holds every *future* tool to
   the same bar: one test fails the build if any registered MCP tool carries a
   description under 80 characters, another fails if a tool taking a `document_id`
   does not validate it locally (`_require_uuid`) before spending a network
   round-trip. Guidance that is only documented decays; these are enforced.
-- **`read_document_outline` — the map that aims the ranged reader (BL-146)**
-  (Claude Opus 4.8 (1M context) via Claude Code). Random access by ordinal has
+- **`read_document_outline` — the map that aims the ranged reader (BL-146)**. Random access by ordinal has
   existed since Block 3a, but nothing told an agent *which* ordinals to ask for,
   so "read the ending" stayed a guess. The new tool (GraphQL: `documentOutline`)
   returns a short list of regions whose `ordinalStart`/`ordinalEnd` feed straight
@@ -1549,7 +1581,7 @@ doc-ray carries **one global version** covering both the application package
   parsed from `document_content`, and each offset is resolved onto its sentence
   by one indexed lookup (D-024-clean — no new fact-table aggregate).
 - **`entity_profiles` — reconciled entities with the disagreement measured
-  (BL-146)** (Claude Opus 4.8 (1M context) via Claude Code). `entity_frequency`
+  (BL-146)**. `entity_frequency`
   returns raw NER, which splits one real-world entity across types and spellings
   and leaves the agent to merge it by hand. The new tool (GraphQL:
   `entityProfiles`) returns one row per entity — merged `surfaceForms`, the full
@@ -1562,8 +1594,7 @@ doc-ray carries **one global version** covering both the application package
   together (the same `form_norm` key `form_index` uses): `Duncan` and `Duncan
   Idaho` stay separate, because relating them is coreference and guessing it
   would be fabrication.
-- **More drift protection, and the drift it already caught** (Claude Opus 4.8
-  (1M context) via Claude Code). `test_mcp_p1.py` adds three guards: every tool
+- **More drift protection, and the drift it already caught**. `test_mcp_p1.py` adds three guards: every tool
   that embeds a GraphQL document must be exercised by the schema-contract test
   (which validates it against the live Strawberry schema), every read tool must
   appear in the `docs/mcp-service.md` inventory, and any tool offering
@@ -1575,7 +1606,7 @@ doc-ray carries **one global version** covering both the application package
 
 ### Fixed
 - **`entity_profiles` was dead for every real caller — `form_index` never granted
-  to `docray_client` (BL-147)** (Claude Opus 4.8 (1M context) via Claude Code).
+  to `docray_client` (BL-147)**.
   BL-146's `entityProfiles` joins `form_index` → `canonical` to report whether an
   entity is registry-backed. The API and webapp run as `docray_api`, which
   inherits `docray_client` (migration 030); migration 097 added `canonical` to
@@ -1593,8 +1624,7 @@ doc-ray carries **one global version** covering both the application package
   `entity_profiles` returns early when there are no profiles to enrich.
 
 ### Changed
-- **`response_format: "concise" | "detailed"` on the bulk readers (BL-146)**
-  (Claude Opus 4.8 (1M context) via Claude Code). `read_document_sentences` and
+- **`response_format: "concise" | "detailed"` on the bulk readers (BL-146)**. `read_document_sentences` and
   `search_sentences` accept a verbosity argument. `detailed` is the default and
   is byte-for-byte the historical shape, so **no existing caller changes**.
   `concise` drops the row id and the per-row cursor (the last row keeps one — the
@@ -1606,7 +1636,7 @@ doc-ray carries **one global version** covering both the application package
   fetching and discarding. `ordinal`, `charStart`, and `charEnd` survive in every
   mode: a cheaper answer that cannot be cited is not a cheaper answer.
 - **BREAKING (MCP tool contract): `search_sentences` returns an object, not a
-  list** (Claude Opus 4.8 (1M context) via Claude Code). The tool previously
+  list**. The tool previously
   returned a bare list of KWIC hits, which made a truncated result
   indistinguishable from a genuinely sparse one — the exact failure that cost the
   novel-summarization run its coverage. It now returns:
@@ -1631,8 +1661,7 @@ doc-ray carries **one global version** covering both the application package
   `searchSentences` field is **unchanged**; this affects the MCP tool only.
 
 ### Fixed
-- **MCP resources were invisible to clients — `resources/list` returned `[]`**
-  (Claude Opus 4.8 (1M context) via Claude Code). The resource layer shipped with
+- **MCP resources were invisible to clients — `resources/list` returned `[]`**. The resource layer shipped with
   five surfaces, *all* of them parameterized URI templates. The SDK keeps concrete
   and templated resources in **disjoint registries**: `resources/list` returns only
   the concrete ones, templates come back solely from `resources/templates/list`.
@@ -1652,8 +1681,7 @@ doc-ray carries **one global version** covering both the application package
   never overlap). Note the remaining limit is client-side: declaring resources
   puts them on the protocol, but a host must still surface `resources/*`.
 
-- **MCP tests were order-dependent and red after the webapp suite (BL-144)**
-  (Claude Opus 4.8 (1M context) via Claude Code). `test_mcp_corpus.py` passed
+- **MCP tests were order-dependent and red after the webapp suite (BL-144)**. `test_mcp_corpus.py` passed
   30/30 alone and failed en masse in the full run — originally misfiled as a
   pinned-SDK breakage. The real cause: the MCP tool tests monkeypatch
   `httpx.AsyncClient` to a stub callable, and the SDK's `mcp.client.streamable_http`
@@ -1666,8 +1694,7 @@ doc-ray carries **one global version** covering both the application package
 ## [1.38.0]
 
 ### Added
-- **Corpus sharding — `corpusManifest` + `corpusShard` for map-reduce reads**
-  (Claude Opus 4.8 (1M context) via Claude Code). New GraphQL queries and MCP
+- **Corpus sharding — `corpusManifest` + `corpusShard` for map-reduce reads**. New GraphQL queries and MCP
   read tools that partition the visible corpus into `shardCount` deterministic,
   disjoint parts via `hashtext(id) mod shardCount`, so an orchestrator can fan
   out one worker per shard over the whole corpus. `corpusManifest(shardCount)`
@@ -1684,8 +1711,7 @@ doc-ray carries **one global version** covering both the application package
   document is then read in full. See `docs/mcp-service.md` §3 for the map-reduce
   example. No schema-version change (additive queries + existing tables).
 
-- **`read_document_sentences` — exhaustive sequential text read over MCP** (Claude
-  Opus 4.8 (1M context) via Claude Code). `search_sentences` is term-filtered, so
+- **`read_document_sentences` — exhaustive sequential text read over MCP**. `search_sentences` is term-filtered, so
   an agent could never walk a document end-to-end — the concrete cause of
   coverage gaps in whole-document summarization. The new always-on MCP read tool
   wraps the existing `Document.sentences(limit, after)` field (no schema change):
@@ -1700,8 +1726,7 @@ doc-ray carries **one global version** covering both the application package
   `docray://document/{id}/sentences/{start}-{end}` — is a future block; this tool
   closes the gap now and also scales to a multi-document corpus.)
 
-- **Corpus view modes — table, compact, gallery, grouped** (Claude Opus 4.8
-  (1M context) via Claude Code) — BL-143. The corpus page shipped as a single
+- **Corpus view modes — table, compact, gallery, grouped** — BL-143. The corpus page shipped as a single
   dense table: one ~156px row per document (cover thumbnail + wrapped title +
   a four-line, near-identical analyzer string), so only ~5 documents fit a
   screen and a growing library stopped being browsable — a gap found by
@@ -1719,8 +1744,7 @@ doc-ray carries **one global version** covering both the application package
   are webapp presentation over the read model; the GraphQL API and MCP already
   return every field the modes use (title, type, language, char/page counts,
   sentence count, status, cover), so any client can build equivalent views.
-- **Editable document authors, and collection rename/delete** (Claude Opus 4.8
-  (1M context) via Claude Code). Two gaps surfaced by connector use:
+- **Editable document authors, and collection rename/delete**. Two gaps surfaced by connector use:
   authors were write-once at ingest (no edit path anywhere), and a collection,
   once created, had an immutable name and could never be deleted — so a
   mis-typed name (e.g. an HTML-escaped `"AI &amp; Business"`) was permanent.
@@ -1743,8 +1767,7 @@ doc-ray carries **one global version** covering both the application package
   grant for author edits) and are billing-classified. See `docs/mcp-service.md`
   §3 and the MCP write examples.
 
-- **MCP exposes the collection tools** (Claude Opus 4.8 (1M context) via Claude
-  Code) — D-030. doc-ray has a native `DocumentCollection` container, but MCP
+- **MCP exposes the collection tools** — D-030. doc-ray has a native `DocumentCollection` container, but MCP
   surfaced none of it, so connectors fell back to ad-hoc tags. MCP now has two
   always-on read tools — `list_collections`, `get_collection` (with member
   documents) — and, behind `DOCRAY_MCP_ENABLE_WRITE`, three write tools:
@@ -1758,8 +1781,7 @@ doc-ray carries **one global version** covering both the application package
   collections (see `docs/mcp-service.md` §3 for signatures and an end-to-end
   example). Sharing mutations and destructive/admin verbs remain unexposed.
 
-- **OAuth connectors can obtain `write`, bounded by the user's RBAC** (Claude Opus
-  4.8 (1M context) via Claude Code) — D-032. The MCP write tools (D-030) were
+- **OAuth connectors can obtain `write`, bounded by the user's RBAC** — D-032. The MCP write tools (D-030) were
   inert for OAuth-connected agents: the Authorization Server only ever minted
   `read` (`SUPPORTED_SCOPES = ("read",)`), so every mutation 401'd on the scope
   check before ownership was even consulted — a Claude Desktop connector couldn't
@@ -1777,8 +1799,7 @@ doc-ray carries **one global version** covering both the application package
   end-to-end: reconnect doc-ray so the user re-consents (the token now carries
   `write`), and ensure `DOCRAY_MCP_ENABLE_WRITE=true`.
 
-- **Organization corpus — opt-in tenant-wide document visibility** (Claude Opus
-  4.8 via Claude Code) — BL-139. Per-owner isolation (1.34.0) and sharing
+- **Organization corpus — opt-in tenant-wide document visibility** — BL-139. Per-owner isolation (1.34.0) and sharing
   (1.37.0) covered private documents and person-to-person grants; this adds the
   third scope. `documents.visibility` (migration 110) is `private` by default;
   an owner (or tenant admin) publishes a document to their whole organization
@@ -1804,7 +1825,7 @@ doc-ray carries **one global version** covering both the application package
 
 ### Fixed
 - **Webapp test suite green again — stale test stubs and copy re-synced to the
-  app** (Claude Opus 4.8 (1M context) via Claude Code) — BL-140. `tests/test_webapp.py`
+  app** — BL-140. `tests/test_webapp.py`
   had 16 tests red on main from drift between the tests and the code they cover
   (no production behavior was wrong — the tests were stale). Two families: SQL
   stub drift, where `fake_q`/`fake_q1` still matched pre-rollup queries (live
@@ -1818,7 +1839,7 @@ doc-ray carries **one global version** covering both the application package
   through to the empty default, so this silent-drift class can't recur. No
   production code, API, schema, or version change.
 - **Member corpus reads no longer 500 — SECURITY DEFINER RLS helpers run with
-  BYPASSRLS** (Claude Opus 4.8 (1M context) via Claude Code) — BL-142. A
+  BYPASSRLS** — BL-142. A
   non-admin member browsing `/corpus` hit a `stack depth limit exceeded` crash:
   `docray_readable_documents()` and its siblings are SECURITY DEFINER functions
   that read `FROM documents`, and under FORCE RLS (1.36.0) their body re-enters
@@ -1836,7 +1857,7 @@ doc-ray carries **one global version** covering both the application package
   the recursion self-contained and asserts the schema invariant; `test_webapp.py`
   covers the None render).
 - **Member uploads no longer rejected by row-level security — the jobs queue is
-  trusted infrastructure** (Claude Opus 4.8 (1M context) via Claude Code) —
+  trusted infrastructure** —
   BL-141. Every non-admin `member` upload failed with `new row violates
   row-level security policy for table "jobs"`. The `jobs` INSERT policy (043)
   gated a document-less job behind `docray_is_admin()`, on the assumption that
@@ -1855,8 +1876,7 @@ doc-ray carries **one global version** covering both the application package
   principal so a member sees the jobs they enqueued (including their document-
   less ingest) without seeing anyone else's. Regression coverage lands the
   production error as a failing test in `test_jobs_trusted_writer.py`.
-- **Webapp logins no longer wiped on restart — durable Postgres session store**
-  (Claude Opus 4.8 (1M context) via Claude Code). The webapp's per-user login
+- **Webapp logins no longer wiped on restart — durable Postgres session store**. The webapp's per-user login
   sessions lived in a process-local dict (`InMemoryAuthSessionStore`): the Flask
   cookie carries only an opaque session id, and the matching server-side record
   was in memory, so every webapp container restart (and any second replica)
@@ -1873,7 +1893,7 @@ doc-ray carries **one global version** covering both the application package
 
 ### Added
 - **MCP write tools — reprocessing + curation mutations, opt-in and off by
-  default** (Claude Opus 4.8 (1M context) via Claude Code) — D-030. The MCP
+  default** — D-030. The MCP
   server can now expose 12 write tools (`reannotate`, `reextract_document`,
   `annotate_document`, `semantic_enrich_document`, `canonicalize_document`,
   `suggest_seeds`, `suggest_document_metadata`, `update_document_metadata`,
@@ -1894,7 +1914,7 @@ doc-ray carries **one global version** covering both the application package
   setting `DOCRAY_MCP_ENABLE_WRITE=true` on the `mcp` service; see
   `docs/mcp-service.md` §3 for tool signatures and end-to-end examples.
 
-- **Owner-driven document sharing** (Claude Opus 4.8 via Claude Code) — Phase 3.
+- **Owner-driven document sharing** — Phase 3.
   Per-owner isolation (1.34.0) gave each user a private corpus, but only the
   admin CLI could write `document_acl` rows, so a user had no way to hand a
   document to a colleague. New `shareDocument(documentId, email, permission)` and
@@ -1923,8 +1943,7 @@ doc-ray carries **one global version** covering both the application package
 ## [1.36.0]
 
 ### Security
-- **RLS is now enforced by the database, not by the application tier** (Claude
-  Opus 4.8 via Claude Code) — BL-138. Every corpus table had `ENABLE ROW LEVEL
+- **RLS is now enforced by the database, not by the application tier** — BL-138. Every corpus table had `ENABLE ROW LEVEL
   SECURITY`; none had `FORCE`. Both the API and the webapp connect as `docray`,
   which *owns* those tables, and Postgres exempts a table owner from its own
   policies unless the table is forced — so any code path that failed to
@@ -1955,8 +1974,7 @@ doc-ray carries **one global version** covering both the application package
   BYPASSRLS;` (see `db/migrations/106_force_rls.sql` and production-setup.md).
 
 ### Fixed
-- **MCP tools no longer forward a stale bearer token after a mid-session refresh**
-  (Claude Opus 4.8 (1M context) via Claude Code). On stateful Streamable-HTTP,
+- **MCP tools no longer forward a stale bearer token after a mid-session refresh**. On stateful Streamable-HTTP,
   a tool coroutine runs in the session task created at `initialize`, not the POST
   task the auth middleware ran in — so the `caller_token` contextvar the
   middleware set never reached the tool, and whichever token opened the session
@@ -1973,8 +1991,7 @@ doc-ray carries **one global version** covering both the application package
 ## [1.35.0]
 
 ### Added
-- **The `member` role — a registered user who can own a corpus** (Claude Opus
-  4.8 via Claude Code). Per-owner isolation (1.34.0) exposed the other half of
+- **The `member` role — a registered user who can own a corpus**. Per-owner isolation (1.34.0) exposed the other half of
   the problem: the default signup role `reader` carries only the `read`
   permission, and every local login minted `scopes={"read"}` while
   `_require_write_audited` refuses any mutation without `write`. A
@@ -1996,13 +2013,11 @@ doc-ray carries **one global version** covering both the application package
   enforced per document by `docray_writable_documents()`.
 
 ### Fixed
-- **Email verification no longer downgrades a new member to read-only** (Claude
-  Opus 4.8 via Claude Code). `verify_local_email` hard-coded `frozenset({"read"})`
+- **Email verification no longer downgrades a new member to read-only**. `verify_local_email` hard-coded `frozenset({"read"})`
   when minting the post-verification auto-login token, so a member's very first
   session could not upload — the one thing a new account exists to do. The
   verification result now carries the same derived scopes `login` produces.
-- **Ingest ownership wiring is now covered by tests** (Claude Opus 4.8 via
-  Claude Code). 1.34.0 threaded the uploader from `ingestDocument` through the
+- **Ingest ownership wiring is now covered by tests**. 1.34.0 threaded the uploader from `ingestDocument` through the
   job payload to `insert_document` without a test on that path. Added: the
   mutation stamps the request principal into the payload; the handler threads it
   to the pipeline and coerces an absent owner to `None` rather than the string
@@ -2013,8 +2028,7 @@ doc-ray carries **one global version** covering both the application package
 ## [1.34.0]
 
 ### Security
-- **Every registered user could read the entire corpus** (Claude Opus 4.8 via
-  Claude Code). doc-ray runs open registration, but migration 076's
+- **Every registered user could read the entire corpus**. doc-ray runs open registration, but migration 076's
   role-permission branch granted any principal holding the `read` action —
   which is every `reader`, the default signup role — visibility of the whole
   tenant corpus minus documents tagged `sensitivity=sensitive`. With one
@@ -2036,8 +2050,7 @@ doc-ray carries **one global version** covering both the application package
   `scripts/assign_document_owner.py` moves existing documents into a user's
   corpus by login email (dry-run by default), keeping deployment-specific data
   out of a versioned migration.
-- **The webapp no longer runs principal-less requests with owner privileges**
-  (Claude Opus 4.8 via Claude Code). `_apply_principal` returned early when no
+- **The webapp no longer runs principal-less requests with owner privileges**. `_apply_principal` returned early when no
   principal resolved, leaving the connection on `DATABASE_URL`'s role — which
   owns the tables. No table in `db/migrations/` is `FORCE ROW LEVEL SECURITY`,
   and Postgres exempts the owner from RLS without it, so that path read the
@@ -2049,8 +2062,7 @@ doc-ray carries **one global version** covering both the application package
   tracked as BL-138.
 
 ### Fixed
-- **`crossModalImageSearch` no longer leaks `No module named 'open_clip'`**
-  (Claude Fable 5 via Claude Code). The GraphQL read path lazily imports the
+- **`crossModalImageSearch` no longer leaks `No module named 'open_clip'`**. The GraphQL read path lazily imports the
   Tier-2 vision encoder at query time, but `open_clip`/`torch` are deliberately
   absent from the API image (they belong to the GPU worker), so MCP callers of
   `cross_modal_image_search` got a raw `ModuleNotFoundError` straight through
@@ -2061,8 +2073,7 @@ doc-ray carries **one global version** covering both the application package
   kind with a hint steering agents to the text-side tools instead of retrying.
   Regression tests cover the encoder factory, the GraphQL wire contract, and
   the MCP classification of both message shapes.
-- **Database ERD & data dictionary caught up with the live schema** (Claude
-  Fable 5 via Claude Code). `docs/DATABASE.md` had drifted to 1.22.0/73
+- **Database ERD & data dictionary caught up with the live schema**. `docs/DATABASE.md` had drifted to 1.22.0/73
   migrations because the generator's own curated inputs were stale: 16 live
   tables (jobs, collections, canonicalization, layout runs, local-auth,
   SCIM/SAML) had never been added to its groups, the migration list stopped
@@ -2074,8 +2085,7 @@ doc-ray carries **one global version** covering both the application package
   1.24.0 scope. Curated data moved to `scripts/_data_dictionary_content.py`
   to stay within the D-015 cap.
 
-- **Backup jobs no longer starve their own heartbeat** (Claude Fable 5 via
-  Claude Code) — BL-135. Progress reports wrote through the worker's main
+- **Backup jobs no longer starve their own heartbeat** — BL-135. Progress reports wrote through the worker's main
   connection, so inside the backup handler's minutes-long REPEATABLE READ
   snapshot transaction each per-table report joined that transaction and held
   the jobs-row lock until commit — blocking the heartbeat on the same row
@@ -2087,25 +2097,23 @@ doc-ray carries **one global version** covering both the application package
   jobs row stays unlocked (FOR UPDATE NOWAIT) with progress visible
   mid-transaction.
 - **`createCollection` no longer 500s on a missing RETURNING row or scalar
-  smart-rule tags** (Claude Fable 5 via Claude Code) — the mutation guards
+  smart-rule tags** — the mutation guards
   the INSERT's RETURNING row and normalizes non-list smart-rule tag values.
-- **Package version reconciled with the schema** (Claude Fable 5 via Claude
-  Code) — `doc_ray.__version__` had been left at 1.22.0 while migrations
+- **Package version reconciled with the schema** — `doc_ray.__version__` had been left at 1.22.0 while migrations
   075/077 moved the schema to 1.24.0, leaving
   `scripts/check_version_consistency.py` red on main; the 1.23.0/1.24.0
   release sections below were reconstructed from the git history at the same
   time.
 
 ### Changed
-- **Modernist design-system refresh across all webapp templates**
-  (Claude Fable 5 via Claude Code) — typography, layout, and navigation pass
+- **Modernist design-system refresh across all webapp templates** — typography, layout, and navigation pass
   over the browser UI; no route or data-contract changes.
 
 ## [1.33.0] - 2026-07-16
 
 ### Added
 - **D-024 read-path aggregate gate + read-model layer generalized across the
-  GraphQL/MCP surfaces** (Claude Opus 4.8 (1M context) via Claude Code). The same
+  GraphQL/MCP surfaces**. The same
   live-aggregation-over-fact-tables defect fixed for the webapp in 1.31.0/1.32.0
   was found by an audit across every read surface. This release turns the fix
   into an enforced architecture (ADR **D-025**): `scripts/check_read_path_aggregates.py`
@@ -2127,7 +2135,7 @@ doc-ray carries **one global version** covering both the application package
 
 ### Fixed
 - **Document reader + Lexicon no longer aggregate `lexeme_occurrences` on every
-  read** (Claude Opus 4.8 (1M context) via Claude Code). Same disease as the
+  read**. Same disease as the
   corpus band (1.31.0): live aggregation over the 17.5M-row table on read paths.
   Confirmed live via `EXPLAIN ANALYZE`/timings as `docray_api` + admin:
   - The Lexicon (`/lexemes`) joined `lexemes` → `lexeme_occurrences`, `GROUP BY`
@@ -2144,8 +2152,7 @@ doc-ray carries **one global version** covering both the application package
   and block queries now drive from `spans(document_id, page_number)` (indexed) —
   ~12 ms — and `attach_page_blocks` is skipped entirely in the original view.
   Rollups refresh in the trusted batch writer, never on the read path.
-- **`/doc/<id>?view=original&overlay=entities` no longer 500s** (Claude Opus 4.8
-  (1M context) via Claude Code) — `permission denied for table canonical`. The
+- **`/doc/<id>?view=original&overlay=entities` no longer 500s** — `permission denied for table canonical`. The
   entity-overlay query joins the shared `canonical` registry to resolve a linked
   entity's preferred name, but `docray_client`'s SELECT allowlist (018_rbac.sql)
   predated the `canonical` table (021) and never included it. Migration 097 grants
@@ -2155,8 +2162,7 @@ doc-ray carries **one global version** covering both the application package
 ## [1.31.0] - 2026-07-16
 
 ### Fixed
-- **"The Corpus" landing page no longer scans 17.5M rows per request**
-  (Claude Opus 4.8 (1M context) via Claude Code). `GET /corpus` recomputed four
+- **"The Corpus" landing page no longer scans 17.5M rows per request**. `GET /corpus` recomputed four
   corpus-wide aggregates on every load; two of them (`count(DISTINCT lexeme_uid)`
   and `count(*)` over `lexeme_occurrences`) full-scanned the 17.5M-row table,
   costing ~18.7 s of origin time against a 300 ms SLA (confirmed live via
@@ -2175,8 +2181,7 @@ doc-ray carries **one global version** covering both the application package
 ## [1.30.0] - 2026-07-16
 
 ### Added
-- **Prism Tier-3 grounded VLM captions — gate + schema** (Claude Opus 4.8 via
-  Claude Code). The specificity-weighted grounding scorer
+- **Prism Tier-3 grounded VLM captions — gate + schema**. The specificity-weighted grounding scorer
   (`application/visual_grounding.py`) — the PALS gate that caps generic captions
   so they route to `visual_review` instead of the trusted graph — plus the
   `visual_caption` and (net-new-RLS) `visual_review` tables (migrations 093-094)
@@ -2186,8 +2191,7 @@ doc-ray carries **one global version** covering both the application package
 ## [1.29.0] - 2026-07-16
 
 ### Added
-- **Prism Tier-2 visual layer — vision embeddings (schema + port)** (Claude Opus
-  4.8 via Claude Code). HNSW-indexed `image_embedding` and (real text-tower)
+- **Prism Tier-2 visual layer — vision embeddings (schema + port)**. HNSW-indexed `image_embedding` and (real text-tower)
   `sentence_vision_embedding` tables under the existing RLS (migrations 091-092),
   and a `VisionEncoder` port (dual image/text encoder) so cross-modal retrieval
   is independent of the GPU serving stack. Vectors rank only; they never assert a
@@ -2196,8 +2200,7 @@ doc-ray carries **one global version** covering both the application package
 ## [1.28.0] - 2026-07-15
 
 ### Added
-- **Prism Tier-1 visual layer — deterministic image features** (Claude Opus 4.8
-  via Claude Code). First tier of the visual/multimodal layer (see
+- **Prism Tier-1 visual layer — deterministic image features**. First tier of the visual/multimodal layer (see
   `docs/proposals/prism-visual-layer.md`): two additive, document-scoped tables
   (`document_image`, `image_tier1_features`) under the existing RLS, and a pure
   deterministic feature extractor (`application/visual_features.py`) — colour
@@ -2210,7 +2213,7 @@ doc-ray carries **one global version** covering both the application package
 Schema 1.27.0 (migrations 085-086).
 
 ### Fixed
-- **Billing tenant identity is deploy-safe** (OpenAI GPT-5 via Codex) -
+- **Billing tenant identity is deploy-safe** -
   GraphQL billing status now returns the real tenant slug/display name in the
   admin console, and a forward repair migration grants the client runtime role
   tenant catalogue read access on deployments that had already recorded the
@@ -2221,7 +2224,7 @@ Schema 1.27.0 (migrations 085-086).
 Schema 1.26.0 (migrations 083-084).
 
 ### Added
-- **Billing payment activity** (OpenAI GPT-5 via Codex) - tenant admins can
+- **Billing payment activity** - tenant admins can
   inspect recent Stripe webhook events in GraphQL and the admin-console Billing
   panel, with RLS-backed filtering by tenant/customer and regression coverage
   for event visibility.
@@ -2231,7 +2234,7 @@ Schema 1.26.0 (migrations 083-084).
 Schema 1.25.0 (migrations 080–081).
 
 ### Added
-- **Stripe subscription billing foundation** (OpenAI GPT-5 via Codex) —
+- **Stripe subscription billing foundation** —
   tenant-scoped billing account/subscription tables, signed Stripe webhook
   event processing, hosted Checkout and Customer Portal GraphQL mutations,
   and an admin-console Billing panel wired to the live billing status/actions.
@@ -2254,7 +2257,7 @@ Schema 1.24.0 (migrations 076–077).
   documents, which stay ACL-gated (migration 076); and webapp→API writes now
   act as the logged-in principal via an explicit `impersonate`-scoped
   `X-DocRay-Act-As` delegation instead of riding the admin service token.
-- **Verification-delivery blocker** (Claude Fable 5 via Claude Code) — a
+- **Verification-delivery blocker** — a
   registered account could never verify: the raw token was discarded and no
   mail sender existed anywhere in the repo. New `Mailer` port + stdlib SMTP
   adapter (`DOCRAY_SMTP_*`, STARTTLS, optional AUTH), fail-closed
@@ -2271,10 +2274,9 @@ Schema 1.23.0 (migrations 074–075).
   (`principal_credentials`), email-verification tokens, and webapp
   registration/login for reader-role principals (migrations 074–075).
 - **Document collections exposed in GraphQL** (fleet agent).
-- **`pipeline_health_check`** (Claude Fable 5 via Claude Code) — one-shot
+- **`pipeline_health_check`** — one-shot
   broken-state report for the pipeline.
-- **Short-job lane: kind-filtered claiming + reserved `worker-fast` service**
-  (Claude Fable 5 via Claude Code) — the 2026-07-12 starvation incident's
+- **Short-job lane: kind-filtered claiming + reserved `worker-fast` service** — the 2026-07-12 starvation incident's
   final follow-up: with every worker chewing a book-sized reannotate, a
   seconds-long ingest sat `Queued` for 25+ minutes with no worker available.
   `queue_postgres.claim()` (and `run_once`) now accept `only_kinds`/
@@ -2288,16 +2290,13 @@ Schema 1.23.0 (migrations 074–075).
   cover exclude/only/unfiltered claiming and `run_once` threading.
 
 ### Changed
-- **Hot paths stop per-row `substring(full_text)` detoasting**
-  (Claude Fable 5 via Claude Code) — enrichment and webapp queries no longer
+- **Hot paths stop per-row `substring(full_text)` detoasting** — enrichment and webapp queries no longer
   detoast the full document text per row.
 
 ### Fixed
-- **Language detection ignores single-letter tokens** (Claude Fable 5 via
-  Claude Code).
-- **Honest pipeline-step status in the webapp** (Claude Fable 5 via Claude
-  Code) — failure banners, elapsed time, no fabricated ETA.
-- **Pipeline polish pass** (Claude Fable 5 via Claude Code) — BL-134, four
+- **Language detection ignores single-letter tokens**.
+- **Honest pipeline-step status in the webapp** — failure banners, elapsed time, no fabricated ETA.
+- **Pipeline polish pass** — BL-134, four
   root-cause fixes from the 2026-07-12 incident review, each with a
   regression test:
   - *Janitor reap thread*: `reap_stale` only ran between jobs, so with every
@@ -2318,8 +2317,7 @@ Schema 1.23.0 (migrations 074–075).
     degenerates to an O(rows x spans) nested loop in the planner; the
     geometry pass is log-linear and deduplicating since BL-133, so the
     document's runs are fetched once, bounded by document size.
-- **Span-geometry backfill is no longer quadratic** (Claude Fable 5 via
-  Claude Code) — BL-133, the root cause behind the 2026-07-12
+- **Span-geometry backfill is no longer quadratic** — BL-133, the root cause behind the 2026-07-12
   "Registering N annotation spans" stalls and the execution-timeout failure:
   `span_geometry_from_layout_rows` scanned every layout row for every span
   (171k spans × a 303-page book's rows ≈ tens of billions of pure-Python
@@ -2386,7 +2384,7 @@ Schema 1.23.0 (migrations 074–075).
   opaque span-registration phase.
 
 ### Fixed
-- **Collections actually persist** (Claude Fable 5 via Claude Code) — BL-131,
+- **Collections actually persist** — BL-131,
   from an operator screenshot ("Collection not found" right after creating
   one). The BL-057 collection routes write directly through the webapp's
   request connection; `get_conn()` opened psycopg without autocommit, and
@@ -2397,7 +2395,7 @@ Schema 1.23.0 (migrations 074–075).
   regression test drives the real two-request lifecycle and was verified to
   fail with the fix reverted — the suite's `client` fixture fakes `q`/`q1`
   wholesale, which is why the original tests could not see this.
-- **auth_admin CLI operator UX** (Claude Fable 5 via Claude Code) — BL-128,
+- **auth_admin CLI operator UX** — BL-128,
   from an operator traceback report:
   - An unreachable Postgres now exits 2 with an actionable, password-redacted
     message (points at `set -a; source .env; set +a` and `--database-url`)
@@ -2415,7 +2413,7 @@ Schema 1.23.0 (migrations 074–075).
   documents; the webapp lexeme index now follows the same visible-occurrence
   rule.
 - **Job progress that actually advances, ETA, stalled-job recovery, and a
-  guarded corpus-truncate task** (Claude Fable 5 via Claude Code) — closes
+  guarded corpus-truncate task** — closes
   the gaps found verifying BL-123's first landing against the operator's
   bar ("no status, no progress, no ETA, no %"):
   - The progress reporter moved to `domain/progress.py` (contextvar), so
@@ -2532,7 +2530,7 @@ Schema 1.23.0 (migrations 074–075).
 
 ### Security
 - **BL-110 follow-through: the two resolvers the original sweep missed now
-  validate ids** (Claude Fable 5 via Claude Code) — a backlog-vs-code audit
+  validate ids** — a backlog-vs-code audit
   found `documentMetadataHistory` still passed its `documentId` unvalidated
   into the uuid-typed history query (a malformed id surfaced Postgres's raw
   `invalid input syntax for type uuid` text to any caller), and
@@ -2541,8 +2539,7 @@ Schema 1.23.0 (migrations 074–075).
   short-circuits to an empty page via `_clean_uuid`; the mutation now goes
   through `_require_document_write` (per-document grant check + id
   validation, BL-064's pattern). Regression tests cover both.
-- **Container & dependency supply-chain hardening** (Claude Fable 5 via
-  Claude Code) — BL-111, BL-112, BL-114 as one lane; see engineering decision
+- **Container & dependency supply-chain hardening** — BL-111, BL-112, BL-114 as one lane; see engineering decision
   `D-024`:
   - The app `Dockerfile` is now two stages, both pinning
     `python:3.12-slim` by `@sha256:` index digest (BL-111 — the same
@@ -2568,8 +2565,7 @@ Schema 1.23.0 (migrations 074–075).
     only. New `tests/test_uv_lock_sync.py` enforces lock consistency and
     the no-plain-pip invariant in both surfaces, with self-tests proving
     the checker can fail.
-- **CSRF protection on every state-changing webapp form** (Claude Sonnet 5 via
-  Claude Code) — upload, backup create/restore, and seeding approve/reject/seed
+- **CSRF protection on every state-changing webapp form** — upload, backup create/restore, and seeding approve/reject/seed
   were all plain POST forms with no CSRF token, no SameSite reliance
   documented, and no Origin check anywhere in `app.py`; a logged-in operator's
   browser could be tricked into submitting any of these from another origin.
@@ -2582,8 +2578,7 @@ Schema 1.23.0 (migrations 074–075).
   post (no JS fetch/XHR writes exist), so no new dependency was needed. New
   `DOCRAY_WEBAPP_SECRET_KEY` signs the session cookie. Closes `BL-103`.
 - **GraphQL introspection/GraphiQL gated; ingestDocument upload size capped;
-  EPUB/DOCX zip-bomb + entity-expansion hardening** (Claude Sonnet 5 via
-  Claude Code) — three findings from the 2026-07-10 full-codebase gap
+  EPUB/DOCX zip-bomb + entity-expansion hardening** — three findings from the 2026-07-10 full-codebase gap
   analysis (BL-108, BL-098, BL-088), following BL-094/BL-064:
   - `entrypoints/api/schema.py`'s `build_schema` disables introspection
     (Strawberry's `DisableIntrospection`) unless the new `DOCRAY_API_DEBUG`
@@ -2604,7 +2599,7 @@ Schema 1.23.0 (migrations 074–075).
     compressed size before `extract_epub`/`extract_docx` read any member.
     Previously EPUB/DOCX had neither guard.
 - **Worker DB-reconnect resilience; GraphQL id-argument validation; mutation
-  batch bounds** (Claude Sonnet 5 via Claude Code) — three more findings from
+  batch bounds** — three more findings from
   the 2026-07-10 full-codebase gap analysis (BL-101, BL-110, BL-109). See
   engineering decision `D-020`:
   - `entrypoints/worker.py`'s outer poll loop now catches
@@ -2622,7 +2617,7 @@ Schema 1.23.0 (migrations 074–075).
     `rejectIds` are rejected outright (new `context.MAX_BATCH_IDS`, 500) —
     not silently truncated — when a batch is too large.
 - **Webapp security headers; upload-extension allowlisting; header-based
-  operator token** (Claude Sonnet 5 via Claude Code) — BL-104, BL-106,
+  operator token** — BL-104, BL-106,
   BL-107. See engineering decision `D-021`:
   - New `webapp/security_headers.py` sets `Content-Security-Policy`,
     `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, and
@@ -2639,8 +2634,7 @@ Schema 1.23.0 (migrations 074–075).
     bootstrap link now sets a signed session flag so later navigation no
     longer needs the token in the URL. `operator_health.html`'s internal
     link no longer embeds the raw token.
-- **Structured logging for the worker and API processes** (Claude Sonnet 5
-  via Claude Code) — BL-115. See engineering decision `D-022`: new
+- **Structured logging for the worker and API processes** — BL-115. See engineering decision `D-022`: new
   `doc_ray.logging_setup.configure_logging()` (level/format via
   `DOCRAY_LOG_LEVEL`/`DOCRAY_LOG_FORMAT`) is called at startup by
   `entrypoints.worker.main` and `entrypoints.api.app.create_app`. Worker
@@ -2653,8 +2647,7 @@ Schema 1.23.0 (migrations 074–075).
   Python's unconfigured handler of last resort.
 
 ### Added
-- **Documentation drift gates: BL-048 landed, BL-047 completed** (Claude
-  Fable 5 via Claude Code) — new `tests/test_docs_in_sync.py` asserts
+- **Documentation drift gates: BL-048 landed, BL-047 completed** — new `tests/test_docs_in_sync.py` asserts
   DATABASE.md's "N migrations applied" header equals the `db/migrations/*.sql`
   file count, that its §9 migration-history table lists every migration file,
   and that the BL-047 drift gate stays wired into pre-commit and CI. Its first
@@ -2665,7 +2658,7 @@ Schema 1.23.0 (migrations 074–075).
   (`gen_data_dictionary.py --check --skip-without-db`, a new flag that prints
   an explicit SKIPPED notice instead of a stacktrace when no database is
   reachable; CI keeps running the strict form).
-- **nginx TLS front door for the webapp** (Claude Fable 5 via Claude Code) —
+- **nginx TLS front door for the webapp** —
   new compose `nginx` service (nginx:1.27-alpine) serves the webapp over
   HTTPS on `${NGINX_HTTPS_PORT:-443}` and 301-redirects plain HTTP on
   `${NGINX_HTTP_PORT:-80}` (host/path/query preserved). A one-shot
@@ -2682,8 +2675,7 @@ Schema 1.23.0 (migrations 074–075).
   healthcheck. nginx binds all interfaces as the intentional entry point —
   the webapp itself stays loopback-only — but the UI still has no login, so
   the exposed ports must stay inside a trusted network.
-- **Webapp joins the compose stack as a first-class service** (Claude Fable 5
-  via Claude Code) — `docker compose up -d webapp` now serves the Flask corpus
+- **Webapp joins the compose stack as a first-class service** — `docker compose up -d webapp` now serves the Flask corpus
   browser at `http://127.0.0.1:${WEBAPP_PORT:-5001}`, wired to the stack's
   Postgres and to the api service's in-network GraphQL endpoint
   (`http://api:8000/graphql` — hard-coded like `docker-compose.api.yml`'s
@@ -2696,8 +2688,7 @@ Schema 1.23.0 (migrations 074–075).
   check. `DOCRAY_WEBAPP_SECRET_KEY`, `DOCRAY_WEBAPP_API_TOKEN`,
   `DOCRAY_OPERATOR_HEALTH_TOKEN`, `DOCRAY_MAX_UPLOAD_MB`, `DOCRAY_DB_ROLE`,
   and `DOCRAY_PRINCIPAL_ID` pass through from `.env`.
-- **Doc-hygiene audit fixes + drift regression tests** (Claude Sonnet 5 via
-  Claude Code) — README's quick-start referenced a removed fixture
+- **Doc-hygiene audit fixes + drift regression tests** — README's quick-start referenced a removed fixture
   (`orwell1984.pdf`) and its GraphQL surface list had drifted 7 fields behind
   the live schema; `.env.example` was missing ~20 environment variables the
   code actually reads (`API_MAX_DEPTH`/`API_MAX_TOKENS`, `WORKER_*`,
@@ -2709,8 +2700,7 @@ Schema 1.23.0 (migrations 074–075).
   it can actually fail). `docs/doc-ray-database-*.pdf/svg` ERD diagrams remain
   stale — no generator script exists for them yet (tracked as a gap, not fixed
   here; see the doc-hygiene report's Recommendation 1).
-- **PDF extraction surfaces per-line page number + bounding box** (Claude
-  Sonnet 5 via Claude Code) — BL-076, the foundational first step for a
+- **PDF extraction surfaces per-line page number + bounding box** — BL-076, the foundational first step for a
   future overlay-on-original-document feature (see engineering decision
   `D-023`). `extract_pdf_pymupdf` now attaches a new `Extracted.page_runs`
   field (`None` for every non-PDF-pymupdf extractor): one
@@ -2720,7 +2710,7 @@ Schema 1.23.0 (migrations 074–075).
   `to_markdown`'s output is unchanged — this only surfaces geometry that was
   already being computed and discarded.
 - **Semantic enrichment joins the default pipeline; entity/chunk reads stop
-  rejoining `document_content`** (Claude Sonnet 5 via Claude Code) — the
+  rejoining `document_content`** — the
   post-ingest pipeline chain is now `ingest -> annotate -> semantic_enrich ->
   canonicalize`, queueable explicitly via the new GraphQL
   `semanticEnrichDocument` mutation or the `semantic_enrich` job kind.
@@ -2737,8 +2727,7 @@ Schema 1.23.0 (migrations 074–075).
   (`DOCRAY_API_STATEMENT_TIMEOUT_MS`, default 15s) as a second, independent
   guardrail against any future unbounded query. See `engineering_decisions.yml`
   `D-017`.
-- **Webapp: shared stylesheet, graceful database-unavailable page**
-  (Claude Sonnet 5 via Claude Code) — the design tokens and component styles
+- **Webapp: shared stylesheet, graceful database-unavailable page** — the design tokens and component styles
   that `base.html` inlined, plus several near-duplicate per-page rules
   (`.hint`/`.muted`, `.notice`/`.errbox`, the job/seeding status pill, the
   dense-table `th`/`td` rules), are consolidated into
@@ -2746,8 +2735,7 @@ Schema 1.23.0 (migrations 074–075).
   failure (unreachable, or a rejected password) now renders a plain "Can't
   reach the database" page with the connection error and a short checklist,
   instead of surfacing Werkzeug's raw interactive debugger/traceback.
-- **Drift-gate for the generated data dictionary + hexagonal import guard**
-  (Claude Opus 4.8 via Claude Code) — `scripts/gen_data_dictionary.py` gains a
+- **Drift-gate for the generated data dictionary + hexagonal import guard** — `scripts/gen_data_dictionary.py` gains a
   `--check` mode (`_in_sync`) that fails when `docs/DATABASE.md` is stale versus the
   live schema, wired as a CI gate that runs after migrations; a new
   `src/doc_ray/tests/test_import_boundary.py` fails if `doc_ray.domain` or
@@ -2755,7 +2743,7 @@ Schema 1.23.0 (migrations 074–075).
   by test. The generator's hand-authored data constants (`RLS_PATH`, `MIGRATIONS`)
   move to `scripts/_data_dictionary_content.py` to keep both files within the 400
   net-LOC cap (D-015). Closes `BL-047` and `BL-052`.
-- **Evaluation, semantic enrichment, and math extraction completion** (OpenAI GPT-5 via Codex) —
+- **Evaluation, semantic enrichment, and math extraction completion** —
   migration 036 adds durable `corpus_snapshot`, `evaluation_run`,
   `evaluation_metric`, and `gold_sample` artifacts, while
   `application.evaluation` records lexical/entity distributions with citeable
@@ -2765,96 +2753,96 @@ Schema 1.23.0 (migrations 074–075).
   `annotate_semantic` entrypoint fills deterministic discourse, temporal/event,
   sentiment, and hash-BoW embedding layers, closing `BL-002`, `BL-006`, and
   `BL-024`.
-- **Scheduled backups and Postgres maintenance hardening** (OpenAI GPT-5 via Codex) —
+- **Scheduled backups and Postgres maintenance hardening** —
   the Compose stack now runs a backup scheduler with retention pruning, exposes
   `db_health --watch` as an opt-in ops monitor, tunes autovacuum/analyze
   thresholds for high-churn annotation tables, prevents the on-demand ingester
   from starting during plain `docker compose up`, and adds an FTS language-config
   drift guard, closing `BL-042`, `BL-044`, `BL-045`, and `BL-046`.
-- **Postgres/API security and pool hardening** (OpenAI GPT-5 via Codex) —
+- **Postgres/API security and pool hardening** —
   Compose now pins the pgvector/Postgres image by digest, binds Postgres to
   loopback, and refuses unset/default database passwords. The GraphQL API now
   supports bearer or `X-DocRay-API-Token` principal mapping through
   `DOCRAY_API_TOKENS`, keeps anonymous HTTP requests RLS-scoped instead of
   superuser, and exposes explicit async pool bounds through `DOCRAY_API_POOL_*`,
   closing `BL-039`, `BL-040`, `BL-041`, and `BL-043`.
-- **OCR fallback, resolver verification, and GraphQL read contracts** (OpenAI GPT-5 via Codex) —
+- **OCR fallback, resolver verification, and GraphQL read contracts** —
   image-only PDFs can now opt into PyMuPDF/Tesseract OCR through
   `DOCRAY_PDF_OCR`, ML/LLM-style candidate-resolution output is verified before
   mapping, and the Strawberry read surface has contract tests proving resolver
   fields delegate through the read adapter instead of embedding SQL, closing
   `BL-001`, `BL-007`, and `BL-008`.
-- **Reader scroll, POS focus, and PDF heading calibration** (OpenAI GPT-5 via Codex) —
+- **Reader scroll, POS focus, and PDF heading calibration** —
   the PyMuPDF layout path now accepts corpus-specific heading thresholds through
   `DOCRAY_PDF_HEADING_*` environment overrides, the document reader can switch
   to a continuous full-document scroll with single-POS focus, and Lexicon/job
   tables no longer foreground opaque identifiers, closing `BL-003`, `BL-005`,
   and `BL-035`.
-- **Operator health contract and webapp definitions** (OpenAI GPT-5 via Codex) —
+- **Operator health contract and webapp definitions** —
   `/operator/health.json` now exposes an admin-gated `operator-health.v1`
   payload, POS chips and status pills share keyboard/touch-accessible
   definitions, and the webapp Help surface plus feature pages define core
   terms such as lexeme, occurrence, annotate, canonicalize, and domain
   seeding, closing `BL-023`, `BL-029`, and `BL-036`.
-- **Reader and job-status polish** (OpenAI GPT-5 via Codex) —
+- **Reader and job-status polish** —
   the reader now renders extracted Markdown headings and lists as structured
   blocks while preserving inline POS annotation links, explains
   not-yet-annotated documents in place, and the pipeline status page now maps
   raw job kinds/results/errors to human labels, outcome summaries, and recovery
   actions, closing `BL-004`, `BL-032`, and `BL-033`.
-- **Webapp orientation and guardrails** (OpenAI GPT-5 via Codex) —
+- **Webapp orientation and guardrails** —
   the corpus landing page now states the ingest -> annotate -> curate value
   proposition, the seeding screen shows its workflow and confirms permanent
   seeding, and the masthead separates Backups from everyday reading
   navigation, closing `BL-026`, `BL-030`, and `BL-034`.
-- **In-app help guide** (OpenAI GPT-5 via Codex) —
+- **In-app help guide** —
   the Flask browser now has a persistent `/help` guide reachable from every
   page, with contextual guide links from pipeline status, domain seeding, and
   backups, closing `BL-027`.
-- **Operator health page** (OpenAI GPT-5 via Codex) —
+- **Operator health page** —
   `/operator/health` now renders read-only corpus and database health snapshots
   in the Flask browser, grouping findings by `error`/`warning`/`info` and
   requiring `DOCRAY_OPERATOR_HEALTH_TOKEN`, closing `BL-038`.
-- **Reader POS accessibility cues** (OpenAI GPT-5 via Codex) —
+- **Reader POS accessibility cues** —
   annotated reader words now carry visible part-of-speech sigils, accessible
   POS labels, and non-color underline styles so POS is no longer conveyed by
   hue alone, closing `BL-037`.
-- **Annotation output validation** (OpenAI GPT-5 via Codex) —
+- **Annotation output validation** —
   `SpacyAnnotator` now validates span bounds, token ordinals, sentence
   references, dependency heads, entity/chunk/coreference spans, lexeme
   projections, and language/model support before persistence. Successful runs
   record validation status in job and provenance output, and invalid annotation
   graphs fail visibly before any run is committed, closing `BL-019`.
-- **Corpus search semantics disclosure** (OpenAI GPT-5 via Codex) —
+- **Corpus search semantics disclosure** —
   the browser search page now states that it performs literal substring
   matching, and its zero-result state explains inflection misses while pointing
   to the GraphQL `fullTextSearch` alternative, closing `BL-031`.
-- **Lexeme/token projection invariant** (OpenAI GPT-5 via Codex) —
+- **Lexeme/token projection invariant** —
   `SpacyAnnotator` now builds `lexeme_occurrences` through a named projection
   over non-null `tokens.lexeme_uid` rows, with a pure projection test and a live
   Postgres parity test proving browser/API lexeme counts stay aligned with the
   token layer, closing `BL-025`.
-- **spaCy annotation capability registry** (OpenAI GPT-5 via Codex) —
+- **spaCy annotation capability registry** —
   `SpacyAnnotator` now exposes a language/model registry with install status,
   supported layers, and explicit fallback policy. Unsupported languages fail
   clearly by default; operators can opt into fallback via
   `DOCRAY_SPACY_FALLBACK_POLICY=fallback`, and provenance records detected
   language, annotation language, model, policy, and fallback decisions, closing
   `BL-022`.
-- **Read-surface parity guard** (OpenAI GPT-5 via Codex) —
+- **Read-surface parity guard** —
   `tests/test_read_surface_parity.py` now keeps the async read adapter,
   GraphQL query resolvers, and Flask browser read shapes from drifting apart.
   `ReadRepository` now documents the complete public async reader contract,
   including batch loaders, document-scoped lexeme/KWIC/search filters, and
   entity read methods, closing `BL-020`.
-- **spaCy annotation provenance** (OpenAI GPT-5 via Codex) —
+- **spaCy annotation provenance** —
   `SpacyAnnotator` now writes an `annotated` provenance event in the same
   transaction as its spaCy and lexeme annotation rows. The event records
   tool/version, language, per-layer counts, lexeme-occurrence counts, annotation
   ids, and replacement semantics; integration tests now prove success creates
   the event and write failures leave no visible annotation run, closing
   `BL-018`.
-- **NLP capability matrix and drift guard** (OpenAI GPT-5 via Codex) —
+- **NLP capability matrix and drift guard** —
   `docs/nlp_capability_matrix.md` now maps each of the 20 documented NLP layers
   across schema, writer, read adapter, GraphQL, browser, health, and test
   coverage. `src/doc_ray/tests/test_nlp_capability_matrix.py` keeps API-exposed
@@ -2879,14 +2867,13 @@ Schema 1.23.0 (migrations 074–075).
   (`application/db_analyzer/engines/`), with PostgreSQL shipping today. Flags:
   `--engine`, `--dsn`, `--schemas` / `--exclude-schemas`, `--structure-only`,
   `--output-dir`, `--config`, `--json`.
-- **Migration runner row-factory regression coverage** (OpenAI GPT-5 via Codex)
+- **Migration runner row-factory regression coverage**
   — `applied_filenames()` now has explicit coverage for tuple-style psycopg
   rows, guarding the BL-015 live-DB bug where migration filenames could be read
   through the wrong row access mode.
 
 ### Fixed
-- **Backlog descriptions reconciled with the code** (Claude Fable 5 via
-  Claude Code) — full 118-item audit of `docs/backlog.yml` against the
+- **Backlog descriptions reconciled with the code** — full 118-item audit of `docs/backlog.yml` against the
   implementation. `BL-048` parked→done (see Added); stale or false claims
   corrected in `BL-012` (impersonation gap is closed, not "still open"),
   `BL-051` (no MCP entrypoint exists), `BL-069` (authenticator is wired in
@@ -2895,8 +2882,7 @@ Schema 1.23.0 (migrations 074–075).
   (test path), `BL-116` (logger call-site count); rotted line-number
   citations in `BL-080`/`BL-084`/`BL-086`/`BL-091`/`BL-092` replaced with
   stable symbol names.
-- **deleteDocument no longer leaks the document's blob in object storage**
-  (Claude Sonnet 5 via Claude Code) — `handle_delete` (`application/jobs.py`)
+- **deleteDocument no longer leaks the document's blob in object storage** — `handle_delete` (`application/jobs.py`)
   previously only issued `DELETE FROM documents`; a repo-wide grep for
   `store.delete(` showed exactly one call site in all of `src/doc_ray`
   (`application/backup.py`, pruning old backup archives), so every document
@@ -2905,7 +2891,7 @@ Schema 1.23.0 (migrations 074–075).
   object-store key after the DB delete succeeds — tolerating a document with
   no configured store or a `source_uri` outside the configured bucket.
   Closes `BL-097`.
-- **Corpus landing count and empty state** (OpenAI GPT-5 via Codex) —
+- **Corpus landing count and empty state** —
   the webapp landing lede now reflects the live document count instead of
   hardcoding "Five documents", and an empty corpus shows an upload call-to-action,
   closing `BL-028`.
@@ -2926,7 +2912,7 @@ Schema 1.23.0 (migrations 074–075).
 
 ### Added
 - **Editable document metadata (title/description/tags) with a change-history
-  audit trail** (Claude Sonnet 5 via Claude Code, BL-058) — documents were
+  audit trail** (BL-058) — documents were
   write-once at ingest: no mutation or webapp route could rename a document
   or fix a wrong title, add a description, or correct a tag afterward.
   `documents` gains a `description` column and a new append-only
@@ -2964,8 +2950,7 @@ type-file-by-concern split.
 ## [1.10.0] - 2026-07-05
 
 ### Security
-- **Mutation resolvers never checked per-document write ACL** (Claude Sonnet 5
-  via Claude Code) — every GraphQL mutation checked only a global "write"
+- **Mutation resolvers never checked per-document write ACL** — every GraphQL mutation checked only a global "write"
   scope (`_require_write`), never the caller's `document_acl` grant for the
   specific `document_id` being mutated; `jobs` and `backups` had no RLS at
   all (only a direct `GRANT` to `docray_client`). Net effect: any token with
@@ -2985,7 +2970,7 @@ type-file-by-concern split.
 
 ### Fixed
 - **entity_frequency/entities corpus-wide query could peg every core for
-  minutes** (Claude Sonnet 5 via Claude Code) — `entity_mention` and `chunk`
+  minutes** — `entity_mention` and `chunk`
   now carry a `surface` column, populated at annotation write time instead of
   reconstructed via `substring(document_content.full_text, ...)` at read time.
   Without this, calling `entityFrequency`/`entities` without a `documentId` (a
@@ -3002,7 +2987,7 @@ type-file-by-concern split.
 ## [1.8.0] - 2026-07-05
 
 ### Added
-- **Evaluation and remaining NLP backlog completion** (OpenAI GPT-5 via Codex) —
+- **Evaluation and remaining NLP backlog completion** —
   migration 036 adds evaluation/drift tables and migration 037 advances the
   unified package/schema version to `1.8.0`. `python -m
   doc_ray.entrypoints.evaluate` records corpus snapshots and base
@@ -3017,7 +3002,7 @@ type-file-by-concern split.
 ## [1.7.0] - 2026-07-05
 
 ### Added
-- **Scheduled backup retention and maintenance guardrails** (OpenAI GPT-5 via Codex) —
+- **Scheduled backup retention and maintenance guardrails** —
   `backup-scheduler` now enqueues backup jobs on a configured cadence, prunes
   old backup archives from object storage and the backup catalog according to
   explicit retention settings, and documents WAL/PITR as out of scope for the
@@ -3031,7 +3016,7 @@ type-file-by-concern split.
 ## [1.6.0] - 2026-07-05
 
 ### Added
-- **Postgres/API runtime hardening** (OpenAI GPT-5 via Codex) —
+- **Postgres/API runtime hardening** —
   Compose now pins the pgvector/Postgres image by digest, binds Postgres to
   loopback, and refuses unset/default database passwords. The GraphQL API now
   resolves bearer or `X-DocRay-API-Token` credentials to principals through
@@ -3046,16 +3031,16 @@ type-file-by-concern split.
 ## [1.5.0] - 2026-07-05
 
 ### Added
-- **Keyset GraphQL pagination and layer-aware read surfaces** (OpenAI GPT-5 via Codex) —
+- **Keyset GraphQL pagination and layer-aware read surfaces** —
   GraphQL list fields now page with returned cursors instead of offset
   arguments, and documents expose bounded annotation-run, token, dependency,
   chunk, coreference, and entity-link reads through adapter-backed resolvers,
   closing `BL-009` and `BL-017`.
-- **Canonical registry and review read surfaces** (OpenAI GPT-5 via Codex) —
+- **Canonical registry and review read surfaces** —
   the API now exposes canonical registry search, canonical forms, unresolved
   mentions, and resolution-review rows without direct SQL or job JSON
   inspection, closing `BL-021`.
-- **Principal LOGIN-role isolation** (OpenAI GPT-5 via Codex) —
+- **Principal LOGIN-role isolation** —
   migration 030 adds per-principal database-role binding and moves trusted API
   `app.principal_id` assertion to `docray_api`, so a `docray_client` direct-SQL
   actor cannot impersonate another principal by setting a GUC. Migration 031

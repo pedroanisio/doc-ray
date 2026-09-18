@@ -40,7 +40,7 @@ Row = dict[str, Any]
 class DocumentCollection:
     """A manual or smart grouping of documents.
 
-    When ``isScope`` is true the collection is also a *lens* (Block B): a named
+    When ``isScope`` is true the collection is also a *lens*: a named
     scope a later projection layer will use to interpret entity identity.
     Ordinary collections (``isScope`` false) are identity-neutral navigation.
     ``parentLensId`` optionally nests one lens under another; nesting is recorded

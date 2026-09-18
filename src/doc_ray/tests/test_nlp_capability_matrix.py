@@ -25,7 +25,6 @@ _TYPES = _ROOT / "src" / "doc_ray" / "entrypoints" / "api" / "types.py"
 #: The document cluster's types moved to document_types.py (D-015 split);
 #: field refs on `Document` resolve against both files.
 _DOCUMENT_TYPES = _ROOT / "src" / "doc_ray" / "entrypoints" / "api" / "document_types.py"
-_BACKLOG = _ROOT / "docs" / "backlog.yml"
 
 _REF_RE = re.compile(r"`([^`]+)`")
 _GRAPHQL_REF_RE = re.compile(r"`(Query|Document|Lexeme)\.([A-Za-z_][A-Za-z0-9_]*)`")
@@ -102,9 +101,3 @@ def test_writer_backed_rows_cite_live_production_and_test_paths():
         test_refs = _REF_RE.findall(row["Tests"])
         assert test_refs, f"Layer {row['Layer']} has writer evidence but no test path"
         assert any(_path_from_ref(ref).exists() for ref in test_refs), row["Tests"]
-
-
-def test_bl016_is_marked_done_only_when_matrix_exists():
-    text = _BACKLOG.read_text(encoding="utf-8")
-    bl016 = text.split('id:          "BL-016"', 1)[1].split('id:          "BL-017"', 1)[0]
-    assert 'status:       "done"' in bl016

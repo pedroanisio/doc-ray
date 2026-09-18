@@ -495,8 +495,8 @@ def test_scoring_runs_after_canonicalize_so_minted_mentions_are_scored():
     Canonicalization's registry scan writes a ``term``-layer annotation with one
     ``entity_mention`` per matched form. With ``score_mentions`` at position 2
     those rows did not exist when the scorer ran, so their confidence stayed NULL
-    permanently — measured 2026-07-29 as 131,172 unscored term mentions across
-    624 documents, 100% of that layer, while every spaCy mention on the same
+    permanently — every term mention in the corpus, 100% of that layer, was
+    unscored while every spaCy mention on the same
     documents was scored. Nothing failed; the confidence column just silently
     lied by omission to every surface that ranks or triages on it.
 
@@ -542,8 +542,8 @@ def test_every_ingested_document_gets_its_images_captioned():
 
     Captioning was reachable only by an operator running the backfill CLI, so a
     document's images stayed invisible to meaning-based retrieval until somebody
-    remembered — measured 2026-07-31 as 275 documents and 70,611 images with no
-    caption at all, three days after the last sweep died. Chaining it makes the
+    remembered — hundreds of documents and tens of thousands of images sat with
+    no caption at all for days after a sweep died. Chaining it makes the
     coverage true by construction; the recurring only-missing sweep behind it
     exists because a chained step that fails is never revisited.
     """

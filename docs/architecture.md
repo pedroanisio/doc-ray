@@ -6,6 +6,7 @@ disclaimer:
     or verifiable reference may be invalid, erroneous, or a hallucination.
   generated_by: "Claude Fable 5 via Claude Code"
   date: "2026-07-04"
+doc_type: explanation
 ---
 
 # Architecture
@@ -209,7 +210,7 @@ Today entity identity is **global** — one `canonical` registry for the tenant.
 That is correct for real-world entities but wrong for fiction, where the *Duncan
 Idaho* of one novel must not collapse into an unrelated book's Duncan. The fix
 (the Substrate·Lens·Projection architecture,
-[`proposals/entity-fabric-substrate-lens-projection.md`](proposals/entity-fabric-substrate-lens-projection.md))
+[`design/entity-fabric.md`](design/entity-fabric.md))
 is to make identity **relative to a named scope — a lens** — rather than to
 fragment the registry.
 
@@ -220,14 +221,14 @@ nests it, and `documents.default_lens_id` names a document's default. A reserved
 real-world scope. Integrity — a parent lens is a scope, a default lens is a scope
 the document belongs to, no parent cycle — is enforced in the database
 (migration 121), and the `global` lens's completeness check runs BYPASSRLS as
-`docray_batch` (migration 114's pattern). **Block B shipped this vocabulary only —
-no entity resolution changed at the time; the projection engine (Block D, shipped,
-below) now consumes it.** The GraphQL
+`docray_batch` (migration 114's pattern). **The lens registry is vocabulary only —
+it changes no entity resolution by itself; the projection engine (below)
+consumes it.** The GraphQL
 surface is `lenses` (read) and `promoteCollectionToLens` / `demoteLens` /
 `setDocumentDefaultLens` (write); MCP mirrors it with `list_lenses` and the three
 write tools.
 
-### Genre classification & the resolution policy (SLP Block C)
+### Genre classification & the resolution policy
 
 Lenses give identity a scope; **genre decides which scope a type resolves in**.
 `documents.doc_type` records the file format, not whether a work is fiction —
@@ -245,11 +246,11 @@ GLOBAL), and a re-run never overwrites a human decision. The pure policy
 **LOCAL** (a fiction work's lens) or **GLOBAL** (shared), with a conservative
 GLOBAL default for `mixed`/`unknown` and for real-world types (DATE, MONEY, LAW, …)
 even inside fiction. **This block defines and exposes the policy; it does not apply
-it** — the projection engine (Block D, #8) consumes it. GraphQL:
+it** — the projection engine consumes it. GraphQL:
 `documentClassification` (read), `classifyDocument` / `confirmDocumentClassification`
 (write); MCP mirrors all three (the writes gated on `DOCRAY_MCP_ENABLE_WRITE`).
 
-### Projection engine (SLP Block D)
+### Projection engine
 
 The projection engine is where lens-scoped identity becomes real: `entity =
 project(mention, lens)` is a **derived, refreshable interpretation**, not a fact
@@ -261,30 +262,30 @@ merge is destructive and unrecoverable.
 
 The correctness core is the **pure resolver** `domain.projection.project`
 (stdlib-only, exhaustively unit-tested before any SQL): *the reserved `global` lens
-forces GLOBAL; a scope lens applies the Block C genre policy per type; then
+forces GLOBAL; a scope lens applies the genre policy per type; then
 local-first lookup → global fallback → explicit unresolved* — a mention is never
 silently dropped (invariant 4). Migration 129 adds three durable additive tables, all
 with RLS + FORCE and reproducible from substrate + lens + policy, none mutating the
 substrate (invariants 1–2): `entity_projection` (one row per mention × projecting
 lens — `scope`, a nullable `canonical_id`, a `proposed`/`confirmed`/`rejected`
-status; batch-owned, SELECT-only to the API — the Block A ownership finding);
+status; batch-owned, SELECT-only to the API, like the correction tables);
 `lens_local_entity` (the stable registry that mints one `canonical` row per (lens,
 surface, type) so a rebuild is byte-identical); and `entity_projection_review` (human
 confirm/reject keyed by the **stable span**, so a decision survives re-annotation —
-Block A's record-then-apply shape, applied by the refresh). (129 also added a thin
-per-lens stats rollup, `lens_entity_stats`, since superseded and dropped by Block F's
-`lens_entity_rollup` — see below.)
+the same record-then-apply shape as the correction tables, applied by the refresh). (129 also
+added a thin per-lens stats rollup, `lens_entity_stats`, since superseded and dropped in favour
+of `lens_entity_rollup` — see below.)
 Only a lens with `document_collections.projects` set is materialized (FR-2 cost
 control, bounded per document). The `KIND_REFRESH_PROJECTION` job refreshes one
 document (chained after canonicalize / reannotate / apply_corrections) or rebuilds
 the corpus. Every machine projection is `proposed` (PALS's Law); confirming is a
 human decision. GraphQL: `entityProjection` / `lensEntities` (read),
 `confirmProjection` / `rejectProjection` / `setLensProjects` (write); MCP mirrors
-the reads and the two review writes (gated on `DOCRAY_MCP_ENABLE_WRITE`). Block D
-unblocks the cross-lens allusion edges (Block E, #9) and per-lens hyper-context
-(Block F, #10).
+the reads and the two review writes (gated on `DOCRAY_MCP_ENABLE_WRITE`). The projection engine
+is what the cross-lens allusion edges and the per-lens hyper-context rollups
+build on.
 
-### Allusion edges (SLP Block E)
+### Allusion edges
 
 Projection keeps a novel's Paris and the real Paris distinct so nothing is fabricated
 by a merge (invariant 2) — but separation alone loses real knowledge. The allusion
@@ -310,7 +311,7 @@ docstrings that warn an agent never to treat an edge as identity or chain it. A 
 proposal (including the optional deterministic `KIND_PROPOSE_ALLUSIONS` proposer) lands
 `proposed`; only a human confirms (PALS's Law).
 
-### Hyper-context rollups (SLP Block F)
+### Hyper-context rollups
 
 The final block turns the projected graph into corpus-wide sensemaking. Answering "who
 are the significant figures in this body of work, and how do they relate?" by scanning

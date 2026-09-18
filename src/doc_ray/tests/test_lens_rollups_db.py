@@ -1,11 +1,11 @@
-"""DB-backed tests for the hyper-context lens rollups (SLP Block F, #10).
+"""DB-backed tests for the hyper-context lens rollups (issue #10).
 
 Exercises the real schema (migration 133) against a throwaway Postgres. Pins the binding
 acceptance criteria: rollup counts + type profile against hand-computed expectations,
 the NPMI strength (incl. the ubiquitous-entity degenerate case), undirected-pair
 canonicalisation queried from both directions, incremental-vs-full agreement +
 idempotence, RLS (no cross-principal rollup reads), and graceful degradation without
-Block E. Skips when no safe test DB is reachable.
+allusion edges. Skips when no safe test DB is reachable.
 """
 
 from __future__ import annotations
@@ -257,7 +257,7 @@ def test_refresh_is_idempotent_and_full_matches_incremental(conn):
     assert _snapshot(conn, lens) == incremental  # full == incremental
 
 
-# --- degrade gracefully without Block E (allusion edges) --------------------
+# --- degrade gracefully without allusion edges (allusion edges) --------------------
 
 
 def test_rollups_work_without_any_allusion_edges(conn):

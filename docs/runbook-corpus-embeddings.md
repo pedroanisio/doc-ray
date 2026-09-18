@@ -6,6 +6,7 @@ disclaimer:
     or verifiable reference may be invalid, erroneous, or a hallucination.
   generated_by: "OpenAI Codex"
   date: "2026-07-25"
+doc_type: runbook
 ---
 
 # Corpus Embedding Backfill Runbook

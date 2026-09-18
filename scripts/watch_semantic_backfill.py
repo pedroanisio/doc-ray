@@ -24,6 +24,9 @@ from typing import Any
 
 import psycopg
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _work_dir import work_dir  # noqa: E402
+
 #: Role holding BYPASSRLS, created by migration 106 for worker/CLI batch work.
 BATCH_ROLE = "docray_batch"
 #: Encoder whose vectors `semanticSearchSentences` actually queries.
@@ -114,7 +117,12 @@ def main(argv: list[str] | None = None) -> int:
     """Poll until the backfill drains, appending one line per interval."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--interval", type=int, default=3600, help="Seconds between samples.")
-    parser.add_argument("--log", type=Path, default=Path("_ephemeral/backfill-status.log"))
+    parser.add_argument(
+        "--log",
+        type=Path,
+        default=None,
+        help="status log (default: $DOCRAY_WORK_DIR/scratch/backfill-status.log)",
+    )
     parser.add_argument("--max-hours", type=float, default=48.0, help="Give up after this long.")
     args = parser.parse_args(argv)
 
@@ -123,6 +131,8 @@ def main(argv: list[str] | None = None) -> int:
         print("fatal: DATABASE_URL is not set", file=sys.stderr)
         return 2
 
+    if args.log is None:
+        args.log = work_dir("scratch") / "backfill-status.log"
     args.log.parent.mkdir(parents=True, exist_ok=True)
     deadline = time.monotonic() + args.max_hours * 3600
     while True:

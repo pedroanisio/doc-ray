@@ -119,7 +119,7 @@ def _render_pdf_cover_webp(pdf_bytes: bytes, page_number: int, width: int) -> by
     Renders directly at the target scale (not a downscale of the 144-DPI page), so
     a cover costs ~20x fewer pixels than the full render, then encodes WebP — the
     list surface ships ~15 KB instead of ~2.3 MB. See
-    docs/cover-delivery-optimization.md. Goes PDF page -> PNG (PyMuPDF handles the
+    docs/design/cover-delivery.md. Goes PDF page -> PNG (PyMuPDF handles the
     colorspace) -> WebP (Pillow) so odd source colorspaces render faithfully.
     """
     import fitz

@@ -1,4 +1,4 @@
-"""Read-surface contracts for the Block G mention-confidence review queue."""
+"""Read-surface contracts for the mention confidence mention-confidence review queue."""
 
 from __future__ import annotations
 

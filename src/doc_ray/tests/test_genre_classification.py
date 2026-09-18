@@ -1,4 +1,4 @@
-"""Unit tests for the heuristic genre classifier (SLP Block C, #6).
+"""Unit tests for the heuristic genre classifier (issue #6).
 
 No database, no network, no LLM. The classifier reads deterministic, citable
 signals (dialogue density, first-person narration, chapter headings vs. an

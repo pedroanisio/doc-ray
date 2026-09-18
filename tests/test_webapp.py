@@ -468,7 +468,7 @@ def test_home_renders_pdf_document_preview_thumbnail(client):
 
     assert 'class="doc-preview doc-preview-image"' in html
     # The list cell ships the small WebP cover (with a retina srcset), not the
-    # ~2.3 MB full-page render. See docs/cover-delivery-optimization.md.
+    # ~2.3 MB full-page render. See docs/design/cover-delivery.md.
     assert f'src="/doc/{DOC_ID}/cover.webp?w=160"' in html
     assert f'srcset="/doc/{DOC_ID}/cover.webp?w=160 1x, /doc/{DOC_ID}/cover.webp?w=320 2x"' in html
     assert f'src="/doc/{DOC_ID}/page/1.png"' not in html
@@ -904,8 +904,8 @@ def test_collections_surface_lens_badges_registry_and_honest_scope_note(client, 
 
     assert "Lens" in html
     assert "regional-history" in html
-    assert "Lenses name a scope for a future projection layer" in normalized
-    assert "do not change search or entity resolution today" in normalized
+    assert "A lens is a named scope for entity resolution" in normalized
+    assert "Lenses do not change search" in normalized
 
 
 @pytest.mark.parametrize(
@@ -1002,7 +1002,7 @@ def test_document_default_lens_picker_and_set_clear_mutations(client, monkeypatc
     monkeypatch.setattr(webapp, "gql", lens_gql)
     page = client.get(f"/doc/{DOC_ID}").get_data(as_text=True)
     assert 'option value="66666666-6666-6666-6666-666666666666" selected' in page
-    assert "do not change search or entity resolution today" in page
+    assert "Lenses do not change search" in page
     token = _csrf_token_from(page)
 
     for lens_id in (LENS_ID, ""):

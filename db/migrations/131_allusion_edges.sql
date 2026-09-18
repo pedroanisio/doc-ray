@@ -1,6 +1,6 @@
--- Block E (P3) — Allusion edges: typed cross-lens links, migration 131.
+-- Allusion edges: typed cross-lens links, migration 131.
 --
--- An allusion is an EDGE, never an equality (issue #9; proposal §3.3). Block D (#8)
+-- An allusion is an EDGE, never an equality (issue #9; proposal §3.3). The projection engine (issue #8)
 -- keeps a novel's Paris and the real Paris as distinct entities so nothing is
 -- fabricated by a merge (invariant 2); this table records the honest relationship
 -- between them — the novel's Paris *alludes to* the real Paris — as a typed,
@@ -12,7 +12,7 @@
 -- Recorded open decisions (issue §9):
 --   D-1  Endpoints are (canonical_id, lens_id), NOT entity_projection rows. Projections
 --        are rebuilt on re-annotation; anchoring a curated edge to one would make the
---        curation vanish on the next annotate — the Block A failure mode. canonical_id +
+--        curation vanish on the next annotate — the NER-correction log failure mode. canonical_id +
 --        lens_id are stable.
 --   D-2  RLS (the hard part). An edge spans two lenses of possibly different visibility,
 --        and canonical is tenant-global with no document_id. The read predicate below is
@@ -32,7 +32,7 @@
 --        migration (the CHECK is deliberate) — justified from real corpus need, not
 --        speculation.
 --
--- This is a CURATION table (contrast Block D's derived fact tables): the API writes it
+-- This is a CURATION table (contrast the projection engine's derived fact tables): the API writes it
 -- directly (docray_client INSERT/UPDATE), because a human/agent drawing an allusion is
 -- a review decision recorded on a table it may write, not a derived write that must go
 -- through the batch worker. Machine-proposed edges still land status='proposed'.

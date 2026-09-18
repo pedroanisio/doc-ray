@@ -25,7 +25,7 @@ LOCAL_ENV_GATE := $(PYTHON) scripts/deploy_env.py --check-local-env
 COMPOSE_PROD := docker compose --env-file .env.prod -f docker-compose.yml -f docker-compose.prod.yml
 COMPOSE_ADMIN := docker compose --env-file .env.prod -f admin-console/docker-compose.yml
 
-# Full managed overlay set (prod + LOCAL Ollama resolver on the H200 GPU) — the
+# Full managed overlay set (prod + LOCAL Ollama resolver on the GPU host) — the
 # SAME layering as `prod-ollama-up`. Naming every overlay keeps the ollama/worker
 # service definitions present so a targeted `up <svc>` never treats siblings as
 # orphans (the cloudflared-drop / Error-1033 lesson). The cloudflared overlay is
@@ -44,7 +44,7 @@ COMPOSE_PROD_OLLAMA := $(COMPOSE_PROD) -f docker-compose.ollama.yml -f docker-co
 #
 # The caption overlay is KEPT: WORKER_EXCLUDE_KINDS lives there, not in the
 # ollama overlays, and dropping it lets a general worker claim visual_caption
-# jobs (the 2026-07-28 incident). Captions need no local model here because
+# jobs. Captions need no local model here because
 # DOCRAY_VLM_BACKEND=vllm points the lane at a hosted endpoint.
 #
 # Trade-off: the ollama overlays are the only place DOCRAY_RESOLVER_BACKEND and
@@ -59,7 +59,7 @@ COMPOSE_PROD_CPU := $(COMPOSE_PROD) -f docker-compose.caption.yml
 # :8080; a Cloudflare public-hostname rule routes doc-ray.com/mcp -> mcp:8080.
 COMPOSE_PROD_MCP := $(COMPOSE_PROD_OLLAMA) -f docker-compose.mcp.yml
 
-# Worker-ONLY GPU host (ephemeral H200 droplet). The gpu overlay reserves the
+# Worker-ONLY GPU host (an ephemeral GPU droplet). The gpu overlay reserves the
 # card via CDI; the gpuworker overlay pins the claim filter to the GPU lane and
 # scales the data + serving tiers to zero, so this host never claims a
 # user-facing fast-lane job and never runs a migration it would take with it
@@ -81,10 +81,10 @@ COMPOSE_LAB := docker compose -f docker-compose.openwebui.yml
 help: ## List available tasks
 	@grep -E '^[a-z][a-zA-Z_-]*:.*## ' $(MAKEFILE_LIST) | awk -F ':.*## ' '{printf "  %-17s %s\n", $$1, $$2}'
 
-docs: ## Validate public docs, links, released artifacts, and quarantine policy
+docs: ## Validate public docs, links, document types, and quarantine policy
 	@$(PYTHON) scripts/check_public_docs.py
 	@$(PYTHON) scripts/check_doc_links.py
-	@$(PYTHON) scripts/check_doc_artifacts.py
+	@$(PYTHON) scripts/check_doc_types.py
 	@$(PYTHON) scripts/check_doc_quarantine_policy.py
 
 check-static: ## Run the static landing gates only (lint, types, size, version) — fast, no DB
@@ -109,16 +109,26 @@ check-static: ## Run the static landing gates only (lint, types, size, version) 
 	  $(PYTHON) scripts/check_public_docs.py || fail=1; \
 	echo "── documentation links ─────────────────────────"; \
 	  $(PYTHON) scripts/check_doc_links.py || fail=1; \
-	echo "── documentation artifacts ─────────────────────"; \
-	  $(PYTHON) scripts/check_doc_artifacts.py || fail=1; \
 	echo "── documentation quarantine policy ─────────────"; \
 	  $(PYTHON) scripts/check_doc_quarantine_policy.py || fail=1; \
+	echo "── release audit C-1 index ↔ ignore policy ─────"; \
+	  $(PYTHON) scripts/check_tracked_ignored.py || fail=1; \
+	echo "── release audit C-2 private references ────────"; \
+	  $(PYTHON) scripts/check_private_references.py || fail=1; \
+	echo "── release audit C-3 document types ────────────"; \
+	  $(PYTHON) scripts/check_doc_types.py || fail=1; \
+	echo "── release audit C-4 build context ─────────────"; \
+	  $(PYTHON) scripts/check_build_context.py || fail=1; \
+	echo "── release audit C-7 secrets ───────────────────"; \
+	  $(PYTHON) scripts/check_secrets.py || fail=1; \
+	echo "── release audit C-8 front door ────────────────"; \
+	  $(PYTHON) scripts/check_front_door.py || fail=1; \
 	echo "── release state ───────────────────────────────"; \
 	  $(PYTHON) scripts/check_release_state.py || fail=1; \
 	if [ $$fail -ne 0 ]; then echo; echo "static gates: FAILED"; exit 1; fi; \
 	echo; echo "static gates: PASSED"
 
-check: ## Run ALL landing-checklist gates (static gates + pytest); mirrors CLAUDE.md
+check: ## Run ALL landing-checklist gates (static gates + pytest); mirrors CONTRIBUTING.md
 	@fail=0; \
 	echo "── ruff check (D-011) ──────────────────────────"; \
 	  $(PYTHON) -m ruff check src scripts webapp || fail=1; \
@@ -140,10 +150,20 @@ check: ## Run ALL landing-checklist gates (static gates + pytest); mirrors CLAUD
 	  $(PYTHON) scripts/check_public_docs.py || fail=1; \
 	echo "── documentation links ─────────────────────────"; \
 	  $(PYTHON) scripts/check_doc_links.py || fail=1; \
-	echo "── documentation artifacts ─────────────────────"; \
-	  $(PYTHON) scripts/check_doc_artifacts.py || fail=1; \
 	echo "── documentation quarantine policy ─────────────"; \
 	  $(PYTHON) scripts/check_doc_quarantine_policy.py || fail=1; \
+	echo "── release audit C-1 index ↔ ignore policy ─────"; \
+	  $(PYTHON) scripts/check_tracked_ignored.py || fail=1; \
+	echo "── release audit C-2 private references ────────"; \
+	  $(PYTHON) scripts/check_private_references.py || fail=1; \
+	echo "── release audit C-3 document types ────────────"; \
+	  $(PYTHON) scripts/check_doc_types.py || fail=1; \
+	echo "── release audit C-4 build context ─────────────"; \
+	  $(PYTHON) scripts/check_build_context.py || fail=1; \
+	echo "── release audit C-7 secrets ───────────────────"; \
+	  $(PYTHON) scripts/check_secrets.py || fail=1; \
+	echo "── release audit C-8 front door ────────────────"; \
+	  $(PYTHON) scripts/check_front_door.py || fail=1; \
 	echo "── release state ───────────────────────────────"; \
 	  $(PYTHON) scripts/check_release_state.py || fail=1; \
 	echo "── pytest (D-013) ──────────────────────────────"; \
@@ -192,7 +212,7 @@ prod-up: prod-migrate ## Migrate, then start the managed stack (api + webapp + w
 	# without the ollama+caption overlays strips DOCRAY_OLLAMA_HOST and the
 	# visual_caption lane fencing — a bare worker then claims caption jobs, dials
 	# localhost:11434 inside its own container, and terminally fails the whole
-	# queue (2026-07-28: two full caption waves lost to exactly this).
+	# queue (two full caption waves were lost to exactly this).
 	$(COMPOSE_PROD_OLLAMA) up -d --build api webapp worker worker-fast worker-caption
 
 prod-up-cpu: prod-migrate ## Migrate, then start the managed stack on a GPU-FREE host (no ollama overlays; use instead of prod-up when `nvidia-smi` is absent)
@@ -221,7 +241,7 @@ prod-down: ## Stop the managed stateless stack (managed data is off-box; nothing
 gpu-up: ## Start DOCRAY_WORKERS GPU annotate workers alongside a full stack (managed + CDI); use gpu-worker-up on a worker-ONLY host
 	$(COMPOSE_PROD) -f docker-compose.gpu.yml up -d --build --scale worker=$(DOCRAY_WORKERS) worker
 
-gpu-worker-up: ## Start DOCRAY_WORKERS lane-pinned GPU workers on a worker-ONLY host (ephemeral H200 droplet); claims the GPU lane only
+gpu-worker-up: ## Start DOCRAY_WORKERS lane-pinned GPU workers on a worker-ONLY host (ephemeral GPU droplet); claims the GPU lane only
 	$(COMPOSE_GPU_WORKER) up -d --build --scale worker=$(DOCRAY_WORKERS) worker
 
 gpu-worker-status: ## Show the lane-pinned GPU worker replicas on a worker-only host
@@ -238,12 +258,12 @@ observability-down: ## Stop the observability stack (metrics history is kept in 
 	$(COMPOSE_PROD) -f docker-compose.observability.yml down \
 	  prometheus grafana postgres-exporter node-exporter do-exporter do-cost-probe
 
-prod-ollama-up: prod-migrate ## Migrate, then run the managed stack with the LOCAL Ollama resolver on the H200 GPU
+prod-ollama-up: prod-migrate ## Migrate, then run the managed stack with the LOCAL Ollama resolver on the GPU host
 	# Layered AFTER the prod overlay so the ollama overlay's worker resolver-env and
 	# ollama health-dependency win over prod's `depends_on: !reset {}`. Set
 	# DOCRAY_OLLAMA_MODEL (the benchmark winner) in .env.prod; the backend defaults
 	# to ollama via the overlay. Compose with `make gpu-up` to also put the trf
-	# annotate worker on the GPU (independent tenant; both fit the H200).
+	# annotate worker on the GPU (independent tenant; both fit a large card).
 	$(COMPOSE_PROD) -f docker-compose.ollama.yml -f docker-compose.ollama.gpu.yml \
 	  up -d --build ollama ollama-pull api webapp worker worker-fast
 

@@ -72,8 +72,8 @@ def test_build_tokens_persists_document_global_spacy_ordinals(monkeypatch: Any) 
     assert 2 not in token_ids
 
 
-def test_database_spec_documents_the_token_ordinal_contract() -> None:
-    spec = (REPO_ROOT / "docs" / "archive" / "DATABASE_SPEC.md").read_text(encoding="utf-8")
+def test_nlp_architecture_documents_the_token_ordinal_contract() -> None:
+    spec = (REPO_ROOT / "docs" / "nlp_architecture.md").read_text(encoding="utf-8")
     prose = " ".join(spec.split())
     folded_prose = prose.casefold()
 

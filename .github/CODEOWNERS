@@ -1,0 +1,10 @@
+# Review routing. Documentation, the changelog and migrations carry the
+# semantic-contamination review in .github/pull_request_template.md; the
+# documentation maintainer (docs/documentation-governance.md §3.3) owns them.
+docs/**                    @pedroanisio
+CHANGELOG.md               @pedroanisio
+README.md                  @pedroanisio
+CONTRIBUTING.md            @pedroanisio
+AGENTS.md                  @pedroanisio
+db/migrations/**           @pedroanisio
+.release-audit-allow.txt   @pedroanisio

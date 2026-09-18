@@ -1,4 +1,4 @@
-"""GraphQL review queue for materialized mention-confidence ranks (Block G)."""
+"""GraphQL review queue for materialized mention-confidence ranks."""
 
 from __future__ import annotations
 

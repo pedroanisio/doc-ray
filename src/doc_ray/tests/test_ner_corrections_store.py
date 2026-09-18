@@ -1,4 +1,4 @@
-"""DB-backed tests for the NER-correction persistence + reconcile hook (Block A).
+"""DB-backed tests for the NER-correction persistence + reconcile hook.
 
 Exercises the real ``entity_mention_correction`` table (migration 115) and the
 apply path against a throwaway Postgres: a correction is recorded, applied to a

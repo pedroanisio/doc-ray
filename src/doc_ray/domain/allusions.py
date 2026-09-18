@@ -1,11 +1,11 @@
-"""Allusion edges — typed cross-lens links that never assert identity (SLP Block E, #9).
+"""Allusion edges — typed cross-lens links that never assert identity (issue #9).
 
 An allusion is an **edge, not an equality**: the Paris in a novel *alludes to* the
-real Paris; it is not the real Paris. Block D (#8) deliberately keeps fictional and
-real identities separate — that is what prevents fabricated merges (invariant 2) —
-but separation alone loses real knowledge. This module names the honest relationship:
-a typed, directional link that preserves both entities and makes the connection
-queryable, without ever collapsing them.
+real Paris; it is not the real Paris. The projection engine (issue #8) deliberately
+keeps fictional and real identities separate — that is what prevents fabricated merges
+(invariant 2) — but separation alone loses real knowledge. This module names the
+honest relationship: a typed, directional link that preserves both entities and makes
+the connection queryable, without ever collapsing them.
 
 Pure (stdlib only, no I/O). The load-bearing invariant here is **negative**, and it
 is enforced by absence as much as by code:

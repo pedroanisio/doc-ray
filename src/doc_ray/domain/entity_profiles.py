@@ -15,8 +15,8 @@ spread plus a consistency ratio.
 of the entity's mentions. A value near 1.0 means the annotator agreed with
 itself; ``Arrakis`` scores 0.41, which is the signal that the type is not to be
 trusted. Nothing here decides what an entity *is* — it reports what the annotator
-produced and how much it disagreed with itself, which is
-`PALS's Law <../../CLAUDE.md>`_ applied at the read surface.
+produced and how much it disagreed with itself: model output is reported as
+unverified evidence, never as a settled type (PALS's Law at the read surface).
 
 Only normalization-equivalent spellings fold together. ``Duncan`` and ``Duncan
 Idaho`` stay separate: relating them is coreference, and merging them here would
@@ -43,7 +43,7 @@ def dominant_type_share(type_counts: Mapping[str, int]) -> float:
     ``max(count) / sum(count)`` in ``[0, 1]``: the same measured arithmetic
     :class:`EntityProfile` uses (a value near 1.0 means the annotator agreed with
     itself; low means it contradicted itself). Shared so consumers that already hold
-    a ``{type: count}`` map — e.g. the per-lens entity rollup (Block F) — reuse the
+    a ``{type: count}`` map — e.g. the per-lens entity rollup — reuse the
     definition instead of reinventing it. ``0.0`` for an empty map.
     """
     total = sum(type_counts.values())

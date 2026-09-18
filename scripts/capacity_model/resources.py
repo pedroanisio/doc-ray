@@ -7,9 +7,8 @@ Repo facts (each cited on its assumption):
   ``-c`` flags and no config mount (``docker-compose.yml:6-16``), so stock
   defaults from :mod:`capacity_model.pg_constants` apply unless the managed
   provider overrides them.
-* The documented production database is a DigitalOcean managed cluster,
-  4 vCPU / 16 GB, ``max_connections = 400`` verified live
-  (``docs/proposals/prism-visual-layer.md:182,185``); the 8 GB plan was
+* The reference deployment is a managed PostgreSQL cluster, 4 vCPU / 16 GB,
+  ``max_connections = 400`` (a deployment input — override it for yours); the 8 GB plan was
   measured with provider-set ``shared_buffers ≈ 2 GB``
   (``docs/production-setup.md:68``), i.e. the provider sets ~25% of RAM.
 * Connection topology (``docker-compose.prod.yml``, ``config/env.registry.yaml``,
@@ -89,17 +88,17 @@ def documented_production_hardware(reg: AssumptionRegistry) -> HardwareProfile:
         "hw.prod.cores",
         4,
         "vCPU",
-        Source.REPO,
-        "docs/proposals/prism-visual-layer.md:182",
-        "Documented live cluster size (resized from the 2 vCPU/8 GB plan).",
+        Source.ASSUMED,
+        "reference deployment plan (managed PostgreSQL, 4 vCPU / 16 GB)",
+        "Reference cluster size; override for the deployment being modelled.",
     )
     reg.define(
         "hw.prod.ram_gb",
         16,
         "GiB",
-        Source.REPO,
-        "docs/proposals/prism-visual-layer.md:182",
-        "Documented live cluster RAM.",
+        Source.ASSUMED,
+        "reference deployment plan (managed PostgreSQL, 4 vCPU / 16 GB)",
+        "Reference cluster RAM; override for the deployment being modelled.",
     )
     disk_iops = reg.define(
         "hw.disk.read_iops",
@@ -181,8 +180,8 @@ def pg_config_for(reg: AssumptionRegistry, hw: HardwareProfile) -> PgConfig:
         "pg.max_connections",
         400,
         "connections",
-        Source.REPO,
-        "docs/proposals/prism-visual-layer.md:185 (verified live on the 16 GB plan)",
+        Source.ASSUMED,
+        "reference deployment (managed-provider setting on the 16 GB plan)",
         "Managed-provider setting; stock default would be 100.",
     )
     reg.define(

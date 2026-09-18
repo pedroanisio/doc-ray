@@ -1,8 +1,8 @@
 """Lens domain — the naming and integrity rules for entity-resolution scopes.
 
 A *lens* (issue #5, the Substrate·Lens·Projection architecture in
-``docs/proposals/entity-fabric-substrate-lens-projection.md``) is a named scope
-under which a later projection layer will interpret entity identity. Block B
+``docs/design/entity-fabric.md``) is a named scope
+under which a later projection layer will interpret entity identity. The lens registry
 ships the vocabulary only: a lens is a ``document_collections`` row flagged
 ``is_scope`` — *promoted*, not a parallel structure — and nothing here changes
 how any entity resolves today.

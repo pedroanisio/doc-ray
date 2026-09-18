@@ -1,4 +1,4 @@
-"""DB-backed tests for the projection engine (SLP Block D, #8).
+"""DB-backed tests for the projection engine (issue #8).
 
 Exercises the real schema (migration 129) against a throwaway Postgres, driving the
 refresh through :mod:`doc_ray.application.projection`. Pins the block's binding
@@ -360,7 +360,7 @@ def test_non_projecting_scope_lens_is_not_materialized(conn):
 
 
 def test_lens_entity_rollup_counts_local_entities(conn):
-    # Block D's projection chains the Block F rollup refresh, so lens_entity_rollup (which
+    # The projection engine's projection chains the hyper-context rollups rollup refresh, so lens_entity_rollup (which
     # superseded lens_entity_stats) is populated after a projection refresh.
     lens = _lens(conn, "saga")
     doc = _itdb.make_doc(conn, "Duncan, Duncan, and Paul.")

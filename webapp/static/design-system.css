@@ -1171,7 +1171,7 @@ a.is-loading, button.is-loading, input.is-loading[type="submit"] { opacity: .72;
 }
 
 /* ============================================================================
-   Corpus view modes — table / compact / gallery / grouped (BL-143)
+   Corpus view modes — table / compact / gallery / grouped
    One control strip, four layouts over the same rows and selection model.
    ========================================================================= */
 .corpus-controls {
@@ -1988,7 +1988,7 @@ td.desc .lbl { color: var(--ink); font-weight: 600; }
 .proposal .thumb img { display: block; width: 120px; height: auto; border: 1px solid var(--line); border-radius: var(--r-sm); }
 .proposal-head { display: flex; align-items: center; gap: .6rem; margin-bottom: .4rem; }
 /* Clamp long captions so proposals occupy comparable vertical space and can be
-   compared by scanning rather than by reading each one in full (BL-198). */
+   compared by scanning rather than by reading each one in full. */
 .caption-text {
   display: -webkit-box;
   -webkit-line-clamp: 4;

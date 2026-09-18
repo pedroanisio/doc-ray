@@ -4,8 +4,9 @@ disclaimer:
     No information within this document should be taken for granted.
     Any statement or premise not backed by a real logical definition
     or verifiable reference may be invalid, erroneous, or a hallucination.
-  generated_by: "Claude Opus 5 (1M context) via Claude Code; retrieval-wave contract/profile corrections by OpenAI GPT-5 via Codex"
+  generated_by: "Claude Opus 5 (1M context) via Claude Code"
   date: "2026-07-27"
+doc_type: explanation
 ---
 
 # How doc-ray Uses NLP
@@ -31,7 +32,6 @@ It is the third of four NLP documents, and they answer different questions:
 | [`nlp_annotation_layers.md`](nlp_annotation_layers.md) | *What is the complete 20-layer target?* — the notation reference, with a worked synthetic example |
 | [`nlp_capability_matrix.md`](nlp_capability_matrix.md) | *Which layers are production-supported today?* — a per-layer status table with a static drift guard |
 | **This document** | *How does the running system do NLP?* — algorithms, data flow, verification, and exposure |
-| [`nlp_composition_mastery.md`](nlp_composition_mastery.md) | *How should one think about NLP systems generally?* — craft essay, not codebase-specific |
 
 Related: [`architecture.md`](architecture.md) (hexagonal layering),
 [`canonicalization_pipeline.md`](canonicalization_pipeline.md) (entity-resolution
@@ -264,7 +264,7 @@ single `Doc`.
 
 | Output | Layer | Table | How it is derived |
 |---|---|---|---|
-| Tokens | 3 | `tokens` | spaCy tokenization; whitespace-only tokens skipped; `ordinal` is the document-global spaCy token index (`t.i`), so it continues across sentence boundaries and can contain gaps |
+| Tokens | 3 | `tokens` | spaCy tokenization. `tokens.ordinal` is the document-global spaCy token index (`t.i`): ordinals continue across sentence boundaries; whitespace-only tokens are skipped, so gaps are possible; punctuation tokens are persisted with `lexeme_uid` NULL. Migration 008's inline comment describing a sentence-local index is historically incorrect and immutable; this document is the corrected authority |
 | Lemma + POS | 5, 6 | `tokens.upos` / `.xpos`, `lexemes` | `t.pos_` / `t.tag_`; alphabetic tokens get a lexeme link |
 | Morphology | 7 | `token_feature` | `t.morph.to_dict()` → one `(feature, value)` row each |
 | Noun chunks | 8 | `chunk` | `doc.noun_chunks`, written with `chunk_type='NP'` |

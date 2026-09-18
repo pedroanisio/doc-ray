@@ -1,4 +1,4 @@
-"""End-to-end GraphQL tests for the Block A NER-correction surface.
+"""End-to-end GraphQL tests for the NER-correction log NER-correction surface.
 
 A curator records a correction through ``correctEntityMention`` (which enqueues a
 cheap ``apply_corrections`` job — entity_mention is worker-owned, so the API only

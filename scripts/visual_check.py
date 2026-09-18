@@ -11,7 +11,7 @@ Setup (once):
     playwright install chromium              # downloads the browser
 
 Run:
-    python scripts/visual_check.py                       # all pages -> _ephemeral/visual
+    python scripts/visual_check.py                       # all pages -> $DOCRAY_WORK_DIR/scratch/
     python scripts/visual_check.py --mode corpus
     python scripts/visual_check.py --mode epic           # epic #23 human surfaces
     python scripts/visual_check.py --auth --mode public  # gated (anonymous) nav
@@ -27,6 +27,9 @@ import threading
 import time
 from contextlib import contextmanager
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _work_dir import work_dir  # noqa: E402
 
 REPO = Path(__file__).resolve().parent.parent
 
@@ -322,11 +325,11 @@ def _capture_screenshots(args, app) -> int:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Screenshot the doc-ray webapp.")
-    # Screenshots are scratch output: they stay inside the repo's gitignored
-    # _ephemeral/ tree (CLAUDE.md forbids writing to the host's /tmp).
+    # Screenshots are scratch output and go to the local working store, never
+    # into the tree.
     parser.add_argument(
         "--out",
-        default=os.environ.get("DOCRAY_VISUAL_OUT", str(REPO / "_ephemeral" / "visual")),
+        default=os.environ.get("DOCRAY_VISUAL_OUT") or str(work_dir("scratch", "visual")),
     )
     parser.add_argument(
         "--mode",

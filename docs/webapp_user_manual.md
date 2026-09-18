@@ -9,6 +9,7 @@ disclaimer:
 title: "doc·ray — Web Interface and Agent (MCP) Manual"
 applies_to: "1.57.3"
 last_reviewed: "2026-08-21"
+doc_type: how-to
 ---
 
 # doc·ray — Web Interface and Agent (MCP) Manual

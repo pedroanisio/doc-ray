@@ -50,8 +50,8 @@ def test_detect_gpu_returns_bool() -> None:
 # Production-env guard: `make up` must refuse to hijack a production host.
 # --------------------------------------------------------------------------
 #
-# The incident this pins (2026-07-26): `make up` — the LOCAL stack target — was
-# run on the production host. There, `.env` is a symlink to `.env.prod` and the
+# The failure this pins: `make up` — the LOCAL stack target — was
+# run on a production host. There, `.env` is a symlink to `.env.prod` and the
 # compose project name is the same `doc-ray` production runs under, so the base
 # compose recreated api/webapp/worker/worker-fast/mcp against a brand-new local
 # Postgres and left them stopped when `migrate` lost a startup race. The public
@@ -80,7 +80,7 @@ def test_env_is_production_detects_a_remote_database_host(tmp_path) -> None:
     """
     env = tmp_path / ".env"
     env.write_text(
-        "DATABASE_URL=postgresql://u:p@db-pgsql-tor1-55041.h.db.ondigitalocean.com:25060/docray\n"
+        "DATABASE_URL=postgresql://u:p@db-example-cluster.h.db.ondigitalocean.com:25060/docray\n"
     )
 
     reason = deploy_env.production_env_conflict(env)

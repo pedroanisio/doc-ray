@@ -1,4 +1,4 @@
-"""End-to-end GraphQL tests for the Block D projection surface (#8).
+"""End-to-end GraphQL tests for the projection engine projection surface (#8).
 
 Drives the real schema via ``schema.execute`` with a ``RequestContext``: read a
 document's lens-scoped projection and a lens's entities, designate a lens as

@@ -505,8 +505,8 @@ def reap_stale(conn: psycopg.Connection[Any], *, older_than_seconds: float) -> i
     # the release branch: every statement re-evaluates ``now()``, so a stamped
     # row crossing the staleness cutoff between one reap's release UPDATE and
     # another reap's requeue UPDATE (concurrent workers reap every loop) would
-    # otherwise be caught by the stamp-blind branch and burn its attempt —
-    # observed live 2026-07-12, one of four drained jobs lost the race.
+    # otherwise be caught by the stamp-blind branch and burn its attempt (with
+    # several workers draining at once, one of them loses that race).
     requeued_rows = conn.execute(
         f"UPDATE jobs SET status = 'queued', locked_by = NULL, run_after = now(), "
         f"progress_current = NULL, progress_total = NULL, progress_stage = NULL, "

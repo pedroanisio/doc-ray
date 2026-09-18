@@ -1,4 +1,4 @@
-"""DB-backed tests for document_classification (SLP Block C, #6).
+"""DB-backed tests for document_classification (issue #6).
 
 Exercises the real table (migration 127) against a throwaway Postgres: the
 machine upsert + read, the database CHECK constraints, the load-bearing

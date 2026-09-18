@@ -1,4 +1,4 @@
-"""GraphQL mutations for document genre classification (SLP Block C, issue #6).
+"""GraphQL mutations for document genre classification (issue #6).
 
 Two writes, both guarded (write scope + billing entitlement + per-document ACL)
 and audited (including the denied path):
@@ -34,7 +34,7 @@ class ClassificationMutations:
 
     @strawberry.mutation
     async def classify_document(self, info: Info, document_id: strawberry.ID) -> Job:
-        """Enqueue a heuristic genre classification for a document (Block C, #6).
+        """Enqueue a heuristic genre classification for a document (issue #6).
 
         The job writes a ``pending`` machine guess to ``document_classification``
         when it runs. A ``pending`` classification is NOT a decided genre — it is an

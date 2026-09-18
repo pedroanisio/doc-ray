@@ -2,7 +2,7 @@
 --
 -- Same disease as migration 095 (the corpus stat band): pages recomputed
 -- aggregates over the 17.5M-row lexeme_occurrences table on every request.
--- Measured live 2026-07-16 as docray_api + admin:
+-- Measured as docray_api with an admin principal:
 --   * The Lexicon (/lexemes) joined lexemes -> lexeme_occurrences, GROUP BY
 --     lexeme, ORDER BY uses DESC on every load: ~37 s.
 --   * The document reader sidebar recomputed a document's POS distribution

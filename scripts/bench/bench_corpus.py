@@ -25,14 +25,17 @@ from __future__ import annotations
 import argparse
 import os
 import sys
+import time
 from collections import Counter
 from pathlib import Path
 from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import bench_resolver_backends as bench  # type: ignore[import-not-found]  # noqa: E402  (sibling harness)
+from _work_dir import work_dir  # type: ignore[import-not-found]  # noqa: E402
 
 from doc_ray.adapters import canonical_store as store  # noqa: E402
 from doc_ray.adapters.persistence import connect  # noqa: E402
@@ -207,7 +210,12 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
     p.add_argument("--host", default=os.environ.get("DOCRAY_OLLAMA_HOST", "http://localhost:11434"))
     p.add_argument("--timeout", type=float, default=120.0)
     p.add_argument("--env", type=Path, default=Path(".env"), help="dotenv with DATABASE_URL.")
-    p.add_argument("--out", type=Path, default=Path("scripts/bench/out/corpus_probe.txt"))
+    p.add_argument(
+        "--out",
+        type=Path,
+        default=None,
+        help="report path (default: $DOCRAY_WORK_DIR/findings/bench/<date>/corpus_probe.txt)",
+    )
     return p.parse_args(argv)
 
 
@@ -227,6 +235,8 @@ def main(argv: list[str]) -> int:
         print(f"[info] probing ollama/{model} ...", file=sys.stderr)
         results.append(score_model(args.host, model, cases, args.timeout))
     report = _report(results, cases)
+    if args.out is None:
+        args.out = work_dir("findings", "bench", time.strftime("%Y-%m-%d")) / "corpus_probe.txt"
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(report, encoding="utf-8")
     print(report)

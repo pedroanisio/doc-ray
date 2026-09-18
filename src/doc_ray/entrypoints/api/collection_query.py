@@ -5,7 +5,7 @@ Split out of :mod:`doc_ray.entrypoints.api.query` (D-015), following the
 is mixed into the root ``Query`` so the schema is unchanged. Resolvers stay thin
 — clamp the page size, delegate to the async read adapter, map rows to types.
 
-A *lens* is a ``document_collection`` marked ``isScope`` (Block B), so the lens
+A *lens* is a ``document_collection`` marked ``isScope``, so the lens
 read lives beside the collection reads it narrows.
 """
 
@@ -55,7 +55,7 @@ class CollectionQueries:
         limit: int = 50,
         after: str | None = None,
     ) -> list[DocumentCollection]:
-        """Return the lenses — the collections marked as entity-resolution scopes (Block B).
+        """Return the lenses — the collections marked as entity-resolution scopes.
 
         A lens is a ``DocumentCollection`` with ``isScope`` true; the reserved
         ``global`` lens is always present. This is ``collections`` narrowed to

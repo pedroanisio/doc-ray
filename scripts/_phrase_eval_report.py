@@ -3,8 +3,8 @@
 The report is the deliverable, so its integrity rule is executable rather than
 editorial: **every number carries its provenance**. A benchmark figure that
 cannot be traced to the command that produced it is indistinguishable from an
-invented one, and CLAUDE.md's PALS's LAW says the missing check — not the number
-— is the defect.
+invented one, and under PALS's Law the missing check — not the number — is the
+defect.
 
 :func:`find_unprovenanced_numbers` is that check, and the suite plants a bare
 number to prove it can fail.
@@ -17,7 +17,9 @@ from dataclasses import dataclass, field
 
 import _phrase_eval_criteria as crit
 
-GENERATED_BY = "Claude Opus 5 via Claude Code"
+#: Provenance the report declares for itself: the generator, not whoever ran it.
+#: Pass ``--generated-by`` on the harness to append the operator or agent.
+GENERATED_BY = "scripts/eval_phrase_retrieval.py"
 
 #: Tokens that contain digits but are identifiers, not measurements: issue and
 #: claim references, dates, versions, commit shas, ordered-list markers and
@@ -113,7 +115,7 @@ def find_unprovenanced_numbers(markdown: str) -> list[str]:
     return offenders
 
 
-def _frontmatter(run: EvalRun) -> str:
+def _frontmatter(run: EvalRun, generated_by: str = GENERATED_BY) -> str:
     return (
         "---\n"
         "disclaimer:\n"
@@ -121,7 +123,7 @@ def _frontmatter(run: EvalRun) -> str:
         "    No information within this document should be taken for granted.\n"
         "    Any statement or premise not backed by a real logical definition\n"
         "    or verifiable reference may be invalid, erroneous, or a hallucination.\n"
-        f'  generated_by: "{GENERATED_BY}"\n'
+        f'  generated_by: "{generated_by}"\n'
         f'  date: "{run.generated_on}"\n'
         "---\n"
     )
@@ -246,10 +248,11 @@ def _plans(run: EvalRun) -> str:
     return "\n".join(parts)
 
 
-def render_report(run: EvalRun) -> str:
-    """Render the dated evaluation report for ``docs/eval/``."""
+def render_report(run: EvalRun, generated_by: str | None = None) -> str:
+    """Render the dated evaluation report (written under ``$DOCRAY_WORK_DIR``)."""
     decision = run.decision
-    return f"""{_frontmatter(run)}
+    provenance = GENERATED_BY if not generated_by else f"{GENERATED_BY}, run by {generated_by}"
+    return f"""{_frontmatter(run, provenance)}
 # Phrase-retrieval evaluation — stage 1 measured, stage 2 priced
 
 Issue #47 (Retrieval · P8). This report is the gate record for #48: it measures

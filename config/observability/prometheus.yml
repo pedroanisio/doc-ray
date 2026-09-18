@@ -48,6 +48,6 @@ scrape_configs:
     scrape_interval: 30s
     static_configs:
       - targets: []
-        # - targets: ["10.13.0.6:9400"]
+        # - targets: ["<gpu-host-private-ip>:9400"]
         #   labels:
         #     host: docray-gpu-01

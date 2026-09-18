@@ -1,13 +1,13 @@
--- Block F (P3) — Hyper-context rollups: per-lens entity landscape + co-occurrence
+-- Hyper-context rollups: per-lens entity landscape + co-occurrence
 -- relationship discovery, migration 133.
 --
 -- After Blocks B-D the corpus knows who each mention is within a lens, but answering
 -- "who are the significant figures in this body of work, and how do they relate?" by
 -- scanning mentions at read time is impossible at 10k documents — the live-aggregate-
 -- over-a-fact-table pattern D-024 forbids. So the capability *is* the precomputation:
--- two derived rollups, refreshed at the pipeline boundary (strictly AFTER Block D's
+-- two derived rollups, refreshed at the pipeline boundary (strictly AFTER the projection engine's
 -- projection refresh, which they aggregate), read cheaply. See
--- docs/proposals/entity-fabric-substrate-lens-projection.md (§4 hyper-context, §5).
+-- docs/design/entity-fabric.md (§4 hyper-context, §5).
 --
 -- Recorded open decisions (issue §9):
 --   D-1  Co-occurrence unit = SENTENCE (precise; sentences carry ordinals for citation).
@@ -22,11 +22,11 @@
 --   D-4  No graph clustering / community detection (speculative without real query
 --        patterns) — rollups + bounded traversal only.
 --
--- SUPERSESSION. Block D (#8) shipped lens_entity_stats (a thin per-lens count rollup) as
+-- SUPERSESSION. The projection engine (issue #8) shipped lens_entity_stats (a thin per-lens count rollup) as
 -- the backing for `lensEntities`. lens_entity_rollup below is a strict superset (adds the
 -- type profile, type_consistency, first_seen_ordinal for citation) and becomes the single
 -- backing for `lensEntities`, so lens_entity_stats is dropped — one rollup for one thing,
--- no duplication. The Block D projection refresh now chains this rollup refresh in its
+-- no duplication. The projection refresh now chains this rollup refresh in its
 -- place.
 
 DROP TABLE IF EXISTS lens_entity_stats CASCADE;
@@ -74,7 +74,7 @@ CREATE INDEX IF NOT EXISTS idx_lens_relation_to
 -- ==========================================================================
 -- RLS. Neither table has a document_id, so the predicate scopes by LENS visibility:
 -- a caller may read a lens's rollups iff they can read >= 1 of the lens's member
--- documents (the same reasoning Block D/E used — a lens's aggregate landscape must
+-- documents (the same reasoning the projection engine / allusion edges used — a lens's aggregate landscape must
 -- not leak to someone who cannot see any of its documents). FORCE so even the owner
 -- is filtered; the batch writer is docray_batch (BYPASSRLS, migration 106). Writes
 -- are admin-only at the policy level; the derived rollups are (re)built by the batch

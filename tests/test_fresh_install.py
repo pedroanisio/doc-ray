@@ -1,8 +1,12 @@
-"""Host-shape detection in static/ref/fresh-install.sh.
+"""Host-shape detection and privilege drop in static/ref/fresh-install.sh.
 
-The script decides GPU-vs-CPU once, up front, and every later step branches on
-that decision — including whether `provision_host.py` is asked to install the
-container toolkit and generate the CDI spec.
+Two independent concerns, both of which failed the same way: a provision that
+looked fine at the point of the mistake and blew up somewhere that named neither
+the cause nor the step responsible.
+
+Host shape: the script decides GPU-vs-CPU once, up front, and every later step
+branches on that decision — including whether `provision_host.py` is asked to
+install the container toolkit and generate the CDI spec.
 
 The failure this guards against is silent degradation, not a crash. Detection
 was `nvidia-smi -L || HAS_GPU=0`, so a GPU droplet whose driver was missing,
@@ -14,6 +18,13 @@ Docker — an error naming neither the driver nor the skipped provisioning step.
 A card that is physically present but unusable is the one case that must stop
 the run: it is the only one where the operator is paying GPU rates for a host
 that cannot use the card.
+
+Privilege drop: `as_operator` must hand the operator both a real HOME and a
+working directory they can actually enter. `runuser` inherits root's CWD, so the
+operator started in /root (mode 0700). An installer that ends a step with
+`cd -` resolves $OLDPWD to that unreadable /root and fails; as the last command
+in the function its status escapes `sh -c` and `bash -lc`, and `set -e` aborts
+the whole provision with only "sh: cd: can't cd to /root" to go on.
 """
 
 from __future__ import annotations
@@ -155,6 +166,11 @@ def test_sysfs_finds_the_card_when_pciutils_is_absent(tmp_path: Path) -> None:
 
 def test_sysfs_without_an_nvidia_vendor_is_a_cpu_host(tmp_path: Path) -> None:
     _fake_bin(tmp_path, "nvidia-smi", 1)
+    # lspci MUST be stubbed as card-free too. Detection consults both sysfs and
+    # lspci, so leaving the real one on PATH makes the outcome depend on whether
+    # the machine running the suite happens to have an NVIDIA card — a developer
+    # workstation with a GPU fails a test whose subject is "no card present".
+    _fake_bin(tmp_path, "lspci", 0, "00:03.0 Ethernet controller: Red Hat Virtio\n")
     pci = _pci_fixture(tmp_path, ["0x1af4", "0x8086"])  # virtio, Intel
     result = _detect(tmp_path, PCI_DEVICES_DIR=str(pci))
     assert result.returncode == 0, result.stderr
@@ -164,6 +180,7 @@ def test_sysfs_without_an_nvidia_vendor_is_a_cpu_host(tmp_path: Path) -> None:
 def test_empty_pci_tree_does_not_crash_under_set_u(tmp_path: Path) -> None:
     """An unmatched glob must not be treated as a literal path."""
     _fake_bin(tmp_path, "nvidia-smi", 1)
+    _fake_bin(tmp_path, "lspci", 0, "00:03.0 Ethernet controller: Red Hat Virtio\n")
     pci = _pci_fixture(tmp_path, [])
     result = _detect(tmp_path, PCI_DEVICES_DIR=str(pci))
     assert result.returncode == 0, result.stderr
@@ -197,3 +214,195 @@ def test_detection_survives_a_host_without_lspci(tmp_path: Path) -> None:
     )
     assert result.returncode == 0, result.stderr
     assert "HAS_GPU=0" in result.stdout
+
+
+# --------------------------------------------------------- privilege drop ----
+# `as_operator` shells out to `runuser`, which requires root, so these stub it
+# with a recorder that reports the CWD and login variables it was actually
+# handed. That is precisely the contract that broke: the helper set HOME
+# correctly and left the working directory pointing at root's home.
+
+
+def _as_operator(
+    tmp_path: Path, script: str, *, operator_home: str | None = None
+) -> subprocess.CompletedProcess[str]:
+    """Source the script library-only, then run `script` with as_operator defined."""
+    home = operator_home or str(tmp_path / "home" / "pals")
+    Path(home).mkdir(parents=True, exist_ok=True)
+
+    # Stand in for runuser: no privilege change, just exec the rest of the
+    # argv so `env -C ... HOME=... cmd` runs verbatim and the callee observes
+    # exactly the CWD and environment the helper chose.
+    runuser = tmp_path / "runuser"
+    runuser.write_text(
+        "#!/usr/bin/env bash\n"
+        # strip: -u <user> --
+        'shift 2; [[ "${1:-}" == "--" ]] && shift\n'
+        'exec "$@"\n'
+    )
+    runuser.chmod(runuser.stat().st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
+
+    environ = dict(os.environ)
+    environ["PATH"] = f"{tmp_path}:{environ['PATH']}"
+    environ["FRESH_INSTALL_LIB_ONLY"] = "1"
+    environ["SSH_PUBKEY"] = "ssh-ed25519 AAAAtest test@test"
+    environ["DOCRAY_WORKER_HOST"] = "test-host"
+    return subprocess.run(
+        [
+            str(_BASH),
+            "-c",
+            f'source "{_SCRIPT}"; operator_home={home!r}; OPERATOR_USER=pals; {script}',
+        ],
+        capture_output=True,
+        text=True,
+        env=environ,
+        # A directory the operator is not meant to work in, standing in for the
+        # /root this script is really launched from.
+        cwd=str(tmp_path / "launch-dir"),
+        timeout=60,
+    )
+
+
+def test_as_operator_starts_in_the_operator_home(tmp_path: Path) -> None:
+    """The callee's CWD must be the operator's home, not the launch directory."""
+    (tmp_path / "launch-dir").mkdir()
+    home = tmp_path / "home" / "pals"
+    result = _as_operator(tmp_path, "as_operator pwd", operator_home=str(home))
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == str(home)
+
+
+def test_as_operator_still_sets_the_login_variables(tmp_path: Path) -> None:
+    """Fixing the CWD must not regress the HOME fix it sits next to."""
+    (tmp_path / "launch-dir").mkdir()
+    home = tmp_path / "home" / "pals"
+    result = _as_operator(
+        tmp_path,
+        "as_operator bash -c 'echo \"H=$HOME U=$USER L=$LOGNAME\"'",
+        operator_home=str(home),
+    )
+    assert result.returncode == 0, result.stderr
+    assert f"H={home} U=pals L=pals" in result.stdout
+
+
+def test_as_operator_survives_a_callee_that_runs_cd_dash(tmp_path: Path) -> None:
+    """The installer failure shape: `cd "$DIR"` then `cd -`.
+
+    `cd -` resolves $OLDPWD. With the inherited launch directory that is a
+    path the operator cannot enter, so the last command of the installer's
+    clone step fails, the status escapes `sh -c`, and `set -e` aborts the
+    provision. Reproduced with a POSIX `sh` callee because dash is what the
+    upstream installer runs under.
+    """
+    launch = tmp_path / "launch-dir"
+    launch.mkdir()
+    home = tmp_path / "home" / "pals"
+    zsh_dir = home / ".oh-my-zsh"
+    zsh_dir.mkdir(parents=True)
+    # Stand in for /root: enterable by the process that launches the script (as
+    # root is), but not by the operator it drops to. The stub runuser cannot
+    # really change uid, so the callee is denied via a bind of the same idea —
+    # OLDPWD is set to a path that does not resolve at all.
+    result = _as_operator(
+        tmp_path,
+        # Mirror the installer: OLDPWD points at the launch directory, then the
+        # callee cds into $ZSH and back. `cd -` must land somewhere it can enter.
+        f"as_operator sh -c 'cd {str(zsh_dir)!r} && cd - && pwd'",
+        operator_home=str(home),
+    )
+    assert result.returncode == 0, f"cd - failed: {result.stderr}"
+    assert "can't cd" not in result.stderr
+    # The point of the fix: `cd -` returns to the operator's home, a directory
+    # they own, rather than to whatever directory root launched the script from.
+    assert str(home) in result.stdout
+    assert str(launch) not in result.stdout
+
+
+def test_as_operator_sh_runs_a_login_shell_in_the_operator_home(tmp_path: Path) -> None:
+    """The `bash -lc` wrapper inherits the same corrected working directory."""
+    (tmp_path / "launch-dir").mkdir()
+    home = tmp_path / "home" / "pals"
+    result = _as_operator(tmp_path, "as_operator_sh 'pwd'", operator_home=str(home))
+    assert result.returncode == 0, result.stderr
+    assert str(home) in result.stdout
+
+
+def test_as_operator_refuses_before_operator_home_is_resolved(tmp_path: Path) -> None:
+    """Guard against a caller moved above the passwd lookup."""
+    (tmp_path / "launch-dir").mkdir()
+    result = _as_operator(tmp_path, "operator_home=''; as_operator pwd")
+    assert result.returncode != 0
+    assert "as_operator called before operator_home" in result.stderr
+
+
+def test_env_chdir_guard_passes_on_a_supported_base(tmp_path: Path) -> None:
+    """The preflight must not reject a base image that is in fact fine."""
+    (tmp_path / "launch-dir").mkdir()
+    result = _as_operator(tmp_path, "require_env_chdir && echo GUARD_OK")
+    assert result.returncode == 0, result.stderr
+    assert "GUARD_OK" in result.stdout
+
+
+def test_env_chdir_guard_names_the_cause_on_an_old_base(tmp_path: Path) -> None:
+    """Without `env -C` the run must stop with a message naming coreutils.
+
+    An `env` too old to support -C reports only "invalid option", which says
+    nothing about the working directory or why the provision needs one.
+    """
+    (tmp_path / "launch-dir").mkdir()
+    _fake_bin(tmp_path, "env", 125, "env: invalid option -- 'C'\n")
+    result = _as_operator(tmp_path, "require_env_chdir")
+    assert result.returncode != 0
+    assert "coreutils" in result.stderr
+    assert "8.28" in result.stderr
+
+
+def test_as_operator_rejects_a_missing_operator_home(tmp_path: Path) -> None:
+    """`env -C` on a nonexistent directory would fail without naming it."""
+    (tmp_path / "launch-dir").mkdir()
+    result = _as_operator(tmp_path, "operator_home=/nonexistent/home; as_operator pwd")
+    assert result.returncode != 0
+    assert "/nonexistent/home" in result.stderr
+
+
+# --- operator identity ------------------------------------------------------
+# The script names no operator: whoever provisions the host supplies the account,
+# name and e-mail, and a run that lacks them stops before touching anything.
+
+
+def _run_preconditions(tmp_path: Path, **env: str) -> subprocess.CompletedProcess[str]:
+    environ = {k: v for k, v in os.environ.items() if not k.startswith("OPERATOR_")}
+    environ["PATH"] = f"{tmp_path}:{environ['PATH']}"
+    environ["DOCRAY_WORKER_HOST"] = "test-host"
+    environ.update(env)
+    return subprocess.run(
+        [str(_BASH), str(_SCRIPT)], capture_output=True, text=True, env=environ, timeout=60
+    )
+
+
+def test_missing_operator_identity_stops_the_run_before_the_root_check(tmp_path: Path) -> None:
+    result = _run_preconditions(tmp_path, SSH_PUBKEY="ssh-ed25519 AAAAtest test@test")
+    assert result.returncode == 1
+    assert "set OPERATOR_USER, OPERATOR_NAME and OPERATOR_EMAIL" in result.stderr
+    assert "run as root" not in result.stderr
+
+
+def test_operator_identity_has_no_defaults() -> None:
+    text = _SCRIPT.read_text(encoding="utf-8")
+    for var in ("OPERATOR_USER", "OPERATOR_EMAIL", "OPERATOR_NAME"):
+        assert f'{var}="${{{var}:-}}"' in text, var
+    assert "dotfiles" not in text and "oh-my-zsh" not in text
+
+
+def test_complete_identity_reaches_the_root_check(tmp_path: Path) -> None:
+    result = _run_preconditions(
+        tmp_path,
+        SSH_PUBKEY="ssh-ed25519 AAAAtest test@test",
+        OPERATOR_USER="ops",
+        OPERATOR_NAME="Ops Person",
+        OPERATOR_EMAIL="ops@example.com",
+    )
+    if os.geteuid() == 0:
+        pytest.skip("running as root would start a real provision")
+    assert result.returncode == 1
+    assert "run as root" in result.stderr

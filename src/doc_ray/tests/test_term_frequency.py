@@ -1,4 +1,4 @@
-"""Term-frequency pre-flight (MCP Item 10 / #16): verdict logic + MCP tool surface.
+"""Term-frequency pre-flight (issue #16): verdict logic + MCP tool surface.
 
 The database-free half of the coverage. The pure verdict logic lives in
 ``doc_ray.domain.term_frequency`` and is exercised here at and around every

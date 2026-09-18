@@ -1,12 +1,12 @@
--- Block B (P1) — Lens Registry: promote collections to named scopes, migration 121.
+-- Lens Registry: promote collections to named scopes, migration 121.
 --
--- A *lens* is a named scope under which a later projection layer (Block D, #8)
+-- A *lens* is a named scope under which a later projection layer (issue #8)
 -- will interpret entity identity. This block ships VOCABULARY AND METADATA ONLY:
 -- it promotes the existing document_collections container (migration 047) into a
 -- lens by flagging it `is_scope`, gives a document a `default_lens_id`, and
 -- reserves a `global` lens. It changes NOTHING about how any entity resolves
 -- today — every existing read returns byte-identical results. See
--- docs/proposals/entity-fabric-substrate-lens-projection.md (§3.2, §7) and
+-- docs/design/entity-fabric.md (§3.2, §7) and
 -- doc_ray.domain.lenses for the pure cycle/naming rules this trigger mirrors.
 --
 -- FR-2 integrity note (recorded decision). The issue prefers a composite FK

@@ -1,7 +1,7 @@
--- Block D (P2) — Projection Engine: lens-scoped entity identity, migration 129.
+-- Projection Engine: lens-scoped entity identity, migration 129.
 --
 -- The heart of the Substrate·Lens·Projection architecture (issue #8; proposal
--- docs/proposals/entity-fabric-substrate-lens-projection.md §3.3). Identity stops
+-- docs/design/entity-fabric.md §3.3). Identity stops
 -- being a property baked into the substrate and becomes a DERIVED, refreshable
 -- interpretation: entity = project(mention, lens). The mention is the immutable
 -- fact; who it *is* depends on the lens. The same corpus then holds fiction and
@@ -21,16 +21,16 @@
 --        changes. Staleness window: a projection is stale only between a substrate
 --        change and the chained refresh (same request for a single-doc pipeline).
 --   D-3  Human confirm/reject is a SEPARATE proposal table (entity_projection_review)
---        the API may write (docray_client), applied by the batch refresh — Block A's
+--        the API may write (docray_client), applied by the batch refresh — the NER-correction log's
 --        record-then-apply shape. entity_projection stays batch-owned (FR-1), so the
 --        API never writes the derived fact table in a request. The review is keyed by
 --        the STABLE span identity (document_id, char_start, char_end, lens_id), not by
 --        the ephemeral mention_id, so a human decision SURVIVES re-annotation and is
---        re-applied to the fresh mentions (Block A parity, migration 115).
+--        re-applied to the fresh mentions (migration 115).
 --   D-4  A document in several projecting lenses with no default lens falls back to
 --        `global` for its default read; the read result records the ambiguity rather
 --        than picking a scope lens arbitrarily (see application/projection.py).
---   D-5  Not applicable — Block C (#6) is merged; the refresh consumes
+--   D-5  Not applicable — genre classification (issue #6) is merged; the refresh consumes
 --        doc_ray.domain.genre_policy.resolution_scope directly (no stub).
 --
 -- Local identity minting (why lens_local_entity exists): entity_projection.canonical_id
@@ -45,7 +45,7 @@
 -- FR-2 — Designation. Only an explicitly PROJECTING lens is materialized (cost
 -- control: projecting every lens for every mention at 10k documents is not
 -- viable). A projecting collection must itself be a lens (is_scope); enforced by
--- a declarative row CHECK — no trigger needed, and it composes with the Block B
+-- a declarative row CHECK — no trigger needed, and it composes with the lens registry
 -- lens guard (migration 121) untouched.
 -- ==========================================================================
 
@@ -123,7 +123,7 @@ CREATE POLICY entity_projection_write ON entity_projection
                 OR document_id IN (SELECT * FROM docray_writable_documents()));
 
 -- Derived fact table: the API/webapp only READ it; the batch worker owns the writes
--- (Block A finding — the API must never write a derived fact table in a request).
+-- (the API must never write a derived fact table in a request).
 GRANT SELECT ON entity_projection TO docray_api;
 GRANT SELECT, INSERT, UPDATE, DELETE ON entity_projection TO docray_batch;
 
@@ -156,7 +156,7 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON lens_local_entity TO docray_batch;
 -- ==========================================================================
 -- FR-6 / D-3 — entity_projection_review: the human confirm/reject proposal the API
 -- may write; the batch refresh applies it onto entity_projection.status. Keyed by
--- the STABLE span identity (like Block A's correction log, migration 115) so a
+-- the STABLE span identity (like the NER-correction log, migration 115) so a
 -- decision survives re-annotation and is re-applied to the fresh mentions.
 -- ==========================================================================
 

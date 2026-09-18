@@ -2,10 +2,10 @@
 
 WHY THIS EXISTS. Prism Tier-1 detected regions only in PDFs: the orchestrator
 gated on ``_is_pdf`` and returned ``{"skipped": "not-pdf"}`` for everything else,
-with the job recorded as *succeeded*. Measured 2026-07-29, that silently dropped
-the entire visual layer of 283 EPUBs — 43% of the corpus. One sampled book
-carried 141 embedded images totalling 4.52 MB, 68% of its own archive, and the
-corpus recorded zero images for it and no error anywhere.
+with the job recorded as *succeeded*. That silently dropped the entire visual
+layer of every EPUB — in a mixed corpus, close to half the documents. A sampled
+book carried over a hundred embedded images making up two thirds of its own
+archive, and the corpus recorded zero images for it and no error anywhere.
 
 WHY NOT RENDER EPUB PAGES. An EPUB is reflowable: it has no page geometry, so a
 rasterizer must first *invent* a layout (page size, font, margins), and the page

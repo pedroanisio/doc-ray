@@ -1,6 +1,6 @@
 """Backup must be able to read every table it dumps — preflight, not mid-COPY death.
 
-The defect this guards (production, 2026-07-24): 24 backups failed with
+The defect this guards: every backup failed with
 
     InsufficientPrivilege: permission denied for table "web_auth_sessions"
 

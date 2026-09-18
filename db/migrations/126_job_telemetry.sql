@@ -7,7 +7,7 @@
 -- only. Cost accounting needs the opposite — every attempt that ever consumed a
 -- machine, including the ones that failed.
 --
--- This is not hypothetical. On 2026-07-25 a GPU-memory exhaustion caused 41
+-- This is not hypothetical. A GPU-memory exhaustion once caused dozens of
 -- annotate attempts to fail; each burned real GPU seconds on a billed host, and
 -- each was then erased from `jobs` by the successful retry that followed. The
 -- money was spent and left no trace. An append-only fact row per execution is

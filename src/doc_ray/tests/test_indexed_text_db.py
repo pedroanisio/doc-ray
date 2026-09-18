@@ -1,4 +1,4 @@
-"""The 2026-07-28 ingest failure, reproduced against a real btree.
+"""The oversized-index-value ingest failure, reproduced against a real btree.
 
 The domain rule is pinned in `test_indexed_text.py`. This module proves the rule
 is applied *where the failure happened* — a unit test on a pure function would

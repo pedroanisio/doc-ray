@@ -410,7 +410,7 @@ def test_collection_mutation_rejects_malformed_collection_id_cleanly(pg):
 def test_create_collection_rejects_a_name_too_long_for_its_unique_index(pg):
     """`document_collections.name` is `text NOT NULL UNIQUE` (migration 047).
 
-    Same shape as the authors defect of 2026-07-28: an oversized value reaches a
+    Same shape as the authors defect: an oversized value reaches a
     btree that cannot hold it and the write aborts with a database-level error.
     A collection name is typed by a person, though, so the honest response is to
     reject it by name rather than silently store a truncated one they did not

@@ -299,7 +299,7 @@ def test_a_failed_document_still_serves_its_stored_original(monkeypatch) -> None
     assert _get(cover_app, f"/documents/{DOC_ID}/cover.webp").status_code == 200
 
 
-# --- Cover delivery: small WebP thumbnails (docs/cover-delivery-optimization.md) -----------
+# --- Cover delivery: small WebP thumbnails (docs/design/cover-delivery.md) -----------
 
 _FIXTURE_PDF = Path(__file__).resolve().parents[3] / "static" / "fixtures" / "AirFrance447_BEA.pdf"
 

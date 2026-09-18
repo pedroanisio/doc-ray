@@ -244,8 +244,8 @@ def _start_heartbeat(
         # Wake in short slices rather than full intervals: the drain stamp must
         # land within ~1s of shutdown, or a deploy whose stop-grace is shorter
         # than the heartbeat interval kills the process before the stamp — which
-        # turns every such deploy back into an attempt-burning "crash" (observed
-        # live 2026-07-12: workers killed seconds after SIGTERM never stamped).
+        # turns every such deploy back into an attempt-burning "crash" (workers
+        # killed seconds after SIGTERM never stamp).
         step = min(1.0, interval)
         while not stop.wait(step):
             if shutdown is not None and shutdown.is_set() and not drain_stamped:

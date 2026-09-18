@@ -143,7 +143,7 @@ def test_d034_promotes_the_strict_checker_to_both_landing_surfaces():
     root = Path(__file__).resolve().parents[1]
     decisions = (root / "engineering_decisions.yml").read_text(encoding="utf-8")
     makefile = (root / "Makefile").read_text(encoding="utf-8")
-    instructions = (root / "CLAUDE.md").read_text(encoding="utf-8")
+    instructions = (root / "CONTRIBUTING.md").read_text(encoding="utf-8")
     command = "scripts/check_surface_parity.py --strict"
 
     assert 'id:                 "D-034"' in decisions

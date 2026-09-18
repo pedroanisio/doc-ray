@@ -24,10 +24,9 @@ RUN uv pip install --system -r requirements.txt -r requirements-dev.txt
 COPY pyproject.toml ./
 COPY Dockerfile docker-compose*.yml ./
 COPY .dockerignore .env.example .env.prod.example .env.test.example .gitignore ./
-# PURPOSE.md and DISCLAIMER.md travel with CLAUDE.md: the doc-hygiene tests
-# assert that CLAUDE.md's references to them resolve, which they cannot if the
-# governing documents are absent from the image.
-COPY .pre-commit-config.yaml CLAUDE.md PURPOSE.md DISCLAIMER.md ./
+# The governing documents travel together: the doc-hygiene tests assert that
+# CONTRIBUTING.md's references to PURPOSE.md and DISCLAIMER.md resolve.
+COPY .pre-commit-config.yaml .release-audit-allow.txt CLAUDE.md AGENTS.md CONTRIBUTING.md PURPOSE.md DISCLAIMER.md ./
 COPY .github ./.github
 COPY README.md CHANGELOG.md engineering_decisions.yml uv.lock Makefile ./
 COPY src ./src

@@ -145,7 +145,7 @@ async def list_lenses(
 ) -> list[Row]:
     """Return the scope collections (lenses), name-ordered and keyset-paginated.
 
-    A *lens* is a ``document_collections`` row flagged ``is_scope`` (Block B); this
+    A *lens* is a ``document_collections`` row flagged ``is_scope``; this
     is ``list_collections`` narrowed to those rows. The partial index
     ``idx_document_collections_scope (name, id) WHERE is_scope`` (migration 121)
     serves both the predicate and the ORDER BY, so the scan stays O(page) at the

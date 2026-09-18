@@ -1,4 +1,4 @@
-"""Hyper-context domain — relationship strength, ranking, bounded traversal (SLP Block F, #10).
+"""Hyper-context domain — relationship strength, ranking, bounded traversal (issue #10).
 
 Turns the projected entity graph into corpus-wide sensemaking, but keeps the *decisions*
 here, pure and deterministic (stdlib only, no I/O). Three primitives:

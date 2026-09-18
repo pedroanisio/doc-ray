@@ -1,4 +1,4 @@
-"""Pure verdict logic for the term-frequency pre-flight (MCP Item 10 / #16).
+"""Pure verdict logic for the term-frequency pre-flight (issue #16).
 
 Given raw candidate search terms and the corpus-wide use counts the adapter reads
 from the ``lexeme_stats`` rollup, this module decides — with no database access —

@@ -1,4 +1,4 @@
-"""Block G application/job contracts for deterministic mention-confidence scoring."""
+"""mention confidence application/job contracts for deterministic mention-confidence scoring."""
 
 from __future__ import annotations
 
@@ -133,7 +133,7 @@ def test_score_job_runs_after_every_mention_minting_step_and_stays_on_fast_lane(
     is what made 131,172 mentions unscorable: canonicalization's registry scan
     mints a ``term``-layer entity_mention per matched form, and at position 2 the
     scorer ran before those rows existed, so their confidence stayed NULL for good
-    (measured 2026-07-29 across 624 documents — 100% of that layer). The invariant
+    (100% of that layer, across every document). The invariant
     is "after everything that creates mentions", not "immediately after annotate".
     """
     scoring_index = DEFAULT_PIPELINE_CHAIN.index(KIND_SCORE_MENTIONS)

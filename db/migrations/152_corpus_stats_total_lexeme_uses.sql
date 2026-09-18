@@ -4,7 +4,7 @@
 -- `SUM(uses) FROM lexeme_stats` on every call — the read-path fact-table
 -- aggregate D-024 forbids. Forced RLS turns that from slow into unusable,
 -- because the policy is evaluated per row across the whole table. Measured on
--- the production corpus (2026-07-30, 444,294 lexeme_stats rows):
+-- a corpus with ~450k lexeme_stats rows:
 --
 --     docray_batch (BYPASSRLS)          2.0 s
 --     docray_api + principal context   22.9 s   <- the real API path

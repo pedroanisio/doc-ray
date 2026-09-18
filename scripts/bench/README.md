@@ -6,6 +6,7 @@ disclaimer:
     or verifiable reference may be invalid, erroneous, or a hallucination.
   generated_by: "Claude Opus 4.8 (1M context) via Claude Code"
   date: "2026-07-15"
+doc_type: readme
 ---
 
 # Resolver backend benchmark — which Ollama model replaces Anthropic?
@@ -42,8 +43,7 @@ model choice:
 
 ## Why there are no numbers checked in
 
-Per this repo's rules (`CLAUDE.md` §2 "formalization means research", PALS's Law),
-a benchmark table is only worth anything if it was produced by running the real
+A benchmark table is only worth anything if it was produced by running the real
 models. The H200 has the GPU headroom (~140 GiB free) but, at authoring time,
 **the Ollama container was not running (nothing on `:11434`) and no
 `ANTHROPIC_API_KEY` was present**, so the numbers must be generated on the box. This directory ships the *harness* and the *gold set*;
@@ -110,7 +110,7 @@ done
   --host http://localhost:11434 \
   --out scripts/bench/out
 
-# 4. read scripts/bench/out/leaderboard.md ; commit it alongside this README
+# 4. read $DOCRAY_WORK_DIR/findings/bench/<date>/leaderboard.md (never committed)
 ```
 
 Prefer to run the harness *inside* the compose network instead of over the

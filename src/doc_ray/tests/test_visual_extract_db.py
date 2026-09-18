@@ -180,9 +180,9 @@ def test_visual_extract_writes_features_and_replaces(pg: Any) -> None:
 # --- EPUB containers (regression) --------------------------------------------
 #
 # Tier-1 gated on _is_pdf and returned {"skipped": "not-pdf"} with the job marked
-# succeeded, so 283 EPUBs (43% of the corpus, measured 2026-07-29) had an entirely
-# empty visual layer and nothing recorded an error. One sampled book held 141
-# rasters — 68% of its own bytes — against zero document_image rows.
+# succeeded, so every EPUB (close to half of a mixed corpus) had an entirely
+# empty visual layer and nothing recorded an error. One sampled book held over a
+# hundred rasters — two thirds of its own bytes — against zero document_image rows.
 
 
 def _epub_with_one_figure() -> bytes:

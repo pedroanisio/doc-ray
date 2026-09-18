@@ -1,7 +1,7 @@
-"""The pure projection resolver — ``project(mention, lens)`` (SLP Block D, issue #8).
+"""The pure projection resolver — ``project(mention, lens)`` (issue #8).
 
 This is the heart of the Substrate·Lens·Projection architecture
-(``docs/proposals/entity-fabric-substrate-lens-projection.md``, §3.3). Identity is
+(``docs/design/entity-fabric.md``, §3.3). Identity is
 not a property baked into the substrate; it is a **derived interpretation**: the
 mention is the immutable fact, and *who it is* depends on the lens you read it
 through. The same corpus can then hold fiction and non-fiction side by side and
@@ -98,7 +98,7 @@ def local_key(surface: str, entity_type: str) -> tuple[str, str]:
 
     Case- and whitespace-insensitive on the surface (so ``"  Duncan "`` and
     ``"duncan"`` are one identity) and upper-cased on the type (so a ``person`` row
-    and a ``PERSON`` row key identically) — matching how Block C's
+    and a ``PERSON`` row key identically) — matching how genre classification's
     :func:`resolution_scope` compares types.
     """
     return (" ".join(surface.split()).casefold(), entity_type.strip().upper())
@@ -118,7 +118,7 @@ def project(
     :class:`Projection` (reproducibility, invariant 3). The resolution law:
 
     * **Lens rule.** The reserved ``global`` lens forces ``GLOBAL``; a scope lens
-      applies the Block C genre policy (:func:`resolution_scope`) per entity type.
+      applies the genre policy (:func:`resolution_scope`) per entity type.
     * **LOCAL** (fiction-local type in a scope lens): resolve to the lens-local
       identity minted for the mention's ``(surface, type)``; on a miss, **fall back
       to GLOBAL** — the global lens is never bypassed (invariant 4).

@@ -28,7 +28,7 @@ Usage::
     python scripts/cost_telemetry.py                         # measure + report
     python scripts/cost_telemetry.py --documents 100000      # project to scale
     python scripts/cost_telemetry.py --months 12 --json      # machine-readable
-    python scripts/cost_telemetry.py --out docs/cost-model.md
+    python scripts/cost_telemetry.py --out "$DOCRAY_WORK_DIR/findings/cost-model.md"
 
 Exit codes: 0 = report produced; 2 = the corpus holds no completed stage runs.
 """

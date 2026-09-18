@@ -1,6 +1,6 @@
 -- doc-ray: index the FK columns the DOCUMENT delete-cascade depends on.
 --
--- Live incident (2026-07-02): DELETE FROM documents on a fully annotated
+-- Failure mode: DELETE FROM documents on a fully annotated
 -- 287-page book ran 24+ minutes at 100% CPU before being cancelled. The
 -- cascade documents -> sentences -> tokens forced a sequential scan of the
 -- corpus-wide tokens table (1.5M rows) for every one of the document's 4,576

@@ -1,3 +1,14 @@
+---
+disclaimer:
+  notice: >-
+    No information within this document should be taken for granted.
+    Any statement or premise not backed by a real logical definition
+    or verifiable reference may be invalid, erroneous, or a hallucination.
+  generated_by: "doc-ray maintainers"
+  date: "2026-09-18"
+doc_type: readme
+---
+
 # scripts/ — standalone text tools
 
 ## Disclaimer

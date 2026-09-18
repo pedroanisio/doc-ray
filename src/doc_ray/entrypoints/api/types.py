@@ -330,14 +330,14 @@ class SeedSuggestion:
 
 @strawberry.type
 class DocumentClassification:
-    """A document's genre classification (SLP Block C, #6).
+    """A document's genre classification (issue #6).
 
     The genre axis (fiction / non-fiction / mixed / unknown) that the
     per-entity-type resolution policy reads. ``method`` is ``'heuristic'`` for a
     machine guess or ``'human'`` for a confirmation; ``status`` is ``'pending'``
     (an unverified machine guess — do NOT rely on it for identity decisions),
     ``'confirmed'`` (a human decided), or ``'rejected'``. A ``pending`` genre is a
-    GUESS: this block defines the policy, it does not apply it (Block D, #8, does).
+    GUESS: this block defines the policy, it does not apply it (issue #8, does).
     """
 
     document_id: strawberry.ID
@@ -391,7 +391,7 @@ class DocumentShare:
 
 @strawberry.type
 class EntityProjection:
-    """One mention's derived identity within a lens (SLP Block D, #8).
+    """One mention's derived identity within a lens (issue #8).
 
     ``project(mention, lens)`` materialized: the mention is the immutable fact, and
     this is *who it is* through one lens. ``scope`` is ``'local'`` (a work-local
@@ -466,7 +466,7 @@ class LensProjection:
 
 @strawberry.type
 class AllusionEdge:
-    """A typed, directional cross-lens link — an allusion, NEVER an identity (SLP Block E, #9).
+    """A typed, directional cross-lens link — an allusion, NEVER an identity (issue #9).
 
     Records that one entity *alludes to / depicts / references / is adapted from /
     inspired by* another, across lenses (e.g. a novel's Paris → the real Paris), without

@@ -1,11 +1,11 @@
-"""Async read adapter for the projection engine (SLP Block D, #8).
+"""Async read adapter for the projection engine (issue #8).
 
 Serves the GraphQL ``entityProjection`` read. Every read is bounded and
 keyset-paginated, and reads only derived tables (``entity_projection`` joined to
 ``canonical``/mentions for display) — never a live aggregate over a fact table
 (D-024). RLS on those tables scopes every row to what the caller may read; this
 adapter adds no authorization of its own. (The per-lens entity landscape reads moved
-to :mod:`doc_ray.adapters.persistence_lens_rollup_read` in Block F, #10.)
+to :mod:`doc_ray.adapters.persistence_lens_rollup_read` in the hyper-context rollups, #10.)
 """
 
 from __future__ import annotations
@@ -36,7 +36,7 @@ async def resolve_effective_lens(
     """Resolve which lens a lens-less read uses: ``(lens_id, is_default, ambiguous)``.
 
     Explicit ``lens_id`` wins. Otherwise the document's ``default_lens_id`` is used —
-    but only if it is still a live projecting scope (PALS's Law: Block B allows a
+    but only if it is still a live projecting scope (PALS's Law: The lens registry allows a
     dangling default). Failing that, it falls back to the reserved ``global`` lens
     and flags ``ambiguous=True`` when the document belongs to more than one projecting
     scope lens with no default (D-4 — surface the ambiguity, never pick arbitrarily).
@@ -136,7 +136,7 @@ async def record_projection_review(
     reviewer: str | None,
     rationale: str | None,
 ) -> None:
-    """Record a human confirm/reject as a proposal keyed by the stable span (Block A shape).
+    """Record a human confirm/reject as a proposal keyed by the stable span.
 
     Written by the API (docray_client grant); the batch refresh applies it onto
     ``entity_projection.status``. RLS WITH CHECK requires the document be writable.

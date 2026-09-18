@@ -220,7 +220,7 @@ def test_cli_json_output(pg, monkeypatch, capsys):
 
 # --- pipeline-stalled --------------------------------------------------------
 #
-# The 2026-07-30 incident: 55 documents whose `annotate` job spent all three
+# The failure mode: dozens of documents whose `annotate` job spent all three
 # attempts against a saturated GPU. Because `annotate` heads the pipeline chain,
 # nothing downstream was ever enqueued, and nothing re-enqueues a failed job.
 # Health reported them only as "annotation never ran", which reads like a stage

@@ -1,4 +1,4 @@
-"""Block G mention-confidence scoring: pure, explainable review ranking.
+"""mention confidence mention-confidence scoring: pure, explainable review ranking.
 
 The scorer combines corpus facts already available to Doc-Ray and must never
 present their arithmetic as a calibrated model probability.  These tests pin

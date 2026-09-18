@@ -176,7 +176,7 @@ def test_enqueue_async_lets_a_member_enqueue_and_restores_the_role(pg) -> None:
 def test_sync_enqueue_lets_an_rls_bound_role_enqueue_and_restores_the_role(pg) -> None:
     """The synchronous twin must elevate identically — the operator-CLI path.
 
-    The defect this pins (found in production, 2026-07-25): BL-141 moved
+    The defect this pins: BL-141 moved
     ``enqueue_async`` onto the trusted writer but left the sync ``enqueue``
     inserting under whatever role it was handed. Every operator tool that goes
     through it — ``scripts/enqueue_visual_backfill.py`` above all, which is the

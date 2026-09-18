@@ -418,7 +418,7 @@ async def list_collections(
 
 
 async def list_lenses(limit: int = 50, after: str | None = None) -> list[dict[str, Any]]:
-    """List the lenses — collections marked as entity-resolution scopes (Block B).
+    """List the lenses — collections marked as entity-resolution scopes.
 
     A *lens* is a named scope under which a projection layer interprets entity
     identity: the fictional ``Duncan Idaho`` in one work stays distinct from an

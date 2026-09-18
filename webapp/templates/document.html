@@ -394,7 +394,7 @@
     {% endif %}
     <div class="card">
       <h2 class="mt-0">Default lens</h2>
-      <p class="hint">Lenses name a future projection scope; they do not change search or entity resolution today. See <a href="https://github.com/pedroanisio/doc-ray/issues/8">Block D (#8)</a>.</p>
+      <p class="hint">The default lens is the scope this document's entities are shown through: work-local identities stay inside it, real-world entities resolve globally. Lenses do not change search.</p>
       {% if lens_notice %}<div class="notice">{{ lens_notice }}</div>{% endif %}
       {% if lens_error %}<div class="errbox">{{ lens_error }}</div>{% endif %}
       <form method="post" action="{{ url_for('document_default_lens', doc_id=doc.id) }}">

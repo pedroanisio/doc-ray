@@ -93,7 +93,7 @@ def unreadable_tables(
 
     A backup COPYs every covered table elevated to the trusted writer
     ``docray_batch``. A table that role cannot read aborts the whole COPY with a
-    raw ``permission denied`` and a half-written archive (production, 2026-07-24:
+    raw ``permission denied`` and a half-written archive (as happened when
     ``web_auth_sessions`` had no grant because migration 106's one-time
     ``GRANT ALL`` never covered a table added later). Checking up front turns that
     into a clear, early failure that names the offending tables. Returns them

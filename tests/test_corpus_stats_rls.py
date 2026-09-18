@@ -8,7 +8,7 @@ authors/tags registries).
 That page also recomputed four corpus-wide aggregates on EVERY request; two of
 them full-scanned the 17.5M-row `lexeme_occurrences` table (`count(DISTINCT
 lexeme_uid)` and `count(*)`), costing ~18.7 s of origin time against a 300 ms
-SLA (measured live 2026-07-16 via EXPLAIN ANALYZE as `docray_api` + admin).
+SLA (measured via EXPLAIN ANALYZE as `docray_api` with an admin principal).
 
 Migration 095 fixed both at once by reading precomputed rollups on the hot path:
   * documents / sentences / occurrences — `count(*)` over documents plus SUM over

@@ -94,7 +94,7 @@ def span_geometry_from_layout_rows(
     Scanning every layout row per span is O(spans x rows) — for a book-sized
     document (171k spans) that is tens of billions of pure-Python iterations,
     which is what kept annotate jobs in "Registering annotation spans" for
-    hours until they hit the execution timeout (2026-07-12 incident). Rows are
+    hours until they hit the execution timeout. Rows are
     deduplicated (the caller's join can emit one copy per overlapping staged
     span, which also skewed the per-page overlap vote), sorted once, and each
     span visits only its bisected candidate window.

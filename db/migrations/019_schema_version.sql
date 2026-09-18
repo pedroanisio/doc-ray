@@ -1,6 +1,6 @@
 -- doc-ray: record the schema's semantic version (SemVer major.minor.patch).
 --
--- CLAUDE.md: "all schema files use semantic versioning." This is the single,
+-- Schema files use semantic versioning (CONTRIBUTING.md). This is the single,
 -- queryable version of the *applied* schema contract — distinct from the
 -- schema_migrations ledger (which is a per-file audit log). Migrations that
 -- change the contract bump this: PATCH for fixes, MINOR for backward-compatible

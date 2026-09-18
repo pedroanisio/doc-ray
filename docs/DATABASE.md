@@ -1,3 +1,14 @@
+---
+disclaimer:
+  notice: >-
+    No information within this document should be taken for granted.
+    Any statement or premise not backed by a real logical definition
+    or verifiable reference may be invalid, erroneous, or a hallucination.
+  generated_by: "scripts/gen_data_dictionary.py"
+doc_type: reference
+status: current
+---
+
 # doc-ray — Database ERD & Data Dictionary
 
 **Schema version `1.57.3`** (SemVer) · 161 committed migrations define the repository target schema
@@ -663,7 +674,7 @@ has exactly one head → a function).
 
 Named-entity mentions, entity linking to a KB, and coreference chains. `entity_mention` is rebuilt
 from scratch by every annotate run, so human fixes live in `entity_mention_correction` — keyed by a
-stable span, re-applied by the pipeline on each pass (Block A).
+stable span, re-applied by the pipeline on each pass.
 
 #### `entity_mention`
 
@@ -762,13 +773,13 @@ stable span, re-applied by the pipeline on each pass (Block A).
 - **Index** `idx_coref_mention_span`: public.coref_mention USING btree (span_id)
 - **RLS:** enabled — read/write policies via *span_id → spans* (FORCED)
 
-### 5.8 Genre classification (SLP Block C)
+### 5.8 Genre classification
 
 A document's genre axis — fiction / non_fiction / mixed / unknown — orthogonal to its file format
 (`documents.doc_type`). A heuristic classifier writes a `pending` guess; a human confirms it
 (`method='human'`). This is the input to the per-entity-type resolution policy
 (`doc_ray.domain.genre_policy`): fictional types resolve inside the work's lens, real-world types
-globally. The policy is defined here; Block D (#8) applies it.
+globally. The policy is defined here; the projection engine applies it.
 
 #### `document_classification`
 
@@ -793,7 +804,7 @@ globally. The policy is defined here; Block D (#8) applies it.
 - **Check:** CHECK ((status = ANY (ARRAY['pending'::text, 'confirmed'::text, 'rejected'::text])))
 - **RLS:** enabled — read/write policies via *document_id* (FORCED)
 
-### 5.9 Projection engine (SLP Block D)
+### 5.9 Projection engine
 
 Lens-scoped entity identity as a derived, refreshable view: `entity_projection` is one row per
 (mention, projecting lens) holding `project(mention, lens)` — `scope` local/global, a nullable
@@ -802,8 +813,8 @@ status. `lens_local_entity` is the stable registry that mints one `canonical` ro
 surface, type) so a rebuild is reproducible; `entity_projection_review` records human confirm/reject
 keyed by the stable span (survives re-annotation). A lens projects only when
 `document_collections.projects` is set (FR-2 designation). All are derived from the substrate + lens
-+ policy and never mutate it (invariants 1–2). The per-lens entity landscape lives in the Block F
-rollups.
++ policy and never mutate it (invariants 1–2). The per-lens entity landscape lives in the hyper-
+context rollups.
 
 #### `entity_projection`
 
@@ -871,7 +882,7 @@ rollups.
 - **Index** `idx_epr_doc_lens_span`: public.entity_projection_review USING btree (document_id, lens_id, char_start, char_end, created_at DESC)
 - **RLS:** enabled — read/write policies via *document_id* (FORCED)
 
-### 5.10 Hyper-context rollups (SLP Block F)
+### 5.10 Hyper-context rollups
 
 Corpus-wide sensemaking precomputed from the projections (D-024 — never a live aggregate on a read
 path): `lens_entity_rollup` is a lens's significant entities with mention/document volume, the
@@ -923,7 +934,7 @@ RLS scopes both by lens visibility.
 - **Index** `idx_lens_relation_to`: public.lens_entity_relation USING btree (lens_id, to_canonical_id, strength DESC)
 - **RLS:** enabled — read/write policies via *lens_id → document_collection_members → documents* (FORCED)
 
-### 5.11 Allusion edges (SLP Block E)
+### 5.11 Allusion edges
 
 Typed, directional cross-lens links that record a relationship without asserting identity:
 `entity_allusion` says one entity *alludes to / depicts / references / is adapted from / inspired
@@ -2016,12 +2027,11 @@ Recurring corpus-maintenance operations. One row per schedule; the scheduler cla
 
 ### 5.22 Prism visual layer
 
-The visual/multimodal layer over the corpus (docs/proposals/prism-visual-layer.md), document-scoped
-under the same RLS as the NLP layers. Tier-1 `document_image`/`image_tier1_features` are
-deterministic (no model). Tier-2 `image_embedding`/`sentence_vision_embedding` are HNSW-indexed
-vectors in one shared space for cross-modal retrieval (ranking only). Tier-3 `visual_caption` holds
-grounded VLM captions (only status='committed' is trusted) and `visual_review` is the human gate for
-low-confidence output.
+The visual/multimodal layer over the corpus, document-scoped under the same RLS as the NLP layers.
+Tier-1 `document_image`/`image_tier1_features` are deterministic (no model). Tier-2
+`image_embedding`/`sentence_vision_embedding` are HNSW-indexed vectors in one shared space for
+cross-modal retrieval (ranking only). Tier-3 `visual_caption` holds grounded VLM captions (only
+status='committed' is trusted) and `visual_review` is the human gate for low-confidence output.
 
 #### `document_image`
 
@@ -2546,13 +2556,13 @@ owner's bypass.
 | 112 | `112_web_auth_sessions.sql` | durable webapp auth sessions keyed by an opaque cookie id |
 | 113 | `113_jobs_trusted_writer_enqueue.sql` | jobs enqueue moves behind a definer (BL-141) |
 | 114 | `114_rls_helper_bypass_owner.sql` | SECURITY DEFINER RLS helpers run with BYPASSRLS (BL-142) |
-| 115 | `115_ner_corrections.sql` | durable human NER corrections keyed by a stable span (Block A) |
+| 115 | `115_ner_corrections.sql` | durable human NER corrections keyed by a stable span |
 | 116 | `116_schema_version_1_39_0.sql` | advance the schema SemVer to 1.39.0 |
 | 117 | `117_form_index_client_read.sql` | grant docray_client SELECT on form_index (BL-146 fix) |
 | 118 | `118_metadata_history_authors_field.sql` | document metadata history admits the authors field |
 | 119 | `119_backup_role_default_grants.sql` | docray_batch default-privilege grants for backups |
 | 120 | `120_schema_version_1_40_0.sql` | advance the schema SemVer to 1.40.0 |
-| 121 | `121_lens_registry.sql` | Lens Registry: is_scope/parent_lens_id/default_lens_id + global lens (Block B) |
+| 121 | `121_lens_registry.sql` | Lens Registry: is_scope/parent_lens_id/default_lens_id + global lens |
 | 122 | `122_schema_version_1_41_0.sql` | advance the schema SemVer to 1.41.0 |
 | 123 | `123_resolution_review_client_read.sql` | grant + RLS on resolution_review so client reads (resolutionReview) work (#15 sweep) |
 | 124 | `124_semantic_embedding_cutover.sql` | NLP Layer 20 hard cutover: purge hash-bow-768 and advance SemVer to 1.42.0 |
@@ -2560,16 +2570,16 @@ owner's bypass.
 | 126 | `126_job_telemetry.sql` | append-only per-job execution telemetry for cost attribution |
 | 127 | `127_document_classification.sql` | document_classification table (genre axis + resolution-policy input) + RLS + grants |
 | 128 | `128_schema_version_1_45_0.sql` | advance the schema SemVer to 1.45.0 for genre classification |
-| 129 | `129_entity_projection.sql` | projection engine (Block D): entity_projection + lens_local_entity + entity_projection_review + lens_entity_stats + collections.projects col (RLS + grants) |
+| 129 | `129_entity_projection.sql` | projection engine: entity_projection + lens_local_entity + entity_projection_review + lens_entity_stats + collections.projects col (RLS + grants) |
 | 130 | `130_schema_version_1_46_0.sql` | advance the schema SemVer to 1.46.0 for the projection engine |
-| 131 | `131_allusion_edges.sql` | entity_allusion (typed cross-lens links that never assert identity, Block E) + cross-lens RLS + grants |
+| 131 | `131_allusion_edges.sql` | entity_allusion (typed cross-lens links that never assert identity) + cross-lens RLS + grants |
 | 132 | `132_schema_version_1_47_0.sql` | advance the schema SemVer to 1.47.0 for allusion edges |
-| 133 | `133_lens_rollups.sql` | hyper-context rollups (Block F): lens_entity_rollup + lens_entity_relation (co-occurrence NPMI) + RLS; supersedes/drops lens_entity_stats |
+| 133 | `133_lens_rollups.sql` | hyper-context rollups: lens_entity_rollup + lens_entity_relation (co-occurrence NPMI) + RLS; supersedes/drops lens_entity_stats |
 | 134 | `134_schema_version_1_48_0.sql` | advance the schema SemVer to 1.48.0 for hyper-context rollups |
 | 135 | `135_schema_version_1_48_1.sql` | advance the schema SemVer to 1.48.1 (marker, no DDL) |
 | 136 | `136_schema_version_1_48_2.sql` | advance the schema SemVer to 1.48.2 for the arXiv source adapter and ingest fixes (marker, no DDL) |
 | 137 | `137_schema_version_1_49_0.sql` | advance the schema SemVer to 1.49.0 for reference intake across every surface (marker, no DDL) |
-| 138 | `138_mention_confidence.sql` | nullable explainable confidence materialization on entity_mention (Block G) |
+| 138 | `138_mention_confidence.sql` | nullable explainable confidence materialization on entity_mention |
 | 139 | `139_schema_version_1_50_0.sql` | advance the schema SemVer to 1.50.0 for mention-confidence review |
 | 140 | `140_entity_surface_corrections.sql` | durable exact-surface/current-type NER correction rules without fake spans |
 | 141 | `141_schema_version_1_51_0.sql` | advance the schema SemVer to 1.51.0 for exact-surface NER corrections |

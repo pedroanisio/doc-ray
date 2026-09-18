@@ -29,8 +29,8 @@ _WS = " \t\r\n\f\v"
 #: Not every run of text contains a sentence terminator. A book index, a table
 #: of contents, or a dumped table is comma- and newline-separated prose-free
 #: text, so the scan below finds no boundary and emits the whole run as ONE
-#: "sentence": measured 2026-07-29, one document produced a single 30,321-char
-#: row holding its entire index. That row is not merely ugly — it is silently
+#: "sentence": one document produced a single 30,000-character row holding
+#: its entire index. That row is not merely ugly — it is silently
 #: lossy downstream. Layer 20 embeds one vector per sentence with
 #: all-mpnet-base-v2, whose window is 384 wordpiece tokens (roughly 1,500
 #: characters of English prose, and an approximation — tokenization is

@@ -336,7 +336,7 @@ def test_request_drain_requires_the_claim_holder(qconn):
 def test_reclaim_measures_started_at_from_the_current_attempt(qconn):
     """ETA and runtime derive from started_at; preserving the first attempt's
     start made a fresh retry show hours of elapsed time and absurd ETAs
-    (live 2026-07-12: a re-claimed job read "~8m left" seconds in)."""
+    (a re-claimed job read "~8m left" seconds in)."""
     conn, created = qconn
     job_id = q.enqueue(conn, "ingest", {}, priority=-50_000)
     created.append(job_id)
@@ -430,7 +430,7 @@ def test_claim_resets_previous_attempt_progress_and_drain_marker(qconn):
 
 
 # ---------------------------------------------------------------------------
-# Kind-filtered claiming — the short-job lane (2026-07-12 starvation incident:
+# Kind-filtered claiming — the short-job lane (the starvation failure mode:
 # a seconds-long ingest queued behind hours-long reannotates because every
 # worker claims every kind).
 # ---------------------------------------------------------------------------

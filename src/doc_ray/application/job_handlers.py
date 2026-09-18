@@ -522,7 +522,7 @@ def handle_canonicalize(
             }
         )
     # Global links are now settled — (re)materialize the projection so lens-scoped
-    # identity reflects this document's fresh canonicalization (Block D, #8).
+    # identity reflects this document's fresh canonicalization (issue #8).
     _refresh_projections_chained(conn, job.document_id)
     return out
 

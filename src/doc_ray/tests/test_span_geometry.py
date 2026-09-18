@@ -1,6 +1,6 @@
 """span_geometry_from_layout_rows: correctness and complexity regressions.
 
-The 2026-07-12 pipeline incident: annotating book-sized documents sat for
+The failure this pins: annotating book-sized documents sat for
 hours in "Registering N annotation spans" and one book was terminally failed
 at the execution timeout inside this exact function. Root cause was a
 per-span scan of every layout row — O(spans x rows) pure-Python work, tens of

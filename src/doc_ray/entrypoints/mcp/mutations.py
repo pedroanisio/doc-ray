@@ -451,7 +451,7 @@ async def delete_collection(collection_id: str) -> bool:
 async def promote_collection_to_lens(
     collection_id: str, parent_lens_id: str | None = None
 ) -> dict[str, Any]:
-    """Promote a collection to a *lens* — a named entity-resolution scope (Block B).
+    """Promote a collection to a *lens* — a named entity-resolution scope.
 
     A lens is the scope under which a projection layer will later interpret entity
     identity, so a fictional ``Duncan Idaho`` in one work stays distinct from an
@@ -491,7 +491,7 @@ async def demote_lens(collection_id: str) -> dict[str, Any]:
 
 
 async def set_document_default_lens(document_id: str, lens_id: str | None = None) -> dict[str, Any]:
-    """Set (or clear) a document's default lens (Block B).
+    """Set (or clear) a document's default lens.
 
     The lens must be a scope collection the document already belongs to; pass a
     null ``lens_id`` to clear the default. Requires a write grant on the document.
@@ -514,7 +514,7 @@ async def set_document_default_lens(document_id: str, lens_id: str | None = None
 #: bulk_tag_documents, decide_*, seed_approved), and collection management
 #: (create/add/remove) only — no destructive/admin verbs.
 async def classify_document(document_id: str) -> dict[str, Any]:
-    """Enqueue a heuristic genre classification for a document (SLP Block C); returns the job.
+    """Enqueue a heuristic genre classification for a document; returns the job.
 
     The worker reads the document's text and writes a **pending** machine genre
     guess (fiction / non_fiction / mixed / unknown) to its classification, using
@@ -539,7 +539,7 @@ async def confirm_document_classification(
     subtype: str | None = None,
     rationale: str | None = None,
 ) -> dict[str, Any]:
-    """Confirm a document's genre as a human decision (SLP Block C); returns the classification.
+    """Confirm a document's genre as a human decision; returns the classification.
 
     This is the verification step that turns a machine guess into a decided genre:
     it records ``status='confirmed'``, ``method='human'``, the reviewer, and your
@@ -563,7 +563,7 @@ async def confirm_document_classification(
 
 
 async def confirm_projection(mention_id: str, lens_id: str) -> dict[str, Any]:
-    """Confirm a mention's lens-scoped identity — the verification step (SLP Block D).
+    """Confirm a mention's lens-scoped identity — the verification step.
 
     Turns a ``proposed`` projection into a ``confirmed`` one: records your decision
     keyed by the mention's stable text span (so it survives re-annotation) and enqueues
@@ -584,7 +584,7 @@ async def confirm_projection(mention_id: str, lens_id: str) -> dict[str, Any]:
 
 
 async def reject_projection(mention_id: str, lens_id: str) -> dict[str, Any]:
-    """Reject a mention's lens-scoped identity (SLP Block D); returns the job.
+    """Reject a mention's lens-scoped identity; returns the job.
 
     The mirror of ``confirm_projection``: records a ``rejected`` decision (keyed by the
     stable span) and enqueues the refresh that applies it. The substrate is untouched —
@@ -611,7 +611,7 @@ async def propose_allusion(
     confidence: float | None = None,
     rationale: str | None = None,
 ) -> dict[str, Any]:
-    """Propose a typed cross-lens allusion — a link, NOT an identity claim (SLP Block E).
+    """Propose a typed cross-lens allusion — a link, NOT an identity claim.
 
     ⚠ An allusion is an EDGE, never an equality: it records that ``from_canonical_id`` in
     ``from_lens_id`` *alludes to / depicts / references / is adapted from / inspired by*
@@ -648,7 +648,7 @@ async def propose_allusion(
 
 
 async def confirm_allusion(allusion_id: str) -> dict[str, Any]:
-    """Confirm an allusion edge — a human verification (SLP Block E); returns the edge.
+    """Confirm an allusion edge — a human verification; returns the edge.
 
     Promotes a ``proposed`` edge to ``confirmed``. Confirming still asserts only the
     *relationship*, never an identity — the two entities remain distinct. Requires write
@@ -664,7 +664,7 @@ async def confirm_allusion(allusion_id: str) -> dict[str, Any]:
 
 
 async def reject_allusion(allusion_id: str) -> dict[str, Any]:
-    """Reject an allusion edge (SLP Block E); returns the edge.
+    """Reject an allusion edge; returns the edge.
 
     Marks the edge ``rejected``; the substrate is untouched. Requires write access to the
     edge's evidence document.

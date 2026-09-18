@@ -1,4 +1,4 @@
-"""Async read adapter for allusion edges (SLP Block E, #9).
+"""Async read adapter for allusion edges (issue #9).
 
 Serves the GraphQL ``allusions`` read, traversable in both directions. Every read is
 bounded, keyset-paginated, and joins only ``entity_allusion`` to ``canonical`` /

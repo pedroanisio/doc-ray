@@ -1,19 +1,57 @@
-.git
-__pycache__/
-*.pyc
-.env
-.env.test
-.venv
-.venv-proto/
-.agent-tasks/
-.pytest_cache/
-.mypy_cache/
-.ruff_cache/
-.coverage
-backups/
-*.pdf
-# NOTE: do NOT ignore db/ — the Dockerfile copies db/migrations into the image
-# for the runtime migration runner (doc_ray.adapters.migrate).
-static/*
+# Allow-list build context: everything is excluded unless re-included below.
+# The runtime Dockerfile copies only src/, db/ and webapp/ into the image. The
+# remaining entries are what the deps stage and the test image
+# (docker/test/Dockerfile, which runs the repository's own gates) need. Local
+# working material, env files, caches, the agent-task registry and editor state
+# never reach the daemon. Verified by scripts/check_build_context.py.
+*
+
+# Build inputs
+!Dockerfile
+!pyproject.toml
+!requirements.txt
+!requirements-dev.txt
+!uv.lock
+
+# Shipped trees
+!src/
+!db/
+!webapp/
+
+# Test-image inputs (the suite asserts on these files)
+!scripts/
+!tests/
+!docker/
+!config/
+!nginx/
+!docs/
+!admin-console/
 !static/fixtures/
-!static/fixtures/**
+!static/images/
+!.github/
+!docker-compose*.yml
+!.dockerignore
+!.gitignore
+!.pre-commit-config.yaml
+!.release-audit-allow.txt
+!.env.example
+!.env.prod.example
+!.env.test.example
+!README.md
+!CHANGELOG.md
+!CONTRIBUTING.md
+!AGENTS.md
+!PURPOSE.md
+!DISCLAIMER.md
+!Makefile
+!engineering_decisions.yml
+!engineering/
+
+# Re-excluded inside the allowed trees
+**/__pycache__/
+**/*.pyc
+**/.mypy_cache/
+**/.pytest_cache/
+**/.ruff_cache/
+**/node_modules/
+admin-console/dist/

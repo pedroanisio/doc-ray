@@ -1,8 +1,8 @@
 -- doc-ray: the backup role must be able to read EVERY table, now and in future.
 --
--- SYMPTOM (production, 2026-07-24): every backup job failed with
+-- SYMPTOM: every backup job failed with
 --   InsufficientPrivilege: permission denied for table "web_auth_sessions"
--- 24 backups failed; the corpus had no recoverable snapshot.
+-- and the corpus had no recoverable snapshot for as long as it went unnoticed.
 --
 -- ROOT CAUSE. A backup COPYs every public base table, elevated to the trusted
 -- writer `docray_batch`. Migration 106 granted `docray_batch` access with a

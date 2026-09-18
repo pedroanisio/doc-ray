@@ -9,7 +9,7 @@ sound caption toward zero.
 This module is pure text handling with no I/O, so the rules are testable against
 real captured output rather than against a mock. It is deliberately conservative:
 it removes only constructs that are unambiguously machine scaffolding, and is a
-no-op on well-formed prose (93.7% of the production corpus measured 2026-07-29).
+no-op on well-formed prose (the overwhelming majority of real captions).
 """
 
 from __future__ import annotations

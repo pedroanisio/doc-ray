@@ -1,4 +1,4 @@
-"""End-to-end GraphQL tests for the allusion-edge surface (Block E, #9).
+"""End-to-end GraphQL tests for the allusion-edge surface (issue #9).
 
 Drives the real schema via ``schema.execute``: propose a typed cross-lens edge, confirm
 it, read it back in both directions, and check the audit trail (success and denial).

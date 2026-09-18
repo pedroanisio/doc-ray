@@ -1,6 +1,6 @@
 """The corpus-wide Prism backfill CLI must see the corpus it is backfilling.
 
-The defect these tests pin (found in production, 2026-07-25):
+The defect these tests pin:
 ``scripts/enqueue_visual_backfill.py`` is the documented way to run a corpus-wide
 Tier-1/Tier-2 backfill, but it connects with ``DATABASE_URL`` — on the managed
 cluster that logs in as ``docray``, a role bound by the ``documents`` read policy

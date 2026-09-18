@@ -14,11 +14,12 @@ Usage (from the repo root)::
 
     python scripts/eval_phrase_retrieval.py                     # isolated container leg
     python scripts/eval_phrase_retrieval.py --prod              # production, read-only
-    python scripts/eval_phrase_retrieval.py --report docs/eval/phrase-retrieval-<date>.md
+    python scripts/eval_phrase_retrieval.py \\
+        --report "$DOCRAY_WORK_DIR/findings/eval/phrase-retrieval-<date>.md"
 
 **The production leg never writes.** It runs inside a read-only transaction with
 a defensive statement timeout, reads the setting back as evidence, and screens
-every statement before execution — see `ENVIRONMENT.md` rules of engagement.
+every statement before execution, because on a live corpus every command is live.
 
 The decision logic lives in ``_phrase_eval_criteria`` and the rendering in
 ``_phrase_eval_report`` so each file stays inside the D-015 net-LOC cap.
@@ -185,7 +186,7 @@ def prod_banner(database_url: str) -> str:
         pass
     return (
         "=" * 72 + "\n"
-        "PRODUCTION LEG — this is a live corpus (ENVIRONMENT.md rules of engagement).\n"
+        "PRODUCTION LEG — this is a live corpus; every command here is live.\n"
         f"Target: {label}\n"
         "Mode:   read-only transaction, statement timeout enforced, every\n"
         "        statement screened; no write is reachable from this harness.\n" + "=" * 72
@@ -423,6 +424,11 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument("--report", metavar="PATH", help="write the dated Markdown report here")
     parser.add_argument(
+        "--generated-by",
+        metavar="WHO",
+        help="operator or agent added to the report provenance (the generator is always named)",
+    )
+    parser.add_argument(
         "--explain", action="store_true", help="capture EXPLAIN (ANALYZE, BUFFERS) per class"
     )
     parser.add_argument(
@@ -538,7 +544,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         read_only_evidence=evidence,
     )
     if args.report:
-        text = report.render_report(run)
+        text = report.render_report(run, generated_by=args.generated_by)
         bare = report.find_unprovenanced_numbers(text)
         if bare:
             print(f"refusing to write a report with unprovenanced numbers: {bare}", file=sys.stderr)

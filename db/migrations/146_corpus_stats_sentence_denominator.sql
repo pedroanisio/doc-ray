@@ -1,15 +1,15 @@
 -- doc-ray: repair the corpus sentence denominator full-refresh path (#42).
 --
--- CONFIRMED ROOT CAUSE (production read-only diagnosis, 2026-07-27): migration
+-- ROOT CAUSE (confirmed by read-only diagnosis of a deployed corpus): migration
 -- 142 added corpus_stats.n_sentences to docray_refresh_corpus_stats(uuid), then
 -- attempted its deploy-time backfill by calling docray_refresh_all_corpus_stats().
 -- The full-refresh function was still migration 100's definition and never wrote
 -- n_sentences, so an existing corpus kept the column's DEFAULT 0. Later per-document
--- refreshes happened to self-repair production; a fresh 142 replay or a new tenant
+-- refreshes happened to self-repair that corpus; a fresh 142 replay or a new tenant
 -- reached only through the full refresh would reproduce the impossible 43-of-0
 -- term-frequency response.
 --
--- The leading ownership hypothesis was false in production: both helpers are
+-- The leading ownership hypothesis was false: both helpers are
 -- already SECURITY DEFINER functions owned by docray_batch (BYPASSRLS), and no
 -- vulnerable forced-RLS helper remains. The ownership assertion below stays as a
 -- loud invariant because a future CREATE OR REPLACE can otherwise regress it.

@@ -7,7 +7,7 @@ entities, lens projections, images, image embeddings and committed captions —
 plus corpus totals and per-artifact coverage.
 
     DATABASE_URL=... python scripts/gen_corpus_dashboard.py
-    DATABASE_URL=... python scripts/gen_corpus_dashboard.py --out /tmp/corpus.html --json
+    DATABASE_URL=... python scripts/gen_corpus_dashboard.py --json   # -> $DOCRAY_WORK_DIR/scratch/
 
 Reads only. Assumes the ``docray_batch`` role (RLS would otherwise report an
 empty corpus) and refuses to run if the corpus is invisible. Roughly 20s of
@@ -32,6 +32,7 @@ from typing import Any
 
 import _corpus_dashboard_data as data
 import _corpus_dashboard_render as render
+from _work_dir import work_dir
 
 #: Artifact families whose per-document counts need a join through `spans`; the
 #: reason the run costs seconds rather than milliseconds.
@@ -152,7 +153,12 @@ def as_json(report: data.Report) -> str:
 def main(argv: list[str] | None = None) -> int:
     """Render the dashboard to a file."""
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--out", type=Path, default=Path("_ephemeral/corpus-dashboard.html"))
+    parser.add_argument(
+        "--out",
+        type=Path,
+        default=None,
+        help="output file (default: $DOCRAY_WORK_DIR/scratch/corpus-dashboard.html)",
+    )
     parser.add_argument("--json", type=Path, help="Also write the report as JSON.")
     parser.add_argument(
         "--fragment",
@@ -179,6 +185,8 @@ def main(argv: list[str] | None = None) -> int:
     finally:
         conn.close()
 
+    if args.out is None:
+        args.out = work_dir("scratch") / "corpus-dashboard.html"
     args.out.parent.mkdir(parents=True, exist_ok=True)
     emit = render.render_body if args.fragment else render.render
     args.out.write_text(emit(report), encoding="utf-8")

@@ -1,13 +1,11 @@
 /**
  * Identity administration — tenants, principals (users/services), roles, ACLs.
  *
- * ⚠ HONEST GAP (verified against the doc-ray codebase, 2026-07-15):
- * There is currently NO GraphQL or REST endpoint for tenant CRUD, principal
+ * Known gap: there is no GraphQL or REST endpoint for tenant CRUD, principal
  * creation, role assignment, or document ACL grants. These operations exist
- * ONLY in the CLI `src/doc_ray/entrypoints/auth_admin.py` (plus IdP-driven
- * provisioning via SCIM/OIDC/SAML). Fabricating a client call here would
- * violate the project's no-placeholder / PALS's-Law rules — a button that POSTs
- * to a route returning 404 is worse than an honest "not yet".
+ * only in the CLI `src/doc_ray/entrypoints/auth_admin.py` (plus IdP-driven
+ * provisioning via SCIM/OIDC/SAML). A button that POSTs to a route returning
+ * 404 is worse than an honest "not yet", so no client call is fabricated here.
  *
  * This module therefore defines the FUTURE interface (so the UI is written
  * against a stable contract) and ships a default implementation that refuses

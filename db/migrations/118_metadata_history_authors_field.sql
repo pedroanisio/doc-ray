@@ -1,10 +1,10 @@
--- doc-ray: allow `authors` in the document metadata history (production defect).
+-- doc-ray: allow `authors` in the document metadata history.
 --
--- SYMPTOM (production, 2026-07-24): every metadata edit that changed a
+-- SYMPTOM: every metadata edit that changed a
 -- document's authors failed the whole update_metadata job with
 --   new row for relation "document_metadata_history"
 --   violates check constraint "document_metadata_history_field_check"
--- 29 jobs failed this way before it was traced.
+-- Every such job failed until this was traced.
 --
 -- ROOT CAUSE. `document_metadata_history` records one row per changed field,
 -- gated by a CHECK listing the editable vocabulary. Migration 045 created it

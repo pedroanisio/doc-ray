@@ -90,7 +90,7 @@ def test_record_execution_swallows_a_write_failure() -> None:
 
 
 def test_failed_attempts_are_recordable_outcomes() -> None:
-    # The 2026-07-25 OOM storm burned GPU seconds on 41 attempts that the
+    # An OOM storm burns GPU seconds on attempts that the
     # succeeding retry then erased from `jobs`. The record must survive it.
     record = _record(outcome=telemetry.OUTCOME_FAILED, work_units=None, attempt=3)
     conn = _RecordingConn()

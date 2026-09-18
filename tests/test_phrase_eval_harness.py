@@ -1,8 +1,8 @@
 """NFR-3 — the production leg must be structurally incapable of writing.
 
-Issue #47 runs part of its measurement against the live corpus. `ENVIRONMENT.md`
-is explicit that on this host every command is live and that recovery from a bad
-*write* depends on backups the codebase does not take. "The harness only issues
+The harness runs part of its measurement against a live corpus, where every
+command is live and recovery from a bad *write* depends on backups the harness
+does not take. "The harness only issues
 SELECTs" is therefore not good enough as a promise: it has to be an enforced
 property, and the enforcement has to be visible in the report as evidence.
 

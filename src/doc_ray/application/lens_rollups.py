@@ -1,8 +1,8 @@
-"""Hyper-context rollup refresh orchestration (SLP Block F, #10, FR-4).
+"""Hyper-context rollup refresh orchestration (issue #10, FR-4).
 
 Thin application layer over :mod:`doc_ray.adapters.lens_rollup_store`. The rollups
-aggregate Block D projections, so a refresh strictly FOLLOWS the projection refresh:
-Block D's per-(document, scope-lens) projection refresh chains
+aggregate the projection engine projections, so a refresh strictly FOLLOWS the projection refresh:
+the projection engine's per-(document, scope-lens) projection refresh chains
 :func:`refresh_lens_rollup_for_lens` in place of the superseded stats refresh, and a
 full :func:`rebuild_all_lens_rollups` re-derives every projecting scope lens after a
 policy change. Idempotent and reproducible (invariant 3): same projections ⇒ identical
@@ -30,7 +30,7 @@ def refresh_lens_rollup_for_lens(conn: psycopg.Connection[Any], lens_id: str) ->
 
 
 def refresh_lens_rollup_chained(conn: psycopg.Connection[Any], lens_id: str) -> None:
-    """Best-effort rollup refresh chained after a lens's projection refresh (Block D).
+    """Best-effort rollup refresh chained after a lens's projection refresh.
 
     Best-effort like the D-024 rollups: hyper-context is derived convenience data, so a
     refresh failure is logged and swallowed rather than failing the projection stage that

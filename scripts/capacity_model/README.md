@@ -6,6 +6,7 @@ disclaimer:
     or verifiable reference may be invalid, erroneous, or a hallucination.
   generated_by: "Claude Fable 5 via Claude Code"
   date: "2026-07-25"
+doc_type: readme
 ---
 
 # capacity_model — analytical PostgreSQL capacity model

@@ -1,4 +1,4 @@
-"""GraphQL reads for hyper-context lens rollups (SLP Block F, issue #10, FR-5/FR-6).
+"""GraphQL reads for hyper-context lens rollups (issue #10, FR-5/FR-6).
 
 A query group split out as its own mixin (D-015), mixed into the ``Query`` root. Three
 reads, all bounded, keyset-paginated, and served from precomputed rollups (never a live
@@ -19,7 +19,7 @@ from doc_ray.entrypoints.api.types import Info
 
 @strawberry.type
 class LensRollupQueries:
-    """Hyper-context reads: a lens's entity landscape and its relationships (SLP Block F)."""
+    """Hyper-context reads: a lens's entity landscape and its relationships."""
 
     @strawberry.field
     async def lens_entities(
@@ -30,7 +30,7 @@ class LensRollupQueries:
         after: str | None = None,
         min_mentions: int = 0,
     ) -> list[LensEntity]:
-        """Return a lens's significant entities, most-mentioned first (Block F, #10).
+        """Return a lens's significant entities, most-mentioned first (issue #10).
 
         Reads the ``lens_entity_rollup`` — O(result), never a live aggregate (D-024). Each
         entry carries its type profile + consistency, first-seen ordinal, and a

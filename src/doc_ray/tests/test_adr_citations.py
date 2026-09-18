@@ -1,9 +1,9 @@
 """Drift guard: every ``D-NNN`` ADR citation must resolve to a real decision (M2).
 
 ``engineering_decisions.yml`` is the validated ADR system of record, but the
-``D-0xx`` references scattered through code comments, docstrings, ``CLAUDE.md``,
-``README.md``, and ``docs/`` are hand-typed and were unchecked — an adversarial
-audit found real wrong IDs (``D-024`` where ``D-025`` was meant; a wrong migration
+``D-0xx`` references scattered through code comments, docstrings, the root
+documents and ``docs/`` are hand-typed and would otherwise go unchecked; wrong
+ids do occur (``D-024`` where ``D-025`` was meant; a wrong migration
 number on ``D-007``). This guard extracts every cited ``D-NNN`` token and asserts
 it names a decision that exists in the registry, so a typo'd or dangling ADR
 citation is a test failure instead of a silent lie. (Drift-map finding M2.)
@@ -21,15 +21,15 @@ _CITATION_RE = re.compile(r"\bD-\d{3}\b")
 #: Directories scanned for citations (code comments/docstrings + prose).
 _SCAN_DIRS = ("src/doc_ray", "webapp", "scripts", "docs")
 #: Root-level docs that cite ADRs.
-_SCAN_ROOT_FILES = ("CLAUDE.md", "README.md", "AGENTS.md")
+_SCAN_ROOT_FILES = ("CLAUDE.md", "README.md", "AGENTS.md", "CONTRIBUTING.md")
 _SCAN_SUFFIXES = {".py", ".md"}
 
 #: Decisions cited in code as a precedent that are DELIBERATELY not (yet) in the
 #: validated registry. ``D-018`` (frontier/visual-caption cost is always an
 #: explicit request, never auto-chained) is an in-code decision marker documented
-#: as such in docs/proposals/prism-visual-layer.md and src/doc_ray/domain/jobs.py;
-#: the proposal recommends promoting it to the registry. Until then it is a known,
-#: intentional exception — not the typo class this guard targets.
+#: as such in src/doc_ray/domain/jobs.py and not yet promoted to the registry.
+#: Until then it is a known, intentional exception — not the typo class this guard
+#: targets.
 _KNOWN_UNREGISTERED = frozenset({"D-018"})
 
 

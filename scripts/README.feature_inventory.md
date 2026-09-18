@@ -6,6 +6,7 @@ disclaimer:
     or verifiable reference may be invalid, erroneous, or a hallucination.
   generated_by: "Claude Opus 4.8 via Claude Code"
   date: "2026-07-24"
+doc_type: readme
 ---
 
 # gen_feature_inventory.py

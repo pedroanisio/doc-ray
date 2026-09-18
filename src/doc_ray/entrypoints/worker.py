@@ -45,7 +45,7 @@ _RECONNECT_BACKOFF_SECONDS = float(os.environ.get("WORKER_RECONNECT_BACKOFF_SECO
 #: Janitor cadence: how often stale jobs are reaped independently of the claim
 #: loop. The between-jobs reap stops the moment this worker starts a long job,
 #: so without the janitor an orphaned job waits for a free slot before being
-#: recovered (observed live 2026-07-12: 45+ minutes with all workers busy).
+#: recovered (with all workers busy on long jobs, that is most of an hour).
 _REAP_SECONDS = float(os.environ.get("WORKER_REAP_SECONDS", "30"))
 
 

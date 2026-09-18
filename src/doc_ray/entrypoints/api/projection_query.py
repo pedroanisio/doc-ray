@@ -1,4 +1,4 @@
-"""GraphQL reads for the projection engine (SLP Block D, issue #8).
+"""GraphQL reads for the projection engine (issue #8).
 
 A query group split out of ``query.py`` as its own mixin (the ``StructureQueries`` /
 ``ClassificationQueries`` pattern, D-015), mixed into the ``Query`` root. Both fields
@@ -17,7 +17,7 @@ from doc_ray.entrypoints.api.types import EntityProjection, Info, LensProjection
 
 @strawberry.type
 class ProjectionQueries:
-    """Lens-scoped entity identity reads (SLP Block D)."""
+    """Lens-scoped entity identity reads."""
 
     @strawberry.field
     async def entity_projection(
@@ -28,7 +28,7 @@ class ProjectionQueries:
         limit: int = 100,
         after: str | None = None,
     ) -> LensProjection:
-        """Return a document's entity projection through a lens (Block D, #8).
+        """Return a document's entity projection through a lens (issue #8).
 
         With no ``lensId``, the document's default lens is used, else the ``global``
         lens — so an existing caller keeps its current, global behavior. When the

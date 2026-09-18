@@ -14,7 +14,7 @@
 {% if error %}<div class="errbox">{{ error }}</div>{% endif %}
 {% if notice %}<div class="notice">{{ notice }}</div>{% endif %}
 
-{% set lens_note %}Lenses name a scope for a future projection layer; they do not change search or entity resolution today. Projection behavior belongs to <a href="https://github.com/pedroanisio/doc-ray/issues/8">Block D (#8){{ icons.icon('external-link', class_name='ico--sm') }}</a>.{% endset %}
+{% set lens_note %}A lens is a named scope for entity resolution: documents projected through it keep work-local identities inside the lens while real-world entities resolve globally. Lenses do not change search.{% endset %}
 <section class="card">
   <h2>Lenses</h2>
   <p class="lede">{{ lens_note }}</p>

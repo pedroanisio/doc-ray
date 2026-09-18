@@ -80,9 +80,8 @@ _CONST_RESOLVED = {
     "DEFAULT_OLLAMA_HOST": '"http://localhost:11434"',
     "DEFAULT_OLLAMA_MODEL": '"qwen2.5"',
     "DEFAULT_OCR_LANGUAGE": '"eng"',
-    "DEFAULT_BUCKET": '"doc-ray-dev"',
-    "DEFAULT_REGION": '"sfo3"',
-    "DEFAULT_STATE": '".ingest-state/doc-ray-dev.json"',
+    "DEFAULT_BUCKET": '""',
+    "DEFAULT_REGION": '"nyc3"',
     "_DEFAULT_JOB_TIMEOUT_SECONDS": "3600.0",
     "_DEFAULT_SESSION_TTL_SECONDS": "28800",
     "DEFAULT_DATABASE_URL": '"postgresql://docray:docray@localhost:5432/docray"',
@@ -179,7 +178,7 @@ def _compose_interpolated_keys() -> set[str]:
     """Every ``${VAR}`` interpolated by any docker-compose file in the repo."""
     keys: set[str] = set()
     for path in _ROOT.rglob("docker-compose*.yml"):
-        if "_ephemeral" in path.parts:
+        if "_work" in path.parts or ".venv" in path.parts:
             continue
         keys.update(re.findall(r"\$\{([A-Z0-9_]+)", path.read_text(encoding="utf-8")))
     return keys
@@ -271,7 +270,7 @@ def test_norm_default_resolves_constants_and_literals():
     assert _norm_default('"INFO"') == "INFO"
     assert _norm_default("86_400") == "86400"
     assert _norm_default("True") == "true"
-    assert _norm_default("DEFAULT_REGION") == "sfo3"
+    assert _norm_default("DEFAULT_REGION") == "nyc3"
     assert _norm_default("cfg.s3_endpoint") is None  # non-literal is not pinned
 
 

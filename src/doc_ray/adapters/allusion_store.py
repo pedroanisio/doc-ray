@@ -1,8 +1,8 @@
-"""Persistence for allusion-edge curation and the optional heuristic proposer (Block E, #9).
+"""Persistence for allusion-edge curation and the optional heuristic proposer (issue #9).
 
 Writes to ``entity_allusion`` (migration 131) — a **curation** table the API may write
-directly (docray_client), unlike Block D's derived fact tables. Every write is a review
-action; a machine-proposed edge lands ``status='proposed'`` and only a human/agent
+directly (docray_client), unlike the projection engine's derived fact tables. Every
+write is a review action; a machine-proposed edge lands ``status='proposed'`` and only a human/agent
 confirmation promotes it (PALS's Law). Nothing here reads or mutates projection /
 resolution / canonical identity: an allusion is additive metadata, never an equality.
 """

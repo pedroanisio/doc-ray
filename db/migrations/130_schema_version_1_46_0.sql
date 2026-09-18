@@ -1,4 +1,4 @@
--- doc-ray: schema SemVer 1.46.0 — Projection Engine (SLP Block D, #8).
+-- doc-ray: schema SemVer 1.46.0 — Projection Engine (issue #8).
 --
 -- Migration 129 adds four additive derived tables (entity_projection,
 -- lens_local_entity, entity_projection_review, lens_entity_stats) and one additive

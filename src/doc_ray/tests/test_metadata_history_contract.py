@@ -1,6 +1,6 @@
 """Drift guard: the metadata-history CHECK must admit every field the code writes.
 
-The defect this prevents (found in production, 2026-07-24): editing a document's
+The defect this prevents: editing a document's
 ``authors`` raised
 
     CheckViolation: new row for relation "document_metadata_history" violates

@@ -95,8 +95,8 @@ def test_worker_loop_hands_its_shutdown_event_to_run_once(monkeypatch):
 def test_worker_janitor_reaps_while_a_job_is_running(monkeypatch):
     """A stale job must not wait for a busy worker's next between-jobs reap.
 
-    Live failure (2026-07-12): with every worker chewing an hours-long job,
-    a drain-released orphan sat unreaped for 45+ minutes because reap_stale
+    The failure this pins: with every worker chewing an hours-long job,
+    a drain-released orphan sat unreaped for most of an hour because reap_stale
     only ran between jobs. The janitor thread must keep reaping on a timer
     while the claim loop is occupied.
     """

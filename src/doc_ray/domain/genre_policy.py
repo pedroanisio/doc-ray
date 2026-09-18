@@ -1,4 +1,4 @@
-"""Genre → resolution-scope policy (SLP Block C, issue #6).
+"""Genre → resolution-scope policy (issue #6).
 
 This module answers one pure question: given a document's **genre** and an entity
 **type**, does that entity resolve inside the work's own lens (``LOCAL``) or against
@@ -23,7 +23,7 @@ Two design commitments make this safe:
   can be reviewed and diffed. Measurements and calendar facts (``DATE``, ``MONEY``,
   …) are never fictional even inside a novel, so they stay ``GLOBAL`` there too.
 
-This block *defines and exposes* the policy; it does not apply it. Block D (#8),
+This block *defines and exposes* the policy; it does not apply it. The projection engine (issue #8),
 the projection engine, consumes :func:`resolution_scope` — nothing in entity
 resolution changes here.
 """

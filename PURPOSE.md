@@ -4,7 +4,7 @@ disclaimer:
     No information within this document should be taken for granted.
     Any statement or premise not backed by a real logical definition
     or verifiable reference may be invalid, erroneous, or a hallucination.
-  generated_by: "Claude Opus 4.8 (1M context) via Claude Code — revised from an OpenAI GPT-5 via Codex draft; Today/Becoming boundary reconciled to shipped state (entity-fabric Blocks A–F)"
+  generated_by: "Claude Opus 4.8 (1M context) via Claude Code"
   date: "2026-07-26"
 status: current
 ---

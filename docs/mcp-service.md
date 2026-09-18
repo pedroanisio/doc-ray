@@ -6,6 +6,7 @@ disclaimer:
     or verifiable reference may be invalid, erroneous, or a hallucination.
   generated_by: "OpenAI Codex"
   date: "2026-07-26"
+doc_type: reference
 ---
 
 # MCP Service — Implementation Status & Plan
@@ -25,9 +26,9 @@ read tools** (20 from `entrypoints/mcp/corpus.py` — incl. `read_document_sente
 `get_collection`,
 `entity_mention_corrections`, and the 5 Prism visual tools — + 10 structure tools from
 `entrypoints/mcp/structure.py` (`read_document_outline`, `entity_profiles`,
-`term_frequency`, `document_classification`, `document_syntax`, the SLP Block D `entity_projection`, the
-Block F hyper-context readers `lens_entities` / `entity_relations` / `related_entities`,
-and the Block E `allusions` reader) + 3
+`term_frequency`, `document_classification`, `document_syntax`, the projection reader `entity_projection`, the
+hyper-context readers `lens_entities` / `entity_relations` / `related_entities`,
+and the `allusions` reader) + 3
 composition-grounding tools from `entrypoints/mcp/compose.py`
 + 1 semantic-search tool + 1 mention-confidence review tool… see §3) always registered,
 plus **33 opt-in write tools**
@@ -262,14 +263,14 @@ but had no passage cited on this page. Example:
 | `uncertain_mentions(document_id, limit, entity_type?, after?)` | `uncertainMentions` | uncorrected mentions ranked least-trustworthy first; heuristic triage with reasons, not a calibrated probability |
 | `document_classification(document_id)` | `documentClassification` | the document's genre axis; `status` tells you if it is a `pending` guess or a `confirmed` human decision |
 | `document_syntax(document_id, limit?, after?)` | `Document.constituents` + `Document.srlFrames` | NLP Layers 9 and 14: the phrase tree (`S`/`NP`/`VP`/`PP`/`ADJP`/`ADVP`/`SBAR`, `parentId` null at each sentence root) and predicate-argument frames (`ARG0`…`ARG2`, `ARGM-LOC`/`TMP`/`MNR`/`NEG`/`ADV`). Both are DERIVED from the dependency parse, not a constituency parser or neural SRL: `frame` is the predicate lemma (`found`), never a PropBank roleset (`found.01`), and a non-projective phrase is recorded by its covering span. Every node and argument carries `charStart`/`charEnd`, so each is citable like a sentence hit |
-| `entity_projection(document_id, lens_id?, limit, after?)` | `entityProjection` | `project(mention, lens)` — each mention's identity within a lens; `scope` local/global, `canonicalId` null = unresolved, `status` proposed/confirmed/rejected (Block D) |
-| `lens_entities(lens_id, limit, after?, min_mentions?)` | `lensEntities` | a lens's significant entities, most-mentioned first (Block F) — type profile + consistency + `refreshedAt`; keyset `cursor` |
-| `entity_relations(lens_id, canonical_id, limit, min_strength?, after?)` | `entityRelations` | an entity's direct co-occurrence relations (Block F); `strength` is NPMI — a structural measure, NOT a real-relationship claim |
-| `related_entities(lens_id, canonical_id, hops, limit)` | `relatedEntities` | bounded N-hop discovery (Block F); `hops` capped at 3, over-cap rejected |
-| `allusions(canonical_id, lens_id, direction, limit, after?)` | `allusions` | typed cross-lens edges for an entity (Block E) — `direction` outgoing/incoming/both; an edge is NOT identity and NOT transitive |
+| `entity_projection(document_id, lens_id?, limit, after?)` | `entityProjection` | `project(mention, lens)` — each mention's identity within a lens; `scope` local/global, `canonicalId` null = unresolved, `status` proposed/confirmed/rejected |
+| `lens_entities(lens_id, limit, after?, min_mentions?)` | `lensEntities` | a lens's significant entities, most-mentioned first — type profile + consistency + `refreshedAt`; keyset `cursor` |
+| `entity_relations(lens_id, canonical_id, limit, min_strength?, after?)` | `entityRelations` | an entity's direct co-occurrence relations; `strength` is NPMI — a structural measure, NOT a real-relationship claim |
+| `related_entities(lens_id, canonical_id, hops, limit)` | `relatedEntities` | bounded N-hop discovery; `hops` capped at 3, over-cap rejected |
+| `allusions(canonical_id, lens_id, direction, limit, after?)` | `allusions` | typed cross-lens edges for an entity — `direction` outgoing/incoming/both; an edge is NOT identity and NOT transitive |
 | `list_collections(limit, kind?, after?)` | `collections` | native containers; keyset `cursor` |
 | `get_collection(collection_id, document_limit)` | `collection` | one collection + its member documents |
-| `list_lenses(limit, after?)` | `lenses` | the collections marked as entity-resolution scopes (Block B); keyset `cursor` — see §3.5 |
+| `list_lenses(limit, after?)` | `lenses` | the collections marked as entity-resolution scopes; keyset `cursor` — see §3.5 |
 | `corpus_manifest(shard_count)` | `corpusManifest` | shard map for a map-reduce sweep: per-shard counts that sum to the total |
 | `corpus_shard(shard_index, shard_count, limit, after?)` | `corpusShard` | one deterministic, disjoint slice of the corpus; keyset `cursor` |
 | `entity_frequency(document_id?, entity_type?, limit)` | `entityFrequency` | **raw** NER rows, one per (surface, type) — prefer `entity_profiles` |
@@ -655,7 +656,7 @@ What `concise` never drops is attribution: `ordinal`, `charStart`, and `charEnd`
 survive in every mode, because a cheaper answer that cannot be cited is not a
 cheaper answer.
 
-### 3.5 `list_lenses` — the entity-resolution scopes (Block B)
+### 3.5 `list_lenses` — the entity-resolution scopes
 
 A **lens** is a `document_collection` marked `isScope`: a *named scope* under
 which a later projection layer will interpret entity identity, so the fictional
@@ -671,11 +672,11 @@ corpus-wide; scope lenses are the fictional/work-local scopes beside it.
 ```
 
 `documentCount` is scoped to the documents your token can see; the lens rows
-themselves are shared corpus navigation metadata. Block B ships the vocabulary
+themselves are shared corpus navigation metadata. The lens registry ships the vocabulary
 only — nothing about how entities resolve changes yet (a later projection block
 consumes it).
 
-### 3.5.1 `entity_projection` — lens-scoped identity (Block D)
+### 3.5.1 `entity_projection` — lens-scoped identity
 
 The projection engine makes lens-scoped identity real: `entity = project(mention,
 lens)` is a *derived* interpretation, so the same corpus holds fiction and
@@ -701,7 +702,7 @@ substrate is never mutated.
 rebuildable, so a wrong one is never load-bearing — drop and re-derive, never a
 destructive merge.
 
-### 3.5.1b `lens_entities` / `entity_relations` / `related_entities` — hyper-context (Block F)
+### 3.5.1b `lens_entities` / `entity_relations` / `related_entities` — hyper-context
 
 Once identity is projected, these precomputed rollups answer "who and what is this lens
 about, and how do they relate?" — cheaply, at corpus scale. **Prefer `lens_entities` over
@@ -728,7 +729,7 @@ identity.
 Read the same corpus through different lenses by passing a different `lens_id` — the
 composability is a lens parameter, not a query language.
 
-### 3.5.2 `allusions` / `propose_allusion` — cross-lens links, NOT identity (Block E)
+### 3.5.2 `allusions` / `propose_allusion` — cross-lens links, NOT identity
 
 Projection keeps a novel's Paris and the real Paris distinct. An **allusion** is the
 honest way to connect them: a typed, directional edge (`alludes_to`, `depicts`,
@@ -1164,7 +1165,7 @@ is rejected when membership reaches the unpageable 200-member bound or when
 `documentCount` does not prove the returned member list is complete.
 
 `classify_document` / `confirm_document_classification` are the genre half of the
-verification layer (SLP Block C). A document's genre decides whether its entities
+verification layer. A document's genre decides whether its entities
 resolve inside the work (fiction) or against the shared world (non-fiction), so a
 wrong genre would later drive a wrong identity merge — which is why a machine guess
 is only ever `pending` and a human confirms it. A `pending` classification must

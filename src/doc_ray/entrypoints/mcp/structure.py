@@ -176,7 +176,7 @@ async def term_frequency(terms: list[str], document_id: str | None = None) -> li
 
 
 async def document_classification(document_id: str) -> dict[str, Any] | None:
-    """A document's genre classification, or null if unclassified (SLP Block C).
+    """A document's genre classification, or null if unclassified.
 
     Returns the genre axis (``fiction`` / ``non_fiction`` / ``mixed`` / ``unknown``)
     that separates works whose entities are local to the book from real-world
@@ -201,7 +201,7 @@ async def document_classification(document_id: str) -> dict[str, Any] | None:
 async def entity_projection(
     document_id: str, lens_id: str | None = None, limit: int = 100, after: str | None = None
 ) -> dict[str, Any]:
-    """A document's entity identity through a lens — ``project(mention, lens)`` (SLP Block D).
+    """A document's entity identity through a lens — ``project(mention, lens)``.
 
     Answers "which entity is each mention, *within this lens*". ``scope`` is ``local``
     (an identity local to a fictional work) or ``global`` (the shared real-world
@@ -230,7 +230,7 @@ async def entity_projection(
 async def lens_entities(
     lens_id: str, limit: int = 100, after: str | None = None, min_mentions: int = 0
 ) -> list[dict[str, Any]]:
-    """The significant entities in a lens, most-mentioned first (SLP Block F hyper-context).
+    """The significant entities in a lens, most-mentioned first.
 
     Prefer this over ``entity_frequency`` for "who and what is this lens about". Each entry
     has the entity's ``preferred`` name, ``scope`` (``local``/``global``), lens-wide
@@ -259,7 +259,7 @@ async def entity_relations(
     min_strength: float = 0.0,
     after: str | None = None,
 ) -> list[dict[str, Any]]:
-    """An entity's direct co-occurrence relationships within a lens, strongest first (Block F).
+    """An entity's direct co-occurrence relationships within a lens, strongest first.
 
     Each entry is the *other* entity, with how many sentences they share
     (``cooccurrenceCount``) and a ``strength`` — the **NPMI co-occurrence measure in
@@ -281,7 +281,7 @@ async def entity_relations(
 async def related_entities(
     lens_id: str, canonical_id: int, hops: int = 2, limit: int = 50
 ) -> list[dict[str, Any]]:
-    """Discover entities within N co-occurrence hops of an anchor in a lens (Block F).
+    """Discover entities within N co-occurrence hops of an anchor in a lens.
 
     Bounded breadth-first over the lens's co-occurrence graph; each entry carries its
     shortest ``hops`` distance. ``hops`` is **capped at 3 and a larger value is rejected**
@@ -306,7 +306,7 @@ async def allusions(
     limit: int = 50,
     after: str | None = None,
 ) -> list[dict[str, Any]]:
-    """Cross-lens allusion edges for an entity — a typed link, NOT an identity (SLP Block E).
+    """Cross-lens allusion edges for an entity — a typed link, NOT an identity.
 
     ⚠ An allusion is an EDGE, never an equality. It records that one entity *alludes to /
     depicts / references / is adapted from / inspired by* another (e.g. a novel's Paris →

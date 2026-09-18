@@ -26,8 +26,8 @@ Usage::
     # start ollama + pull the models first (see scripts/bench/README.md)
     python scripts/bench/bench_resolver_backends.py \\
         --models qwen2.5:32b-instruct llama3.3:70b-instruct-q4_K_M mistral-small \\
-        --host http://localhost:11434 \\
-        --out scripts/bench/out
+        --host http://localhost:11434
+    # results land under $DOCRAY_WORK_DIR/findings/bench/ (never in the tree)
 
 ARCHITECTURAL REQUIREMENT (PALS's LAW): LLMs will always produce some form of error.
 Absence of output verification is a design defect, not a runtime bug. This harness
@@ -51,6 +51,9 @@ import httpx
 
 # Make the package importable when run from a plain checkout.
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from _work_dir import work_dir  # noqa: E402
 
 from doc_ray.adapters.resolver_shared import (  # noqa: E402
     SYSTEM_PROMPT,
@@ -389,7 +392,12 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
     p.add_argument("--timeout", type=float, default=120.0)
     p.add_argument("--pull", action="store_true", help="Pull each model before scoring.")
     p.add_argument("--pull-timeout", type=float, default=3600.0, help="Per-model pull timeout (s).")
-    p.add_argument("--out", type=Path, default=Path("scripts/bench/out"))
+    p.add_argument(
+        "--out",
+        type=Path,
+        default=None,
+        help="output directory (default: $DOCRAY_WORK_DIR/findings/bench/<date>)",
+    )
     return p.parse_args(argv)
 
 
@@ -412,6 +420,8 @@ def main(argv: list[str]) -> int:
         print(f"[info] scoring ollama/{model} over {len(cases)} cases ...", file=sys.stderr)
         reports.append(_run_ollama(args.host, model, cases, args.timeout))
 
+    if args.out is None:
+        args.out = work_dir("findings", "bench", time.strftime("%Y-%m-%d"))
     args.out.mkdir(parents=True, exist_ok=True)
     (args.out / "leaderboard.md").write_text(_render_markdown(reports), encoding="utf-8")
     sidecar = {

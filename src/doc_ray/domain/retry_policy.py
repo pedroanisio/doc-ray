@@ -10,10 +10,10 @@ every exception encodes the belief that all failures are alike, and they are not
   endpoint, a 429 — says a *shared* resource was busy. The work is fine. Retrying
   seconds later merely re-enters the same queue behind the same load.
 
-Treating the second as the first is what turned a transient burst into permanent
-data loss on 2026-07-30: 55 annotate jobs hit ``CUDA out of memory`` on a
-saturated GPU and exhausted all three attempts within fifteen seconds, because
-the schedule was 5s then 10s. The GPU stayed saturated for roughly 44 minutes.
+Treating the second as the first is what turns a transient burst into permanent
+data loss: dozens of annotate jobs hit ``CUDA out of memory`` on a saturated GPU
+and exhausted all three attempts within fifteen seconds, because the schedule
+was 5s then 10s, while the GPU stayed saturated for the better part of an hour.
 Because ``annotate`` heads the pipeline chain, each terminal failure also left
 its document with no downstream jobs — no enrichment, no embedding, no visual
 tier — and nothing re-enqueues a failed job, so they simply stopped.

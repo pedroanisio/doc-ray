@@ -6,6 +6,7 @@ disclaimer:
     or verifiable reference may be invalid, erroneous, or a hallucination.
   generated_by: "Claude Opus 5 (1M context) via Claude Code"
   date: "2026-07-29"
+doc_type: runbook
 ---
 
 # Ephemeral GPU Batch Processing (H200)
@@ -18,10 +19,9 @@ This work is subject to the methodological caveats and commitments described in 
 This runbook adds an **ephemeral, cost-aware GPU tier** to the production
 deployment in [`production-setup.md`](production-setup.md). A DigitalOcean H200
 GPU Droplet is **spun up on demand** to drain a batch of ingestion + NLP
-annotation jobs, then **destroyed** — it is never left running. It complements
-[`PENDING_TRF_H200.md`](PENDING_TRF_H200.md), which covers *what to run on the
-H200* (the deferred `en_core_web_trf` documents); this doc covers *the spin-up /
-spin-down lifecycle* around it.
+annotation jobs, then **destroyed** — it is never left running. This document covers the
+spin-up / spin-down lifecycle; *what* to run on the GPU host is whatever the
+queue holds when it starts (see [Phase 1](#phase-1--enqueue-the-batch-from-the-always-on-node)).
 
 ```
         always-on tier                    ephemeral batch tier
@@ -72,9 +72,10 @@ or corrupting work. Four properties guarantee it:
 
 ## H200 sizing
 
-The local 8 GB dev card runs `en_core_web_trf` only up to ~120k tokens per
-document and fits exactly **one** worker (see [`PENDING_TRF_H200.md`](PENDING_TRF_H200.md)
-for the measured ceilings). The **H200's 141 GB VRAM removes both limits**: no
+An 8 GB consumer card runs `en_core_web_trf` only up to roughly 120k tokens per
+document (peak VRAM scales with document length, and the pipeline holds the
+previous document's transformer activations while it processes the next) and
+fits exactly **one** worker. The **H200's 141 GB VRAM removes both limits**: no
 per-document token cap, and room for **many** parallel trf workers (~6 GB peak
 each).
 
@@ -124,8 +125,12 @@ python scripts/ingest_from_spaces.py --no-pipeline                 # bytes only
 python scripts/ingest_from_spaces.py --limit 50  # ingest 50 NEW objects (skips
                                                  # don't spend the budget)
 
-# (b) The deferred oversized documents (tag 'pending-trf-h200') — enqueue an
-#     annotate job each. See PENDING_TRF_H200.md for the exact snippet.
+# (b) Documents deferred to the GPU host by tag (use whatever tag your
+#     deployment applies to documents too large for the always-on workers):
+psql "$DATABASE_URL" -At -c "SELECT d.id FROM documents d
+    JOIN document_tags dt ON dt.document_id = d.id
+    JOIN tags t ON t.id = dt.tag_id WHERE t.tag = 'pending-gpu'" \
+  | xargs -r -n1 python -m doc_ray.entrypoints.reannotate --id
 
 # (c) Re-annotate / re-enrich the whole corpus:
 python -m doc_ray.entrypoints.reannotate --all          # spaCy layers
@@ -210,8 +215,8 @@ doctl compute droplet delete docray-gpu-batch -f                     # BILLING S
 
 `docker compose stop` sends `SIGTERM` for a clean drain; even if you skip it and
 delete outright, the reaper releases any in-flight job unharmed. Confirm the
-batch afterwards (e.g. for the `pending-trf-h200` set, the tag-cleanup query in
-[`PENDING_TRF_H200.md`](PENDING_TRF_H200.md) should return 0).
+batch afterwards (for a tag-deferred set, the count of documents still carrying
+the tag should return 0).
 
 ## Cost estimate
 

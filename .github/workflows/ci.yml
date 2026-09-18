@@ -5,7 +5,9 @@ name: ci
 on:
   push:
     branches: [main]
+    tags: ['v*']
   pull_request:
+  workflow_dispatch:
 
 jobs:
   static:
@@ -50,17 +52,30 @@ jobs:
         run: python scripts/check_public_docs.py
       - name: Repository Markdown link gate
         run: python scripts/check_doc_links.py
-      - name: Documentation artifact checksum gate
-        run: python scripts/check_doc_artifacts.py
       - name: Documentation quarantine ignore-policy gate
         run: python scripts/check_doc_quarantine_policy.py
+      - name: Release audit — index agrees with ignore policy (C-1)
+        run: python scripts/check_tracked_ignored.py
+      - name: Release audit — no private references in tracked files (C-2)
+        run: python scripts/check_private_references.py
+      - name: Release audit — every tracked document declares a shippable type (C-3)
+        run: python scripts/check_doc_types.py
+      - name: Release audit — Docker context is an allow-list (C-4)
+        run: python scripts/check_build_context.py
+      - name: Release audit — commit messages describe the change (C-6)
+        run: python scripts/check_commit_message.py --range "origin/${{ github.base_ref || 'main' }}..HEAD" || python scripts/check_commit_message.py --range HEAD~1..HEAD
+      - name: Release audit — no credentials, keys or oversized files (C-7)
+        run: python scripts/check_secrets.py
+      - name: Release audit — front-door documents agree with the tree (C-8)
+        run: python scripts/check_front_door.py
       - name: Canonical version and annotated Git tag gate
         run: python scripts/check_release_state.py
       - name: Validate engineering decisions (D-016)
         run: |
           python engineering/schema/scripts/validate_decisions.py engineering_decisions.yml
-          python engineering/schema/scripts/yml_to_rdf.py engineering_decisions.yml > /tmp/ed.ttl
-          python engineering/schema/scripts/shacl_validate.py /tmp/ed.ttl
+          mkdir -p _work
+          python engineering/schema/scripts/yml_to_rdf.py engineering_decisions.yml > _work/ed.ttl
+          python engineering/schema/scripts/shacl_validate.py _work/ed.ttl
       - name: Build production image for SBOM (BL-113)
         run: docker build -t doc-ray:${{ github.sha }} .
       - name: Generate production image SBOM (BL-113)
@@ -117,3 +132,22 @@ jobs:
         run: python scripts/gen_data_dictionary.py --check
       - name: Pytest with coverage (D-013)
         run: pytest --cov=doc_ray --cov-fail-under=90 tests src/doc_ray/tests -q
+
+  release-package:
+    # Inspects what a release actually ships (C-5): the wheel and sdist must not
+    # carry the test suite or stray documents, and the image must hold nothing
+    # outside its declared trees or matching the private-reference rules.
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    needs: [static, tests]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install build tooling
+        run: python -m pip install build
+      - name: Build the image
+        run: docker build -t doc-ray:release-check .
+      - name: Inspect the release package (C-5)
+        run: python scripts/check_release_package.py --image doc-ray:release-check

@@ -1,4 +1,4 @@
-"""GraphQL read query for document genre classification (SLP Block C, issue #6).
+"""GraphQL read query for document genre classification (issue #6).
 
 A one-field query group, split out of ``query.py`` as its own mixin (the
 ``StructureQueries`` / ``VisualQueries`` pattern) to keep that module under the
@@ -16,13 +16,13 @@ from doc_ray.entrypoints.api.types import DocumentClassification, Info
 
 @strawberry.type
 class ClassificationQueries:
-    """Read a document's genre classification (SLP Block C)."""
+    """Read a document's genre classification."""
 
     @strawberry.field
     async def document_classification(
         self, info: Info, document_id: strawberry.ID
     ) -> DocumentClassification | None:
-        """Return a document's genre classification, or null if unclassified (Block C, #6).
+        """Return a document's genre classification, or null if unclassified (issue #6).
 
         RLS scopes it to documents the caller may read (migration 127). A single PK
         lookup — O(1). A ``pending`` result is an unverified machine GUESS; only a

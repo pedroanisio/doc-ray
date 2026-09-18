@@ -24,7 +24,7 @@ def test_webapp_epic_release_is_1_43_0_with_a_marker_migration():
     """Epic #23 shipped as one explicit, deployable project/schema release (1.43.0).
 
     Its marker migration is a permanent fact; the version advances past the epic as
-    later work lands (Block C → 1.45.0, Block D → 1.46.0, …) but must never regress
+    later work lands (genre classification → 1.45.0, the projection engine → 1.46.0, …) but must never regress
     below its release. Pinning ``__version__`` to the exact epic string was brittle —
     it broke on the very next feature bump — so this asserts the durable invariants
     instead: the marker migration exists and the current version is at least 1.43.0.

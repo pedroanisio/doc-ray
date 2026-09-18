@@ -1,4 +1,4 @@
--- doc-ray: schema SemVer 1.48.0 — hyper-context lens rollups (SLP Block F, #10).
+-- doc-ray: schema SemVer 1.48.0 — hyper-context lens rollups (issue #10).
 --
 -- Migration 133 replaces the thin lens_entity_stats with the richer lens_entity_rollup
 -- and adds lens_entity_relation (co-occurrence relationship discovery). A schema change

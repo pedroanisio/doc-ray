@@ -14,13 +14,6 @@
       "headers": {
         "Authorization": "Bearer ${input:docray-token}"
       }
-    },
-    "doc-ray-prod": {
-      "type": "http",
-      "url": "https://doc-ray.com/mcp",
-      "headers": {
-        "Authorization": "Bearer ${input:docray-token}"
-      }
     }
   }
 }

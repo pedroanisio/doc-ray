@@ -1,4 +1,4 @@
-"""Unit tests for the pure lens-rollup domain (SLP Block F, issue #10, FR-3).
+"""Unit tests for the pure lens-rollup domain (issue #10, FR-3).
 
 No database, no network. The correctness of hyper-context lives here: the
 relationship-strength measure (NPMI, Bouma 2009), significance ranking, and the

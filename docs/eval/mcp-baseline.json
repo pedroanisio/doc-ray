@@ -15,8 +15,8 @@
       "resource_templates_count": 5,
       "resources_count": 3,
       "tool_count": 35,
-      "tools_list_chars": 49475,
-      "tools_list_est_tokens": 12368
+      "tools_list_chars": 49375,
+      "tools_list_est_tokens": 12343
     },
     "write_enabled": {
       "instructions_chars": 2915,
@@ -24,8 +24,8 @@
       "resource_templates_count": 5,
       "resources_count": 3,
       "tool_count": 68,
-      "tools_list_chars": 84017,
-      "tools_list_est_tokens": 21004
+      "tools_list_chars": 83799,
+      "tools_list_est_tokens": 20949
     }
   },
   "tasks": [

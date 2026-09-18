@@ -6,10 +6,9 @@ with the caption. Persisted verbatim, those rows reach an operator as
 spending the scarcest resource in the system on strings a regular expression can
 reject.
 
-The fixtures below are real output observed on the production corpus
-(2026-07-29), not synthetic strings: 364 rows begin with a truncated ``<th``,
-118 carry a ``</think>``, 26 carry chat-template sentinels and 48 carry a U+FFFD
-replacement character.
+The fixtures below are real output observed on a corpus, not synthetic strings:
+rows that begin with a truncated ``<th``, rows carrying a ``</think>``, rows with
+chat-template sentinels and rows with a U+FFFD replacement character.
 """
 
 from __future__ import annotations
@@ -146,8 +145,8 @@ def test_the_decision_carries_the_sanitised_caption_for_persistence() -> None:
     assert decision.caption.startswith("The image is a black and white diagram")
 
 
-# Further real shapes found by running the sanitiser over all 386 corrupted
-# production rows (2026-07-29) — the closing tag is not always at the head.
+# Further real shapes found by running the sanitiser over every corrupted row
+# of a corpus — the closing tag is not always at the head.
 _MID_STRING_CLOSE = (
     'The image features a solid black background with the text "upGrad" in bold. '
     '</think> The image features a solid black background with the text "upGrad".'

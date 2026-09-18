@@ -1,12 +1,12 @@
 -- doc-ray: give sentence-text search its index back (BL-187).
 --
--- SYMPTOM (production, 2026-07-28): an ordinary one-word search took 3,774 ms
--- to return a single page of 200 rows, reading all 1,966,114 sentences. Every
--- measured query class in the #47 evaluation planned a `Seq Scan` over
--- `sentences` (1,277 MB).
+-- SYMPTOM: on a corpus of ~2M sentences an ordinary one-word search took
+-- several seconds to return a single page of 200 rows, reading every sentence.
+-- Every measured query class in the #47 evaluation planned a `Seq Scan` over
+-- `sentences`.
 --
 -- ROOT CAUSE. `sentences.text` has carried a GIN trigram index since migration
--- 002 (`idx_sentences_text_trgm`, 380 MB in production). Migration 018 put an
+-- 002 (`idx_sentences_text_trgm`). Migration 018 put an
 -- RLS `p_read` policy on the table. PostgreSQL will not evaluate a
 -- non-leakproof qual ahead of a security qual, and both pattern operators are
 -- non-leakproof (`textlike`, `texticlike`: `proleakproof = false`). Using the

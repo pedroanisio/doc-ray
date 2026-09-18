@@ -1,4 +1,4 @@
-"""End-to-end GraphQL tests for the Block C genre-classification surface (#6).
+"""End-to-end GraphQL tests for the genre-classification surface (#6).
 
 A curator enqueues ``classifyDocument`` (the worker writes a pending machine
 guess), reads it back via ``documentClassification``, and confirms it with

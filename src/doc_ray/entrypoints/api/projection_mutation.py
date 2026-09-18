@@ -1,11 +1,11 @@
-"""GraphQL mutations for the projection engine (SLP Block D, issue #8).
+"""GraphQL mutations for the projection engine (issue #8).
 
 Three writes, mixed into the ``Mutation`` root (D-015):
 
 * ``confirmProjection`` / ``rejectProjection`` — a human review of one mention's
   lens-scoped identity. The API records the decision into ``entity_projection_review``
   (a table it may write) keyed by the mention's STABLE span, then enqueues a refresh
-  that applies it onto the batch-owned ``entity_projection`` (Block A's record-then-
+  that applies it onto the batch-owned ``entity_projection`` (the NER-correction log's record-then-
   apply shape — the API never writes the derived fact table in a request, FR-1/D-3).
   The decision survives re-annotation because it is keyed by span, not mention id.
 * ``setLensProjects`` — designate (or un-designate) a lens as projecting (FR-2). A
@@ -89,7 +89,7 @@ async def _apply_review(
 
 @strawberry.type
 class ProjectionMutations:
-    """Human review of lens-scoped identity, and lens projection designation (Block D)."""
+    """Human review of lens-scoped identity, and lens projection designation."""
 
     @strawberry.mutation
     async def confirm_projection(

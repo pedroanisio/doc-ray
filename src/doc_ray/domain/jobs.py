@@ -69,32 +69,32 @@ KIND_VISUAL_CAPTION = "visual_caption"
 # opt-in — this encoder runs on CPU, calls no paid API, and is what makes a
 # document findable by meaning at all.
 KIND_SEMANTIC_EMBED = "semantic_embed"
-# Block A: re-apply the durable human NER-correction log onto a document's
+# The NER-correction log: re-apply the durable human NER-correction log onto a document's
 # current ML mentions (entity_mention is worker-owned; docray_api can only
 # record the correction, so it enqueues this cheap job). No spaCy — just the
 # deterministic reconcile, so it is not long-running.
 KIND_APPLY_CORRECTIONS = "apply_corrections"
-# Block C (#6): classify a document's genre (fiction/non-fiction) from
+# Genre classification (issue #6): classify a document's genre (fiction/non-fiction) from
 # deterministic heuristic signals. No model — just the pure classifier over the
 # stored full text — so it is not long-running. Writes a pending machine guess to
 # document_classification; only a human confirmation asserts a genre.
 KIND_CLASSIFY_GENRE = "classify_genre"
-# Block D (#8): (re)materialize the entity projection — project(mention, lens) — for
+# Projection (issue #8): (re)materialize the entity projection — project(mention, lens) — for
 # a document, one lens, or the whole corpus (payload rebuild=true). Deterministic,
 # no model; chained after the entity pipeline and enqueued by the projection review
 # mutations to apply a confirm/reject promptly. Not long-running per document.
 KIND_REFRESH_PROJECTION = "refresh_projection"
-# Block E (#9): deterministically propose alludes_to edges for a document — where a
+# Allusion edges (issue #9): deterministically propose alludes_to edges for a document — where a
 # work-local entity's surface matches a KB-linked global entity. No model; emits
 # proposed edges only (never confirms), so it is not long-running. Optional (FR-5):
 # the propose/confirm/reject API is the primary path; this is a bulk convenience.
 KIND_PROPOSE_ALLUSIONS = "propose_allusions"
-# Block F (#10): (re)build the hyper-context rollups for a lens (or the whole corpus,
+# Hyper-context (issue #10): (re)build the rollups for a lens (or the whole corpus,
 # payload rebuild=true) — the per-lens entity landscape + co-occurrence relations
 # aggregated from projections. Deterministic, no model; chained after the projection
 # refresh and invocable by an operator. Not long-running per lens.
 KIND_REFRESH_LENS_ROLLUP = "refresh_lens_rollup"
-# Block G (#7): derive an explainable confidence from existing corpus facts and
+# Mention confidence (issue #7): derive an explainable confidence from existing corpus facts and
 # materialize it on current NER mentions. Deterministic, no model, fast-lane.
 KIND_SCORE_MENTIONS = "score_mentions"
 
@@ -124,8 +124,8 @@ KIND_SCORE_MENTIONS = "score_mentions"
 # Canonicalization MINTS mentions: its registry scan writes a `term`-layer
 # annotation with one entity_mention per matched form. While scoring ran at
 # position 2 those mentions did not exist yet, so they were never scored and
-# their confidence stayed NULL forever — measured 2026-07-29 as 131,172 unscored
-# term mentions across 624 documents, 100% of that layer. Every surface that
+# their confidence stayed NULL forever — every term mention in the corpus,
+# 100% of that layer, was unscored. Every surface that
 # ranks, filters, or triages on entity_mention.confidence silently dropped them.
 # The move is safe in the other direction: mention_confidence_store's scorer
 # reads spans, mentions, the entity_frequency_stats rollup, and the canonical
@@ -137,8 +137,8 @@ KIND_SCORE_MENTIONS = "score_mentions"
 # KIND_VISUAL_CAPTION closes the visual tail, and is the one chained step that
 # spends money per unit of work — one hosted VLM round trip per image. It is on
 # the chain for the same reason KIND_SEMANTIC_EMBED is: withholding it made image
-# coverage a matter of operator memory, and memory lost. Measured 2026-07-31: 275
-# documents and 70,611 images carried no caption at all, three days after the last
+# coverage a matter of operator memory, and memory lost: hundreds of documents
+# and tens of thousands of images sat without a caption for days after an
 # operator sweep died against a refusing endpoint — every one of them already
 # through visual_extract with its images sitting in document_image.
 #
@@ -153,8 +153,8 @@ KIND_SCORE_MENTIONS = "score_mentions"
 # Captioning reads document_image rows; visual_extract is what writes them.
 #
 # The chain is the fast path, NOT the guarantee. A chained step that fails is never
-# revisited — retries exhaust and the row is terminal, which is exactly how the
-# 2026-07-31 gap accumulated. The recurring only-missing caption schedule
+# revisited — retries exhaust and the row is terminal, which is exactly how that
+# gap accumulated. The recurring only-missing caption schedule
 # (operation_schedule, fired by entrypoints/operation_scheduler) is what recovers
 # what this step loses, because it recomputes the gap from the corpus every run
 # instead of trusting a job row.

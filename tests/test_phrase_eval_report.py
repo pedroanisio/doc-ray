@@ -3,7 +3,7 @@
 The house rule this enforces is #47's NFR: *never report a surface number the
 harness did not measure*. A benchmark report whose figures cannot be traced back
 to the command that produced them is indistinguishable from a fabricated one,
-which is exactly the failure mode CLAUDE.md's PALS's LAW names.
+which is exactly the failure mode PALS's Law names.
 
 So the generator carries an executable definition of "provenanced", and this
 module pins it: a bare number anywhere in the prose is a defect the generator

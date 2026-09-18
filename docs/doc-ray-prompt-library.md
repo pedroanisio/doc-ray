@@ -9,12 +9,12 @@ disclaimer:
 title: "doc-ray Corpus Prompt Library"
 subtitle: "Grounded retrieval, synthesis, innovation, agentic systems, long-form writing, and creative generation"
 version: "2.0.0"
-status: "working library"
+status: current
 verified_against:
   release: "1.57.0"
   tool_registry: "src/doc_ray/entrypoints/mcp/ (35 read tools, 33 write tools, 8 resources, 4 prompts)"
   reference_doc: "docs/mcp-service.md"
-  corpus_snapshot: "2026-07-31 (Appendix D)"
+doc_type: reference
 ---
 
 # doc-ray Corpus Prompt Library
@@ -65,7 +65,7 @@ run.
 18. [Appendix A — Tool, resource, and prompt surface](#appendix-a--tool-resource-and-prompt-surface)
 19. [Appendix B — Cross-corpus composite protocol](#appendix-b--cross-corpus-composite-protocol)
 20. [Appendix C — Knowledge matrix](#appendix-c--knowledge-matrix)
-21. [Appendix D — Corpus inventory snapshot](#appendix-d--corpus-inventory-snapshot)
+21. [Appendix D — Refreshing the corpus inventory](#appendix-d--refreshing-the-corpus-inventory)
 22. [Appendix E — Prompt index](#appendix-e--prompt-index)
 
 ---
@@ -311,7 +311,7 @@ Record these as `NOT_SEARCHED`, never as `CORPUS_SILENCE`.
 
 When `stale: true`, quote the figure with its `label` ("computed 10 minutes ago") and use
 `documents` — which is exact — as the denominator for any coverage fraction. The same
-discipline applies to Block F rollups (`lens_entities`, `entity_relations`), which each
+discipline applies to the hyper-context rollups (`lens_entities`, `entity_relations`), which each
 carry a `refreshedAt` stamp.
 
 ## 4.7 Machine output is a proposal
@@ -1182,7 +1182,7 @@ The process must cover:
 - embedding-model or retrieval changes (including vectors made invisible by a
   model cutover);
 - entity-resolution, projection, and allusion changes;
-- rollup staleness (corpus_stats guarantees, Block F refreshedAt stamps);
+- rollup staleness (corpus_stats guarantees, hyper-context rollup `refreshedAt` stamps);
 - prompt and tool-signature changes;
 - output-schema changes;
 - citation breakage (ordinals and char offsets shifting under re-extraction);
@@ -1474,7 +1474,7 @@ Distinguish:
 
 # 14. Creative and narrative generation
 
-## P30 — Corpus-grounded three-chapter Dune fan-fiction novel
+## P30 — Corpus-grounded three-chapter novel in an established fictional universe
 
 > This prompt preserves the requested universe and continuity constraints while
 > requiring original prose rather than direct imitation of a living or deceased
@@ -1482,19 +1482,19 @@ Distinguish:
 
 ```text
 TASK
-Write a three-chapter, approximately 73-page fan-fiction novel set within the
-established Dune universe.
+Write a three-chapter, approximately <PAGE_COUNT>-page novel set within the
+established <UNIVERSE> universe held in the corpus.
 
 CORE PREMISE
-Paul Atreides receives a message from a parallel dimension. The message claims
-that he can ally with thinking machines, travel into the distant past, and rewrite
-approximately ten thousand years of human history. This may prevent catastrophes
-he has foreseen, but it may also erase the civilizations, religions, bloodlines,
+<PROTAGONIST> receives a message from a parallel dimension. The message claims
+that they can ally with <FORBIDDEN_FACTION>, travel into the distant past, and
+rewrite millennia of the universe's history. This may prevent catastrophes they
+have foreseen, but it may also erase the civilizations, beliefs, lineages,
 identities, and people produced by that history.
 
 CENTRAL QUESTION
-Can Paul liberate humanity from the deterministic forces of history without
-destroying the humanity he intends to save?
+Can <PROTAGONIST> liberate their people from the deterministic forces of history
+without destroying the people they intend to save?
 
 SOURCE CONSTRAINT
 Use only the visible doc-ray corpus as the research and continuity authority.
@@ -1506,13 +1506,11 @@ universe are separate scopes, and a claim from one is not a claim from the other
 Establish which lens each continuity fact comes from and say so.
 
 Identify and cite canonical material concerning:
-- Paul Atreides;
-- prescience and its limits;
-- the Golden Path;
-- the Butlerian Jihad;
-- thinking machines;
-- ancestral and genetic memory;
-- breeding programs;
+- <PROTAGONIST>;
+- <CONTINUITY_TOPIC_1> (e.g. the universe's form of foresight and its limits);
+- <CONTINUITY_TOPIC_2> (e.g. its founding prohibition or schism);
+- <FORBIDDEN_FACTION>;
+- <CONTINUITY_TOPIC_3> (e.g. inherited memory, lineage, or succession);
 - time, causality, religion, empire, and historical recurrence.
 
 Build a continuity map and distinguish:
@@ -1524,12 +1522,12 @@ Do not contradict corpus-supported lore unless the contradiction is an intention
 consequence of the parallel dimension or altered timeline.
 
 NARRATIVE POSITION
-Choose the canonical moment in Paul's life that creates the greatest dramatic and
+Choose the canonical moment in <PROTAGONIST>'s life that creates the greatest dramatic and
 philosophical pressure. Before the manuscript, explain the placement in no more
 than 150 words.
 
 LITERARY DIRECTION
-Do not imitate Frank Herbert's prose, reproduce canonical wording, or recycle
+Do not imitate <AUTHOR>'s prose, reproduce canonical wording, or recycle
 recognizable dialogue. Write original philosophical, politically intricate,
 psychologically intense epic science fiction characterized by:
 - strategic and concealed intention;
@@ -1540,29 +1538,29 @@ psychologically intense epic science fiction characterized by:
 - interior reflection integrated with action;
 - chapter epigraphs;
 - irreversible moral costs;
-- prescience as both power and imprisonment;
+- foresight as both power and imprisonment;
 - institutions and beliefs as forces acting on people;
 - minimal exposition detached from immediate conflict.
 
 MESSAGE REQUIREMENTS
 The message's origin, reliability, motives, and ontology must remain contested.
 Explore at least four interpretations:
-1. a genuinely parallel Paul;
-2. a machine intelligence manipulating Paul;
-3. an inaccessible branch of prescience;
-4. a trap generated by Paul's desire to escape his own future.
+1. a genuinely parallel <PROTAGONIST>;
+2. an intelligence from <FORBIDDEN_FACTION> manipulating <PROTAGONIST>;
+3. an inaccessible branch of foresight;
+4. a trap generated by <PROTAGONIST>'s desire to escape their own future.
 
-MACHINE REQUIREMENTS
-The machines must not be uniformly evil, benevolent, or emotionally human.
-Give them a coherent nonhuman account of freedom, suffering, continuity, memory,
-prediction, and human self-deception.
+FACTION REQUIREMENTS
+<FORBIDDEN_FACTION> must not be uniformly evil, benevolent, or emotionally human.
+Give them a coherent account of freedom, suffering, continuity, memory,
+prediction, and self-deception that is their own, not the protagonist's.
 
 TEMPORAL RULES
 Establish explicit rules for:
 - what can change;
 - replacement, branching, or coexistence of timelines;
 - memory survival;
-- prescience's limits;
+- the limits of foresight;
 - the price of crossing or modifying history;
 - why the method cannot be repeated without consequence.
 
@@ -1570,17 +1568,17 @@ The temporal mechanism must emerge from corpus-supported concepts rather than
 arbitrary technology.
 
 CHARACTERS
-Paul must remain brilliant, dangerous, compassionate, compromised, and divided.
+<PROTAGONIST> must remain brilliant, dangerous, compassionate, compromised, and divided.
 His conflict must include the possibility that:
 - prescience helped create his prison;
 - hatred of machines rests partly on myth;
 - the machine solution destroys meaningful freedom;
-- altered history erases Chani, his children, the Fremen, or Paul;
+- altered history erases Chani, his children, the Fremen, or <PROTAGONIST>;
 - refusal condemns humanity to preventable disaster.
 
 Use at least three major canonical relationships whose emotional and political
 consequences materially affect the decision. Every original character or
-intelligence must have an objective, leverage, limitation, and a reason Paul
+intelligence must have an objective, leverage, limitation, and a reason <PROTAGONIST>
 cannot simply command or dismiss it.
 
 THREE-CHAPTER ARCHITECTURE
@@ -1593,7 +1591,7 @@ Chapter I — The Message — 22–24 pages
 - end with an irreversible threshold crossing.
 
 Chapter II — The Machine Path — 25–27 pages
-- bring Paul into direct contact with the machine perspective;
+- bring <PROTAGONIST> into direct contact with the machine perspective;
 - establish temporal rules and cost;
 - reveal conflicting accounts of the Butlerian Jihad;
 - show at least two alternate histories, each better in one respect and horrifying
@@ -1642,7 +1640,7 @@ FINAL OUTPUT
 QUALITY GATES
 - total length is within the target range;
 - each chapter has a complete dramatic arc;
-- Paul's decision follows from established character and accumulated evidence;
+- <PROTAGONIST>'s decision follows from established character and accumulated evidence;
 - the machine philosophy is coherent and nonhuman;
 - temporal rules remain consistent;
 - no solution appears without prior establishment;
@@ -1767,7 +1765,7 @@ Use for long-form, source-grounded documents.
 
 ## Creative continuity workflow
 
-`P01 Capability Audit → P06 Evidence Map → P30 Dune Novel Prompt → Continuity Quality Gates`
+`P01 Capability Audit → P06 Evidence Map → P30 Universe Novel Prompt → Continuity Quality Gates`
 
 Use when creative invention must remain distinguishable from canon.
 
@@ -2064,7 +2062,7 @@ Check:
 - unembedded documents (semantic search returns a typed precondition failure, not `[]`);
 - unannotated documents (invisible to sentence- and entity-level tools);
 - access restrictions (RLS scope);
-- stale Block F rollups (`refreshedAt`).
+- stale hyper-context rollups (`refreshedAt`).
 
 A candidate clears selection only after roster, variant, graph, and semantic probes all
 fail to reveal an existing connection.
@@ -2187,107 +2185,12 @@ observation, correction, or persistence channel.
 
 ---
 
-# Appendix D — Corpus inventory snapshot
+# Appendix D — Refreshing the corpus inventory
 
-> A snapshot of the corpus visible to one token on **2026-07-31**, not a live inventory
-> and not the corpus any other token sees. Counts change continuously. Refresh with the
-> recipe in D.5 before relying on any number here.
-
-## D.1 Corpus totals
-
-| Figure | Value | Guarantee |
-|---|---:|---|
-| Documents | 783 | `exact` (counted live) |
-| Sentences | 3,311,888 | `rollup` (exact once each document's pipeline job has committed) |
-| Lexemes | 453,662 | `debounced` (600 s window; reported `stale` at read time) |
-| Lexeme occurrences | 72,616,830 | `rollup` |
-
-Use `documents` as the denominator for coverage fractions; it is the only exact figure.
-
-## D.2 Lenses
-
-| Lens | Documents | Parent | Kind |
-|---|---:|---|---|
-| `global` | 0 | — | manual (reserved: real-world identity) |
-| Dune Series | 36 | — | smart (`tags: Dune Series`) |
-| Dune: Expanded Universe | 21 | Dune Series | smart (`tags: Expanded Universe`) |
-
-The `global` lens holds shared real-world identities and reports zero *member* documents
-by design; that is not a defect, but it does mean lens membership alone tells you nothing
-about how many documents project globally.
-
-## D.3 Subject collections (49 visible collections total)
-
-| Collection | Documents | Rule tag |
-|---|---:|---|
-| Research Papers | 84 | Research Paper (cross-cutting format) |
-| Mathematics | 66 | Mathematics |
-| Software & Systems Engineering | 63 | Systems Engineering |
-| Technical & Programming | 56 | Programming |
-| AI & ML Research | 51 | AI Research |
-| Marketing & Branding | 48 | Marketing |
-| Design & UX | 42 | UX Design |
-| Graphic Design & Typography | 40 | Graphic Design |
-| Agentic AI | 38 | Agentic AI |
-| Dune Series | 36 | Dune Series |
-| Applied AI & Machine Learning | 27 | Applied AI |
-| Automation & DevOps | 26 | Automation |
-| Computer Graphics & Game Development | 25 | Computer Graphics |
-| Dune: Expanded Universe | 21 | Expanded Universe |
-| Organizational Strategy & Change | 17 | Organizational Strategy |
-| Startups & Entrepreneurship | 17 | Entrepreneurship |
-| Linguistics & Semiotics | 15 | Linguistics |
-| AI Security & Governance | 13 | AI Security |
-| Domain-Driven Design | 13 | Domain-Driven Design |
-| Natural Language Processing | 13 | Natural Language Processing |
-| AI & Business | 12 | Artificial Intelligence |
-| Presentation & Communication | 12 | Communication |
-| Databases & Data Engineering | 11 | Databases |
-| Security & Cybersecurity | 10 | Cybersecurity |
-| Visual Arts & Illustration | 10 | Visual Arts |
-| Writing Craft | 10 | Writing Craft |
-| Audio & Signal Processing | 9 | Audio Processing |
-| Finance & Valuation | 9 | Finance |
-| Human Resources & People Management | 9 | Human Resources |
-| Cognitive Science | 8 | Cognitive Science |
-| Psychology | 8 | Psychology |
-| Business Analysis & Enterprise Architecture | 7 | Business Analysis |
-| Formal Methods & CS Theory | 7 | CS Theory |
-| Dune Novels | 6 | Dune Novel |
-| Project & Programme Management | 6 | Project Management |
-| Philosophy of Language & Mind | 5 | Philosophy |
-| Careers & Workplace | 4 | Workplace |
-| Compilers & Toolchains | 4 | Compilers |
-| Gamification & Engagement Design | 4 | Gamification |
-| Product Management | 3 | Product Management |
-| Voice & Singing | 2 | Voice & Singing |
-| Scripture & Sacred Texts | 1 | Scripture |
-
-Collections overlap deliberately (a title may carry several subject tags, and Research
-Papers is a format collection spanning fields). **Counts must not be summed.**
-
-## D.4 Processing and review queues
-
-| Queue | Documents | Retrieval effect |
-|---|---:|---|
-| Annotation Backlog | 31 | Extracted but not annotated: invisible to sentence- and entity-level tools. |
-| Archive — Unreadable | 22 | Extraction yielded nothing usable; retired from the active corpus. |
-| Extraction Failures — Repair Queue | 22 | No searchable content at all. |
-| Duplicates — Quarantine | 11 | Confirmed duplicates, held for provenance. |
-| Needs Identification — Triage Queue | 3 | Title is a filename artifact; the work is unidentified. |
-| Working Notes — Unreviewed Synthesis | 0 | Unreviewed synthesis; retrievable but carries no independent authority. |
-
-Roughly 75 of 783 documents (~10%) sit in a queue that makes them wholly or partly
-invisible to sentence- and entity-level retrieval. Queue membership may overlap, so treat
-that figure as an order of magnitude, not a sum.
-
-## D.5 Operational implications
-
-- The annotation backlog makes sentence- and entity-level retrieval silently partial: a document can be listed, searched by full text, and still contribute no sentences or entities.
-- Extraction failures, archived-unreadable documents, and unidentified titles all weaken absence claims. P33 requires accounting for them explicitly.
-- Collection overlaps cause double counting; never sum the tables above.
-- A lens's `documentCount` is scoped to the token's visibility, and the `global` lens's zero is structural.
-- Refresh the inventory and the tool contract before every consequential run:
+The library carries no corpus inventory: counts, lenses, collections and queue
+sizes are properties of one deployment as seen by one token, and they change
+continuously. Derive them at the start of every consequential run rather than
+from any document:
 
 ```text
 corpus_stats()                    # totals + guarantees; read `stale`
@@ -2295,6 +2198,17 @@ list_collections(limit=200)       # page with the last row's cursor
 list_lenses(limit=200)
 corpus_manifest(shard_count=8)    # per-shard counts that must sum to totalDocuments
 ```
+
+Operational implications that hold for every corpus:
+
+- Documents that are extracted but not yet annotated make sentence- and
+  entity-level retrieval silently partial: a document can be listed, searched by
+  full text, and still contribute no sentences or entities.
+- Extraction failures, archived-unreadable documents and unidentified titles all
+  weaken absence claims. P33 requires accounting for them explicitly.
+- Collections overlap, so their document counts never sum to the corpus total.
+- A lens's `documentCount` is scoped to the token's visibility, and the `global`
+  lens's zero member count is structural, not a defect.
 
 ---
 
@@ -2331,7 +2245,7 @@ corpus_manifest(shard_count=8)    # per-shard counts that must sum to totalDocum
 | P27 | Corpus-grounded architecture oracle | 12 |
 | P28 | Corpus-grounded monograph | 13 |
 | P29 | Knowledge cartridge document | 13 |
-| P30 | Corpus-grounded three-chapter Dune fan-fiction novel | 14 |
+| P30 | Corpus-grounded three-chapter novel in an established fictional universe | 14 |
 | P31 | Generate a reusable prompt set from the corpus | 15 |
 | P32 | Corpus sweep with coverage proof | 5 |
 | P33 | Absence claim protocol | 6 |

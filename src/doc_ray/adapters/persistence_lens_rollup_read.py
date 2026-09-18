@@ -1,4 +1,4 @@
-"""Async read adapter for the hyper-context lens rollups (SLP Block F, #10, FR-5).
+"""Async read adapter for the hyper-context lens rollups (issue #10, FR-5).
 
 Serves ``lensEntities`` (ranked entities), ``entityRelations`` (direct co-occurrence
 relations), and ``relatedEntities`` (bounded N-hop discovery). Every read is served from
@@ -50,7 +50,7 @@ async def lens_entities(
     after: str | None = None,
     min_mentions: int = 0,
 ) -> list[Row]:
-    """Return a lens's significant entities, most-mentioned first (Block F rollup)."""
+    """Return a lens's significant entities, most-mentioned first (hyper-context rollup)."""
     cursor = decode_cursor(after, "lens-entities")
     rows = await _rows(
         conn,

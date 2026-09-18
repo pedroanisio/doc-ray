@@ -1,4 +1,4 @@
-"""Worker-side persistence for the projection engine (SLP Block D, issue #8).
+"""Worker-side persistence for the projection engine (issue #8).
 
 The pure resolver (:mod:`doc_ray.domain.projection`) decides *what* a mention
 projects to; this adapter supplies its inputs from the substrate and persists its
@@ -91,7 +91,7 @@ def load_projection_inputs(conn: _Conn, document_id: str) -> ProjectionInputs:
 def get_document_genre(conn: _Conn, document_id: str) -> Genre:
     """Return a document's genre for routing, conservatively (PALS's Law).
 
-    Uses the stored :mod:`document_classification` (Block C) label unless it was
+    Uses the stored :mod:`document_classification` label unless it was
     ``rejected`` — a rejected genre must not drive local resolution — in which case
     it falls back to :attr:`Genre.UNKNOWN`, which routes everything GLOBAL. An
     unrecognized stored value also degrades to ``UNKNOWN`` rather than raising.
@@ -223,7 +223,7 @@ def apply_reviews(conn: _Conn, document_id: str, lens_id: str) -> int:
     """Apply the latest human review per span onto the freshly written projections.
 
     Re-applied on every refresh so a confirm/reject survives re-annotation (the review
-    is keyed by the stable span, not the ephemeral mention_id — Block A's pattern).
+    is keyed by the stable span, not the ephemeral mention_id — the NER-correction log's pattern).
     Returns the number of projection rows whose status changed from the default.
     """
     result = conn.execute(

@@ -1,4 +1,4 @@
-"""Strawberry GraphQL types for the hyper-context lens rollups (SLP Block F, #10).
+"""Strawberry GraphQL types for the hyper-context lens rollups (issue #10).
 
 Split out of :mod:`.types` (D-015): the per-lens entity landscape (``LensEntity``) and
 its relationships (``EntityRelation``, ``RelatedEntity``). Class and field docstrings are
@@ -20,7 +20,7 @@ from doc_ray.entrypoints.api.document_types import Row
 
 @strawberry.type
 class LensEntity:
-    """A significant entity in a lens, from the hyper-context rollup (SLP Block F, #10).
+    """A significant entity in a lens, from the hyper-context rollup (issue #10).
 
     The read side of ``lens_entity_rollup``: ``nMentions`` / ``nDocuments`` are lens-wide
     counts (not filtered to the caller's ACL subset — the same trade-off ``corpusStats``
@@ -65,7 +65,7 @@ class LensEntity:
 
 @strawberry.type
 class EntityRelation:
-    """A direct co-occurrence relationship between two entities in a lens (SLP Block F).
+    """A direct co-occurrence relationship between two entities in a lens.
 
     ``cooccurrenceCount`` is how many sentences the two entities share; ``strength`` is
     the NPMI (Bouma 2009) of that co-occurrence — a **structural association measure in
@@ -100,7 +100,7 @@ class EntityRelation:
 
 @strawberry.type
 class RelatedEntity:
-    """An entity reachable from an anchor within N co-occurrence hops (SLP Block F).
+    """An entity reachable from an anchor within N co-occurrence hops.
 
     ``hops`` is the shortest number of co-occurrence steps from the anchor (bounded by an
     enforced maximum). Reachability via co-occurrence is a **structural** signal, never

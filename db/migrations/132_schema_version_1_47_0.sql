@@ -1,4 +1,4 @@
--- doc-ray: schema SemVer 1.47.0 — allusion edges (SLP Block E, #9).
+-- doc-ray: schema SemVer 1.47.0 — allusion edges (issue #9).
 --
 -- Migration 131 adds the additive `entity_allusion` curation table (typed cross-lens
 -- links that never assert identity). An additive table is a MINOR bump under doc-ray's

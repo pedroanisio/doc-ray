@@ -21,10 +21,16 @@
 # always-on tier owns the schema, and a machine you intend to delete must not be
 # the one that changes it.
 #
-# Run as root on a first boot:
+# Run as root on a first boot. The operator account is yours to name: there are
+# no defaults for who owns the box.
 #
+#     export OPERATOR_USER=ops OPERATOR_NAME='Your Name' OPERATOR_EMAIL=you@example.com
 #     export SSH_PUBKEY='ssh-ed25519 AAAA... you@host'
 #     bash fresh-install.sh
+#
+# Optional: OPERATOR_BOOTSTRAP_HOOK=/path/to/script runs that script as the
+# operator after the toolchain step (shell setup — anything personal
+# stays out of this file).
 #
 # Idempotent: every step checks before it changes, so re-running a partially
 # completed host converges it rather than duplicating work.
@@ -41,9 +47,11 @@
 set -euo pipefail
 
 # ------------------------------------------------------------------ settings --
-OPERATOR_USER="${OPERATOR_USER:-pals}"
-OPERATOR_EMAIL="${OPERATOR_EMAIL:-pedroanisio@faz.ai}"
-OPERATOR_NAME="${OPERATOR_NAME:-Pedro Anisio Silva}"
+# The operator identity has no defaults: it is checked before the first change.
+OPERATOR_USER="${OPERATOR_USER:-}"
+OPERATOR_EMAIL="${OPERATOR_EMAIL:-}"
+OPERATOR_NAME="${OPERATOR_NAME:-}"
+OPERATOR_BOOTSTRAP_HOOK="${OPERATOR_BOOTSTRAP_HOOK:-}"
 # Public key that may log in as OPERATOR_USER. Required: a box with no key and
 # no password is one you cannot get back into.
 SSH_PUBKEY="${SSH_PUBKEY:-}"
@@ -70,24 +78,49 @@ log()  { printf '\n=== %s\n' "$*"; }
 warn() { printf '\nWARN: %s\n' "$*" >&2; }
 die()  { printf '\nFATAL: %s\n' "$*" >&2; exit "${2:-2}"; }
 
-# Run as the operator with a REAL home directory.
+# Run as the operator with a REAL home directory AND a readable working
+# directory.
 #
 # `runuser -u USER --` drops privileges but does NOT reset the environment (only
 # `-l` does that, and `-l` picks the user's login shell rather than bash). HOME
 # therefore stays /root, and `bash -lc` does not fix it — a login shell sources
 # profile files but never sets HOME itself. Every installer that writes to ~ then
-# aims at root's home: oh-my-zsh dies outright with "cd: can't cd to /root", and
-# `git config --global` would quietly try to write /root/.gitconfig.
+# aims at root's home, and `git config --global` would quietly try to write
+# /root/.gitconfig.
 #
 # Setting the three login variables explicitly keeps bash semantics AND the
 # non-interactive guarantee — unlike `su -l`, which opens an interactive shell
 # and silently drops everything after it back to root.
 #
+# THE WORKING DIRECTORY IS A SEPARATE LEAK WITH THE SAME ROOT. `runuser` also
+# inherits the CWD, and this script runs from root's shell, so the operator
+# starts in /root — mode 0700, which they cannot enter or even stat. Nothing
+# fails at that moment, so the cost surfaces later and far from the cause: any
+# installer or hook that ends a step with `cd -` resolves $OLDPWD (/root) and
+# dies with "sh: cd: can't cd to /root". When that `cd -` is the function's last
+# command, its status escapes `sh -c`, escapes `bash -lc`, and `set -e` kills the
+# whole provision — with an error naming neither the operator's home nor the
+# directory this script happened to be started from. `env -C` fixes it for every callee at once, which
+# is the only place it can be fixed once: any per-call `cd` would have to be
+# repeated in each installer and would still leave $OLDPWD pointing at /root.
+#
+# `env -C` needs coreutils >= 8.28. Every supported base is far newer (22.04
+# ships 8.32), so this is a guard against an unexpected base image rather than an
+# expected condition — but it is checked because the failure mode without it is
+# the one this whole comment is about: `env` would treat -C as an unknown option
+# and report only "invalid option", naming nothing about the working directory.
+require_env_chdir() {
+  env -C / true 2>/dev/null \
+    || die "coreutils 'env -C' is unavailable (needs >= 8.28); base image is too old" 1
+}
+
 # $operator_home is resolved from passwd before the first call below.
 as_operator() {
   [[ -n "${operator_home:-}" ]] || die "internal: as_operator called before operator_home"
+  [[ -d "$operator_home" ]] || die "operator home $operator_home does not exist"
   runuser -u "$OPERATOR_USER" -- \
-    env HOME="$operator_home" USER="$OPERATOR_USER" LOGNAME="$OPERATOR_USER" "$@"
+    env -C "$operator_home" \
+      HOME="$operator_home" USER="$OPERATOR_USER" LOGNAME="$OPERATOR_USER" "$@"
 }
 
 as_operator_sh() { as_operator bash -lc "$1"; }
@@ -184,8 +217,17 @@ if [[ -n "${FRESH_INSTALL_LIB_ONLY:-}" ]]; then
   return 0 2>/dev/null || exit 0
 fi
 
+# Identity first: it is the one precondition a dry run can check without root.
+[[ -n "$OPERATOR_USER" && -n "$OPERATOR_EMAIL" && -n "$OPERATOR_NAME" ]] \
+  || die "set OPERATOR_USER, OPERATOR_NAME and OPERATOR_EMAIL before running" 1
 [[ $EUID -eq 0 ]] || die "run as root" 1
 [[ -n "$SSH_PUBKEY" ]] || die "set SSH_PUBKEY='ssh-ed25519 AAAA... you@host' before running" 1
+[[ -z "$OPERATOR_BOOTSTRAP_HOOK" || -x "$OPERATOR_BOOTSTRAP_HOOK" ]] \
+  || die "OPERATOR_BOOTSTRAP_HOOK=$OPERATOR_BOOTSTRAP_HOOK is not an executable file" 1
+# Checked up front, not at first use: the operator toolchain runs well after the
+# slow package steps, and a base image that cannot drop privileges correctly
+# should cost seconds to discover rather than most of a provision.
+require_env_chdir
 
 log "Host shape"
 detect_host_shape
@@ -348,28 +390,24 @@ systemctl enable --now docker
 docker_works || die "docker is enabled but 'docker info' still fails"
 
 # -------------------------------------------------------- operator toolchain --
-log "Operator shell + toolchain"
-# Unattended: the upstream installer starts an interactive zsh otherwise, which
-# would hang a scripted provision exactly the way `su -l` did.
-if [[ ! -d "$operator_home/.oh-my-zsh" ]]; then
-  as_operator_sh 'RUNZSH=no CHSH=no sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)"'
-fi
+log "Operator toolchain"
+# Only what running doc-ray needs: node (for the admin console) and uv. Both
+# installers are pinned to a release, never "latest". Shell customisation is the
+# operator's business and runs through OPERATOR_BOOTSTRAP_HOOK, not here.
+NVM_VERSION="${NVM_VERSION:-v0.40.6}"
+UV_VERSION="${UV_VERSION:-0.10.9}"
 [[ -d "$operator_home/.nvm" ]] || \
-  as_operator_sh 'curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.6/install.sh | bash'
+  as_operator_sh "curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/${NVM_VERSION}/install.sh | bash"
 [[ -x "$operator_home/.local/bin/uv" ]] || \
-  as_operator_sh 'curl -LsSf https://astral.sh/uv/install.sh | sh'
-
-# Dotfiles: clone to a stable path and copy, so a re-run refreshes rather than
-# leaving an orphaned checkout in $HOME.
-if [[ -d "$operator_home/.dotfiles/.git" ]]; then
-  as_operator_sh 'git -C ~/.dotfiles pull --ff-only || true'
-else
-  as_operator_sh 'git clone https://github.com/pedroanisio/zshrc.git ~/.dotfiles'
-fi
-as_operator_sh 'cp -f ~/.dotfiles/.zshrc ~/.zshrc'
+  as_operator_sh "curl -LsSf https://astral.sh/uv/${UV_VERSION}/install.sh | sh"
 
 as_operator git config --global user.email "$OPERATOR_EMAIL"
 as_operator git config --global user.name "$OPERATOR_NAME"
+
+if [[ -n "$OPERATOR_BOOTSTRAP_HOOK" ]]; then
+  log "Operator bootstrap hook"
+  as_operator bash "$OPERATOR_BOOTSTRAP_HOOK"
+fi
 
 if [[ "$INSTALL_GH" == "1" ]] && ! command -v gh >/dev/null 2>&1; then
   log "GitHub CLI"

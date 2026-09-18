@@ -1,4 +1,4 @@
-"""Allusion-edge job handlers (SLP Block E, #9).
+"""Allusion-edge job handlers (issue #9).
 
 The heuristic proposer's worker entry point. Kept in the application layer (like the
 projection and lens-rollup handlers) rather than inline in ``job_handlers`` so that
@@ -19,7 +19,7 @@ from doc_ray.ports.object_store import ObjectStore
 def handle_propose_allusions(
     conn: psycopg.Connection[Any], store: ObjectStore | None, job: Job
 ) -> dict[str, Any]:
-    """Propose ``alludes_to`` edges for a document's local entities (Block E, #9, FR-5).
+    """Propose ``alludes_to`` edges for a document's local entities (issue #9, FR-5).
 
     Deterministic surface + KB match; emits ``proposed`` edges only (never confirms) —
     the primary path is the propose/confirm/reject API, this is a bulk convenience.

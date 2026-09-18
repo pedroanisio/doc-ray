@@ -77,7 +77,7 @@ def test_caption_image_conditions_only_when_evidence_supplied(monkeypatch: Any) 
 def test_host_reads_the_canonical_docray_ollama_host(monkeypatch: Any) -> None:
     """DOCRAY_OLLAMA_HOST is the registered var; the VLM must honour it.
 
-    The defect this pins (found in production, 2026-07-25): the compose overlay
+    The defect this pins: the compose overlay
     sets only ``DOCRAY_OLLAMA_HOST`` on the workers — the same var
     :mod:`doc_ray.adapters.resolver_ollama` reads — while this adapter looked at
     ``OLLAMA_HOST`` alone and therefore fell back to ``localhost`` inside the

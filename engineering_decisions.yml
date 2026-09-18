@@ -4,12 +4,12 @@
 # System of record for architectural & operational decisions. Validated by
 # the vendored SHACL/YAML toolchain under engineering/schema/:
 #   python engineering/schema/scripts/validate_decisions.py engineering_decisions.yml
-#   python engineering/schema/scripts/yml_to_rdf.py engineering_decisions.yml > /tmp/ed.ttl
+#   python engineering/schema/scripts/yml_to_rdf.py engineering_decisions.yml > _work/ed.ttl
 #   pyshacl -s engineering/schema/statics/ttl/engineering_decisions_record_shacl.ttl \
 #           -s engineering/schema/statics/ttl/engineering_decisions_consequences_shacl.ttl \
 #           -s engineering/schema/statics/ttl/engineering_decisions_implementation_shacl.ttl \
 #           -s engineering/schema/statics/ttl/engineering_decisions_config.ttl \
-#           -d engineering/schema/statics/ttl/engineering_decisions_config.ttl -d /tmp/ed.ttl
+#           -d engineering/schema/statics/ttl/engineering_decisions_config.ttl -d _work/ed.ttl
 #
 # Lifecycle: D-001..D-010 capture the GraphQL-API + jobs architecture; D-011..D-016
 # encode the mandated engineering standards. Claims already true in the tree are
@@ -2072,14 +2072,13 @@ decisions:
       (#45 search, #46 counts) against fixed query classes, records the access
       path the planner chose for each, prices the stage-2 positional index from
       catalog estimates, and applies the go/no-go criteria as a pure function
-      (`scripts/_phrase_eval_criteria.decide`) rather than as prose. The dated
-      report is `docs/eval/phrase-retrieval-2026-07-28.md`; re-running the
-      harness regenerates it, and the generator refuses to write a report
-      containing a number that does not carry provenance.
+      (`scripts/_phrase_eval_criteria.decide`) rather than as prose. Each run
+      writes a dated report (operating data, kept outside the repository);
+      re-running the harness regenerates it, and the generator refuses to write
+      a report containing a number that does not carry provenance.
 
-      Measured on production, 2026-07-28, read-only, as `docray_api` with an
-      admin RLS principal over 1,966,114 sentences (1,277 MB): six of seven
-      query classes exceed a 5,000 ms statement timeout against a 300-400 ms
+      Measured read-only on the reference corpus as `docray_api` with an admin
+      RLS principal: six of seven query classes exceed a 5,000 ms statement timeout against a 300-400 ms
       budget. The seventh (`of it`) completes in 54 ms p50 only because it fills
       the 2,001-row candidate cap after 15,044 rows and the LIMIT stops the
       scan. Every one of the seven classes plans a `Seq Scan` over `sentences`.
@@ -2143,7 +2142,6 @@ decisions:
       - "scripts/eval_phrase_retrieval.py"
       - "scripts/_phrase_eval_criteria.py"
       - "scripts/_phrase_eval_report.py"
-      - "docs/eval/phrase-retrieval-2026-07-28.md"
       - "src/doc_ray/adapters/sentence_search_sql.py"
       - "src/doc_ray/adapters/persistence_sentence_search.py"
       - "src/doc_ray/adapters/persistence_read_terms.py"
@@ -2199,7 +2197,7 @@ decisions:
             severity:    "warning"
             context:     "workspace"
             side_effects: "reads"
-            command:     "python scripts/eval_phrase_retrieval.py --prod --explain --role docray_api --principal <admin-uuid> --report docs/eval/phrase-retrieval-<date>.md"
+            command:     "python scripts/eval_phrase_retrieval.py --prod --explain --role docray_api --principal <admin-uuid> --report $DOCRAY_WORK_DIR/findings/eval/phrase-retrieval-<date>.md"
             expect:
               exit:      0
   - id: D-036

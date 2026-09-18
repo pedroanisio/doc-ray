@@ -1,4 +1,4 @@
-"""End-to-end GraphQL tests for the Lens Registry (Block B, issue #5).
+"""End-to-end GraphQL tests for the Lens Registry (issue #5).
 
 Drives the real Strawberry schema via ``schema.execute`` with a ``RequestContext``
 (the pattern in ``test_mutations_ner_corrections.py``): promote a collection to a

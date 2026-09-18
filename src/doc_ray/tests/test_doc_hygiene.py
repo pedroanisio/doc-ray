@@ -1,12 +1,10 @@
-"""Regression guards from the 2026-07-05 doc-hygiene audit.
+"""Mechanical guards for documentation that tends to drift silently.
 
-The audit found README example commands pointing at a fixture that had been
-renamed/removed (`orwell1984.pdf`), a hand-written GraphQL surface list in
-README that had quietly fallen behind the live schema, `.env.example` missing
-roughly twenty environment variables the code actually reads, and leftover
-project-template placeholder text in `CLAUDE.md`. None of those were caught by
-any existing test — this file makes each one a durable, mechanical guard
-instead of something only a manual audit finds again later.
+README example commands must point at documents that exist; the README's
+hand-written GraphQL surface list must match the live schema; ``.env.example``
+must mention every environment variable the code reads; the governing documents
+must carry no project-template placeholder text; every README must reference
+``DISCLAIMER.md``. None of these break a build when they rot, so each is a test.
 """
 
 from __future__ import annotations
@@ -18,7 +16,7 @@ from pathlib import Path
 _ROOT = Path(__file__).resolve().parents[3]  # src/doc_ray/tests -> repo root
 _README = _ROOT / "README.md"
 _ENV_EXAMPLE = _ROOT / ".env.example"
-_CLAUDE_MD = _ROOT / "CLAUDE.md"
+_GOVERNING_DOCS = ("CLAUDE.md", "AGENTS.md", "CONTRIBUTING.md")
 
 
 # ---------------------------------------------------------------------------
@@ -182,51 +180,42 @@ def test_env_example_documents_all_config_vars():
 
 
 # ---------------------------------------------------------------------------
-# CLAUDE.md: no leftover project-template placeholder text.
+# Governing documents: no leftover project-template placeholder text.
 # ---------------------------------------------------------------------------
 
 _TEMPLATE_MARKERS = ("[PROJECT]", "SEED VERSION", "Replace this block", "**Project Name**")
 
 
-def test_claude_md_has_no_template_placeholders():
-    text = _CLAUDE_MD.read_text(encoding="utf-8")
-    present = [marker for marker in _TEMPLATE_MARKERS if marker in text]
-    assert not present, (
-        f"CLAUDE.md still contains unfilled project-template placeholder text: {present}"
-    )
+def test_governing_docs_have_no_template_placeholders():
+    for name in _GOVERNING_DOCS:
+        text = (_ROOT / name).read_text(encoding="utf-8")
+        present = [marker for marker in _TEMPLATE_MARKERS if marker in text]
+        assert not present, f"{name} still contains project-template placeholder text: {present}"
 
 
-def test_claude_md_purpose_reference_is_resolvable():
-    """CLAUDE.md's PURPOSE.md references must not be silently dangling.
+def test_contributing_purpose_reference_is_resolvable():
+    """CONTRIBUTING.md makes PURPOSE.md alignment mandatory; the file must exist.
 
-    CLAUDE.md makes PURPOSE.md alignment a MANDATORY constraint ("never propose
-    changes that conflict with @PURPOSE.md"). PURPOSE.md now exists at the repo
-    root, so the mandatory dependency is satisfied and this guard is dormant.
-    It remains as a regression guard: were PURPOSE.md ever removed while
-    CLAUDE.md still references it, the constraint would silently dangle — so
-    this test then requires CLAUDE.md to acknowledge the absence explicitly
-    rather than assert a dependency on a governing document that isn't there.
-    Its content (why the project exists, product vision) is the operator's call
-    to write, not something an agent should fabricate.
+    If PURPOSE.md were ever removed while CONTRIBUTING.md still references it, the
+    constraint would silently dangle, so the contract must then acknowledge the
+    absence explicitly rather than assert a dependency on a missing document.
     """
-    text = _CLAUDE_MD.read_text(encoding="utf-8")
+    text = (_ROOT / "CONTRIBUTING.md").read_text(encoding="utf-8")
     if "PURPOSE.md" in text and not (_ROOT / "PURPOSE.md").exists():
         assert "does not exist yet" in text or "doesn't exist yet" in text, (
-            "CLAUDE.md references PURPOSE.md as a mandatory governing document "
-            "but the file doesn't exist and CLAUDE.md doesn't acknowledge that — "
-            "either create PURPOSE.md or state its absence explicitly."
+            "CONTRIBUTING.md references PURPOSE.md as a mandatory governing document "
+            "but the file doesn't exist and CONTRIBUTING.md doesn't acknowledge that."
         )
 
 
 # ---------------------------------------------------------------------------
-# Every tracked README must carry the DISCLAIMER.md reference block (CLAUDE.md
-# hard rule; the 2026-07-26 audit found scripts/README.extract_phrases.md had
-# silently omitted it — a convention decays as READMEs multiply).
+# Every tracked README must carry the DISCLAIMER.md reference block
+# (CONTRIBUTING.md §5): a convention decays as READMEs multiply.
 # ---------------------------------------------------------------------------
 
 
 #: Directories a filesystem walk must never mistake for project sources.
-_UNTRACKED_DIRS = frozenset({".git", ".venv", "node_modules", "__pycache__", ".agent-tasks"})
+_UNTRACKED_DIRS = frozenset({".git", ".venv", "node_modules", "__pycache__", "_work"})
 
 
 def _tracked_readmes() -> list[str]:
@@ -262,24 +251,8 @@ def test_every_tracked_readme_references_disclaimer():
     )
     assert not missing, (
         f"README(s) missing the mandatory DISCLAIMER.md reference block: {missing}. "
-        "CLAUDE.md requires every README to reference @DISCLAIMER.md (relative to "
-        "its depth), placed after the title."
-    )
-
-
-# ---------------------------------------------------------------------------
-# Transient PENDING_* docs must state their own retirement condition, or they
-# accrete forever (2026-07-15 and 2026-07-26 audits both flagged the same one).
-# ---------------------------------------------------------------------------
-
-
-def test_pending_docs_declare_retirement_condition():
-    pending = sorted((_ROOT / "docs").glob("PENDING_*.md"))
-    missing = sorted(p.name for p in pending if "retire-when:" not in p.read_text(encoding="utf-8"))
-    assert not missing, (
-        f"PENDING doc(s) without a `retire-when:` condition: {missing}. "
-        "A deferral note must say what event retires it, or it becomes a "
-        "permanent stale doc."
+        "CONTRIBUTING.md requires every README to reference @DISCLAIMER.md (relative "
+        "to its depth), placed after the title."
     )
 
 
@@ -299,11 +272,11 @@ def test_web_manual_has_one_canonical_location_under_docs():
     assert not (_ROOT / "webapp_user_manual.md").exists()
 
 
-def test_historical_docs_live_under_archive():
-    assert (_ROOT / "docs" / "archive" / "DATABASE_SPEC.md").is_file()
-    assert (_ROOT / "docs" / "archive" / "SHOWCASE.md").is_file()
+def test_superseded_docs_do_not_reappear_at_their_old_paths():
+    """Superseded documents were relocated out of the tree; DATABASE.md is the one dictionary."""
     assert not (_ROOT / "docs" / "DATABASE_SPEC.md").exists()
     assert not (_ROOT / "docs" / "SHOWCASE.md").exists()
+    assert not (_ROOT / "docs" / "archive").exists()
 
 
 # ---------------------------------------------------------------------------
@@ -315,12 +288,6 @@ def test_readme_disclaimer_guard_sees_the_tracked_readmes():
     readmes = _tracked_readmes()
     assert "README.md" in readmes  # the root README is always tracked
     assert all(path.endswith(".md") for path in readmes)
-
-
-def test_pending_retirement_guard_detects_a_missing_condition(tmp_path):
-    doc = tmp_path / "PENDING_EXAMPLE.md"
-    doc.write_text("# pending\nno condition here\n", encoding="utf-8")
-    assert "retire-when:" not in doc.read_text(encoding="utf-8")
 
 
 def test_readme_example_documents_exist_detects_a_missing_fixture(tmp_path):
@@ -341,7 +308,7 @@ def test_env_example_completeness_check_detects_an_undocumented_var(tmp_path, mo
     assert "DOCRAY_TOTALLY_MADE_UP_VAR_FOR_THIS_TEST" not in documented
 
 
-def test_claude_md_placeholder_check_detects_a_marker():
+def test_governing_doc_placeholder_check_detects_a_marker():
     assert any(marker in "some [PROJECT] text" for marker in _TEMPLATE_MARKERS)
 
 

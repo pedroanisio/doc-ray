@@ -1,4 +1,4 @@
--- doc-ray: schema SemVer 1.45.0 — genre / type classification (SLP Block C, #6).
+-- doc-ray: schema SemVer 1.45.0 — genre / type classification (issue #6).
 --
 -- Migration 127 adds the additive `document_classification` table (a new genre
 -- axis + the input to the per-entity-type resolution policy). An additive table

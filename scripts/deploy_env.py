@@ -41,7 +41,7 @@ _PROBE_IMAGE = "nvidia/cuda:12.4.0-base-ubuntu22.04"
 #: local-infra work on a production box stays possible — it just cannot happen
 #: by reflex.
 OVERRIDE_ENV_VAR = "DOCRAY_ALLOW_LOCAL_STACK"
-#: The production env file ENVIRONMENT.md prescribes (``ln -sf .env.prod .env``).
+#: The production env file the deployment layout prescribes (``ln -sf .env.prod .env``).
 _PROD_ENV_BASENAME = ".env.prod"
 #: Hosts the base compose can actually be serving a Postgres on.
 _LOCAL_DB_HOSTS = frozenset(
@@ -101,14 +101,14 @@ def production_env_conflict(env_path: Path) -> str | None:
     The local stack and the managed deployment share the ``doc-ray`` compose
     project name, so bringing the local stack up on a production host does not
     stand a second stack beside the first — it *recreates the running one*
-    against a throwaway local Postgres. That is what happened on 2026-07-26: the
-    public site went down for about five minutes and nothing in the tooling
-    objected.
+    against a throwaway local Postgres. Done on a live host, that takes the
+    public site down for the minutes it takes to notice, and nothing in the
+    tooling objects.
 
     Two independent signals, because a host may carry either:
 
-    * ``.env`` resolves to a file named ``.env.prod`` — the layout ENVIRONMENT.md
-      prescribes for the production box (``ln -sf .env.prod .env``).
+    * ``.env`` resolves to a file named ``.env.prod`` — the layout the deployment
+      prescribes for a production host (``ln -sf .env.prod .env``).
     * ``DATABASE_URL`` names a host the base compose cannot be serving. The base
       stack only ever offers ``postgres`` on the compose network (or a loopback
       Postgres on the host network), so anything else is a managed cluster.

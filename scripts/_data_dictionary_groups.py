@@ -72,7 +72,7 @@ GROUPS: list[tuple[str, str, list[str]]] = [
         "Named-entity mentions, entity linking to a KB, and coreference chains. "
         "`entity_mention` is rebuilt from scratch by every annotate run, so human "
         "fixes live in `entity_mention_correction` — keyed by a stable span, "
-        "re-applied by the pipeline on each pass (Block A).",
+        "re-applied by the pipeline on each pass.",
         [
             "entity_mention",
             "entity_mention_correction",
@@ -82,18 +82,18 @@ GROUPS: list[tuple[str, str, list[str]]] = [
         ],
     ),
     (
-        "Genre classification (SLP Block C)",
+        "Genre classification",
         "A document's genre axis — fiction / non_fiction / mixed / unknown — "
         "orthogonal to its file format (`documents.doc_type`). A heuristic classifier "
         "writes a `pending` guess; a human confirms it (`method='human'`). This is "
         "the input to the per-entity-type resolution policy "
         "(`doc_ray.domain.genre_policy`): fictional types resolve inside the work's "
-        "lens, real-world types globally. The policy is defined here; Block D (#8) "
+        "lens, real-world types globally. The policy is defined here; the projection engine "
         "applies it.",
         ["document_classification"],
     ),
     (
-        "Projection engine (SLP Block D)",
+        "Projection engine",
         "Lens-scoped entity identity as a derived, refreshable view: "
         "`entity_projection` is one row per (mention, projecting lens) holding "
         "`project(mention, lens)` — `scope` local/global, a nullable `canonical_id` "
@@ -104,7 +104,7 @@ GROUPS: list[tuple[str, str, list[str]]] = [
         "span (survives re-annotation). A lens projects only when "
         "`document_collections.projects` is set (FR-2 designation). All are derived "
         "from the substrate + lens + policy and never mutate it (invariants 1–2). The "
-        "per-lens entity landscape lives in the Block F rollups.",
+        "per-lens entity landscape lives in the hyper-context rollups.",
         [
             "entity_projection",
             "lens_local_entity",
@@ -112,7 +112,7 @@ GROUPS: list[tuple[str, str, list[str]]] = [
         ],
     ),
     (
-        "Hyper-context rollups (SLP Block F)",
+        "Hyper-context rollups",
         "Corpus-wide sensemaking precomputed from the projections (D-024 — never a live "
         "aggregate on a read path): `lens_entity_rollup` is a lens's significant entities "
         "with mention/document volume, the observed type profile + consistency, and the "
@@ -128,7 +128,7 @@ GROUPS: list[tuple[str, str, list[str]]] = [
         ],
     ),
     (
-        "Allusion edges (SLP Block E)",
+        "Allusion edges",
         "Typed, directional cross-lens links that record a relationship without asserting "
         "identity: `entity_allusion` says one entity *alludes to / depicts / references / "
         "is adapted from / inspired by* another (e.g. a novel's Paris → the real Paris) "
@@ -269,8 +269,8 @@ GROUPS: list[tuple[str, str, list[str]]] = [
     ),
     (
         "Prism visual layer",
-        "The visual/multimodal layer over the corpus (docs/proposals/prism-visual-"
-        "layer.md), document-scoped under the same RLS as the NLP layers. Tier-1 "
+        "The visual/multimodal layer over the corpus, document-scoped under the same "
+        "RLS as the NLP layers. Tier-1 "
         "`document_image`/`image_tier1_features` are deterministic (no model). Tier-2 "
         "`image_embedding`/`sentence_vision_embedding` are HNSW-indexed vectors in one "
         "shared space for cross-modal retrieval (ranking only). Tier-3 `visual_caption` "

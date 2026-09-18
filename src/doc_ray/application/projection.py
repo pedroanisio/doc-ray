@@ -1,4 +1,4 @@
-"""The projection refresh — materialize ``project(mention, lens)`` (SLP Block D, #8).
+"""The projection refresh — materialize ``project(mention, lens)`` (issue #8).
 
 This is the application-layer orchestration behind the pure resolver
 (:mod:`doc_ray.domain.projection`). It reads a document's substrate facts, mints the
@@ -45,7 +45,7 @@ def _local_keys_for(
 ) -> list[tuple[str, str, str]]:
     """Return the distinct ``(surface_norm, type, display)`` keys that resolve LOCAL.
 
-    Uses the same Block C policy the resolver uses, so the set the adapter mints is
+    Uses the same genre classification policy the resolver uses, so the set the adapter mints is
     exactly the set :func:`project` will look up — the decision is single-sourced in
     :func:`resolution_scope`. The global lens mints nothing (it forces GLOBAL).
     """
@@ -85,7 +85,7 @@ def _project_document_into_lens(
     written = projection_store.replace_projections(conn, document_id, lens.lens_id, projections)
     projection_store.apply_reviews(conn, document_id, lens.lens_id)
     if not lens.is_global:
-        # Block F (#10): the hyper-context rollups aggregate these projections, so they
+        # The hyper-context rollups (issue #10) aggregate these projections, so they
         # are refreshed here, strictly AFTER the projection is written. Best-effort —
         # derived convenience data must never fail the projection stage.
         from doc_ray.application.lens_rollups import refresh_lens_rollup_chained
@@ -138,7 +138,7 @@ def refresh_projections_for_document(
 
 
 def refresh_projections_chained(conn: psycopg.Connection[Any], document_id: str) -> None:
-    """Rebuild a document's projections after its mentions/links change (Block D, #8).
+    """Rebuild a document's projections after its mentions/links change (issue #8).
 
     Chained after the entity-finalizing stages (canonicalize / reannotate /
     apply_corrections) so a projection is never left stale relative to the substrate.
@@ -161,7 +161,7 @@ def rebuild_all_projections(conn: psycopg.Connection[Any]) -> dict[str, Any]:
     per-document incremental refresh would not otherwise pick up corpus-wide.
     """
     conn.execute("TRUNCATE entity_projection")
-    # The Block F hyper-context rollups are derived from the projections; clear them so a
+    # The hyper-context rollups are derived from the projections; clear them so a
     # full rebuild reconstructs them from scratch (the per-document refresh below re-chains
     # the rollup refresh for each projecting scope lens).
     conn.execute("TRUNCATE lens_entity_rollup")

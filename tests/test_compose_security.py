@@ -324,21 +324,39 @@ def test_test_environment_example_and_script_are_test_stack_only():
     assert ".env.test" in gitignore_text
 
 
-def test_dockerignore_excludes_local_test_build_noise():
-    ignored = {
+def test_dockerignore_is_an_allow_list_that_admits_only_build_inputs():
+    """Everything is excluded by default; only named build/test inputs re-enter."""
+    rules = [
         line.strip()
         for line in (_ROOT / ".dockerignore").read_text(encoding="utf-8").splitlines()
         if line.strip() and not line.startswith("#")
-    }
+    ]
 
-    assert ".venv" in ignored
-    assert ".venv-proto/" in ignored
-    assert ".pytest_cache/" in ignored
-    assert ".agent-tasks/" in ignored
-    assert "backups/" in ignored
-    assert "static/*" in ignored
-    assert "!static/fixtures/" in ignored
-    assert "!static/fixtures/**" in ignored
+    assert rules[0] == "*", "the first rule must exclude everything"
+    admitted = {rule for rule in rules if rule.startswith("!")}
+    for required in (
+        "!src/",
+        "!db/",
+        "!webapp/",
+        "!pyproject.toml",
+        "!uv.lock",
+        "!static/fixtures/",
+    ):
+        assert required in admitted, required
+    # Local state and secrets are never re-admitted (env *samples* are).
+    for forbidden in ("!.env", "!.venv", "!backups/", "!_work/", "!.claude/", "!.git"):
+        offenders = [
+            rule
+            for rule in admitted
+            if (
+                rule == forbidden
+                or rule.startswith(forbidden + "/")
+                or rule.startswith(forbidden + ".")
+            )
+            and not rule.endswith(".example")
+        ]
+        assert not offenders, offenders
+    assert "**/__pycache__/" in rules
 
 
 def test_test_runner_writes_pytest_and_coverage_outputs_to_container_tmp():
@@ -376,9 +394,11 @@ def test_test_dockerfile_copies_sources_tests_and_migrations_into_the_image():
         "COPY .dockerignore .env.example .env.prod.example .env.test.example .gitignore ./" in text
     )
     # The governing documents travel together: test_doc_hygiene asserts that
-    # CLAUDE.md's references to PURPOSE.md and DISCLAIMER.md resolve, which they
-    # cannot if only CLAUDE.md reaches the image.
-    assert "COPY .pre-commit-config.yaml CLAUDE.md PURPOSE.md DISCLAIMER.md ./" in text
+    # CONTRIBUTING.md's references to PURPOSE.md and DISCLAIMER.md resolve.
+    assert (
+        "COPY .pre-commit-config.yaml .release-audit-allow.txt CLAUDE.md AGENTS.md "
+        "CONTRIBUTING.md PURPOSE.md DISCLAIMER.md ./" in text
+    )
     assert "COPY .github ./.github" in text
     assert "COPY README.md CHANGELOG.md engineering_decisions.yml uv.lock Makefile ./" in text
     assert "COPY src ./src" in text
@@ -418,9 +438,9 @@ def test_worker_has_a_real_drain_window_before_sigkill():
     """The worker's stop_grace_period must stay well above Docker's 10s default.
 
     Deploy churn with the 10s default killed long annotate jobs mid-run and
-    exhausted their max_attempts with no code failure (the 2026-07-12
-    incident); the drain-release design assumes SIGTERM gives the in-flight
-    job a real window to finish or stamp drain_requested_at.
+    exhausted their max_attempts with no code failure; the drain-release design
+    assumes SIGTERM gives the in-flight job a real window to finish or stamp
+    drain_requested_at.
     """
     worker = _compose("docker-compose.yml")["services"]["worker"]
     grace = worker.get("stop_grace_period")
@@ -609,7 +629,7 @@ def test_cloudflared_tunnel_documents_protected_admin_console_ingress():
     assert "DOCRAY_STRIPE_WEBHOOK_SECRET" in admin_readme
     assert "DOCRAY_PUBLIC_BASE_URL" in admin_readme
     assert (
-        "DOCRAY_STRIPE_SUCCESS_URL=https://admin.doc-ray.com/billing?checkout=success" in env_text
+        "DOCRAY_STRIPE_SUCCESS_URL=https://admin.example.com/billing?checkout=success" in env_text
     )
 
 

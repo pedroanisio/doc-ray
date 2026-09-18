@@ -11,7 +11,7 @@ and — because the dependency is on the *workers* — both lanes are left in
 `Created`, never started. The site keeps serving while nothing drains the queue,
 which is the quiet part of the failure.
 
-Observed twice on the production CPU host (2026-07-29). These guards pin the
+Observed on a CPU-only host. These guards pin the
 CPU-only target so the trap cannot come back.
 """
 
@@ -84,7 +84,7 @@ def test_the_cpu_target_keeps_the_caption_lane_fencing() -> None:
     """Dropping the ollama overlays must not also drop WORKER_EXCLUDE_KINDS.
 
     Without the caption overlay a general worker claims visual_caption jobs, which
-    is the failure the Makefile comment records for 2026-07-28.
+    is the failure the Makefile comment records.
     """
     assert "docker-compose.caption.yml" in _var("COMPOSE_PROD_CPU")
 

@@ -227,7 +227,7 @@ MIGRATIONS = [
     ("112_web_auth_sessions", "durable webapp auth sessions keyed by an opaque cookie id"),
     ("113_jobs_trusted_writer_enqueue", "jobs enqueue moves behind a definer (BL-141)"),
     ("114_rls_helper_bypass_owner", "SECURITY DEFINER RLS helpers run with BYPASSRLS (BL-142)"),
-    ("115_ner_corrections", "durable human NER corrections keyed by a stable span (Block A)"),
+    ("115_ner_corrections", "durable human NER corrections keyed by a stable span"),
     ("116_schema_version_1_39_0", "advance the schema SemVer to 1.39.0"),
     ("117_form_index_client_read", "grant docray_client SELECT on form_index (BL-146 fix)"),
     ("118_metadata_history_authors_field", "document metadata history admits the authors field"),
@@ -235,7 +235,7 @@ MIGRATIONS = [
     ("120_schema_version_1_40_0", "advance the schema SemVer to 1.40.0"),
     (
         "121_lens_registry",
-        "Lens Registry: is_scope/parent_lens_id/default_lens_id + global lens (Block B)",
+        "Lens Registry: is_scope/parent_lens_id/default_lens_id + global lens",
     ),
     ("122_schema_version_1_41_0", "advance the schema SemVer to 1.41.0"),
     (
@@ -255,19 +255,19 @@ MIGRATIONS = [
     ("128_schema_version_1_45_0", "advance the schema SemVer to 1.45.0 for genre classification"),
     (
         "129_entity_projection",
-        "projection engine (Block D): entity_projection + lens_local_entity + "
+        "projection engine: entity_projection + lens_local_entity + "
         "entity_projection_review + lens_entity_stats + collections.projects col (RLS + grants)",
     ),
     ("130_schema_version_1_46_0", "advance the schema SemVer to 1.46.0 for the projection engine"),
     (
         "131_allusion_edges",
-        "entity_allusion (typed cross-lens links that never assert identity, Block E) "
+        "entity_allusion (typed cross-lens links that never assert identity) "
         "+ cross-lens RLS + grants",
     ),
     ("132_schema_version_1_47_0", "advance the schema SemVer to 1.47.0 for allusion edges"),
     (
         "133_lens_rollups",
-        "hyper-context rollups (Block F): lens_entity_rollup + lens_entity_relation "
+        "hyper-context rollups: lens_entity_rollup + lens_entity_relation "
         "(co-occurrence NPMI) + RLS; supersedes/drops lens_entity_stats",
     ),
     ("134_schema_version_1_48_0", "advance the schema SemVer to 1.48.0 for hyper-context rollups"),
@@ -284,7 +284,7 @@ MIGRATIONS = [
     ),
     (
         "138_mention_confidence",
-        "nullable explainable confidence materialization on entity_mention (Block G)",
+        "nullable explainable confidence materialization on entity_mention",
     ),
     (
         "139_schema_version_1_50_0",

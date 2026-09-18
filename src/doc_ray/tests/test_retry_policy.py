@@ -1,7 +1,7 @@
 """Spec for how a failed job's exception decides its retry delay.
 
-The motivating incident: on 2026-07-30 a GPU annotate lane saturated, and 55
-documents failed with ``CUDA out of memory`` between 12:54 and 13:38. The retry
+The motivating failure: a GPU annotate lane saturated, and dozens of
+documents failed with ``CUDA out of memory`` within the same hour. The retry
 schedule at the time was 5s then 10s, so all three attempts landed inside 15
 seconds of the first — every one of them into the same saturated GPU. The jobs
 went terminal, and because ``annotate`` is the head of the pipeline chain, those
@@ -42,7 +42,7 @@ def test_host_memory_exhaustion_is_contention() -> None:
 
 
 def test_refused_connection_to_a_model_endpoint_is_contention() -> None:
-    """The 905 caption failures on 2026-07-28 were all this."""
+    """A whole caption wave lost to a refusing endpoint is this class."""
     exc = urllib.error.URLError(ConnectionRefusedError(111, "Connection refused"))
     assert classify(exc) is FailureClass.CONTENTION
 

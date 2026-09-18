@@ -1,6 +1,6 @@
 """The PDF preview requests the small WebP cover with a 1x/2x srcset.
 
-Regression cover for docs/cover-delivery-optimization.md: the list must point at
+Regression cover for docs/design/cover-delivery.md: the list must point at
 `/cover.webp` (a ~15 KB thumbnail), not the full-page render, and offer a 2x
 variant so retina cells stay crisp without over-fetching on 1x displays.
 """

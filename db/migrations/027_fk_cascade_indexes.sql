@@ -1,6 +1,6 @@
 -- doc-ray: index the FK columns the annotation delete-cascade depends on.
 --
--- Live incident (2026-07-02): re-annotating a 491k-char document wedged the
+-- Failure mode: re-annotating a ~500k-character document wedged the
 -- worker for 26+ minutes at 100% Postgres CPU. The annotator's replace-layer
 -- DELETE FROM annotations cascades to tokens, and each deleted token forces a
 -- lookup of referencing dependency rows — dependency(dependent_token_id) had

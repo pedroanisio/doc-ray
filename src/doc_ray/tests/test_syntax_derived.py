@@ -186,9 +186,9 @@ def test_non_projective_subtree_spans_its_full_extent():
 # computing. The consequences were graded: with dependents left over the node
 # survived with a span that omitted its head (silent corruption), and with none
 # left over the span had nothing to measure and ``min()`` raised — which is how
-# this reached production. Annotation of four books failed terminally on
-# 2026-07-31 (``ValueError: min() iterable argument is empty``, syntax_derived
-# line 289), stranding them at ``status='extracted'`` with the rest of the
+# this shipped. Annotation of several books failed terminally
+# (``ValueError: min() iterable argument is empty`` in ``_span``),
+# stranding them at ``status='extracted'`` with the rest of the
 # pipeline chain below them never running.
 
 

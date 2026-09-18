@@ -140,7 +140,7 @@ def test_offsets_map_back_into_full_text():
 #
 # A book index, a table of contents, or a dumped table contains no sentence
 # terminator, so the splitter found no boundary and emitted the entire run as one
-# "sentence". Measured 2026-07-29: one document stored a single 30,321-char row
+# "sentence": one document stored a single 30,000-character row
 # holding its whole index. That is silently lossy — Layer 20 embeds one vector per
 # sentence with all-mpnet-base-v2, whose 384-token window covers roughly the first
 # 1,500 characters, so ~29,000 characters had no representation in semantic search

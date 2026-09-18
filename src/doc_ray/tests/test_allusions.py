@@ -1,4 +1,4 @@
-"""Unit tests for the pure allusion-edge domain (SLP Block E, issue #9, FR-2).
+"""Unit tests for the pure allusion-edge domain (issue #9, FR-2).
 
 No database, no network. An allusion is an EDGE, never an identity equation — that
 negative invariant is the whole point of the block, so it is pinned here before any

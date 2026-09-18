@@ -42,7 +42,8 @@ from doc_ray.ports.vlm import VisionLanguageModel
 
 #: USD per 1M tokens (input, output) on DigitalOcean serverless inference.
 #: Source: https://docs.digitalocean.com/products/inference/details/pricing/
-#: (fetched 2026-07-28). Models absent here report token counts but no dollars.
+#: (prices change; re-check before relying on them). Models absent here report
+#: token counts but no dollars.
 DO_PRICES_PER_MTOK: dict[str, tuple[float, float]] = {
     "kimi-k3": (3.00, 15.00),
     "kimi-k2.6": (0.76, 3.20),
@@ -101,7 +102,7 @@ def main() -> int:
         type=float,
         default=0.0,
         help="this machine's hourly price; prices local (tokenless) models by GPU-seconds"
-        " — local inference on a paid droplet is never $0 (operator directive 2026-07-28)",
+        " — local inference on a paid host is never $0",
     )
     args = parser.parse_args()
 

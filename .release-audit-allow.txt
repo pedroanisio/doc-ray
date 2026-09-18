@@ -1,0 +1,4 @@
+# Release-audit allow-list: RULE<TAB>path[:line]<TAB>reason. Keep it short; every entry is reviewed.
+PLAN-LABEL	docs/nlp_annotation_layers.md	(P1)/(P2)/(P3) are PDTB discourse-relation levels in a worked example, not plan phases
+DIARY	src/doc_ray/tests/test_db_analyzer_postgres.py:99	the date is a fixture value in the duplicate-row example, not a diary entry
+DIARY	src/doc_ray/tests/test_operation_cadence.py:82	the date is the fixed weekday anchor the cadence test computes from

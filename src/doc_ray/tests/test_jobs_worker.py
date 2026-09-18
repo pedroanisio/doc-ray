@@ -356,7 +356,7 @@ def test_run_once_heartbeat_requests_drain_when_shutdown_is_set(qconn, monkeypat
 def test_run_once_requests_drain_promptly_despite_long_heartbeat_interval(qconn, monkeypatch):
     """The drain stamp must not wait for the next heartbeat tick.
 
-    Live failure (2026-07-12): a deploy killed workers seconds after SIGTERM,
+    The failure this pins: a deploy killed workers seconds after SIGTERM,
     while the first post-SIGTERM heartbeat was up to 15s away — the stamp never
     landed and every in-flight job burned its attempt as a "crash". The
     heartbeat thread must notice shutdown within ~1s regardless of interval.

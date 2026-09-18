@@ -1,4 +1,4 @@
-"""DB-backed tests for allusion edges (SLP Block E, #9).
+"""DB-backed tests for allusion edges (issue #9).
 
 Exercises the real schema (migration 131) against a throwaway Postgres. Pins the
 binding acceptance criteria: CRUD + bidirectional read, ``UNIQUE`` idempotence, the

@@ -1,4 +1,4 @@
--- Block A (P0) — durable human corrections to ML-produced NER, migration 115.
+-- Durable human corrections to ML-produced NER, migration 115.
 --
 -- entity_mention rows are ephemeral: ON DELETE CASCADE from annotations
 -- (migration 010), so every reannotate deletes and rebuilds them. A human fix
@@ -7,7 +7,7 @@
 -- same natural key spans already use (migration 007) — so the annotate pipeline
 -- can re-apply them onto each fresh set of ML mentions. See
 -- doc_ray.domain.ner_corrections for the deterministic reconcile that consumes
--- these rows, and docs/proposals/entity-fabric-substrate-lens-projection.md for
+-- these rows, and docs/design/entity-fabric.md for
 -- why corrections belong to the substrate.
 --
 -- PALS's LAW: this is the verification layer PURPOSE.md mandates — "AI proposes,

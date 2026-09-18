@@ -2,9 +2,9 @@
 
 REGRESSION CONTEXT. Prism Tier-1 gated on ``_is_pdf`` and returned
 ``{"skipped": "not-pdf"}`` for every other format while recording the job as
-*succeeded*. Measured 2026-07-29, that left 283 EPUBs — 43% of the corpus — with a
+*succeeded*. That left every EPUB — close to half of a mixed corpus — with a
 completely empty visual layer and no error anywhere to show it. One sampled book
-carried 141 embedded rasters totalling 4.52 MB, 68% of its own archive, and the
+carried over a hundred embedded rasters, two thirds of its own archive, and the
 corpus said it had zero images.
 
 These tests build real EPUB containers (zip + container.xml + OPF + XHTML + real

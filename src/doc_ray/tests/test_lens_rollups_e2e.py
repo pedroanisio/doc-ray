@@ -1,4 +1,4 @@
-"""End-to-end GraphQL tests for the hyper-context surface (Block F, #10).
+"""End-to-end GraphQL tests for the hyper-context surface (issue #10).
 
 Drives the real schema via ``schema.execute``: read a lens's ranked entities (with type
 profile + staleness), an entity's co-occurrence relations, and bounded N-hop discovery —

@@ -1,4 +1,4 @@
-"""Lens-registry mutations (Block B, issue #5), mixed into the ``Mutation`` root.
+"""Lens-registry mutations (issue #5), mixed into the ``Mutation`` root.
 
 Split out of :mod:`doc_ray.entrypoints.api.mutation` (D-015); ``LensMutations``
 is a Strawberry type the root ``Mutation`` inherits. A *lens* is a document
@@ -89,7 +89,7 @@ async def _deny(
 
 @strawberry.type
 class LensMutations:
-    """Promote/demote lenses and set a document's default lens (Block B)."""
+    """Promote/demote lenses and set a document's default lens."""
 
     @strawberry.mutation
     async def promote_collection_to_lens(
@@ -98,9 +98,9 @@ class LensMutations:
         collection_id: strawberry.ID,
         parent_lens_id: strawberry.ID | None = None,
     ) -> DocumentCollection:
-        """Promote a collection to a lens — a named entity-resolution scope (Block B).
+        """Promote a collection to a lens — a named entity-resolution scope.
 
-        Marks the collection ``isScope`` so a later projection layer (Block D) can
+        Marks the collection ``isScope`` so a later projection layer can
         resolve entity identity within it; nothing about resolution changes today.
         Optionally nests it under ``parentLensId``, which must already be a lens —
         nesting is recorded but resolution stays flat here. Promotion is a
@@ -192,7 +192,7 @@ class LensMutations:
         document_id: strawberry.ID,
         lens_id: strawberry.ID | None = None,
     ) -> Document:
-        """Set (or clear) a document's default lens (Block B).
+        """Set (or clear) a document's default lens.
 
         The lens must be a scope collection the document is a member of; a null
         ``lensId`` clears the default. Requires a write grant on the document

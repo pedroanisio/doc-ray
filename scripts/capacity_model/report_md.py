@@ -51,7 +51,7 @@ def _n(x: float) -> str:
 
 
 def _frontmatter(generated_on: str) -> str:
-    """Mandatory disclaimer frontmatter (project rule, CLAUDE.md §5)."""
+    """Disclaimer front matter every generated Markdown document carries."""
     return (
         "---\n"
         "disclaimer:\n"
@@ -59,8 +59,7 @@ def _frontmatter(generated_on: str) -> str:
         "    No information within this document should be taken for granted.\n"
         "    Any statement or premise not backed by a real logical definition\n"
         "    or verifiable reference may be invalid, erroneous, or a hallucination.\n"
-        f'  generated_by: "doc-ray capacity_model v{__version__} '
-        '(Claude Fable 5 via Claude Code)"\n'
+        f'  generated_by: "scripts/capacity_model v{__version__}"\n'
         f'  date: "{generated_on}"\n'
         "---\n"
     )

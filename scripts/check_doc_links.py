@@ -69,7 +69,7 @@ def tracked_markdown_files(root: Path) -> list[Path]:
             check=True,
         )
     except (OSError, subprocess.CalledProcessError):
-        excluded = {".git", ".agent-tasks", ".venv", "node_modules"}
+        excluded = {".git", ".venv", "node_modules", "_work"}
         return sorted(
             path
             for path in root.rglob("*.md")

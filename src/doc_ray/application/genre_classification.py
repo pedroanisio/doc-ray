@@ -1,4 +1,4 @@
-"""Heuristic genre classifier (SLP Block C, issue #6).
+"""Heuristic genre classifier (issue #6).
 
 Reads **deterministic, citable** signals from a document's text and metadata and
 emits a :class:`GenreClassification` — a genre, a confidence in ``[0, 1]``, the
@@ -186,7 +186,7 @@ def classify_genre(
 def handle_classify_genre(
     conn: psycopg.Connection[Any], store: ObjectStore | None, job: Job
 ) -> dict[str, Any]:
-    """Job handler: classify a document's genre from its stored full text (Block C, #6).
+    """Job handler: classify a document's genre from its stored full text (issue #6).
 
     Cheap: no model, just :func:`classify_genre` over the document's text. Writes a
     ``pending`` machine guess to ``document_classification``; a human decision

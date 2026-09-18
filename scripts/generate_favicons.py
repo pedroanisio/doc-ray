@@ -2,7 +2,7 @@
 """Generate the webapp favicon set from the doc·ray brand master.
 
 Source of truth is the brand icon (the white ``d·`` node on brand red — see
-docs/branding/doc-ray-branding-brief.md § "The icon / app mark"). This derives
+docs/design/brand.md §4 "The mark"). This derives
 the small, per-platform assets the browser and OSes actually load, so the 1.25k²
 master is never shipped to a tab. Re-run after the master changes:
 

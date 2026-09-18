@@ -48,7 +48,7 @@ def qconn():
 def test_progress_reports_do_not_ride_a_handler_opened_transaction(qconn):
     """Progress writes must not join the handler's transaction on the main conn.
 
-    Live failure (2026-07-12, BL-135): the backup handler dumps tables inside a
+    The failure this pins (BL-135): the backup handler dumps tables inside a
     minutes-long REPEATABLE READ transaction and reports progress per table.
     Those progress UPDATEs rode the main connection's open transaction, holding
     the jobs-row lock until commit — which blocked the heartbeat thread's

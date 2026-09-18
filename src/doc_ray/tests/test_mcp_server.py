@@ -22,7 +22,7 @@ _READ_TOOL_NAMES = {
     "get_job",
     "list_collections",
     "get_collection",
-    # Lens Registry (Block B): the scopes read side
+    # Lens Registry: the scopes read side
     "list_lenses",
     # corpus sizing: totals, each carrying the guarantee behind it
     "corpus_stats",
@@ -35,7 +35,7 @@ _READ_TOOL_NAMES = {
     # structure tools (BL-146): the map, and reconciled entities
     "read_document_outline",
     "entity_profiles",
-    # materialized mention-confidence review queue (Block G)
+    # materialized mention-confidence review queue
     "uncertain_mentions",
     # term-frequency pre-flight (Item 10): flood-risk before searching
     "term_frequency",
@@ -45,17 +45,17 @@ _READ_TOOL_NAMES = {
     "cross_modal_image_search",
     "visual_captions",
     "visual_review",
-    # NER-correction audit log (Block A)
+    # NER-correction audit log
     "entity_mention_corrections",
     "document_classification",
     "document_syntax",
-    # lens-scoped entity identity (Block D)
+    # lens-scoped entity identity
     "entity_projection",
     "lens_entities",
-    # hyper-context relationship discovery (Block F)
+    # hyper-context relationship discovery
     "entity_relations",
     "related_entities",
-    # cross-lens allusion edges (Block E)
+    # cross-lens allusion edges
     "allusions",
     # composition-grounding tools
     "briefing_pack",
@@ -98,14 +98,14 @@ _WRITE_TOOL_NAMES = {
     "remove_document_from_collection",
     "update_collection",
     "delete_collection",
-    # Lens Registry (Block B): the scope-curation write side
+    # Lens Registry: the scope-curation write side
     "promote_collection_to_lens",
     "demote_lens",
     "set_document_default_lens",
-    # Projection engine (Block D): human review of lens-scoped identity
+    # Projection engine: human review of lens-scoped identity
     "confirm_projection",
     "reject_projection",
-    # Allusion edges (Block E): typed cross-lens curation
+    # Allusion edges: typed cross-lens curation
     "propose_allusion",
     "confirm_allusion",
     "reject_allusion",

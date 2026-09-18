@@ -3,7 +3,7 @@
 
 ``domain/caption_text`` stops new captions carrying reasoning blocks and
 chat-template sentinels. Rows written before that fix still carry them, and an
-operator has to read them: measured 2026-07-29, 386 of 6,122 caption rows.
+operator has to read them — in one corpus, roughly one caption row in sixteen.
 
 Each affected row is repaired in place, never deleted — a rejected caption is
 still the audit trail for a paid-for API call:

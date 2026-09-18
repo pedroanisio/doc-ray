@@ -11,7 +11,7 @@ def _pdf_cover(doc: dict, title: str, icon: str, *, state: str, status_label: st
     List cells get a small WebP cover + 1x/2x srcset for the ~77px cell:
     ~15 KB, not the ~2.3 MB full-page render. The document page's large view
     keeps the full-page render via ``full_src``. See
-    docs/cover-delivery-optimization.md.
+    docs/design/cover-delivery.md.
     """
     cover = url_for("document_cover", doc_id=doc["id"], w=160)
     cover_2x = url_for("document_cover", doc_id=doc["id"], w=320)

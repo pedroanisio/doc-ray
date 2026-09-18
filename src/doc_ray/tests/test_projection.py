@@ -1,4 +1,4 @@
-"""Unit tests for the pure projection resolver (SLP Block D, issue #8, FR-3).
+"""Unit tests for the pure projection resolver (issue #8, FR-3).
 
 No database, no network. ``project()`` is the correctness core of the whole block:
 it decides *which entity a mention is, within a lens*, and every schema/adapter/API
@@ -11,7 +11,7 @@ The law (issue §5, FR-3):
     explicit unresolved.
 
 with two lens rules: the reserved ``global`` lens forces GLOBAL for every mention;
-a scope lens applies the Block C genre policy per entity type.
+a scope lens applies the genre policy per entity type.
 """
 
 from __future__ import annotations
@@ -138,7 +138,7 @@ def test_local_miss_and_global_miss_is_explicitly_unresolved():
 
 
 def test_always_global_type_in_fiction_resolves_globally():
-    # A DATE in a novel is a real-world referent (Block C ALWAYS_GLOBAL_TYPES).
+    # A DATE in a novel is a real-world referent (genre classification ALWAYS_GLOBAL_TYPES).
     m = _mention(surface="1815", etype="DATE")
     p = project(
         m,

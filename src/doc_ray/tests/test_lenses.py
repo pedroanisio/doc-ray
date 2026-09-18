@@ -1,4 +1,4 @@
-"""Unit tests for the pure lens domain (Block B, issue #5).
+"""Unit tests for the pure lens domain (issue #5).
 
 No database, no network — the reserved-name rules, name normalization, and the
 cycle-detection algorithm over ``(id, parent_id)`` pairs are all deterministic

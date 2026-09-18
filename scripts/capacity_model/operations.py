@@ -273,8 +273,8 @@ def build_operations(
         "bytes/vector",
         Source.ASSUMED,
         "conservative engineering assumption (HNSW insert dirties multiple graph "
-        "pages; repo measured a 2.7× DB-CPU penalty for row-at-a-time inserts on "
-        "this index — docs/proposals/prism-visual-layer.md:183)",
+        "pages; a 2.7× DB-CPU penalty was measured for row-at-a-time inserts on "
+        "this index in one deployment)",
         "WAL per embedding row including HNSW graph-page changes.",
         Epistemic.EMPIRICAL,
         sensitivity_key="hnsw_wal_per_insert",

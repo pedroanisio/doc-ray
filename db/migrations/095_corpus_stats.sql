@@ -1,6 +1,6 @@
 -- doc-ray: corpus stat-band rollups — kill the 16s "The Corpus" landing query.
 --
--- PROBLEM (measured live 2026-07-16 as docray_api + admin principal):
+-- PROBLEM (measured as docray_api with an admin principal):
 --   webapp GET /corpus recomputed four corpus-wide aggregates on EVERY page
 --   load. Two of them scanned the whole 17.5M-row lexeme_occurrences table:
 --     count(DISTINCT lexeme_uid)  -> 14.9 s   (index scan of all 17,559,177 rows)

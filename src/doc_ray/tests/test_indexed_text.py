@@ -1,6 +1,6 @@
 """A value bound for a unique btree must fit in one, whatever the file says.
 
-Production failure, 2026-07-28: an ingest died at "Persisting extracted
+The failure this pins: an ingest died at "Persisting extracted
 document" with
 
     index row size 3184 exceeds btree version 4 maximum 2704

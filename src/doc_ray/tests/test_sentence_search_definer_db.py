@@ -9,8 +9,8 @@ contains a search term, so the planner refuses. The index has therefore been
 dead for every RLS-subject caller since migration 018, and `enable_seqscan = off`
 does not help: the planner reports the sequential scan as the only option.
 
-Measured on production 2026-07-28: an ordinary one-word search took 3,774 ms to
-return one page of 200, reading all 1,966,114 sentences.
+Measured on a corpus of ~2M sentences: an ordinary one-word search took several
+seconds to return one page of 200, reading every sentence.
 
 **The fix.** Candidate selection moves into a `SECURITY DEFINER` function owned
 by the `BYPASSRLS` batch role, which applies the readable-document filter

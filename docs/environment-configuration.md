@@ -6,6 +6,7 @@ disclaimer:
     or verifiable reference may be invalid, erroneous, or a hallucination.
   generated_by: "Claude Opus 4.8 (1M context) via Claude Code"
   date: "2026-07-23"
+doc_type: reference
 ---
 
 # Environment Configuration — the Canonical Registry
@@ -113,7 +114,7 @@ ln -sf .env.prod .env
 
 This makes "which config does this host use?" unambiguous and removes the class
 of bug where a dev `.env` drifts into holding production values. See
-[ENVIRONMENT.md](../ENVIRONMENT.md) for the production host's specifics.
+the deployment's own host notes (kept outside the repository) for production specifics.
 
 ## Registry schema
 
@@ -299,7 +300,6 @@ the registry) instead.
 - **Add/change a var:** edit `config/env.registry.yaml` → `python scripts/gen_env_samples.py` → `pytest tests/test_env_registry.py`
 - **Validate a host:** `python scripts/check_env.py <file> [--prod]`
 - **CI gate:** `python scripts/gen_env_samples.py --check` (in the landing checklist) + `pytest tests/test_env_registry.py`
-- **Production specifics:** [ENVIRONMENT.md](../ENVIRONMENT.md)
 - **How to work in this repo:** [CLAUDE.md](../CLAUDE.md)
 
 ---

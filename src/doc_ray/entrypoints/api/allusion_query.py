@@ -1,4 +1,4 @@
-"""GraphQL read for allusion edges (SLP Block E, issue #9).
+"""GraphQL read for allusion edges (issue #9).
 
 A query group split out of ``query.py`` as its own mixin (the ``StructureQueries`` /
 ``ProjectionQueries`` pattern, D-015), mixed into the ``Query`` root. Bounded and
@@ -18,7 +18,7 @@ from doc_ray.entrypoints.api.types import AllusionEdge, Info
 
 @strawberry.type
 class AllusionQueries:
-    """Cross-lens allusion reads (SLP Block E)."""
+    """Cross-lens allusion reads."""
 
     @strawberry.field
     async def allusions(
@@ -30,7 +30,7 @@ class AllusionQueries:
         limit: int = 50,
         after: str | None = None,
     ) -> list[AllusionEdge]:
-        """Return allusion edges anchored on an entity in a lens (Block E, #9).
+        """Return allusion edges anchored on an entity in a lens (issue #9).
 
         ``direction`` = ``outgoing`` (what this entity alludes to), ``incoming`` (what
         alludes to it), or ``both`` (default). An allusion is a typed link, **never an

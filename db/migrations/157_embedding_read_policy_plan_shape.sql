@@ -7,9 +7,9 @@
 --     span_id IN (SELECT spans.id FROM spans
 --                  WHERE spans.document_id IN (SELECT docray_readable_documents()))
 --
--- Measured on the production corpus (2026-07-31, EXPLAIN as `docray_api` +
--- principal): the planner estimates that IN-list at 28,242,348 span ids — out of
--- 113,471,175 rows in `spans` — which is far past `work_mem`, so it cannot build
+-- Measured with EXPLAIN as `docray_api` with a principal on a large corpus: the
+-- planner estimates that IN-list at tens of millions of span ids — a quarter of
+-- a `spans` table with >100M rows — which is far past `work_mem`, so it cannot build
 -- a hash and falls back to
 --
 --     SubPlan 2 -> Materialize (rows=28242348)
@@ -63,7 +63,7 @@
 -- the IN-list form produced for an orphan span. `embedding.span_id` is NOT NULL,
 -- so there is no other three-valued corner.
 --
--- Measured on the production corpus, same query, `docray_api` + principal:
+-- Measured on the same corpus, same query, `docray_api` + principal:
 --     old IN-list policy      >90 s (statement timeout; the reported bug)
 --     EXISTS rewrite          >90 s (semi-join, hashed 28M span ids)
 --     scalar subquery          0.20 s

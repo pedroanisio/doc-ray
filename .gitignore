@@ -1,62 +1,54 @@
+# Generic patterns only. Anything private to one machine or one operator belongs in
+# the local working store (DOCRAY_WORK_DIR, outside the repository); paths that must
+# exist locally but never ship go in .git/info/exclude, not here.
+
+# Python / tooling
 *.pyc
+__pycache__/
+*egg-info*
 .venv
 .venv-proto/
-.repo/
-*.tar
-.agent-tasks/
 .coverage
-docs/reports/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+node_modules/
+
+# Secrets and per-host environment (samples are tracked: .env*.example)
 .env
-.env.test
-.env.uat
-.env.prod
-*egg-info*
-books/
-static/fixtures/
+.env.*
+!.env.example
+!.env.prod.example
+!.env.test.example
+*.bak.*
 .mcp.json
-docs/concept/
-docs/deploy-digitalocean.md
+pgadmin/servers.json
+.claude/settings.json
+.claude/settings.local.json
+
+# Build products and archives
+*.tar
+
+# Local scratch: the single in-repo scratch area a tool may fall back to when
+# DOCRAY_WORK_DIR is unset. Never shipped, never committed.
+_work/
+
+# Local operational data (not source): ingest staging, dumps, downloaded corpora.
+_ingest/
+.ingest-state/
 backups/
+books/
+
+# Vendored agent tooling bundle (local)
+.repo/
+
+# Documentation-hygiene tooling output (generated locally, reviewed, never committed)
+.doc-quarantine/
 doc-hygiene-report.md
 doc-quarantine.sh
-quarantine-summaries.md
 quarantine-manifest.json
-drift-risk-map.md
-drift-risk-map.svg
-_ingest/
-node_modules/
-visual-essay/
-concept-cinema/
-.claude/settings.json
-pgadmin/servers.json
-.ingest-state/
-.mypy_cache/
-out/logotype-composition-guide.yaml
-out/
-_ephemeral/
-static/faz-ai-bp.md
-static/faz-ai-bp-attachments.md
-static/faz-ai-pivot.md
-static/images/faz-ai-asset-01.png
-static/images/faz-ai-asset-03.png
-static/images/faz-ai-asset-05.jpeg
-static/images/faz-ai-asset-04.png
-static/images/faz-ai-asset-02.png
-logotype_composition_guide.yaml
-.env.prod.bak.20260723-120338
-ENVIRONMENT.md
-ENV-DEV.md
-ENV-PROD.md
-ENV-WORKER.md
-.env.prod.worker
+quarantine-summaries.md
 
-# Local lab experiments (POCs, scratch models, benchmark output) — never shipped.
-experiments/
-docs/the-delegation-of-doubt.md
-.doc-quarantine/
-.claude/settings.local.json
-# Scratch working area (probe output, downloaded corpora, archives) — never shipped.
-_work/
 # Third-party design/theme archives held for reference only. Commercially
 # licensed (ThemeForest et al.) and the licence terms are not in the archive, so
 # the bytes must never enter this repo's history. Nothing here ships: the theme

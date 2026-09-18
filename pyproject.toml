@@ -21,9 +21,12 @@ dynamic = ["version", "dependencies"]
 semantic = ["sentence-transformers>=2.2"]  # NLP Layer 20 learned sentence embeddings
 
 # src/ layout: the importable package lives under src/. The frontend (webapp/)
-# and standalone tools (scripts/) intentionally stay OUTSIDE src.
+# and standalone tools (scripts/) intentionally stay OUTSIDE src. The package's
+# own test suite is excluded from the wheel: it is run from the checkout and the
+# test image, never from an installed distribution (release-package gate).
 [tool.setuptools.packages.find]
 where = ["src"]
+exclude = ["doc_ray.tests", "doc_ray.tests.*"]
 
 [tool.setuptools.dynamic]
 version = { attr = "doc_ray.__version__" }
@@ -69,11 +72,6 @@ max-complexity = 12
 # Standalone scripts are procedural utilities: no docstrings/annotations and the
 # mccabe complexity cap does not apply.
 "scripts/**" = ["D", "ANN", "C901"]
-# Report/document builders (e.g. the illustrated-companion layout program) are
-# procedural utilities like scripts/, with long prose + coordinate literals
-# (E501) and quick json open() calls (SIM115) that a context manager would only
-# obscure.
-"docs/reports/**" = ["D", "ANN", "C901", "E501", "SIM115"]
 "webapp/**" = ["ANN"]
 # The Engine ABC's `conn` is deliberately opaque: each backend (Postgres today,
 # others later) has its own connection type, and Any is the correct contract

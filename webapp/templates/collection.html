@@ -21,7 +21,7 @@
 {% if notice %}<div class="notice">{{ notice }}</div>{% endif %}
 <section class="card">
   <h2>Lens registry</h2>
-  <p class="hint">Lenses name a scope for a future projection layer; they do not change search or entity resolution today. See <a href="https://github.com/pedroanisio/doc-ray/issues/8">Block D (#8)</a>.</p>
+  <p class="hint">A lens is a named scope for entity resolution: a document projected through it keeps work-local identities (characters, invented places) inside the lens while real-world entities resolve globally. Lenses do not change search.</p>
   <form method="post" action="{{ url_for('collection_lens_update', collection_id=collection.id) }}">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     {% if collection.is_scope %}

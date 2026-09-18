@@ -1,6 +1,6 @@
-"""Batch-side refresh for the hyper-context lens rollups (SLP Block F, #10, FR-4).
+"""Batch-side refresh for the hyper-context lens rollups (issue #10, FR-4).
 
-Aggregates the Block D projections of a lens into two derived rollups (migration 133):
+Aggregates the projection engine projections of a lens into two derived rollups (migration 133):
 
 * ``lens_entity_rollup`` — per entity: mention/document volume, the observed type
   profile + its consistency (reusing :func:`entity_profiles.dominant_type_share`), and
@@ -9,7 +9,7 @@ Aggregates the Block D projections of a lens into two derived rollups (migration
   ``from < to``) with an NPMI strength (:func:`domain.lens_rollups.npmi`).
 
 Runs on the batch connection (``docray_batch``/owner, BYPASSRLS). It strictly FOLLOWS
-Block D's projection refresh — it reads ``entity_projection`` — and is idempotent:
+the projection engine's projection refresh — it reads ``entity_projection`` — and is idempotent:
 each refresh replaces the lens's rows (DELETE + INSERT), so a full rebuild is
 byte-identical to an incremental one. No live aggregate ever runs on a read path (D-024);
 this is where the aggregation happens, at the pipeline boundary.
@@ -117,7 +117,7 @@ def refresh_lens_rollup(conn: _Conn, lens_id: str) -> dict[str, Any]:
 
     Idempotent: replaces the lens's rows. Scope lenses only — the global lens's
     corpus-wide landscape would aggregate across tenants and is served by the
-    canonical/entity_frequency surfaces (mirrors the Block D stats rule).
+    canonical/entity_frequency surfaces (mirrors the projection engine stats rule).
     """
     mention_rows = conn.execute(_MENTIONS_SQL, (lens_id,)).fetchall()
     sentence_rows = conn.execute(_SENTENCE_MAP_SQL, (lens_id,)).fetchall()

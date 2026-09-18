@@ -1,4 +1,4 @@
-"""MCP/GraphQL write surface for human NER corrections (Block A).
+"""MCP/GraphQL write surface for human NER corrections.
 
 Split out of :mod:`doc_ray.entrypoints.api.mutation` (D-015) and mixed into the
 ``Mutation`` root. One mutation: record a curator's fix to an ML-produced entity
@@ -50,7 +50,7 @@ class CorrectionMutations:
         original_type: str | None = None,
         rationale: str | None = None,
     ) -> Job:
-        """Record a durable human NER correction and enqueue its application (Block A).
+        """Record a durable human NER correction and enqueue its application.
 
         ``action`` is one of ``reclassify``, ``reject``, ``add``, ``adjust_span``.
         For ``adjust_span``, pass ``entity_type`` to retype the mention in the

@@ -1,4 +1,4 @@
-"""Schema and persistence contracts for Block G mention-confidence materialization."""
+"""Schema and persistence contracts for mention confidence mention-confidence materialization."""
 
 from __future__ import annotations
 

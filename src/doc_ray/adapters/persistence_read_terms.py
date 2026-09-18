@@ -1,4 +1,4 @@
-"""Read adapter for the term-frequency pre-flight (MCP Item 10 / #16).
+"""Read adapter for the term-frequency pre-flight (issue #16).
 
 One indexed batch read against the D-024-compliant ``lexeme_stats`` rollup — never
 the 17.5M-row ``lexeme_occurrences`` fact table (whose live aggregation was the

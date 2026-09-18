@@ -1,7 +1,7 @@
 -- doc-ray: make the tenant rollups incremental instead of full rebuilds.
 --
--- PROBLEM, measured on the production cluster (2026-07-30, single tenant,
--- 786 documents). `docray_refresh_stats_for_document()` debounced on a
+-- PROBLEM, measured on a single-tenant corpus of a few hundred documents.
+-- `docray_refresh_stats_for_document()` debounced on a
 -- ten-minute window and then rebuilt both tenant rollups from scratch:
 --
 --     DELETE FROM lexeme_stats WHERE tenant_id = tenant;

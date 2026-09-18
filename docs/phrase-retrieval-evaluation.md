@@ -6,6 +6,7 @@ disclaimer:
     or verifiable reference may be invalid, erroneous, or a hallucination.
   generated_by: "Claude Opus 5 (1M context) via Claude Code"
   date: "2026-07-28"
+doc_type: how-to
 ---
 
 # Phrase-retrieval evaluation harness
@@ -145,12 +146,14 @@ Three points the specification left ambiguous, resolved and recorded:
   different subsets, so equality is not expected and must not score as a
   correctness failure.
 
-## What the first run found
+## What a run reports
 
-The dated report is [docs/eval/phrase-retrieval-2026-07-28.md](eval/phrase-retrieval-2026-07-28.md);
-the decision is **D-035** in `engineering_decisions.yml`, status `proposed`.
+Each run writes a dated report to the path given by `--report` (by default under
+`$DOCRAY_WORK_DIR/findings/eval/`; reports are operating data and are not
+committed). The decision the first measurement produced is **D-035** in
+`engineering_decisions.yml`.
 
-Summarised: six of seven classes exceed a 5 s timeout against a 300–400 ms
+In summary, that measurement found: six of seven classes exceed a 5 s timeout against a 300–400 ms
 budget, and all seven plan a `Seq Scan` over `sentences`. The one class that
 meets the budget is the one the specification expected to be *worst* — `of it`
 fills the candidate cap immediately, so the `LIMIT` stops the scan early. A rare

@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
 """Idempotently ingest documents from a DigitalOcean Spaces (S3) bucket into doc-ray.
 
-The source bucket (default ``doc-ray-dev`` at ``sfo3.digitaloceanspaces.com``) is
-listed over the S3 API, each supported object is fetched and run through the same
-:func:`doc_ray.application.pipeline.ingest_bytes` primitive every other intake
-path uses, and the original bytes land in doc-ray's own content-addressed object
-store (``S3_ENDPOINT``/``S3_BUCKET``). The source bucket is read-only; nothing is
-written back to it. Each document records its ``s3://bucket/key`` origin in its
-metadata, so a corpus entry can always be traced back to the object it came from.
+The source bucket (``DOCRAY_SOURCE_BUCKET`` / ``--bucket``, in the region named by
+``DOCRAY_SOURCE_REGION``) is listed over the S3 API, each supported object is
+fetched and run through the same :func:`doc_ray.application.pipeline.ingest_bytes`
+primitive every other intake path uses, and the original bytes land in doc-ray's own
+content-addressed object store (``S3_ENDPOINT``/``S3_BUCKET``). The source bucket is
+read-only; nothing is written back to it. Each document records its
+``s3://bucket/key`` origin in its metadata, so a corpus entry can always be traced
+back to the object it came from.
 
 Ingest is only the first stage. Each newly ingested document is handed to
 :func:`doc_ray.application.pipeline.finalize_new_document` — the single
@@ -76,9 +77,10 @@ from doc_ray.application.pipeline import IngestResult, finalize_new_document, in
 from doc_ray.config import Config
 from doc_ray.domain.jobs import DEFAULT_PIPELINE_CHAIN
 
-DEFAULT_ENDPOINT = "https://sfo3.digitaloceanspaces.com"
-DEFAULT_BUCKET = "doc-ray-dev"
-DEFAULT_REGION = "sfo3"
+DEFAULT_REGION = "nyc3"
+DEFAULT_ENDPOINT = f"https://{DEFAULT_REGION}.digitaloceanspaces.com"
+#: No default bucket: the source bucket is a deployment value (DOCRAY_SOURCE_BUCKET).
+DEFAULT_BUCKET = ""
 DEFAULT_STATE_DIR = ".ingest-state"
 
 #: Manifest statuses that mean "already handled" — an unchanged object recorded
@@ -586,7 +588,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--bucket",
         default=os.environ.get("DOCRAY_SOURCE_BUCKET", DEFAULT_BUCKET),
-        help="Source bucket name.",
+        help="Source bucket name (or DOCRAY_SOURCE_BUCKET).",
     )
     parser.add_argument(
         "--region",
@@ -640,6 +642,9 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     """Parse arguments and run the ingest pass."""
     args = build_parser().parse_args(argv)
+    if not args.bucket:
+        print("error: no source bucket; pass --bucket or set DOCRAY_SOURCE_BUCKET", file=sys.stderr)
+        return 2
     return run(args)
 
 

@@ -7,9 +7,9 @@ security policy on `embedding`, not the vector index:
     span_id IN (SELECT spans.id FROM spans
                  WHERE spans.document_id IN (SELECT docray_readable_documents()))
 
-Measured on the production corpus (2026-07-31) with EXPLAIN as `docray_api` +
-principal, the planner could not hash that IN-list — its estimate (28,242,348
-span ids, out of 113,471,175 rows in `spans`) blows past `work_mem` — so it
+Measured on a large corpus with EXPLAIN as `docray_api` with a principal, the
+planner could not hash that IN-list — its estimate (tens of millions of span
+ids, a quarter of a >100M-row `spans` table) blows past `work_mem` — so it
 built a `Materialize` node and scanned it LINEARLY for every candidate row the
 HNSW index produced. The same plan hashed the equivalent predicate on
 `sentences` (`document_id IN (...)`, reported as `hashed SubPlan`) because that

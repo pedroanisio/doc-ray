@@ -1,4 +1,4 @@
-"""DB-backed integration tests for the Lens Registry (Block B, issue #5).
+"""DB-backed integration tests for the Lens Registry (issue #5).
 
 Exercises migration 121 against the real schema on the isolated test Postgres
 (via the ``pg`` fixture / ``_itdb``): every FR-2 integrity rule must be enforced

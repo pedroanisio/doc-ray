@@ -62,16 +62,57 @@ repos:
         pass_filenames: false
         always_run: true
 
-      - id: documentation-artifact-drift
-        name: released documentation artifact checksum gate
-        entry: python3 scripts/check_doc_artifacts.py
+      - id: documentation-quarantine-policy
+        name: documentation quarantine ignore-policy gate
+        entry: python3 scripts/check_doc_quarantine_policy.py
         language: system
         pass_filenames: false
         always_run: true
 
-      - id: documentation-quarantine-policy
-        name: documentation quarantine ignore-policy gate
-        entry: python3 scripts/check_doc_quarantine_policy.py
+      - id: release-audit-tracked-ignored
+        name: release audit C-1 — index agrees with ignore policy
+        entry: python3 scripts/check_tracked_ignored.py
+        language: system
+        pass_filenames: false
+        always_run: true
+
+      - id: release-audit-private-references
+        name: release audit C-2 — no private references in tracked files
+        entry: python3 scripts/check_private_references.py
+        language: system
+        pass_filenames: false
+        always_run: true
+
+      - id: release-audit-doc-types
+        name: release audit C-3 — every tracked document declares a shippable type
+        entry: python3 scripts/check_doc_types.py
+        language: system
+        pass_filenames: false
+        always_run: true
+
+      - id: release-audit-build-context
+        name: release audit C-4 — Docker context is an allow-list
+        entry: python3 scripts/check_build_context.py
+        language: system
+        pass_filenames: false
+        always_run: true
+
+      - id: release-audit-commit-message
+        name: release audit C-6 — commit message describes the change
+        entry: python3 scripts/check_commit_message.py
+        language: system
+        stages: [commit-msg]
+
+      - id: release-audit-secrets
+        name: release audit C-7 — no credentials, keys or oversized files
+        entry: python3 scripts/check_secrets.py
+        language: system
+        pass_filenames: false
+        always_run: true
+
+      - id: release-audit-front-door
+        name: release audit C-8 — front-door documents agree with the tree
+        entry: python3 scripts/check_front_door.py
         language: system
         pass_filenames: false
         always_run: true

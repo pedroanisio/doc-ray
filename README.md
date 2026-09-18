@@ -1,3 +1,14 @@
+---
+disclaimer:
+  notice: >-
+    No information within this document should be taken for granted.
+    Any statement or premise not backed by a real logical definition
+    or verifiable reference may be invalid, erroneous, or a hallucination.
+  generated_by: "doc-ray maintainers"
+  date: "2026-09-18"
+doc_type: readme
+---
+
 # doc-ray
 
 doc-ray is a **living library and knowledge base**: it ingests documents into a
@@ -163,7 +174,7 @@ report bounded candidates plus `surface_word_v1` verified sentence/occurrence
 counts, so an agent picks a rarer candidate without trusting substring noise) /
 `job` / `jobs` /
 `documentMetadataSuggestions` / `collections` / `collection` /
-`lenses` (the collections marked as entity-resolution scopes — Block B) /
+`lenses` (the collections marked as entity-resolution scopes) /
 `briefingPack` (gap-honest cited evidence composition) /
 `documentImages` / `imageClassSummary` / `visualCaptions` / `visualReview` /
 `crossModalImageSearch` (Prism visual-layer reads) / `billingStatus` /
@@ -213,17 +224,17 @@ and
 exact case-sensitive surface/current-type matcher, so they are re-applied on
 every re-annotation instead of being overwritten by it — see
 [Correcting the model's entities](#correcting-the-models-entities) below.
-Genre classification (SLP Block C — the input to per-entity-type identity
+Genre classification (the input to per-entity-type identity
 resolution): `documentClassification(documentId:)` (read the genre axis —
 fiction / non_fiction / mixed / unknown), `classifyDocument(documentId:)`
 (enqueue a heuristic classifier that writes a `pending` machine guess), and
 `confirmDocumentClassification(documentId:, genre:, subtype:, rationale:)`
 (a human confirmation → `status='confirmed'`, `method='human'`). A `pending`
 genre is an unverified guess, never relied on for identity; only a human
-confirmation asserts it. This block defines the policy the projection engine
-(Block D, shipped) consumes: in a fiction work, work-local types resolve inside the
+confirmation asserts it. This defines the policy the projection engine
+consumes: in a fiction work, work-local types resolve inside the
 work's lens; real-world types resolve globally.
-Projection engine (SLP Block D — lens-scoped entity identity):
+Projection engine (lens-scoped entity identity):
 `entityProjection(documentId:, lensId:)` (read `project(mention, lens)` for a
 document through a lens — `scope` local/global, `canonicalId` null when
 explicitly unresolved, `status` proposed/confirmed/rejected; omit `lensId` to use
@@ -233,7 +244,7 @@ the document's default lens, else `global`) /
 refresh job) / `setLensProjects(lensId:, projects:)` (designate a lens as
 projecting — only designated lenses are materialized). Every machine projection is
 `proposed` until a human confirms it (PALS's Law); the substrate is never mutated.
-Allusion edges (SLP Block E — typed cross-lens links that never assert identity):
+Allusion edges (typed cross-lens links that never assert identity):
 `allusions(canonicalId:, lensId:, direction:, limit:, after:)` (read an entity's
 edges — `direction` outgoing/incoming/both) / `proposeAllusion(fromCanonicalId:,
 fromLensId:, toCanonicalId:, toLensId:, edgeType:, evidenceDocumentId:, confidence:,
@@ -242,7 +253,7 @@ that one entity *alludes to / depicts / references / is adapted from / inspired 
 another (e.g. a novel's Paris → the real Paris) **without merging them** — an edge
 is not an equality, changes nothing about identity, and is never transitive.
 Machine-proposed edges land `proposed` until confirmed.
-Hyper-context (SLP Block F — per-lens sensemaking over the projected graph):
+Hyper-context (per-lens sensemaking over the projected graph):
 `lensEntities(lensId:, limit:, after:, minMentions:)` (a lens's significant entities,
 most-mentioned first, with type profile + consistency, first-seen ordinal, and a
 `refreshedAt` staleness stamp) / `entityRelations(lensId:, canonicalId:, limit:,
@@ -400,10 +411,10 @@ lens holds real-world (Wikidata-linkable) identities shared corpus-wide; a *scop
 lens* groups the documents whose fictional identities belong together.
 
 A lens is not a new structure — it is a `document_collection` you **promote**.
-Block B shipped this lens vocabulary; the projection engine (Block D, shipped) now
+The lens registry shipped this lens vocabulary; the projection engine now
 consumes it to resolve entity identity per lens — a fiction work's entities stay
 local to its lens, real-world entities stay global. See
-[`docs/proposals/entity-fabric-substrate-lens-projection.md`](docs/proposals/entity-fabric-substrate-lens-projection.md).
+[`docs/design/entity-fabric.md`](docs/design/entity-fabric.md).
 
 Promote a collection, optionally set a document's default lens, and read the
 scopes back:
@@ -590,8 +601,8 @@ validated by the SHACL/YAML toolchain vendored under
 
 ```bash
 python engineering/schema/scripts/validate_decisions.py engineering_decisions.yml   # fast YAML gate
-python engineering/schema/scripts/yml_to_rdf.py engineering_decisions.yml > /tmp/ed.ttl
-python engineering/schema/scripts/shacl_validate.py /tmp/ed.ttl                      # full SHACL gate
+python engineering/schema/scripts/yml_to_rdf.py engineering_decisions.yml > _work/ed.ttl
+python engineering/schema/scripts/shacl_validate.py _work/ed.ttl                     # full SHACL gate
 ```
 
 Current decisions (see the record for rationale, claims, and auditable checks):
@@ -615,23 +626,22 @@ Current decisions (see the record for rationale, claims, and auditable checks):
 | D-015 | Every source file stays under 400 net lines of code |
 | D-016 | `engineering_decisions.yml` is the ADR system of record |
 
-_These are the foundational decisions; the full, current ADR set runs through **D-034**
+_These are the foundational decisions; the full, current ADR set runs through **D-036**
 (e.g. D-024 supply-chain lock gate, D-025 no live fact-table aggregates, D-033/D-034
-surface parity). See [`engineering_decisions.yml`](engineering_decisions.yml) — the
+surface parity, D-036 touch targets). See [`engineering_decisions.yml`](engineering_decisions.yml) — the
 system of record (D-016) — for all of them._
 
 ## Quality gates
 
 Enforced by [`.pre-commit-config.yaml`](.pre-commit-config.yaml) and CI
-(`.github/workflows/ci.yml`), configured in [`pyproject.toml`](pyproject.toml):
+(`.github/workflows/ci.yml`), configured in [`pyproject.toml`](pyproject.toml).
+The complete landing checklist, with what each gate checks, is in
+[`CONTRIBUTING.md`](CONTRIBUTING.md); the short form:
 
 ```bash
 pip install -r requirements-dev.txt && pre-commit install
-ruff check src scripts webapp                                   # D-011 (lint + docstrings)
-mypy src                                                        # D-012 (strict)
-pytest --cov=doc_ray --cov-fail-under=90 tests src/doc_ray/tests # D-013 (>=90%)
-python scripts/check_file_size.py src/doc_ray webapp scripts    # D-015 (<=400 net LOC)
-uv lock --check                                                 # D-024 (uv.lock drift, BL-114)
+make check          # every gate incl. pytest (make check-static skips pytest)
+uv lock --check     # D-024 (uv.lock drift, BL-114)
 ```
 
 CI and the Docker image install the runtime dependency set from the committed
@@ -640,8 +650,8 @@ CI and the Docker image install the runtime dependency set from the committed
 
 ### Dockerized test environment
 
-Do not run the test suite against the current/UAT Compose stack. Use the
-isolated test project instead:
+Do not run the test suite against a live Compose stack. Use the isolated test
+project instead:
 
 ```bash
 scripts/test-in-docker.sh
@@ -670,4 +680,3 @@ override.
 - **Semantic / RAG search**: add `CREATE EXTENSION vector;` plus a
   `document_chunks(document_id, chunk_text, embedding vector(N))` table with an
   HNSW index — no migration off Postgres.
-```

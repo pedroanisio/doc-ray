@@ -232,7 +232,7 @@ def test_api_schema_exposes_author_edit_and_collection_lifecycle() -> None:
 
 
 def test_api_schema_exposes_the_ner_correction_surface() -> None:
-    """Block A: record a correction (mutation) and read the log back (query)."""
+    """The NER-correction log: record a correction (mutation) and read the log back (query)."""
     from doc_ray.entrypoints.api.schema import build_schema as _bs
 
     sdl = _bs(debug=True).as_str()
@@ -246,7 +246,7 @@ def test_api_schema_exposes_the_ner_correction_surface() -> None:
 
 
 def test_api_schema_exposes_the_lens_registry_surface() -> None:
-    """Block B: promote/demote lenses, set a default, and read scopes back."""
+    """The lens registry: promote/demote lenses, set a default, and read scopes back."""
     from doc_ray.entrypoints.api.schema import build_schema as _bs
 
     sdl = _bs(debug=True).as_str()

@@ -39,9 +39,9 @@ _API_ONLY_ALLOWLIST: dict[str, str] = {
     "auditEvents": "The admin-console Audit page is the dedicated human surface.",
     # Both UIs resolve the deployment toggle locally; the admin console also queries it.
     "backupEnabled": "Webapp nav uses the same env capability; admin-console queries this field.",
-    # Cross-lens allusion edges (SLP Block E) are an agent/API + MCP curation primitive;
+    # Cross-lens allusion edges are an agent/API + MCP curation primitive;
     # the read webapp does not yet surface them.
-    "allusions": "Cross-lens allusion edges are an agent/MCP retrieval primitive (Block E).",
+    "allusions": "Cross-lens allusion edges are an agent/MCP retrieval primitive.",
     # Billing is intentionally isolated in the privileged operator console.
     "billingEvents": "The admin-console Billing page is the dedicated human surface.",
     "billingStatus": "The admin-console Billing page is the dedicated human surface.",
@@ -59,19 +59,19 @@ _API_ONLY_ALLOWLIST: dict[str, str] = {
     "deleteOperationSchedule": "The admin-console Operations page deletes recurring schedules.",
     # Review uses the bounded canonical resolver; fuzzy registry discovery stays agent/API-only.
     "canonicalSearch": "The Review page uses canonical; fuzzy registry search is agent/API-only.",
-    # Genre classification (SLP Block C) is an agent/API + MCP curation action; the read
-    # webapp does not yet surface genre (this block defines the policy, Block D applies it).
-    "classifyDocument": "Genre classification is an agent/API + MCP curation action (Block C).",
+    # Genre classification is an agent/API + MCP curation action; the read
+    # webapp does not yet surface genre (classification defines the policy; projection applies it).
+    "classifyDocument": "Genre classification is an agent/API + MCP curation action.",
     "confirmDocumentClassification": (
-        "Human genre confirmation is an agent/API + MCP verification action (Block C)."
+        "Human genre confirmation is an agent/API + MCP verification action."
     ),
-    # Lens-scoped identity review (SLP Block D) is an agent/API + MCP verification action;
+    # Lens-scoped identity review is an agent/API + MCP verification action;
     # the read webapp does not yet surface projections.
-    "confirmProjection": "Projection confirmation is an agent/API + MCP review action (Block D).",
+    "confirmProjection": "Projection confirmation is an agent/API + MCP review action.",
     "correctEntitySurface": (
         "Systematic exact-surface correction is an agent/API + MCP curation action (#41)."
     ),
-    "confirmAllusion": "Allusion confirmation is an agent/API + MCP review action (Block E).",
+    "confirmAllusion": "Allusion confirmation is an agent/API + MCP review action.",
     # Shards are orchestration primitives rather than an end-user corpus interaction.
     "corpusManifest": "Deterministic fan-out metadata is an agent/operations primitive.",
     "corpusShard": "Deterministic shard traversal is an agent/operations primitive.",
@@ -84,8 +84,8 @@ _API_ONLY_ALLOWLIST: dict[str, str] = {
     # Hard deletion is deliberately absent from the general corpus browser.
     "deleteDocument": "Permanent deletion is API/operator-only; the browser offers archive.",
     # The genre axis is an agent/MCP retrieval primitive; the read webapp does not yet
-    # surface it (Block C defines the resolution policy, Block D applies it).
-    "documentClassification": "The genre axis is an agent/MCP retrieval primitive (Block C).",
+    # surface it (classification defines the resolution policy; projection applies it).
+    "documentClassification": "The genre axis is an agent/MCP retrieval primitive.",
     # Reader/operator pages render this audit trail from the RLS-scoped table directly.
     "documentMetadataHistory": "Reader and operator pages load metadata history through SQL.",
     # Outline is a compact agent retrieval primitive; people read the anchored document view.
@@ -105,44 +105,42 @@ _API_ONLY_ALLOWLIST: dict[str, str] = {
     ),
     # Structured profiles are optimized for agent traversal, while the reader shows entities.
     "entityProfiles": "Entity profiles are an agent/MCP structural-retrieval primitive.",
-    # Lens-scoped identity (SLP Block D) is an agent/MCP retrieval primitive; the read
+    # Lens-scoped identity is an agent/MCP retrieval primitive; the read
     # webapp does not yet surface projections.
-    "entityProjection": "Lens-scoped identity is an agent/MCP retrieval primitive (Block D).",
+    "entityProjection": "Lens-scoped identity is an agent/MCP retrieval primitive.",
     # Browser keyword search uses its established direct-SQL sentence query.
     "fullTextSearch": "Search and Briefing provide human retrieval through their own bindings.",
-    # Per-lens entity survey (SLP Block D/F) is an agent/MCP retrieval primitive.
-    "lensEntities": "The per-lens entity rollup is an agent/MCP retrieval primitive (Block D/F).",
-    # Hyper-context relationship discovery (SLP Block F) is an agent/MCP retrieval primitive.
-    "entityRelations": "Co-occurrence relations are an agent/MCP retrieval primitive (Block F).",
-    "relatedEntities": "Bounded N-hop discovery is an agent/MCP retrieval primitive (Block F).",
+    # Per-lens entity survey is an agent/MCP retrieval primitive.
+    "lensEntities": "The per-lens entity rollup is an agent/MCP retrieval primitive.",
+    # Hyper-context relationship discovery is an agent/MCP retrieval primitive.
+    "entityRelations": "Co-occurrence relations are an agent/MCP retrieval primitive.",
+    "relatedEntities": "Bounded N-hop discovery is an agent/MCP retrieval primitive.",
     # Fleet-wide re-extraction is privileged and lives in the admin console.
     "reextractDocuments": "The admin-console Jobs page exposes this admin-only batch action.",
     # The collection member form owns the same relation through RLS-scoped SQL.
     "removeDocumentFromCollection": "The Collections page removes members through SQL.",
     # Restore is intentionally an API/operator recovery verb, not a general-user action.
     "restoreDocument": "Deleted-document recovery is API/operator-only; browser lists active docs.",
-    # Lens-scoped identity review (SLP Block D) is an agent/API + MCP verification action.
-    "rejectProjection": "Projection rejection is an agent/API + MCP review action (Block D).",
-    "proposeAllusion": "Proposing a cross-lens allusion is an agent/API curation action (Block E).",
-    "rejectAllusion": "Allusion rejection is an agent/API + MCP review action (Block E).",
+    # Lens-scoped identity review is an agent/API + MCP verification action.
+    "rejectProjection": "Projection rejection is an agent/API + MCP review action.",
+    "proposeAllusion": "Proposing a cross-lens allusion is an agent/API curation action.",
+    "rejectAllusion": "Allusion rejection is an agent/API + MCP review action.",
     # Billing-event replay is a privileged control in the admin console.
     "retryBillingEvent": "The admin-console Billing page exposes this admin-only retry.",
     # Browser keyword search performs the same RLS-scoped sentence read through SQL.
     "searchSentences": "The Search page binds sentence search through its indexed SQL read.",
     # The seeding and unified review pages read the proposal table directly.
     "seedSuggestions": "Seeding and Review pages render suggestions through RLS-scoped SQL.",
-    # Lens projection designation (SLP Block D) is an agent/API curation action.
-    "setLensProjects": "Designating a projecting lens is an agent/API curation action (Block D).",
+    # Lens projection designation is an agent/API curation action.
+    "setLensProjects": "Designating a projecting lens is an agent/API curation action.",
     # The reader's word-frequency panel uses bounded direct SQL over the same document.
     "termFrequency": (
         "Verified corpus pre-flight is an agent/API + MCP retrieval primitive; "
         "the reader separately renders per-document word frequency through SQL."
     ),
-    # Block G deliberately ships agent/API review access first; its issue excludes
+    # mention confidence deliberately ships agent/API review access first; its issue excludes
     # a dedicated browser queue while retaining correctEntityMention as the action.
-    "uncertainMentions": (
-        "Mention-confidence triage is an agent/API + MCP review primitive (Block G)."
-    ),
+    "uncertainMentions": ("Mention-confidence triage is an agent/API + MCP review primitive."),
     # Collection editing remains within the existing direct-SQL web flow.
     "updateCollection": "The Collections page edits collection state through its SQL route.",
 }

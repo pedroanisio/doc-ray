@@ -2,16 +2,12 @@
 
 `_TERM_FREQ_SQL` computed `total_uses` as a live `SUM(uses)` over the whole
 `lexeme_stats` table on every call. That is the read-path fact-table aggregate
-D-024 forbids, and forced RLS makes it ruinous rather than merely slow —
-measured on the production corpus (2026-07-30, 444,294 lexeme rows):
-
-    docray_batch (BYPASSRLS)          2.0 s
-    docray_api + principal context   22.9 s   <- the real API path
-
-Against the 15-second statement timeout every `term_frequency` call failed,
-including single ordinary words, and an agent abandoned the tool for
-`full_text_search`. The denominator now comes from `corpus_stats`, the same
-place migration 142 put the sentence denominator.
+D-024 forbids, and forced RLS makes it ruinous rather than merely slow: under
+the API role with a principal context the aggregate runs an order of magnitude
+slower than under the batch role, so on a large corpus every `term_frequency`
+call — including single ordinary words — exceeded the statement timeout. The
+denominator now comes from `corpus_stats`, the same place migration 142 put the
+sentence denominator.
 """
 
 from __future__ import annotations
@@ -19,15 +15,12 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-import yaml
-
 _ROOT = Path(__file__).resolve().parents[3]
 _ADAPTER = (_ROOT / "src" / "doc_ray" / "adapters" / "persistence_read_terms.py").read_text(
     encoding="utf-8"
 )
 
-#: Every source file that cites the backlog id for this fix. They must agree, and
-#: the id they name must be the one the backlog actually assigns to this work.
+#: Every source file that cites the issue id for this fix. They must agree.
 _CITING_SOURCES: tuple[str, ...] = (
     "src/doc_ray/adapters/persistence_read_terms.py",
     "scripts/check_read_path_aggregates.py",
@@ -61,35 +54,6 @@ def _fix_release() -> str:
             assert match, f"unparseable schema-version marker {path.name}"
             return ".".join(match.groups())
     raise AssertionError("no schema-version migration mentions total_lexeme_uses")
-
-
-def _backlog_items() -> list[dict]:
-    doc = yaml.safe_load((_ROOT / "docs" / "backlog.yml").read_text(encoding="utf-8"))
-    return list(doc["items"])
-
-
-#: The migration this fix is built on. Used to locate the backlog entry by what it
-#: REFERENCES rather than by id, so the lookup cannot be satisfied by an unrelated
-#: issue that merely discusses denominators.
-_FIX_MIGRATION = "db/migrations/152_corpus_stats_total_lexeme_uses.sql"
-
-
-def _denominator_item() -> dict:
-    """The backlog entry that records THIS fix, located by reference not by id.
-
-    Found by reference deliberately: a hardcoded id would pass even if that id
-    collided with an unrelated issue — the exact defect the citation tests below
-    exist to catch — and a keyword match is too loose, since several older items
-    discuss read-path denominators without being this fix.
-    """
-    matches = [
-        item for item in _backlog_items() if _FIX_MIGRATION in (item.get("references") or [])
-    ]
-    assert len(matches) == 1, (
-        "expected exactly one backlog item referencing "
-        f"{_FIX_MIGRATION}, found {len(matches)}: {[m['id'] for m in matches]}"
-    )
-    return matches[0]
 
 
 def test_the_denominator_is_read_from_the_maintained_rollup() -> None:
@@ -187,7 +151,7 @@ def test_the_d024_guard_would_catch_this_class() -> None:
 
 
 # --------------------------------------------------------------------------
-# The fix must be traceable: a real backlog id, one release, and docs that say
+# The fix must be traceable: one issue id, one release, and docs that say
 # where the denominator now comes from. A correct patch nobody can find again is
 # how the same read-path aggregate gets reintroduced.
 # --------------------------------------------------------------------------
@@ -200,39 +164,9 @@ def test_every_source_cites_the_same_backlog_id() -> None:
         ids = set(_BL_ID_RE.findall((_ROOT / rel).read_text(encoding="utf-8")))
         if ids:
             cited[rel] = ids
-    assert cited, "the fix must cite a backlog id somewhere"
+    assert cited, "the fix must cite an issue id somewhere"
     union: set[str] = set().union(*cited.values())
-    assert len(union) == 1, f"sources disagree on the backlog id for this fix: {cited}"
-
-
-def test_the_cited_backlog_id_is_the_one_assigned_to_this_fix() -> None:
-    """Citing an id that belongs to an unrelated issue is worse than citing none.
-
-    The first draft of this fix cited an id docs/backlog.yml had already assigned
-    to the "Tracked ENVIRONMENT.md symlink dangles in every clean checkout" docs
-    bug, so anyone following the citation landed on the wrong issue. The literal
-    id is deliberately not repeated here: this file is one of the sources the
-    scan above reads, and a second id in it would be indistinguishable from the
-    drift these tests exist to catch.
-    """
-    cited = set()
-    for rel in _CITING_SOURCES:
-        cited |= set(_BL_ID_RE.findall((_ROOT / rel).read_text(encoding="utf-8")))
-    assert len(cited) == 1
-    cited_id = cited.pop()
-    assert cited_id == _denominator_item()["id"], (
-        f"sources cite {cited_id}, but the backlog entry describing this fix is "
-        f"{_denominator_item()['id']}"
-    )
-
-
-def test_the_cited_id_is_not_shared_with_another_issue() -> None:
-    """The id must be unique in the backlog, or the citation is ambiguous."""
-    item_id = _denominator_item()["id"]
-    holders = [item for item in _backlog_items() if item["id"] == item_id]
-    assert len(holders) == 1, (
-        f"{item_id} is assigned to {len(holders)} different issues: {[h['title'] for h in holders]}"
-    )
+    assert len(union) == 1, f"sources disagree on the issue id for this fix: {cited}"
 
 
 def test_the_release_is_recorded_in_the_changelog() -> None:
