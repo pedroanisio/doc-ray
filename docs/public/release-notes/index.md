@@ -22,6 +22,10 @@ status: "current"
 What changed in each version, newest first. Each entry states who a change affects
 and any action required.
 
+- **[1.57.4](1.57.4.md)** — library-wide statistics follow the library again; the
+  step that keeps them current had been running without the access it needs and
+  reported success while changing nothing (**migration required**, the rebuild
+  runs inside it).
 - **[1.57.3](1.57.3.md)** — documents no longer halt at "Annotate text" on an
   unusual sentence, leaving the rest of the pipeline unrun (**migration required**,
   re-run analysis on any document already in that state).

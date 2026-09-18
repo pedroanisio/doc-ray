@@ -428,4 +428,17 @@ MIGRATIONS = [
         "advance the schema SemVer to 1.57.3 — Layer 9 constituents keep their "
         "own head token, so spans written before it may understate their start",
     ),
+    (
+        "162_rollup_helpers_owned_by_batch",
+        "assign the three per-document rollup helpers from migration 154 to "
+        "docray_batch, verify the batch-owner/RLS invariant, and rebuild every "
+        "tenant's rollups once: SECURITY DEFINER runs as the owner, and owned by "
+        "docray (not BYPASSRLS) each helper read its inputs through forced RLS with "
+        "no principal, saw zero rows, computed an empty delta and wrote nothing — "
+        "raising nothing while the driver stamped corpus_stats fresh",
+    ),
+    (
+        "163_schema_version_1_57_4",
+        "advance the schema SemVer to 1.57.4 — the per-document rollup helpers run as docray_batch",
+    ),
 ]

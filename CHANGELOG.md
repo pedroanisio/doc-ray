@@ -154,6 +154,36 @@ doc-ray carries **one global version** covering both the application package
      original and renders its first-page cover; non-PDFs say "Text extraction
      failed", which is what actually happened.
 
+## [1.57.4]
+
+### Fixed
+
+- **Library-wide statistics silently stopped following the corpus again — this
+  time without a single error.** Migration 154's three per-document rollup
+  helpers (`docray_refresh_document_lexeme_stats`,
+  `docray_refresh_document_entity_frequency_stats`,
+  `docray_unapply_document_rollups`) are `SECURITY DEFINER` but were never
+  assigned an owner, so on a managed cluster they belonged to `docray`, which
+  does not bypass row-level security. A definer runs as its owner: each helper
+  read its inputs through forced RLS with no tenant and no principal, saw zero
+  rows, computed "this document contributes nothing", and its `WHERE diff <> 0`
+  wrote nothing — no policy fired, nothing was raised, and the driver still
+  stamped `corpus_stats.computed_at` fresh. Migration 159 had made the helpers
+  callable; it did not change who they ran as.
+
+  Migration 162 assigns all three to `docray_batch`, refuses to complete if any
+  of them is still owned by a role RLS blinds, and rebuilds every tenant's
+  rollups once from the maintained inputs, because the deltas the inert helpers
+  dropped cannot be replayed. Migration 163 carries the version: function
+  ownership decides which role a definer body runs as, so it is part of the
+  schema contract.
+
+  `src/doc_ray/tests/test_rollup_helper_ownership.py` now pins the rule at
+  authoring time — every `SECURITY DEFINER` helper defined after migration 114's
+  ownership sweep that writes a bypass-only rollup must declare
+  `OWNER TO docray_batch` in the migration text — and, on a database, that the
+  shipped helpers are owned by that role.
+
 ## [1.57.3]
 
 ### Fixed

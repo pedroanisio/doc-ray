@@ -11,7 +11,7 @@ doc_type: "troubleshooting"
 audience: ["end-user", "developer", "integrator"]
 surfaces: ["api", "mcp"]
 classification: "public"
-applies_to: "1.57.3"
+applies_to: "1.57.4"
 owner: "documentation-maintainer"
 last_reviewed: "2026-07-29"
 status: "current"

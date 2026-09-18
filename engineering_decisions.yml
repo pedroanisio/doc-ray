@@ -53,7 +53,7 @@ source_schema:         "db/migrations"
 # 1.47.0 allusion edges (131), 1.48.0 hyper-context rollups (133).
 # Kept in lockstep with doc_ray.__version__
 # by scripts/check_version_consistency.py.
-source_schema_version: "1.57.3"
+source_schema_version: "1.57.4"
 target_engine:         "PostgreSQL 16"
 total_decisions:       36
 
@@ -2355,7 +2355,7 @@ decisions:
   - id: D-037
     title: The browser's visual language is authored on its own tokens, and inline style is a scoped exception
     version_introduced: 1.57.3
-    category: architecture
+    category:           "code-quality"
     decision: 'A vendored commercial admin theme (Bootstrap 5 + jQuery + ~55 plugins,
       Blade views, a 1.1 MB compiled stylesheet with no SCSS sources and ~3,272
       `!important` declarations) was evaluated as a source for the Flask browser and
