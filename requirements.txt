@@ -1,7 +1,7 @@
-psycopg[binary]==3.2.*
+psycopg[binary]==3.3.*
 psycopg-pool==3.3.*
-boto3==1.34.*
-pypdf==4.*
+boto3==1.44.*
+pypdf==7.*
 pymupdf==1.*
 # EPUB/DOCX extraction (adapters/extraction) — zip/XML parsing hardened against
 # entity-expansion attacks (BL-088); previously only an undeclared transitive dep.
@@ -10,16 +10,16 @@ defusedxml==0.7.*
 python-pptx==1.0.*
 
 # GraphQL API (entrypoints/api) — read-only surface over the store.
-strawberry-graphql[fastapi]==0.320.*
-fastapi==0.139.*
-uvicorn[standard]==0.49.*
+strawberry-graphql[fastapi]==0.334.*
+fastapi==0.162.*
+uvicorn[standard]==0.54.*
 python-multipart==0.0.*
 
 # MCP server (entrypoints/mcp) — Streamable-HTTP corpus tools for agentic AI.
 # Fronts the GraphQL API only: FastMCP builds a Starlette app whose bearer
 # middleware forwards each caller's token to /graphql (RLS-scoped). No new DB
 # access. Brings starlette/sse-starlette (already transitive via fastapi).
-mcp==1.28.*
+mcp==2.3.*
 
 # Entity canonicalization (domain/canonical_norm) — form_norm transliteration.
 Unidecode==1.4.*
@@ -30,12 +30,12 @@ httpx==0.28.*
 Flask==3.1.*
 # Production WSGI server for the Flask webapp. `flask run` (Werkzeug) is a
 # development server only; docker-compose.prod.yml runs the webapp under gunicorn.
-gunicorn==23.0.*
+gunicorn==27.0.*
 # Local self-service auth password hashing. Argon2id is the accepted password
 # hashing scheme for first-party credentials.
-argon2-cffi==23.*
+argon2-cffi==25.*
 # Frontier entity resolver (adapters/resolver_claude) — worker-only, lazy-imported.
-anthropic==0.113.*
+anthropic==2.10.*
 
 # Stage-1 NLP annotation (adapters/annotation_spacy) — required by the WORKER so the
 # 'annotate' job can produce entity mentions in production, not only via host CLIs.
@@ -63,7 +63,7 @@ pt_core_news_sm @ https://github.com/explosion/spacy-models/releases/download/pt
 # only as a failing job at runtime; declaring it makes the worker image able to
 # run the kind it already dispatches. torch is already pulled in above by
 # spacy[transformers]; this adds torchvision/timm on top.
-open_clip_torch==3.*
+open_clip_torch==4.*
 # NLP Layer 20 learned sentence encoder (adapters/text_encoder_sentence_transformers)
 # — the `semantic_embed` job handler imports it lazily. Same rationale as
 # open_clip_torch above: torch + transformers are already base deps (spacy above),
@@ -71,7 +71,7 @@ open_clip_torch==3.*
 # installs optional extras — leaving it in `.[semantic]` alone made every embed job
 # fail with SemanticStackUnavailableError on the worker. Baking it in mirrors the
 # Prism encoder and makes the worker able to run the job it already dispatches.
-sentence-transformers==5.*
+sentence-transformers>=5,<7
 
 # Column-aware patent OCR (ports/patent_text_source, opt-in via
 # DOCRAY_PATENT_EXTRACTION). A patent front page is two columns; the ordinary
