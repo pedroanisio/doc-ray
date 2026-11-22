@@ -3,7 +3,7 @@
 # BL-039's Postgres pin); tests/test_compose_security.py guards the pins. To
 # bump: resolve the new index digest with
 #   docker buildx imagetools inspect python:3.12-slim
-FROM python:3.12-slim@sha256:423ed6ab25b1921a477529254bfeeabf5855151dc2c3141699a1bfc852199fbf AS deps
+FROM python:3.15-slim@sha256:65a65fc7b30b06cb6df4930fd4650697cb23f4c2698ab81fc87e4b031bc36928 AS deps
 
 # The uv binary rides in only for this stage, pinned by digest like the bases.
 COPY --from=ghcr.io/astral-sh/uv:0.10.9@sha256:10902f58a1606787602f303954cea099626a4adb02acbac4c69920fe9d278f82 /uv /bin/uv
@@ -32,7 +32,7 @@ COPY src/doc_ray/__init__.py src/doc_ray/__init__.py
 RUN uv sync --locked --no-install-project --no-dev
 
 # --- runtime stage ----------------------------------------------------------
-FROM python:3.12-slim@sha256:423ed6ab25b1921a477529254bfeeabf5855151dc2c3141699a1bfc852199fbf
+FROM python:3.15-slim@sha256:65a65fc7b30b06cb6df4930fd4650697cb23f4c2698ab81fc87e4b031bc36928
 
 WORKDIR /app
 
